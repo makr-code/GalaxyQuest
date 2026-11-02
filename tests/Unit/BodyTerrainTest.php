@@ -166,6 +166,41 @@ final class BodyTerrainTest extends TestCase
             BodyTerrain::shape(['body_type' => 'planet', 'planet_class' => 'asteroid']));
     }
 
+    public function testCometValleySiteIsBoundedDeterministicAndPersisted(): void
+    {
+        $body = $this->body;
+        $body['body_type'] = 'comet';
+        $body['planet_class'] = 'ice';
+        $body['diameter_km'] = 12;
+        $manifest = BodyTerrain::manifest($this->db, $body);
+        $site = $manifest['settlement'];
+        self::assertSame('valley-dome', $site['kind']);
+        self::assertSame(1, $site['version']);
+        self::assertEqualsWithDelta(1, sqrt(array_sum(array_map(
+            static fn ($value) => $value ** 2,
+            $site['direction']
+        ))), 1e-12);
+        self::assertLessThan(0, $site['floor_height_km']);
+        self::assertGreaterThanOrEqual($manifest['height_min_km'], $site['floor_height_km']);
+        self::assertSame(BodyTerrain::height($manifest, $site['direction']), $site['floor_height_km']);
+        $sampleSpacingKm = $manifest['radius_km'] * M_PI / 2 / (2 ** $manifest['max_lod']) / 16;
+        self::assertLessThanOrEqual(0.001, $sampleSpacingKm);
+        self::assertEquals(BodyTerrain::valleySettlement($manifest), $site);
+        $body['body_uid'] = 'changed-seed';
+        $body['body_type'] = 'planet';
+        self::assertSame($manifest, BodyTerrain::manifest($this->db, $body));
+        self::assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM body_terrain_tiles')->fetchColumn());
+    }
+
+    public function testLegacyCometsAndOrdinaryPlanetsDoNotGainOrMoveSettlements(): void
+    {
+        $manifest = BodyTerrain::manifest($this->db, $this->body);
+        self::assertArrayNotHasKey('settlement', $manifest);
+        $body = $this->body;
+        $body['body_type'] = 'comet';
+        self::assertSame($manifest, BodyTerrain::manifest($this->db, $body));
+    }
+
     public function testOldWorldsKeepTheirSphericalBaseWithoutChangingSamples(): void
     {
         $manifest = BodyTerrain::manifest($this->db, $this->body);

@@ -33,6 +33,8 @@ function hexToRgbFloat(hex) {
 
 /** Color, position, scale and reserved metadata: four vec4 values per cuboid. */
 const BYTES_PER_SLOT = 64;
+// Existing architectural units: a 0.41-unit pedestrian is 1.8 metres tall.
+const COLONY_METERS_PER_UNIT = 1.8 / 0.41;
 const TERRAIN_LODS = Object.freeze([
   { segments: 32, localRings: 16, distantRings: 16 },
   { segments: 64, localRings: 36, distantRings: 24 },
@@ -45,6 +47,7 @@ const COLONY_CITY_WGSL = `
 struct Camera {
   viewProjection: mat4x4<f32>, transition: vec4<f32>, surface: vec4<f32>,
   reserved: array<vec4<f32>, 6>, shape: vec4<f32>,
+  east: vec4<f32>, pole: vec4<f32>, north: vec4<f32>, shelter: vec4<f32>,
 };
 struct Instance { color: vec4<f32>, position: vec4<f32>, scale: vec4<f32>, extra: vec4<f32> };
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -59,17 +62,22 @@ fn bodyGround(horizontal: vec2<f32>) -> vec3<f32> {
     let tangent = horizontal / distance;
     normal = vec3<f32>(tangent.x * sin(angle), cos(angle), tangent.y * sin(angle));
   }
+  let global = camera.east.xyz * normal.x + camera.pole.xyz * normal.y + camera.north.xyz * normal.z;
   let axes = max(camera.shape.xyz,vec3<f32>(0.5));
-  let wave = 0.6 * (normal.x * normal.x - normal.y * normal.y) + 0.4 * normal.x * normal.z;
-  let factor = (1.0 + camera.shape.w * wave) / length(normal / axes);
-  return normal * radius * factor + vec3<f32>(0, -radius, 0);
+  let wave = 0.6 * (global.x * global.x - global.y * global.y) + 0.4 * global.x * global.z;
+  let factor = (1.0 + camera.shape.w * wave) / length(global / axes);
+  let base = radius * factor;
+  return vec3<f32>(normal.x * (base + camera.transition.z),
+    -2.0 * sin(angle * 0.5) * sin(angle * 0.5) * base
+      + (base - camera.surface.w) + normal.y * camera.transition.z,
+    normal.z * (base + camera.transition.z));
 }
 fn surfacePoint(local: vec3<f32>) -> vec3<f32> {
   let ground = bodyGround(local.xz);
   let epsilon = max(camera.transition.y * 0.0001,0.001);
   let east = bodyGround(local.xz + vec2<f32>(epsilon,0)) - bodyGround(local.xz - vec2<f32>(epsilon,0));
   let north = bodyGround(local.xz + vec2<f32>(0,epsilon)) - bodyGround(local.xz - vec2<f32>(0,epsilon));
-  let radial = normalize(ground + vec3<f32>(0,camera.transition.y,0));
+  let radial = normalize(ground + vec3<f32>(0,camera.surface.w,0));
   let product = cross(north,east);
   let candidate = product / max(length(product),0.00000001);
   let outward = select(-candidate,candidate,dot(candidate,radial) >= 0.0);
@@ -95,6 +103,39 @@ fn surfacePoint(local: vec3<f32>) -> vec3<f32> {
   return out;
 }
 @fragment fn fs_main(in: Out) -> @location(0) vec4<f32> { return in.color; }
+struct DomeOut {
+  @builtin(position) position: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+};
+@vertex fn vs_dome(@builtin(vertex_index) vertex: u32) -> DomeOut {
+  let corners = array<vec2<f32>, 6>(
+    vec2<f32>(0,0),vec2<f32>(1,0),vec2<f32>(0,1),
+    vec2<f32>(0,1),vec2<f32>(1,0),vec2<f32>(1,1));
+  let cell = vertex / 6u;
+  let uv = (vec2<f32>(f32(cell % 64u),f32(cell / 64u)) + corners[vertex % 6u]) / vec2<f32>(64,24);
+  let angle = uv.x * 6.28318530718;
+  let latitude = uv.y * 1.57079632679;
+  let local = vec3<f32>(
+    cos(angle) * cos(latitude) * camera.shelter.x,
+    sin(latitude) * camera.shelter.y - 0.12,
+    sin(angle) * cos(latitude) * camera.shelter.x);
+  var out: DomeOut;
+  out.position = camera.viewProjection * vec4<f32>(surfacePoint(local),1);
+  out.uv = uv;
+  return out;
+}
+@fragment fn fs_dome(in: DomeOut) -> @location(0) vec4<f32> {
+  let grid = in.uv * vec2<f32>(16,8);
+  let edge = abs(fract(grid + 0.5) - 0.5);
+  let line = vec2<f32>(1) - smoothstep(fwidth(grid),fwidth(grid) * 2.0,edge);
+  let rib = max(line.x,line.y);
+  let rim = pow(1.0 - in.uv.y,3.0);
+  if (in.uv.y < 0.015) {
+    return vec4<f32>(vec3<f32>(0.18,0.28,0.3),camera.transition.x);
+  }
+  return vec4<f32>(mix(vec3<f32>(0.3,0.65,0.78),vec3<f32>(0.6,0.85,0.9),rib),
+    (0.07 + rim * 0.09 + rib * 0.45) * camera.transition.x);
+}
 `;
 
 const COLONY_BODY_WGSL = `
@@ -115,7 +156,7 @@ struct Out {
   return out;
 }
 @fragment fn fs_main(in: Out) -> @location(0) vec4<f32> {
-  let radial = normalize(in.world + vec3<f32>(0,camera.transition.y,0));
+  let radial = normalize(in.world + vec3<f32>(0,camera.surface.w,0));
   let face = cross(dpdx(in.world),dpdy(in.world));
   let geometric = face / max(length(face),0.00001);
   let normal = select(-geometric,geometric,dot(geometric,radial) >= 0.0);
@@ -175,7 +216,7 @@ struct SkyOut { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32 }
     + camera.up.xyz * in.screen.y * camera.up.w;
   let origin = camera.eye.xyz + offset * camera.clouds.w;
   let direction = normalize(-camera.back.xyz + offset * (1.0 - camera.clouds.w) / camera.back.w);
-  let center = vec3<f32>(0,-camera.transition.y,0);
+  let center = vec3<f32>(0,-camera.surface.w,0);
   let relative = origin - center;
   let radius = camera.transition.y * max(camera.shape.x,max(camera.shape.y,camera.shape.z))
     * (1.0 + camera.shape.w) + camera.clouds.x;
@@ -241,9 +282,64 @@ function validateBodyShape(shape) {
 
 function bodyShapeFactor(direction, shape) {
   if (!shape) return 1;
+  direction = bodyFrameDirection(direction, shape.frame);
   const [x, y, z] = direction;
   const wave = 0.6 * (x * x - y * y) + 0.4 * x * z;
   return (1 + shape.deformation * wave) / Math.hypot(...direction.map((n, axis) => n / shape.axes[axis]));
+}
+
+function bodyFrameDirection(direction, frame, inverse = false) {
+  if (!frame) return direction;
+  return inverse
+    ? frame.map((axis) => axis.reduce((sum, value, index) => sum + value * direction[index], 0))
+    : direction.map((_, index) => frame.reduce((sum, axis, component) => sum + axis[index] * direction[component], 0));
+}
+
+function settlementFrame(direction) {
+  const length = Math.hypot(direction[1], direction[0]);
+  const east = length > 1e-8 ? [direction[1] / length, -direction[0] / length, 0] : [1, 0, 0];
+  const north = [
+    east[1] * direction[2] - east[2] * direction[1],
+    east[2] * direction[0] - east[0] * direction[2],
+    east[0] * direction[1] - east[1] * direction[0],
+  ];
+  return [east, direction, north];
+}
+
+function applyTerrainSettlement(terrain, manifest) {
+  const site = manifest.settlement;
+  terrain.radius = manifest.radius_km * 1000 / COLONY_METERS_PER_UNIT;
+  terrain.shape = { ...(manifest.shape || { version: 1, axes: [1, 1, 1], deformation: 0 }) };
+  terrain.shelter = null;
+  const pole = site?.direction || [0, 1, 0];
+  const [x, y, z] = pole;
+  const seed = manifest.seed % 100000 / 1000;
+  const broad = Math.sin(x * 19 + seed + Math.sin(z * 11)) * Math.cos(z * 17 - seed + y * 9);
+  const ridge = (1 - Math.abs(Math.sin(x * 41 + z * 29 + y * 31 + seed))) ** 3;
+  const detail = Math.sin(x * 173 + y * 97 + seed) * Math.cos(z * 157 - y * 79);
+  const rawHeight = manifest.biome === 'gas' ? 0
+    : bounded(broad * 0.6 + ridge * 0.32 + detail * 0.06 - (manifest.biome === 'ocean' ? 0.4 : 0.1), -1, 1) * manifest.amplitude_km;
+  const floor = site?.floor_height_km ?? rawHeight;
+  terrain.groundHeight = (['terran', 'ocean', 'lava'].includes(manifest.biome) ? Math.max(0, floor) : floor)
+    / manifest.radius_km * terrain.radius;
+  if (site) {
+    terrain.shape.frame = settlementFrame(site.direction);
+    const radius = Math.hypot(terrain.width * 0.5 + 2, terrain.depth * 0.5 + 2);
+    terrain.shelter = {
+      radius, height: radius * site.dome_height_ratio,
+      floor: terrain.groundHeight,
+    };
+  }
+  terrain.collisionRelief = manifest.amplitude_km / manifest.radius_km * terrain.radius;
+}
+
+function colonyDomeHeight(shelter, parts) {
+  if (!shelter) return 0;
+  return Math.max(shelter.height, ...parts.map((part) => {
+    const distance = Math.hypot(Math.abs(part.x) + part.sx * 0.5, Math.abs(part.z) + part.sz * 0.5);
+    if (distance >= shelter.radius) throw new Error('Colony footprint exceeds the pressure dome');
+    return (part.y + part.sy + 0.8) / Math.sqrt(1 - (distance / shelter.radius) ** 2);
+  }));
 }
 
 function bodyGroundPoint(radius, x, z, shape) {
@@ -252,7 +348,14 @@ function bodyGroundPoint(radius, x, z, shape) {
   const angle = distance / safeRadius;
   const tangentScale = distance > 0.0001 ? Math.sin(angle) / distance : 0;
   const normal = [x * tangentScale, Math.cos(angle), z * tangentScale];
-  return normal.map((value, axis) => value * safeRadius * bodyShapeFactor(normal, shape) - (axis === 1 ? safeRadius : 0));
+  const radial = safeRadius * bodyShapeFactor(normal, shape);
+  return [normal[0] * radial,
+    -2 * Math.sin(angle / 2) ** 2 * radial + radial - bodyCenterRadius(safeRadius, shape),
+    normal[2] * radial];
+}
+
+function bodyCenterRadius(radius, shape) {
+  return shape?.frame ? radius * bodyShapeFactor([0, 1, 0], shape) : radius;
 }
 
 function bodySurfaceNormal(radius, x, z, shape) {
@@ -269,11 +372,11 @@ function bodySurfaceNormal(radius, x, z, shape) {
   const length = Math.hypot(...normal);
   if (length < 1e-10) {
     const point = bodyGroundPoint(radius, x, z, shape);
-    normal = [point[0], point[1] + radius, point[2]];
+    normal = [point[0], point[1] + bodyCenterRadius(radius, shape), point[2]];
   }
   const norm = Math.hypot(...normal);
   const ground = bodyGroundPoint(radius, x, z, shape);
-  const radial = [ground[0], ground[1] + radius, ground[2]];
+  const radial = [ground[0], ground[1] + bodyCenterRadius(radius, shape), ground[2]];
   const sign = normal.reduce((sum, value, axis) => sum + value * radial[axis], 0) < 0 ? -1 : 1;
   return normal.map((value) => value / norm * sign);
 }
@@ -283,7 +386,7 @@ function mapColonySurfacePoint(radius, x, y, z, terrain = null) {
   const point = bodyGroundPoint(radius, x, z, terrain?.shape);
   if (terrain) {
     const height = sampleColonyTerrain(terrain, x, z).height;
-    const radial = [point[0], point[1] + radius, point[2]];
+    const radial = [point[0], point[1] + bodyCenterRadius(radius, terrain.shape), point[2]];
     const length = Math.hypot(...radial);
     point.forEach((value, axis) => { point[axis] = value + radial[axis] / length * height; });
   }
@@ -296,18 +399,30 @@ function constrainBodyCamera(start, end, radius, terrain, clearance = 0.35) {
   const shape = terrain?.shape;
   if (!shape) return end;
   const relief = terrain.collisionRelief || 0;
+  const centerRadius = bodyCenterRadius(radius, shape);
+  const localRelief = (direction) => {
+    const angle = Math.acos(bounded(direction[1], -1, 1));
+    const horizontal = Math.hypot(direction[0], direction[2]);
+    const x = horizontal > 1e-8 ? direction[0] / horizontal * angle * radius : 0;
+    const z = horizontal > 1e-8 ? direction[2] / horizontal * angle * radius : 0;
+    if (Math.hypot(x, z) <= (terrain.shelter?.radius || Math.min(terrain.width, terrain.depth) * 0.5)) {
+      return terrain.groundHeight || 0;
+    }
+    return terrain.heightSampler?.(x, z) ?? relief;
+  };
   const gap = (point) => {
-    const radial = [point[0], point[1] + radius, point[2]];
+    const radial = [point[0], point[1] + centerRadius, point[2]];
     const length = Math.hypot(...radial);
     if (length < 1e-10) return -radius;
-    return length - radius * bodyShapeFactor(radial.map((value) => value / length), shape) - relief - clearance;
+    const direction = radial.map((value) => value / length);
+    return length - radius * bodyShapeFactor(direction, shape) - localRelief(direction) - clearance;
   };
   const project = (point) => {
-    const radial = [point[0], point[1] + radius, point[2]];
+    const radial = [point[0], point[1] + centerRadius, point[2]];
     const length = Math.hypot(...radial);
     const direction = length > 1e-10 ? radial.map((value) => value / length) : [0, 1, 0];
-    const limit = radius * bodyShapeFactor(direction, shape) + relief + clearance + 0.01;
-    return direction.map((value, axis) => value * limit - (axis === 1 ? radius : 0));
+    const limit = radius * bodyShapeFactor(direction, shape) + localRelief(direction) + clearance + 0.01;
+    return direction.map((value, axis) => value * limit - (axis === 1 ? centerRadius : 0));
   };
   const destination = gap(end) < 0 ? project(end) : end;
   if (!start || gap(start) < 0) return destination;
@@ -340,9 +455,12 @@ function resolveBodySurface(data, cityWidth, cityDepth) {
       ?? layout?.planet_scale?.diameter ?? 0
   );
   const citySpan = Math.max(cityWidth, cityDepth, 1);
-  const physicalRadius = Number.isFinite(diameter) && diameter > 0 ? diameter / 20 : citySpan * 6;
-  const radius = bounded(physicalRadius, citySpan * 1.5, citySpan * 80, citySpan * 6);
   const kind = String(body?.planet_class || body?.planet_type || body?.body_type || '').toLowerCase();
+  const estimatedRadius = !Number.isFinite(diameter) || diameter <= 0;
+  const fallbackDiameter = /comet|asteroid/.test(`${body?.body_type || ''} ${kind}`) ? 12
+    : /moon/.test(`${body?.body_type || ''} ${kind}`) ? 3474 : 3000;
+  const radius = Number.isFinite(diameter) && diameter > 0
+    ? diameter * 500 / COLONY_METERS_PER_UNIT : fallbackDiameter * 500 / COLONY_METERS_PER_UNIT;
   const tint = /ice|frost|tundra/.test(kind) ? [0.35, 0.58, 0.72]
     : /lava|volcan|molten/.test(kind) ? [0.66, 0.29, 0.18]
       : /desert|arid|barren/.test(kind) ? [0.64, 0.48, 0.29]
@@ -353,7 +471,8 @@ function resolveBodySurface(data, cityWidth, cityDepth) {
   const hasAtmosphere = body?.has_atmosphere ?? colony?.has_atmosphere;
   const explicitAbsence = hasAtmosphere === false || hasAtmosphere === 0 || hasAtmosphere === '0'
     || /^(none|vacuum|airless)$/.test(atmosphereType);
-  const airlessFallback = !atmosphereType && hasAtmosphere == null && /moon|comet|asteroid|barren/.test(kind);
+  const airlessFallback = !atmosphereType && hasAtmosphere == null
+    && /moon|comet|asteroid|barren/.test(`${body?.body_type || ''} ${kind}`);
   const atmosphere = {
     strength: explicitAbsence || airlessFallback ? 0 : /thin|trace/.test(atmosphereType) ? 0.4 : 1,
     coverage: bounded(body?.cloud_coverage ?? colony?.cloud_coverage, 0, 1, 0.65),
@@ -374,13 +493,20 @@ function resolveBodySurface(data, cityWidth, cityDepth) {
     scale: Math.max(12, citySpan * 1.8),
     amplitude: Math.min(radius * 0.08, Math.max(2, citySpan * 0.4)),
   };
-  return { radius, kind: kind || 'planet', tint, atmosphere, terrain };
+  return { radius, estimatedRadius, kind: kind || 'planet', tint, atmosphere, terrain };
 }
 
 function sampleColonyTerrain(terrain, x, z) {
   if (terrain.heightSampler) {
     const height = terrain.heightSampler(x, z);
     if (height != null) return { height, elevation: height, material: 0, color: [0.24, 0.42, 0.21] };
+  }
+  if (terrain.shelter && Math.hypot(x, z) <= terrain.shelter.radius) {
+    return { height: terrain.shelter.floor, elevation: terrain.shelter.floor, material: 2, color: [0.72, 0.85, 0.91] };
+  }
+  if (terrain.groundHeight != null
+      && Math.abs(x) <= terrain.width * 0.5 + 2 && Math.abs(z) <= terrain.depth * 0.5 + 2) {
+    return { height: terrain.groundHeight, elevation: terrain.groundHeight, material: 0, color: [0.4, 0.39, 0.37] };
   }
   if (terrain.biome === 'gas') {
     const band = Math.sin(z / terrain.scale * 14 + terrain.seed) * 0.1;
@@ -525,6 +651,17 @@ function validateTerrainManifest(manifest) {
     throw new Error('Unsupported or invalid terrain manifest');
   }
   if (manifest.shape) validateBodyShape(manifest.shape);
+  if (manifest.settlement) {
+    const site = manifest.settlement;
+    if (site.version !== 1 || site.kind !== 'valley-dome'
+        || !Array.isArray(site.direction) || site.direction.length !== 3
+        || !site.direction.every(Number.isFinite) || Math.abs(Math.hypot(...site.direction) - 1) > 1e-6
+        || !Number.isFinite(site.floor_height_km)
+        || site.floor_height_km < manifest.height_min_km || site.floor_height_km > manifest.height_max_km
+        || !Number.isFinite(site.dome_height_ratio) || site.dome_height_ratio < 0.3 || site.dome_height_ratio > 1) {
+      throw new Error('Unsupported or invalid valley settlement');
+    }
+  }
   return manifest;
 }
 
@@ -571,7 +708,7 @@ class CubeSphereTerrainStream {
   sample(x, z, terrain) {
     if (!this.manifest) return null;
     const point = mapColonySurfacePoint(terrain.radius, x, 0, z);
-    const [nx, ny, nz] = [point[0], point[1] + terrain.radius, point[2]];
+    const [nx, ny, nz] = bodyFrameDirection([point[0], point[1] + terrain.radius, point[2]], terrain.shape?.frame);
     const max = Math.max(Math.abs(nx), Math.abs(ny), Math.abs(nz));
     let face, u, v;
     if (Math.abs(nx) === max) { face = nx > 0 ? 0 : 1; u = nx > 0 ? -nz / max : nz / max; v = ny / max; }
@@ -589,7 +726,7 @@ class CubeSphereTerrainStream {
       const vertexHeight = (cx, cy) => {
         const vertex = persistedTerrainSample(this.manifest, tile, cx, cy, terrain);
         const direction = cubeSphereDirection(tile.face, (tile.x + cx / 16) / size * 2 - 1, (tile.y + cy / 16) / size * 2 - 1);
-        return Math.hypot(vertex[0], vertex[1] + terrain.radius, vertex[2])
+        return Math.hypot(vertex[0], vertex[1] + bodyCenterRadius(terrain.radius, terrain.shape), vertex[2])
           - terrain.radius * bodyShapeFactor(direction, this.manifest.shape);
       };
       const a = vertexHeight(col, row), b = vertexHeight(col + 1, row);
@@ -694,16 +831,22 @@ class CubeSphereTerrainStream {
 }
 
 function gradePersistentHeight(manifest, terrain, x, z, physicalHeight) {
+  if (terrain.shelter) {
+    const t = bounded((Math.hypot(x, z) / terrain.shelter.radius - 1) / 0.4, 0, 1);
+    const grade = t * t * (3 - 2 * t);
+    return terrain.shelter.floor * (1 - grade) + physicalHeight / manifest.radius_km * terrain.radius * grade;
+  }
   const edge = Math.max(Math.abs(x) - terrain.width * 0.5 - 2, Math.abs(z) - terrain.depth * 0.5 - 2);
   const t = bounded(edge / (terrain.scale * 0.2), 0, 1);
   const grade = t * t * (3 - 2 * t);
-  const height = physicalHeight / manifest.radius_km * terrain.radius * grade;
+  const height = (terrain.groundHeight || 0) * (1 - grade) + physicalHeight / manifest.radius_km * terrain.radius * grade;
   return ['terran', 'ocean', 'lava'].includes(manifest.biome) ? Math.max(0, height) : height;
 }
 
 function persistedTerrainSample(manifest, tile, col, row, terrain) {
   const size = 2 ** tile.lod;
-  const direction = cubeSphereDirection(tile.face, (tile.x + col / 16) / size * 2 - 1, (tile.y + row / 16) / size * 2 - 1);
+  const global = cubeSphereDirection(tile.face, (tile.x + col / 16) / size * 2 - 1, (tile.y + row / 16) / size * 2 - 1);
+  const direction = bodyFrameDirection(global, terrain.shape?.frame, true);
   const angle = Math.acos(bounded(direction[1], -1, 1));
   const horizontal = Math.hypot(direction[0], direction[2]);
   const x = horizontal > 1e-8 ? direction[0] / horizontal * angle * terrain.radius : angle * terrain.radius;
@@ -723,8 +866,8 @@ function persistedTerrainSample(manifest, tile, col, row, terrain) {
       : manifest.biome === 'desert' ? [0.67, 0.46, 0.24] : manifest.biome === 'lava' ? [0.24, 0.19, 0.18]
         : manifest.biome === 'rock' ? [0.4, 0.39, 0.37] : [0.24, 0.42, 0.21];
   const elevation = gradePersistentHeight(manifest, terrain, x, z, physicalHeight);
-  return [...direction.map((value, axis) => value * (terrain.radius * bodyShapeFactor(direction, manifest.shape) + elevation)
-    - (axis === 1 ? terrain.radius : 0)), ...color, material];
+  return [...direction.map((value, axis) => value * (terrain.radius * bodyShapeFactor(global, manifest.shape) + elevation)
+    - (axis === 1 ? bodyCenterRadius(terrain.radius, terrain.shape) : 0)), ...color, material];
 }
 
 function buildPersistedTerrainMesh(manifest, tiles, terrain) {
@@ -741,9 +884,9 @@ function buildPersistedTerrainMesh(manifest, tiles, terrain) {
       }
     }
     // Radial skirts cover cracks between independently refined neighbors.
-    const skirt = Math.max(terrain.radius * 0.0001, terrain.radius / (2 ** tile.lod) * 0.02);
+    const skirt = Math.max(0.02 / COLONY_METERS_PER_UNIT, terrain.radius / (2 ** tile.lod) * 0.02);
     const lower = (point) => {
-      const direction = [point[0], point[1] + terrain.radius, point[2]];
+      const direction = [point[0], point[1] + bodyCenterRadius(terrain.radius, terrain.shape), point[2]];
       const length = Math.hypot(...direction);
       return [...point.slice(0, 3).map((value, axis) => value - direction[axis] / length * skirt), ...point.slice(3)];
     };
@@ -841,7 +984,7 @@ function colonyAtmosphereState(body, citySpan, pose) {
   const thickness = cloudAltitude * 0.3;
   const shape = body.terrain?.shape;
   const envelope = radius * Math.max(...(shape?.axes || [1, 1, 1])) * (1 + (shape?.deformation || 0));
-  const altitude = Math.hypot(pose.eye[0], pose.eye[1] + radius, pose.eye[2]) - envelope;
+  const altitude = Math.hypot(pose.eye[0], pose.eye[1] + bodyCenterRadius(radius, body.terrain?.shape), pose.eye[2]) - envelope;
   const density = Math.exp(-(((altitude - cloudAltitude) / thickness) ** 2));
   const clearing = bounded((altitude / cloudAltitude - 0.6) / 0.25, 0, 1);
   const atmosphere = body.atmosphere;
@@ -1068,10 +1211,10 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._city = buildCityGeometry(this._slots, data);
     this._citySpan = Math.max(this._city.width, this._city.depth) * 1.35;
     this._bodySurface = resolveBodySurface(data, this._city.width, this._city.depth);
-    if (this._persistentMeshKey && this._terrainStream?.manifest) {
-      this._bodySurface.terrain.shape = this._terrainStream.manifest.shape;
-      this._bodySurface.terrain.collisionRelief = this._terrainStream.manifest.amplitude_km
-        / this._terrainStream.manifest.radius_km * this._bodySurface.radius;
+    if (this._terrainStream?.manifest) {
+      applyTerrainSettlement(this._bodySurface.terrain, this._terrainStream.manifest);
+      this._bodySurface.radius = this._bodySurface.terrain.radius;
+      this._bodySurface.estimatedRadius = false;
     }
     const terrainKey = JSON.stringify(this._bodySurface.terrain);
     if (terrainKey !== this._terrainKey) {
@@ -1126,12 +1269,13 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._backdropRendered = this._camera.progress < 1
       && !!this._planetBackdrop?.renderBackdrop(seconds, this._backdropPose, 1 - this._camera.progress);
     this._atmosphereState = colonyAtmosphereState(this._bodySurface, this._citySpan, pose);
-    const uniforms = new Float32Array(52);
+    const uniforms = new Float32Array(68);
     uniforms.set(this._viewProjection);
     uniforms[16] = this._backdropRendered ? this._camera.progress : 1;
     uniforms[17] = this._bodySurface.radius;
+    uniforms[18] = this._bodySurface.terrain.groundHeight || 0;
     uniforms[19] = this._elapsed;
-    uniforms.set([...this._bodySurface.tint, 1], 20);
+    uniforms.set([...this._bodySurface.tint, bodyCenterRadius(this._bodySurface.radius, this._bodySurface.terrain.shape)], 20);
     uniforms.set([...pose.eye, this._atmosphereState.fogOpacity], 24);
     uniforms.set([...pose.right, cameraSpan * aspect * 0.5], 28);
     uniforms.set([...pose.up, cameraSpan * 0.5], 32);
@@ -1141,6 +1285,10 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       this._bodySurface.atmosphere.coverage, 0], 44);
     const shape = this._bodySurface.terrain.shape;
     uniforms.set([...(shape?.axes || [1, 1, 1]), shape?.deformation || 0], 48);
+    const frame = shape?.frame || [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    frame.forEach((axis, index) => uniforms.set([...axis, 0], 52 + index * 4));
+    const shelter = this._bodySurface.terrain.shelter;
+    if (shelter) uniforms.set([shelter.radius, colonyDomeHeight(shelter, this._city.parts), 0, 0], 64);
     this._device.queue.writeBuffer(this._cameraBuffer, 0, uniforms);
     this._uploadPeople();
     this._updateBuildingVfxBuffer(seconds);
@@ -1213,6 +1361,8 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       this._buildingVfxBuffer = null;
     }
     this._meshPipeline = null;
+    this._domePipeline = null;
+    this._domeBindGroup = null;
     this._bodyPipeline = null;
     this._bodyBindGroup = null;
     this._skyPipeline = null;
@@ -1282,7 +1432,21 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     });
     this._cameraBuffer = this._device.createBuffer({
-      size: 208, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      size: 272, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this._domePipeline = this._device.createRenderPipeline({
+      label: 'colony_pressure_dome', layout: 'auto',
+      vertex: { module: meshShader, entryPoint: 'vs_dome' },
+      fragment: { module: meshShader, entryPoint: 'fs_dome', targets: [{ format, blend: {
+        color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+      } }] },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less-equal' },
+    });
+    this._domeBindGroup = this._device.createBindGroup({
+      layout: this._domePipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this._cameraBuffer } }],
     });
     const skyShader = this._device.createShaderModule({ label: 'colony_cloud_sky', code: COLONY_SKY_WGSL });
     for (const [entryPoint, property, depthCompare] of [
@@ -1356,12 +1520,17 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     const stream = this._terrainStream;
     if (stream && !stream.manifest && !stream.request && !stream.failed) stream.load();
     if (stream?.manifest) {
+      applyTerrainSettlement(terrain, stream.manifest);
+      this._bodySurface.radius = terrain.radius;
+      this._bodySurface.estimatedRadius = false;
+      this._entrySpan = Math.max(this._citySpan * 4, terrain.radius * 3);
       const point = mapColonySurfacePoint(terrain.radius, this._camera.target.x, 0, this._camera.target.z);
-      const focus = [point[0] / terrain.radius, (point[1] + terrain.radius) / terrain.radius, point[2] / terrain.radius];
+      const focus = bodyFrameDirection(
+        [point[0] / terrain.radius, (point[1] + terrain.radius) / terrain.radius, point[2] / terrain.radius],
+        terrain.shape.frame
+      );
       const tiles = stream.update(terrain.radius * this._canvas.height / span, focus);
       if (tiles.length) {
-        terrain.shape = stream.manifest.shape;
-        terrain.collisionRelief = stream.manifest.amplitude_km / stream.manifest.radius_km * terrain.radius;
         terrain.heightSampler = (x, z) => stream.sample(x, z, terrain);
         const key = `${this._terrainKey}:${tiles.map(terrainTileKey).join(',')}`;
         if (key !== this._persistentMeshKey) {
@@ -1477,7 +1646,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
 
   _transitionBaseSpan() {
     const t = bounded(this._camera.progress, 0, 1);
-    const eased = t * t * (3 - 2 * t);
+    const eased = 1 - (1 - t) ** 3;
     return this._entrySpan * Math.pow(this._citySpan / this._entrySpan, eased);
   }
 
@@ -1487,7 +1656,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       || Math.abs(this._camera.target.z) > terrain.depth * 0.5);
     const manifest = this._terrainStream?.manifest;
     const amplitude = manifest ? manifest.amplitude_km / manifest.radius_km * terrain.radius : terrain?.amplitude;
-    const clearance = outsideCity ? (amplitude * 2 + 0.35) / (2 * Math.sin(35.264 * Math.PI / 180)) : 0;
+    const clearance = outsideCity && !manifest ? (amplitude * 2 + 0.35) / (2 * Math.sin(35.264 * Math.PI / 180)) : 0;
     span = bounded(span, Math.max(this._minCameraSpan, clearance), this._entrySpan, this._citySpan);
     this._zoomMultiplier = span / Math.max(0.001, this._transitionBaseSpan());
     this._camera.span = span;
@@ -1761,6 +1930,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       Number.isFinite(population) ? `Population ${population.toLocaleString()}` : 'Population unavailable',
       Number.isFinite(happiness) ? `Happiness ${happiness.toFixed(0)}%` : '',
       classes, status.text, rates, this._snapshotState || 'Saved building state', this._terrainState,
+      this._bodySurface.estimatedRadius ? 'Body diameter unavailable; estimated physical scale' : '',
     ].filter(Boolean).join(' · ');
     this._hud.querySelector('[data-city-selection]').textContent = this._selected
       ? `${this._selected.type.replace(/_/g, ' ')} · Level ${this._selected.level}${this._selected.upgrade_end ? ' · Construction in progress' : ''}`
@@ -2052,6 +2222,11 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       pass.setVertexBuffer(0, this._buildingVfxBuffer);
       pass.draw(this._buildingVfxVertexCount, 1, 0, 0);
     }
+    if (this._bodySurface.terrain.shelter && this._persistentMeshKey && this._domePipeline) {
+      pass.setPipeline(this._domePipeline);
+      pass.setBindGroup(0, this._domeBindGroup);
+      pass.draw(64 * 24 * 6, 1, 0, 0);
+    }
     if (this._bodySurface.atmosphere?.strength > 0 && this._skyPipeline) {
       pass.setPipeline(this._skyPipeline);
       pass.setBindGroup(0, this._skyBindGroup);
@@ -2093,6 +2268,8 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
+    COLONY_METERS_PER_UNIT, bodyCenterRadius,
+    bodyFrameDirection, settlementFrame, applyTerrainSettlement, colonyDomeHeight, gradePersistentHeight,
     ColonySurfaceLevelWebGPU, COLONY_CITY_WGSL, COLONY_BODY_WGSL, COLONY_VFX_WGSL, COLONY_SKY_WGSL,
     normalizeCitySlots, buildCityGeometry, cityCameraMatrix, cityCameraPose, colonyAtmosphereState, projectCityPoint,
     mapColonySurfacePoint, projectColonySurfacePoint, resolveBodySurface,
@@ -2102,5 +2279,7 @@ if (typeof module !== 'undefined' && module.exports) {
     cityPedestrians, cityEconomyStatus,
   };
 } else {
-  window.GQColonySurfaceLevelWebGPU = { ColonySurfaceLevelWebGPU, CubeSphereTerrainStream };
+  window.GQColonySurfaceLevelWebGPU = {
+    ColonySurfaceLevelWebGPU, CubeSphereTerrainStream, bodyCenterRadius, COLONY_METERS_PER_UNIT,
+  };
 }

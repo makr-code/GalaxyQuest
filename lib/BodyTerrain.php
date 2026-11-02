@@ -117,10 +117,13 @@ final class BodyTerrain
             'sea_level_km' => 0,
             'biome' => $biome,
             'resolution' => self::RESOLUTION,
-            'max_lod' => min(16, max(0, (int)ceil(log(max(1, $radius * M_PI / 2), 2)))),
+            'max_lod' => min(16, max(0, (int)ceil(log(max(1, $radius * M_PI / 2 / 0.008), 2)))),
             'tile_encoding' => 'uint16-json',
             'shape' => self::shape($body),
         ];
+        if (preg_match('/comet/i', (string)$body['body_type'] . ' ' . ($body['planet_class'] ?? '')) === 1) {
+            $manifest['settlement'] = self::valleySettlement($manifest);
+        }
         $sql = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite'
             ? 'INSERT INTO body_terrain_manifests (body_id, manifest_json)
                VALUES (?, ?) ON CONFLICT(body_id) DO NOTHING'
@@ -129,6 +132,60 @@ final class BodyTerrain
         $db->prepare($sql)->execute([$body['id'], json_encode($manifest, JSON_THROW_ON_ERROR)]);
         $read->execute([(int)$body['id']]);
         return json_decode((string)$read->fetchColumn(), true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    public static function valleySettlement(array $manifest): array
+    {
+        $bestScore = INF;
+        $best = null;
+        // A bounded one-time search; no mesh generation or simulation tick.
+        for ($face = 0; $face < 6; $face++) {
+            for ($row = -4; $row <= 4; $row++) {
+                for ($col = -4; $col <= 4; $col++) {
+                    $u = $col / 5;
+                    $v = $row / 5;
+                    $direction = self::direction($face, $u, $v);
+                    $height = self::height($manifest, $direction);
+                    $neighbors = [];
+                    $radii = [];
+                    foreach ([[0.08, 0], [-0.08, 0], [0, 0.08], [0, -0.08]] as [$du, $dv]) {
+                        $neighbor = self::direction($face, $u + $du, $v + $dv);
+                        $neighbors[] = self::height($manifest, $neighbor);
+                        $radii[] = self::surfaceRadius($manifest, $neighbor);
+                    }
+                    $slope = abs($radii[0] - $radii[1]) + abs($radii[2] - $radii[3]);
+                    $shelter = array_sum($neighbors) / 4 - $height;
+                    if ($height >= 0 || $shelter <= 0) {
+                        continue;
+                    }
+                    $score = $height + $slope * 2 - $shelter;
+                    if ($score < $bestScore) {
+                        $bestScore = $score;
+                        $best = [
+                            'version' => 1,
+                            'kind' => 'valley-dome',
+                            'direction' => $direction,
+                            'floor_height_km' => $height,
+                            'dome_height_ratio' => 0.55,
+                        ];
+                    }
+                }
+            }
+        }
+        if ($best === null) {
+            throw new RuntimeException('No finite valley settlement candidate');
+        }
+        return $best;
+    }
+
+    private static function surfaceRadius(array $manifest, array $direction): float
+    {
+        [$x, $y, $z] = $direction;
+        [$a, $b, $c] = $manifest['shape']['axes'];
+        $wave = 0.6 * ($x * $x - $y * $y) + 0.4 * $x * $z;
+        $factor = (1 + $manifest['shape']['deformation'] * $wave)
+            / sqrt(($x / $a) ** 2 + ($y / $b) ** 2 + ($z / $c) ** 2);
+        return $manifest['radius_km'] * $factor + self::height($manifest, $direction);
     }
 
     public static function address(array $tile, int $maxLod): array

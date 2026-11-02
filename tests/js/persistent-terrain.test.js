@@ -7,6 +7,8 @@ const {
   buildPersistedTerrainMesh, resolveBodySurface,
   validateBodyShape, bodyShapeFactor, bodyGroundPoint, bodySurfaceNormal, constrainBodyCamera,
   mapColonySurfacePoint, cityCameraPose, cityCameraMatrix, projectCityPoint,
+  bodyFrameDirection, settlementFrame, applyTerrainSettlement, colonyDomeHeight, gradePersistentHeight,
+  bodyCenterRadius, COLONY_METERS_PER_UNIT,
 } = require('../../js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js');
 
 const manifest = {
@@ -35,6 +37,93 @@ function fixtureFetch() {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Persisted cube-sphere terrain', () => {
+  it('uses physical body radii independently of colony dimensions and retains metre-scale precision', () => {
+    for (const diameter of [0.2, 12, 3474, 12742, 139820]) {
+      const small = resolveBodySurface({ colony: { diameter_km: diameter } }, 20, 12);
+      const large = resolveBodySurface({ colony: { diameter_km: diameter } }, 100, 80);
+      expect(small.radius * COLONY_METERS_PER_UNIT).toBeCloseTo(diameter * 500, 7);
+      expect(large.radius).toBe(small.radius);
+    }
+    expect(0.41 * COLONY_METERS_PER_UNIT).toBeCloseTo(1.8);
+    const estimated = resolveBodySurface({ colony: { body_type: 'comet' } }, 20, 12);
+    expect(estimated.estimatedRadius).toBe(true);
+    expect(estimated.radius).toBe(resolveBodySurface({ colony: { body_type: 'comet' } }, 100, 80).radius);
+    const radius = 6371000 / COLONY_METERS_PER_UNIT;
+    const point = bodyGroundPoint(radius, 100 / COLONY_METERS_PER_UNIT, 0);
+    expect(point[0] * COLONY_METERS_PER_UNIT).toBeCloseTo(100, 5);
+    expect(point[1] * COLONY_METERS_PER_UNIT).toBeCloseTo(-(100 ** 2) / (2 * 6371000), 6);
+  });
+
+  it('validates persisted valley sites and leaves legacy manifests unmodified', () => {
+    const settlement = {
+      version: 1, kind: 'valley-dome', direction: [1, 0, 0],
+      floor_height_km: -2, dome_height_ratio: 0.55,
+    };
+    expect(validateTerrainManifest({ ...manifest, settlement }).settlement).toBe(settlement);
+    for (const change of [{ version: 2 }, { kind: 'sphere' }, { direction: [1, 1, 0] },
+      { direction: [NaN, 0, 0] }, { floor_height_km: -99 }, { dome_height_ratio: 0 }]) {
+      expect(() => validateTerrainManifest({ ...manifest, settlement: { ...settlement, ...change } })).toThrow('valley settlement');
+    }
+    expect(validateTerrainManifest(manifest)).not.toHaveProperty('settlement');
+  });
+
+  it('rotates canonical terrain into the valley frame without changing the body shape', () => {
+    const direction = cubeSphereDirection(0, 0.2, 0.4);
+    const frame = settlementFrame(direction);
+    const local = [0.2, 0.9, -0.1];
+    const global = bodyFrameDirection(local, frame);
+    bodyFrameDirection(global, frame, true).forEach((value, index) => expect(value).toBeCloseTo(local[index], 12));
+    const shape = { version: 1, axes: [1.45, 0.8, 0.95], deformation: 0.22 };
+    expect(bodyShapeFactor([0, 1, 0], { ...shape, frame })).toBeCloseTo(bodyShapeFactor(direction, shape), 12);
+    for (const pole of [[0, 0, 1], [0, 0, -1]]) {
+      expect(bodyFrameDirection([0, 1, 0], settlementFrame(pole))).toEqual(pole);
+    }
+  });
+
+  it('grades a circular valley floor continuously and sizes the dome above every building corner', () => {
+    const terrain = resolveBodySurface({ colony: { body_type: 'comet', diameter_km: 12 } }, 20, 12).terrain;
+    const site = {
+      ...manifest, radius_km: 6, amplitude_km: 0.12, height_min_km: -0.12, height_max_km: 0.12,
+      biome: 'ice', shape: { version: 1, axes: [1.45, 0.8, 0.95], deformation: 0.22 },
+      settlement: { version: 1, kind: 'valley-dome', direction: [1, 0, 0], floor_height_km: -0.06, dome_height_ratio: 0.55 },
+    };
+    applyTerrainSettlement(terrain, site);
+    expect(terrain.radius * COLONY_METERS_PER_UNIT).toBeCloseTo(6000);
+    const { shelter } = terrain;
+    expect(gradePersistentHeight(site, terrain, 0, 0, 0.08)).toBe(shelter.floor);
+    expect(gradePersistentHeight(site, terrain, shelter.radius, 0, 0.08)).toBe(shelter.floor);
+    expect(gradePersistentHeight(site, terrain, shelter.radius * 1.4, 0, 0.08)).toBeCloseTo(0.08 / 6 * terrain.radius);
+    const part = { x: 8, z: 3, y: 0.1, sx: 2, sy: 7, sz: 2 };
+    const height = colonyDomeHeight(shelter, [part]);
+    const cornerDistance = Math.hypot(part.x + part.sx / 2, part.z + part.sz / 2);
+    expect(height * Math.sqrt(1 - (cornerDistance / shelter.radius) ** 2)).toBeGreaterThan(part.y + part.sy);
+    expect(() => colonyDomeHeight(shelter, [{ ...part, x: shelter.radius }])).toThrow('footprint');
+    const floor = mapColonySurfacePoint(terrain.radius, 0, 0, 0, terrain);
+    expect(Math.hypot(floor[0], floor[1] + bodyCenterRadius(terrain.radius, terrain.shape), floor[2]))
+      .toBeCloseTo(terrain.radius * bodyShapeFactor([0, 1, 0], terrain.shape) + shelter.floor);
+    applyTerrainSettlement(terrain, manifest);
+    expect(terrain.shelter).toBeNull();
+    expect(terrain.shape).not.toHaveProperty('frame');
+  });
+
+  it('samples the same persisted floor in a rotated settlement and its rendered mesh', () => {
+    const site = {
+      ...manifest, biome: 'ice',
+      shape: { version: 1, axes: [1.45, 0.8, 0.95], deformation: 0.22 },
+      settlement: { version: 1, kind: 'valley-dome', direction: [1, 0, 0], floor_height_km: -2, dome_height_ratio: 0.55 },
+    };
+    const terrain = resolveBodySurface({ colony: {} }, 20, 12).terrain;
+    applyTerrainSettlement(terrain, site);
+    const stream = new CubeSphereTerrainStream(7, vi.fn());
+    stream.manifest = site;
+    roots().forEach((address) => stream.surfaceTiles.set(key(address), tile(address)));
+    expect(stream.sample(0, 0, terrain)).toBeCloseTo(terrain.shelter.floor);
+    const mesh = buildPersistedTerrainMesh(site, [...stream.surfaceTiles.values()], terrain);
+    expect([...mesh.vertices].every(Number.isFinite)).toBe(true);
+    expect(mesh.vertexCount).toBe(6 * 1920);
+    stream.dispose();
+  });
+
   it('uses the backend face convention and identical border directions', () => {
     for (let i = 0; i <= 16; i++) {
       const v = i / 8 - 1;
@@ -203,25 +292,29 @@ describe('Persisted cube-sphere terrain', () => {
     expect(mesh.vertices.byteLength).toBeLessThan(8 * 1024 * 1024);
     expect([...mesh.vertices].every(Number.isFinite)).toBe(true);
     const radiusAt = (offset) => Math.hypot(mesh.vertices[offset], mesh.vertices[offset + 1] + terrain.radius, mesh.vertices[offset + 2]);
-    expect(radiusAt(0)).toBeCloseTo(terrain.radius + terrain.radius / manifest.radius_km * 8, 3);
+    // Far-side global vertices are float32; permit at most half a metre of quantization.
+    const radialTolerance = 0.5 / COLONY_METERS_PER_UNIT;
+    expect(Math.abs(radiusAt(0) - terrain.radius - terrain.radius / manifest.radius_km * 8)).toBeLessThan(radialTolerance);
     const center = 2 * 1920 * 7 + (8 * 16 + 8) * 6 * 7;
     expect(radiusAt(center)).toBeCloseTo(terrain.radius, 4);
     const water = buildPersistedTerrainMesh(manifest, roots().map((a) => tile(a, 0)), terrain);
     expect(water.vertices[6]).toBe(1);
-    expect(Math.hypot(water.vertices[0], water.vertices[1] + terrain.radius, water.vertices[2])).toBeCloseTo(terrain.radius, 4);
+    expect(Math.abs(Math.hypot(water.vertices[0], water.vertices[1] + terrain.radius, water.vertices[2]) - terrain.radius))
+      .toBeLessThan(radialTolerance);
     const stream = new CubeSphereTerrainStream(7, vi.fn());
     stream.manifest = manifest;
     tiles.forEach((t) => stream.surfaceTiles.set(key(t), t));
     expect(stream.sample(0, 0, terrain)).toBeCloseTo(0);
     expect(stream.sample(100, 100, terrain)).toBeGreaterThan(0);
     const gas = buildPersistedTerrainMesh({ ...manifest, biome: 'gas' }, tiles, terrain);
-    expect(Math.hypot(gas.vertices[0], gas.vertices[1] + terrain.radius, gas.vertices[2])).toBeCloseTo(terrain.radius, 4);
+    expect(Math.abs(Math.hypot(gas.vertices[0], gas.vertices[1] + terrain.radius, gas.vertices[2]) - terrain.radius))
+      .toBeLessThan(radialTolerance);
   });
 
   it('uses the same persisted irregular shape for terrain, buildings, normals and camera target', () => {
     expect(mapColonySurfacePoint(0, 0, 1, 0)).toEqual([0, 1, 0]);
     const shape = { version: 1, axes: [1.45, 0.8, 0.95], deformation: 0.22 };
-    const terrain = { ...resolveBodySurface({}, 20, 14).terrain, shape, heightSampler: () => 0 };
+    const terrain = { ...resolveBodySurface({ colony: { body_type: 'comet', diameter_km: 12 } }, 20, 14).terrain, shape, heightSampler: () => 0 };
     const shaped = { ...manifest, shape, biome: 'ice' };
     expect(validateBodyShape(shape)).toBe(shape);
     expect(validateTerrainManifest(shaped)).toBe(shaped);

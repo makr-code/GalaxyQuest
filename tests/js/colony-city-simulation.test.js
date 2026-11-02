@@ -211,7 +211,7 @@ describe('Detailed body terrain', () => {
   });
 
   it('builds a bounded, non-rotating displaced sphere with finite geometry and matching height samples', () => {
-    const terrain = terrainFor('terran');
+    const terrain = resolveBodySurface({ colony: { id: 7, planet_class: 'terran', diameter_km: 3 } }, 24, 18).terrain;
     const mesh = buildColonyTerrainMesh(terrain);
     expect(mesh.vertexCount).toBe(104 * 128 * 6);
     expect(mesh.vertices.byteLength).toBeLessThan(2.5 * 1024 * 1024);
@@ -262,8 +262,9 @@ describe('Detailed body terrain', () => {
   });
 
   it('subdivides roads to keep their middle above the curved terrain', () => {
-    const city = buildCityGeometry(normalizeCitySlots(scene()), scene());
-    const radius = resolveBodySurface(scene(), city.width, city.depth).radius;
+    const data = scene({ colony: { id: 7, body_type: 'asteroid', diameter_km: 0.2 } });
+    const city = buildCityGeometry(normalizeCitySlots(data), data);
+    const radius = resolveBodySurface(data, city.width, city.depth).radius;
     const roads = city.parts.filter((part) => part.sy === 0.03);
     expect(roads.length).toBeGreaterThan(20);
     for (const road of roads) {
@@ -436,6 +437,7 @@ describe('Isometric camera and shared WebGPU rendering', () => {
     { has_atmosphere: false },
     { has_atmosphere: 0 },
     { body_type: 'comet' },
+    { body_type: 'comet', planet_class: 'ice' },
     { body_type: 'asteroid' },
     { planet_type: 'moon' },
   ])('does not render a cloudy atmosphere on an airless body: %j', async (metadata) => {

@@ -68,6 +68,47 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
   **Grenzen:** ein radial eindeutiges Modell, keine Höhlen, Überhänge oder
   beliebig konkaven/mehrschaligen Meshes. Die Systemansicht bleibt ein
   vereinfachter Bildschirmraum-Renderer und erzeugt keine Terrainkacheln.
+- **Kometen-Talbasis mit Druckkuppel:** Neue Kometenmanifeste speichern einen
+  bevorzugten Siedlungsanker als `settlement: { version: 1, kind: "valley-dome",
+  direction: [x,y,z], floor_height_km, dome_height_ratio: 0.55 }`. Eine begrenzte
+  Suche über 486 Kandidaten gewichtet niedrige Reliefhöhe, umgebendes höheres
+  Gelände und geringe Hangneigung einschließlich der unregelmäßigen Körperform.
+  Sie läuft ausschließlich bei der erstmaligen Manifestanlage; Standort und
+  Kuppelprofil bleiben danach unverändert. Bestehende Manifeste erhalten keine
+  automatische Umsiedlung oder Kuppel.
+  Die Stadtansicht dreht die kanonischen Terrainkacheln in das lokale
+  Koordinatensystem des Ankers; CPU-Picking, Gebäudeshader, Kamera und Streaming
+  verwenden dieselbe Transformation. Ein kreisförmiger Baugrund auf der
+  gespeicherten Talhöhe geht weich in das unveränderte Höhenfeld über.
+  Die transparente, verstrebte Kuppel sitzt mit einem umlaufenden Sockel auf
+  diesem Baugrund, wird nach Gebäuden mit Tiefenprüfung ohne Tiefenschreiben
+  gerendert und umfasst auch die äußeren Ecken der höchsten Gebäude.
+  Durchmesser und notwendige Dachhöhe folgen dem gespeicherten Gebäuderaster,
+  ohne Bauplätze, Levels oder Wirtschaftsdaten zu verändern.
+  **Grenzen:** Der Anker ist zunächst körperweit, nicht eine unabhängige
+  geografische Position je Kolonie. Alle vorhandenen Gebäude bleiben unter
+  derselben Kuppel; Außenanlagen/Schleusen, echte unterirdische Habitate,
+  Druck-/Sauerstoffwirtschaft und Strahlungsschutz sind noch nicht simuliert.
+- **Physischer Oberflächenmaßstab:** Eine Architektureinheit entspricht
+  `1.8 / 0.41` Metern: Figuren sind etwa 1,8 m hoch, ein Bauplatz etwa 13,6 m
+  breit. Der Körperradius ist ausschließlich `diameter_km * 500` Meter, nicht
+  mehr abhängig von der Stadtgröße und weder künstlich verkleinert noch
+  vergrößert. Das persistierte Manifest hat Vorrang vor Szenenmetadaten.
+  Fehlen beide, wird ein fester geschätzter Durchmesser mit sichtbarem Hinweis
+  verwendet, nicht ein von den Gebäuden abgeleiteter Radius.
+  CPU-Berechnungen bleiben doppelt genau; Terrainvertices werden im lokalen
+  Koloniebezug vor der Float32-Konvertierung gespeichert. Talanker werden
+  auf einen lokalen Nullpunkt verschoben. Der Gebäudeshader berechnet die
+  kleine Kugelsenkung über `-2*sin(angle/2)^2`, statt große Radien nahezu
+  voneinander abzuziehen. Die Baugrundhöhe folgt der natürlichen lokalen
+  Reliefhöhe statt sie auf null zu erzwingen und künstliche Kilometerwände
+  am Siedlungsrand zu erzeugen. Kamerakollisionen verwenden dort das lokale
+  Höhenfeld statt des höchsten Berges des gesamten Planeten.
+  Neue Manifeste erlauben LOD bis zu einer nominalen Sampleweite von 0,5 m,
+  gedeckelt auf LOD 16; bei erdgroßen Körpern liegt diese Grenze gröber.
+  Die bestehenden Streaming-/Geometriebudgets bleiben bestehen.
+  System- und Galaxieübersichten bleiben bewusst schematisch; dortige
+  Auswahlgrößen sind keine physische Oberflächenskalierung.
 - **Wolken und Himmel:** Eine analytisch geschnittene, transparente Kugelschale
   um denselben Körper bildet außen Wolken und innen die Himmelskuppel ab.
   Sie wird nach der Stadt im selben Renderpass mit Tiefenprüfung, aber ohne
