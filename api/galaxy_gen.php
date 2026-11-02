@@ -23,6 +23,8 @@
 
 // ─── Physical / astronomical constants ───────────────────────────────────────
 
+require_once __DIR__ . '/../lib/BodyResourceProfile.php';
+
 /** Solar luminosity (W) */
 const GEN_L_SUN_W    = 3.828e26;
 /** Solar mass (kg) */
@@ -1686,7 +1688,48 @@ function build_system_body_catalog(array $planets, array $freeComets, array $rog
     }
     foreach ($freeComets as $c) $all[] = $c;
     foreach ($roguePlanets as $r) $all[] = $r;
+    foreach ($all as &$body) {
+        $body['resource_profile'] = derive_body_resource_profile($body);
+    }
+    unset($body);
     return $all;
+}
+
+function derive_body_resource_profile(array $body, ?array $legacy = null): array
+{
+    $estimates = [];
+    $type = (string)($body['body_type'] ?? 'planet');
+    $class = (string)($body['planet_class'] ?? '');
+    $mass = $body['mass_earth'] ?? null;
+    if ($mass !== null && (!is_numeric($mass) || !is_finite((float)$mass) || (float)$mass <= 0)) {
+        throw new InvalidArgumentException('Body mass must be positive and finite.');
+    }
+    if ($type === 'ring_system') {
+        // Ring mass is not generated. Do not invent a reserve from its visual extent.
+        return BodyResourceProfile::build($body, [], $legacy);
+    }
+    $knownClasses = [PC_ROCKY, PC_SUPER_EARTH, PC_OCEAN, PC_GAS_GIANT, PC_ICE_GIANT,
+        PC_HOT_JUPITER, PC_LAVA, PC_ICE_DWARF, PC_COMET_BELT];
+    if ($mass !== null && in_array($class, $knownClasses, true)) {
+        $estimates = derive_planet_deposits($class, !empty($body['in_habitable_zone']), (float)$mass);
+        // The planet generator's 0.5-Earth-mass floor must not inflate small moons/comets.
+        $scale = min(1.0, (float)$mass / 0.5);
+        foreach (BodyResourceProfile::MINERALS as $resource) {
+            $key = 'deposit_' . $resource;
+            if ($estimates[$key] >= 0) {
+                $estimates[$key] = round($estimates[$key] * $scale, 6);
+            }
+        }
+    }
+    foreach (BodyResourceProfile::MINERALS as $resource) {
+        foreach (['deposit_', 'richness_'] as $prefix) {
+            $key = $prefix . $resource;
+            if (array_key_exists($key, $body)) {
+                $estimates[$key] = $body[$key];
+            }
+        }
+    }
+    return BodyResourceProfile::build($body, $estimates, $legacy);
 }
 
 // ─── Planetary system generator ───────────────────────────────────────────────
