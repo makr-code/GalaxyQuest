@@ -50,7 +50,44 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
   steuern die Darstellung; explizit atmosphärenlose Körper sowie standardmäßig
   Monde, Kometen und Asteroiden erhalten weder Wolken noch Himmel.
   Ein explizit atmosphärischer Mond kann dennoch eine Kuppel zeigen.
-- **Detailgelände:** Ein körperstabiler Seed erzeugt echtes verdrängtes
+- **Persistierte Höhenkacheln:** Die Kolonie lädt ihr körperweites Cube-Sphere-
+  Manifest über `api/terrain.php?action=manifest&colony_id=N`. Seed, physischer
+  Radius, Biom, Höhenbereich und Generatorversion werden beim ersten Zugriff
+  in `body_terrain_manifests` eingefroren; spätere Kolonie-/Layoutänderungen
+  verändern diese Grunddaten nicht. Adressen sind
+  `body_id/generator_version/face/lod/x/y`. Sechs Quadtree-Flächen vermeiden
+  Polsingularitäten, sind aber **nicht exakt flächengleich**; Isometrie ist
+  weiterhin eine Kameraeigenschaft, keine Kachelprojektion.
+  Jede Kachel enthält 17 × 17 inklusive Rand geteilte, auf 16 Bit quantisierte
+  Höhenwerte als kompaktes JSON, keine Dreiecke oder PNG-Textur. Fehlende
+  Kacheln werden im Request deterministisch erzeugt und in `body_terrain_tiles`
+  gespeichert; vorhandene Samples werden gelesen, nicht neu berechnet.
+  Keine planetenweite Vorberechnung und kein Hintergrund-Tick.
+  Der Client verfeinert nach projizierter Kachelgröße (> 384 Renderpixel)
+  und Nähe zum Kameratarget, mit 15 % Zoomhysterese und Schwenktoleranz.
+  Höchstens 96 Blattkacheln und eine laufende Anfrage mit maximal 16 Adressen
+  begrenzen die Arbeit. Eltern bleiben sichtbar, bis alle vier Kinder vorliegen;
+  radiale Randschürzen decken Übergänge unterschiedlicher LOD ab.
+  Maximal 256 CPU-Höhenfelder und ein Terrainbuffer mit höchstens 184.320
+  Vertices / ca. 4,92 MiB bleiben unter dem 8-MiB-GPU-Budget.
+  Stillstehende Ansichten erzeugen nach dem Laden keine weiteren Requests.
+  Requests beginnen erst im aktiven sichtbaren Frame; Austritt und Koloniewechsel
+  brechen offene Anfragen ab und verwerfen verspätete Ergebnisse.
+  Kamera und Picking verwenden die bestätigten Höhenfelder der dargestellten
+  Kacheln; physische Kilometer werden in den Darstellungsradius umgerechnet.
+  Die lokale trockene Planierung wird erst beim Meshbau überlagert, nicht in
+  das gemeinsame Höhenfeld geschrieben. Die API verlangt Anmeldung und eine
+  eigene Kolonie; der gesamte Batch wird vor der Kachelerzeugung validiert.
+  **Deployment:** `php scripts/migrate.php up` wendet die im kanonischen Manifest
+  registrierte `migrate_body_terrain_v1.sql` an; Neuinstallationen enthalten
+  dieselben Tabellen in `sql/schema.sql`. Ein Rollback löscht die Terrain-Caches
+  und Manifeste. Migrationen werden nicht aus einem Render-Request ausgeführt.
+  Bei fehlender Migration/Netzfehler meldet das HUD den Fehler ausdrücklich:
+  bisher bestätigte Kacheln bleiben erhalten, ohne bestätigte Wurzelkacheln
+  bleibt eine als solche gekennzeichnete prozedurale Vorschau sichtbar.
+  Fehler lösen keine Wiederholungsanfrage pro Frame aus; erneuter Eintritt
+  startet einen neuen Ladeversuch.
+- **Prozedurale Vorschau und Oberflächenmaterialien:** Ein körperstabiler Seed erzeugt echtes verdrängtes
   Kugelgelände statt bloßer Farbflecken. Die lokale Verdichtung folgt dem
   Kameratarget; gröbere Ringe schließen die restliche Kugel.
   Vier bedarfsgesteuerte Stufen verwenden 6.144, 23.040, 79.872 oder 161.280
@@ -125,8 +162,9 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
   Tiefentextur; gecachte Pipelines werden beim Orchestrator-Dispose freigegeben.
 
 **Bewusste Grenzen:** stilisierte prozedurale Gebäude statt JSON-/GLTF-Modellen,
-prozedurales Relief mit diskreter, bildschirmabhängiger LOD statt
-serverseitig streamender Terrainkacheln; noch kein Geomorphing zwischen Stufen,
+diskrete Cube-Sphere-LOD ohne Geomorphing zwischen Stufen;
+der separate Planet-Anflug und die vereinfachte Systemansicht nutzen weiterhin
+ihre bisherigen Oberflächen und noch nicht diesen Kachelstream,
 keine Erosion, unterirdische Geometrie oder hydrologische Simulation, kein GPU-Picking,
 keine Wegfindungs-/Haushalts-/Arbeitsmarkt-Simulation einzelner Personen, keine
 neuen Bau-Mutationen im 3D-Viewport. Fußgänger laufen kosmetische Straßenzyklen.
@@ -138,8 +176,9 @@ PiP, SSAO, Modell-LOD oder Compute-Bauanimationen bereits integriert sind.
 **Nachweise:**
 
 ```sh
-npx vitest run tests/js/colony-city-simulation.test.js tests/js/seamless-zoom.test.js tests/js/zoom-level-renderers-shared-init.test.js
-GQ_WEBGPU_SHADER_CI=1 npx playwright test tests/e2e/colony-city-webgpu.spec.js tests/e2e/webgpu-shader-validation.spec.js --grep 'colony city|Colony surface|Planet approach'
+php tools/phpunit.phar tests/Unit/BodyTerrainTest.php tests/Unit/MigrationRunnerTest.php tests/Unit/MigrationCliTest.php
+npx vitest run tests/js/persistent-terrain.test.js tests/js/colony-city-simulation.test.js tests/js/seamless-zoom.test.js tests/js/zoom-level-renderers-shared-init.test.js
+GQ_WEBGPU_SHADER_CI=1 npx playwright test tests/e2e/persistent-terrain-webgpu.spec.js tests/e2e/colony-city-webgpu.spec.js tests/e2e/webgpu-shader-validation.spec.js --grep 'persistent colony terrain|colony city|Colony surface|Planet approach'
 npm run vite:build
 ```
 

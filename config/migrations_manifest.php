@@ -129,4 +129,5 @@ return [
     'migrate_registration_drafts_v1.sql',
     'migrate_registration_mentor_drafts_v2.sql',
     'migrate_registration_portraits_v1.sql',
+    'migrate_body_terrain_v1.sql',
 ];

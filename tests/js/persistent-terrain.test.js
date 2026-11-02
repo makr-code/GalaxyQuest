@@ -1,0 +1,218 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const {
+  cubeSphereDirection, planCubeSphereTiles, validateTerrainManifest, CubeSphereTerrainStream,
+  buildPersistedTerrainMesh, resolveBodySurface,
+} = require('../../js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js');
+
+const manifest = {
+  body_id: 12, generator_version: 1, projection: 'cube-sphere', seed: 35, biome: 'terran',
+  radius_km: 6371, amplitude_km: 8, height_min_km: -8, height_max_km: 8, sea_level_km: 0,
+  max_lod: 14, resolution: 17, tile_encoding: 'uint16-json',
+};
+const roots = () => Array.from({ length: 6 }, (_, face) => ({ face, lod: 0, x: 0, y: 0 }));
+const key = (tile) => `${tile.face}/${tile.lod}/${tile.x}/${tile.y}`;
+const tile = (address, height = 45000) => ({
+  ...address, body_id: 12, generator_version: 1, resolution: 17, heights: Array(289).fill(height),
+});
+const flush = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
+
+function fixtureFetch() {
+  const fetcher = vi.fn(async (url) => {
+    const query = new URL(url, 'http://localhost/').searchParams;
+    return { ok: true, json: async () => query.get('action') === 'manifest'
+      ? { success: true, manifest: { ...manifest } }
+      : { success: true, tiles: JSON.parse(query.get('tiles')).map((address) => tile(address)) } };
+  });
+  vi.stubGlobal('fetch', fetcher);
+  return fetcher;
+}
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe('Persisted cube-sphere terrain', () => {
+  it('uses the backend face convention and identical border directions', () => {
+    for (let i = 0; i <= 16; i++) {
+      const v = i / 8 - 1;
+      expect(cubeSphereDirection(0, -1, v)).toEqual(cubeSphereDirection(4, 1, v));
+      expect(cubeSphereDirection(2, 1, v)).toEqual(cubeSphereDirection(0, v, 1));
+      for (let face = 0; face < 6; face++) expect(Math.hypot(...cubeSphereDirection(face, v, 0))).toBeCloseTo(1);
+    }
+  });
+
+  it('rejects unsupported, non-finite and out-of-budget manifests', () => {
+    expect(validateTerrainManifest(manifest)).toBe(manifest);
+    for (const change of [{ generator_version: 2 }, { max_lod: 50 }, { resolution: 33 },
+      { radius_km: NaN }, { tile_encoding: 'png' }, { amplitude_km: 0 }, { biome: 'unknown' }]) {
+      expect(() => validateTerrainManifest({ ...manifest, ...change })).toThrow();
+    }
+  });
+
+  it('refines screen-space demand near the target without exceeding mesh or LOD budgets', () => {
+    expect(planCubeSphereTiles(manifest, 40, [0, 1, 0])).toEqual(roots());
+    const near = planCubeSphereTiles(manifest, 40000, [0, 1, 0]);
+    expect(near.length).toBeLessThanOrEqual(96);
+    expect(Math.max(...near.filter((t) => t.face === 2).map((t) => t.lod))).toBeGreaterThan(5);
+    expect(near.every((t) => t.lod <= manifest.max_lod && t.x < 2 ** t.lod && t.y < 2 ** t.lod)).toBe(true);
+    expect(near.filter((t) => t.face === 3)).toEqual([{ face: 3, lod: 0, x: 0, y: 0 }]);
+    expect(planCubeSphereTiles({ ...manifest, max_lod: 1 }, 40000, [0, 1, 0]).every((t) => t.lod <= 1)).toBe(true);
+    // Every leaf contributes its area once; no gaps or overlapping parents.
+    for (let face = 0; face < 6; face++) {
+      expect(near.filter((t) => t.face === face).reduce((sum, t) => sum + 1 / 4 ** t.lod, 0)).toBeCloseTo(1);
+    }
+  });
+
+  it('loads one bounded batch at a time, then makes no requests for a stable view', async () => {
+    const fetcher = fixtureFetch();
+    const stream = new CubeSphereTerrainStream(7, vi.fn());
+    await stream.load();
+    expect(stream.tiles.size).toBe(0);
+    let visible;
+    for (let frame = 0; frame < 40; frame++) {
+      visible = stream.update(8000, [0, 1, 0]);
+      await flush();
+    }
+    expect(visible.length).toBeGreaterThan(6);
+    expect(visible.length).toBeLessThanOrEqual(96);
+    const requests = fetcher.mock.calls.length;
+    for (let frame = 0; frame < 100; frame++) stream.update(8000, [0, 1, 0]);
+    await flush();
+    expect(fetcher).toHaveBeenCalledTimes(requests);
+    for (const [url] of fetcher.mock.calls.slice(1)) {
+      const batch = JSON.parse(new URL(url, 'http://localhost/').searchParams.get('tiles'));
+      expect(batch.length).toBeLessThanOrEqual(16);
+    }
+    stream.dispose();
+    expect(stream.tiles.size).toBe(0);
+  });
+
+  it('uses zoom and pan hysteresis instead of rebuilding the tile plan for small input jitter', () => {
+    const stream = new CubeSphereTerrainStream(7, vi.fn());
+    stream.manifest = manifest;
+    stream.failed = true;
+    stream.update(8000, [0, 1, 0]);
+    const original = stream.wanted;
+    stream.update(8200, [0.001, Math.sqrt(1 - 0.001 ** 2), 0]);
+    expect(stream.wanted).toBe(original);
+    stream.update(10000, [0, 1, 0]);
+    expect(stream.wanted).not.toBe(original);
+    const zoomed = stream.wanted;
+    stream.update(10000, cubeSphereDirection(0, 0, 0));
+    expect(stream.wanted).not.toBe(zoomed);
+  });
+
+  it('keeps a parent until every sibling is confirmed, even when some children are cached', () => {
+    const stream = new CubeSphereTerrainStream(7, vi.fn());
+    stream.manifest = manifest;
+    stream.failed = true;
+    roots().forEach((a) => stream.tiles.set(key(a), tile(a)));
+    const partial = { face: 2, lod: 1, x: 0, y: 0 };
+    stream.tiles.set(key(partial), tile(partial));
+    let visible = stream.update(8000, [0, 1, 0]);
+    expect(visible.filter((t) => t.face === 2)).toHaveLength(1);
+    expect(visible.find((t) => t.face === 2).lod).toBe(0);
+    for (const [x, y] of [[1, 0], [0, 1], [1, 1]]) {
+      const child = { face: 2, lod: 1, x, y };
+      stream.tiles.set(key(child), tile(child));
+    }
+    visible = stream.update(8000, [0, 1, 0]);
+    expect(visible.filter((t) => t.face === 2)).toHaveLength(4);
+    expect(visible.filter((t) => t.face === 2).every((t) => t.lod === 1)).toBe(true);
+  });
+
+  it('retains confirmed data and reports corrupt batches without retrying every frame', async () => {
+    const fetcher = fixtureFetch();
+    const status = vi.fn();
+    const stream = new CubeSphereTerrainStream(7, status);
+    await stream.load();
+    stream.update(40, [0, 1, 0]);
+    await flush();
+    fetcher.mockResolvedValue({ ok: true, json: async () => ({ success: true, tiles: [] }) });
+    const before = [...stream.tiles.entries()];
+    stream.update(4000, [0, 1, 0]);
+    await flush();
+    expect(stream.failed).toBe(true);
+    expect([...stream.tiles.entries()]).toEqual(before);
+    expect(status).toHaveBeenLastCalledWith(expect.stringContaining('retaining last confirmed surface'));
+    const requests = fetcher.mock.calls.length;
+    for (let frame = 0; frame < 50; frame++) stream.update(4000, [0, 1, 0]);
+    expect(fetcher).toHaveBeenCalledTimes(requests);
+  });
+
+  it('rejects wrong bodies, invalid heights, duplicates and partial responses atomically', async () => {
+    for (const change of [
+      (tiles) => { tiles[0].body_id = 99; },
+      (tiles) => { tiles[1].heights[0] = 65536; },
+      (tiles) => { tiles[1] = tiles[0]; },
+      (tiles) => { tiles.pop(); },
+    ]) {
+      fixtureFetch();
+      const stream = new CubeSphereTerrainStream(7, vi.fn());
+      await stream.load();
+      fetch.mockImplementation(async (url) => {
+        const tiles = JSON.parse(new URL(url, 'http://localhost/').searchParams.get('tiles')).map((a) => tile(a));
+        change(tiles);
+        return { ok: true, json: async () => ({ success: true, tiles }) };
+      });
+      stream.update(40, [0, 1, 0]);
+      await flush();
+      expect(stream.failed).toBe(true);
+      expect(stream.tiles.size).toBe(0);
+    }
+  });
+
+  it('aborts pending work and discards late results after disposal', async () => {
+    fixtureFetch();
+    const status = vi.fn();
+    const stream = new CubeSphereTerrainStream(7, status);
+    await stream.load();
+    let complete;
+    fetch.mockReturnValue(new Promise((resolve) => { complete = resolve; }));
+    stream.update(40, [0, 1, 0]);
+    const signal = fetch.mock.calls.at(-1)[1].signal;
+    stream.dispose();
+    expect(signal.aborted).toBe(true);
+    complete({ ok: true, json: async () => ({ success: true, tiles: roots().map((a) => tile(a)) }) });
+    await flush();
+    expect(stream.tiles.size).toBe(0);
+    expect(status).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the CPU cache bounded while moving between distant surface targets', async () => {
+    fixtureFetch();
+    const stream = new CubeSphereTerrainStream(7, vi.fn());
+    await stream.load();
+    for (let face = 0; face < 6; face++) {
+      for (let frame = 0; frame < 20; frame++) {
+        stream.update(18000, cubeSphereDirection(face, 0.3, -0.3));
+        await flush();
+      }
+      expect(stream.tiles.size).toBeLessThanOrEqual(256);
+    }
+  });
+
+  it('builds actual displaced triangles with skirts, water, city grading and physical units', () => {
+    const terrain = resolveBodySurface({ colony: { diameter_km: 12742 } }, 20, 14).terrain;
+    const tiles = roots().map((a) => tile(a, 65535));
+    const mesh = buildPersistedTerrainMesh(manifest, tiles, terrain);
+    expect(mesh.vertexCount).toBe(6 * 1920);
+    expect(mesh.vertices.byteLength).toBeLessThan(8 * 1024 * 1024);
+    expect([...mesh.vertices].every(Number.isFinite)).toBe(true);
+    const radiusAt = (offset) => Math.hypot(mesh.vertices[offset], mesh.vertices[offset + 1] + terrain.radius, mesh.vertices[offset + 2]);
+    expect(radiusAt(0)).toBeCloseTo(terrain.radius + terrain.radius / manifest.radius_km * 8, 3);
+    const center = 2 * 1920 * 7 + (8 * 16 + 8) * 6 * 7;
+    expect(radiusAt(center)).toBeCloseTo(terrain.radius, 4);
+    const water = buildPersistedTerrainMesh(manifest, roots().map((a) => tile(a, 0)), terrain);
+    expect(water.vertices[6]).toBe(1);
+    expect(Math.hypot(water.vertices[0], water.vertices[1] + terrain.radius, water.vertices[2])).toBeCloseTo(terrain.radius, 4);
+    const stream = new CubeSphereTerrainStream(7, vi.fn());
+    stream.manifest = manifest;
+    tiles.forEach((t) => stream.surfaceTiles.set(key(t), t));
+    expect(stream.sample(0, 0, terrain)).toBeCloseTo(0);
+    expect(stream.sample(100, 100, terrain)).toBeGreaterThan(0);
+    const gas = buildPersistedTerrainMesh({ ...manifest, biome: 'gas' }, tiles, terrain);
+    expect(Math.hypot(gas.vertices[0], gas.vertices[1] + terrain.radius, gas.vertices[2])).toBeCloseTo(terrain.radius, 4);
+  });
+});

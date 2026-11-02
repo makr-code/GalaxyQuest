@@ -894,7 +894,7 @@ describe('On-demand authoritative snapshot lifecycle', () => {
     level.render(0);
     expect(level._camera.target).toEqual({ x: 2, z: 3 });
     expect(level._camera.span).toBeCloseTo(40);
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls.filter(([url]) => url.includes('colony_economy.php'))).toHaveLength(2);
   });
 
   it('loads once on entry, updates buildings/economy/people and never polls during rendering', async () => {
@@ -908,7 +908,7 @@ describe('On-demand authoritative snapshot lifecycle', () => {
     await vi.waitFor(() => expect(level._slots[0].level).toBe(6));
     expect(fetch).toHaveBeenCalledWith('api/colony_economy.php?action=snapshot&colony_id=7', expect.objectContaining({ credentials: 'same-origin', cache: 'no-store' }));
     for (let i = 0; i < 100; i++) level.render(0.016);
-    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls.filter(([url]) => url.includes('colony_economy.php'))).toHaveLength(1);
     expect(host.textContent).toContain('Colony shortage: food');
     expect(level._people.length).toBeGreaterThan(0);
     expect(snapshot.colony.population).toBe(10000);

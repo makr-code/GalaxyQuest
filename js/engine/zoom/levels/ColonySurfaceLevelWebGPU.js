@@ -278,6 +278,10 @@ function resolveBodySurface(data, cityWidth, cityDepth) {
 }
 
 function sampleColonyTerrain(terrain, x, z) {
+  if (terrain.heightSampler) {
+    const height = terrain.heightSampler(x, z);
+    if (height != null) return { height, elevation: height, material: 0, color: [0.24, 0.42, 0.21] };
+  }
   if (terrain.biome === 'gas') {
     const band = Math.sin(z / terrain.scale * 14 + terrain.seed) * 0.1;
     return { height: 0, elevation: 0, material: 0, color: [0.48 + band, 0.42 + band, 0.58 + band] };
@@ -364,6 +368,287 @@ function buildColonyTerrainMesh(terrain, lod = 2, focus = { x: 0, z: 0 }) {
       }
     }
     previous = next;
+  }
+  return { vertices, vertexCount: vertices.length / 7 };
+}
+
+function cubeSphereDirection(face, u, v) {
+  const point = [
+    [1, v, -u], [-1, v, u], [u, 1, -v],
+    [u, -1, v], [u, v, 1], [-u, v, -1],
+  ][face];
+  if (!point) throw new Error('Invalid terrain cube face');
+  const length = Math.hypot(...point);
+  return point.map((value) => value / length);
+}
+
+const terrainTileKey = (tile) => `${tile.face}/${tile.lod}/${tile.x}/${tile.y}`;
+const terrainRoots = () => Array.from({ length: 6 }, (_, face) => ({ face, lod: 0, x: 0, y: 0 }));
+const terrainChildren = (tile) => [0, 1, 2, 3].map((index) => ({
+  face: tile.face, lod: tile.lod + 1, x: tile.x * 2 + index % 2, y: tile.y * 2 + Math.floor(index / 2),
+}));
+
+function planCubeSphereTiles(manifest, radiusPixels, focus) {
+  const leaves = terrainRoots();
+  while (leaves.length <= 93) {
+    let best = -1, bestScore = 0;
+    for (let index = 0; index < leaves.length; index++) {
+      const tile = leaves[index];
+      const size = 2 ** tile.lod;
+      const center = cubeSphereDirection(tile.face, (tile.x + 0.5) / size * 2 - 1, (tile.y + 0.5) / size * 2 - 1);
+      const separation = Math.acos(bounded(center.reduce((sum, value, axis) => sum + value * focus[axis], 0), -1, 1));
+      const angularSize = 2 / size;
+      const near = separation < angularSize * 1.6 + Math.min(Math.PI, 800 / Math.max(1, radiusPixels));
+      const score = radiusPixels * angularSize / (1 + Math.max(0, separation - angularSize) * radiusPixels / 800);
+      if (tile.lod < manifest.max_lod && radiusPixels * angularSize > 384 && near && score > bestScore) {
+        best = index;
+        bestScore = score;
+      }
+    }
+    if (best < 0) break;
+    leaves.splice(best, 1, ...terrainChildren(leaves[best]));
+  }
+  return leaves;
+}
+
+function validateTerrainManifest(manifest) {
+  if (manifest?.projection !== 'cube-sphere' || manifest.generator_version !== 1
+      || manifest.resolution !== 17 || manifest.tile_encoding !== 'uint16-json'
+      || !Number.isSafeInteger(manifest.body_id) || manifest.body_id < 1
+      || !Number.isSafeInteger(manifest.seed) || manifest.seed < 0
+      || !Number.isInteger(manifest.max_lod) || manifest.max_lod < 0 || manifest.max_lod > 16
+      || !Number.isFinite(manifest.radius_km) || manifest.radius_km <= 0
+      || !Number.isFinite(manifest.height_min_km) || !Number.isFinite(manifest.height_max_km)
+      || manifest.height_min_km >= manifest.height_max_km
+      || !Number.isFinite(manifest.amplitude_km) || manifest.amplitude_km <= 0
+      || !['terran', 'ocean', 'ice', 'desert', 'lava', 'rock', 'gas'].includes(manifest.biome)) {
+    throw new Error('Unsupported or invalid terrain manifest');
+  }
+  return manifest;
+}
+
+class CubeSphereTerrainStream {
+  constructor(colonyId, onChange) {
+    this.colonyId = colonyId;
+    this.onChange = onChange;
+    this.manifest = null;
+    this.tiles = new Map();
+    this.surfaceTiles = new Map();
+    this.request = null;
+    this.failed = false;
+    this.disposed = false;
+    this.wanted = terrainRoots();
+    this.plan = null;
+    this.needed = new Map();
+  }
+
+  async load() {
+    if (this.disposed || this.request || this.manifest || this.failed) return;
+    const request = new AbortController();
+    this.request = request;
+    this.onChange('Persistent terrain loading; procedural preview');
+    try {
+      const response = await fetch(`api/terrain.php?action=manifest&colony_id=${this.colonyId}`, {
+        credentials: 'same-origin', signal: request.signal, cache: 'no-cache',
+      });
+      if (!response.ok) throw new Error(`Terrain manifest HTTP ${response.status}`);
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error || 'Terrain manifest unavailable');
+      if (this.disposed) return;
+      this.manifest = validateTerrainManifest(data.manifest);
+      this.onChange('Persistent terrain loading');
+    } catch (error) {
+      if (error.name !== 'AbortError' && !this.disposed) {
+        this.failed = true;
+        this.onChange(`Terrain unavailable: ${error.message}; procedural preview`);
+      }
+    } finally {
+      if (this.request === request) this.request = null;
+    }
+  }
+
+  sample(x, z, terrain) {
+    if (!this.manifest) return null;
+    const point = mapColonySurfacePoint(terrain.radius, x, 0, z);
+    const [nx, ny, nz] = [point[0], point[1] + terrain.radius, point[2]];
+    const max = Math.max(Math.abs(nx), Math.abs(ny), Math.abs(nz));
+    let face, u, v;
+    if (Math.abs(nx) === max) { face = nx > 0 ? 0 : 1; u = nx > 0 ? -nz / max : nz / max; v = ny / max; }
+    else if (Math.abs(ny) === max) { face = ny > 0 ? 2 : 3; u = nx / max; v = ny > 0 ? -nz / max : nz / max; }
+    else { face = nz > 0 ? 4 : 5; u = nz > 0 ? nx / max : -nx / max; v = ny / max; }
+    for (let lod = this.manifest.max_lod; lod >= 0; lod--) {
+      const size = 2 ** lod;
+      const gx = bounded((u + 1) * 0.5 * size, 0, size - 1e-10);
+      const gy = bounded((v + 1) * 0.5 * size, 0, size - 1e-10);
+      const tile = this.surfaceTiles.get(terrainTileKey({ face, lod, x: Math.floor(gx), y: Math.floor(gy) }));
+      if (!tile) continue;
+      const sx = (gx - Math.floor(gx)) * 16, sy = (gy - Math.floor(gy)) * 16;
+      const col = Math.min(15, Math.floor(sx)), row = Math.min(15, Math.floor(sy));
+      const dx = sx - col, dy = sy - row;
+      const vertexHeight = (cx, cy) => {
+        const vertex = persistedTerrainSample(this.manifest, tile, cx, cy, terrain);
+        return Math.hypot(vertex[0], vertex[1] + terrain.radius, vertex[2]) - terrain.radius;
+      };
+      const a = vertexHeight(col, row), b = vertexHeight(col + 1, row);
+      const c = vertexHeight(col, row + 1), d = vertexHeight(col + 1, row + 1);
+      return dx + dy <= 1 ? a + (b - a) * dx + (c - a) * dy
+        : d + (c - d) * (1 - dx) + (b - d) * (1 - dy);
+    }
+    return null;
+  }
+
+  update(radiusPixels, focus) {
+    if (!this.manifest || this.disposed) return [];
+    const drift = this.plan ? Math.hypot(...focus.map((value, axis) => value - this.plan.focus[axis])) : Infinity;
+    if (!this.plan || radiusPixels > this.plan.radiusPixels * 1.15 || radiusPixels < this.plan.radiusPixels * 0.85
+        || drift > Math.min(0.25, 800 / Math.max(1, radiusPixels)) * 0.25) {
+      this.wanted = planCubeSphereTiles(this.manifest, radiusPixels, focus);
+      this.plan = { radiusPixels, focus: focus.slice() };
+    }
+    const needed = new Map();
+    for (const leaf of this.wanted) {
+      let tile = leaf;
+      while (true) {
+        needed.set(terrainTileKey(tile), tile);
+        if (!tile.lod) break;
+        tile = { face: tile.face, lod: tile.lod - 1, x: Math.floor(tile.x / 2), y: Math.floor(tile.y / 2) };
+      }
+    }
+    const missing = [...needed.values()].filter((tile) => !this.tiles.has(terrainTileKey(tile)))
+      .sort((a, b) => a.lod - b.lod).slice(0, 16);
+    if (!this.request && !this.failed && missing.length) this._fetchTiles(missing);
+    const desired = new Set(this.wanted.map(terrainTileKey));
+    const selected = [];
+    const visit = (tile) => {
+      if (!this.tiles.has(terrainTileKey(tile))) return;
+      const children = terrainChildren(tile);
+      if (!desired.has(terrainTileKey(tile)) && needed.has(terrainTileKey(tile))
+          && children.every((child) => this.tiles.has(terrainTileKey(child)))) {
+        children.forEach(visit);
+      } else selected.push(this.tiles.get(terrainTileKey(tile)));
+    };
+    const roots = terrainRoots();
+    if (roots.every((tile) => this.tiles.has(terrainTileKey(tile)))) roots.forEach(visit);
+    this.surfaceTiles = new Map(selected.map((tile) => [terrainTileKey(tile), tile]));
+    this.needed = needed;
+    this._trimCache();
+    return selected;
+  }
+
+  _trimCache() {
+    for (const [key] of this.tiles) {
+      if (this.tiles.size <= 256) break;
+      if (!this.needed.has(key) && !this.surfaceTiles.has(key)) this.tiles.delete(key);
+    }
+  }
+
+  async _fetchTiles(addresses) {
+    const request = new AbortController();
+    this.request = request;
+    try {
+      const response = await fetch(`api/terrain.php?action=tiles&colony_id=${this.colonyId}&tiles=${encodeURIComponent(JSON.stringify(addresses))}`, {
+        credentials: 'same-origin', signal: request.signal, cache: 'no-cache',
+      });
+      if (!response.ok) throw new Error(`Terrain tiles HTTP ${response.status}`);
+      const data = await response.json();
+      if (!data.success || !Array.isArray(data.tiles) || data.tiles.length !== addresses.length) {
+        throw new Error('Incomplete terrain tile response');
+      }
+      if (this.disposed) return;
+      const expected = new Set(addresses.map(terrainTileKey));
+      for (const tile of data.tiles) {
+        const key = terrainTileKey(tile);
+        if (!expected.delete(key) || !['face', 'lod', 'x', 'y'].every((field) => Number.isInteger(tile[field]))
+            || tile.body_id !== this.manifest.body_id
+            || tile.generator_version !== this.manifest.generator_version || tile.resolution !== 17
+            || !Array.isArray(tile.heights) || tile.heights.length !== 289
+            || !tile.heights.every((value) => Number.isInteger(value) && value >= 0 && value <= 65535)) {
+          throw new Error('Invalid persisted terrain tile');
+        }
+      }
+      for (const tile of data.tiles) this.tiles.set(terrainTileKey(tile), tile);
+      this._trimCache();
+      this.onChange('Persistent terrain');
+    } catch (error) {
+      if (error.name !== 'AbortError' && !this.disposed) {
+        this.failed = true;
+        const retained = this.surfaceTiles.size ? 'retaining last confirmed surface' : 'procedural preview';
+        this.onChange(`Terrain tiles unavailable: ${error.message}; ${retained}`);
+      }
+    } finally {
+      if (this.request === request) this.request = null;
+    }
+  }
+
+  dispose() {
+    this.disposed = true;
+    this.request?.abort();
+    this.request = null;
+    this.tiles.clear();
+    this.surfaceTiles.clear();
+    this.needed.clear();
+  }
+}
+
+function gradePersistentHeight(manifest, terrain, x, z, physicalHeight) {
+  const edge = Math.max(Math.abs(x) - terrain.width * 0.5 - 2, Math.abs(z) - terrain.depth * 0.5 - 2);
+  const t = bounded(edge / (terrain.scale * 0.2), 0, 1);
+  const grade = t * t * (3 - 2 * t);
+  const height = physicalHeight / manifest.radius_km * terrain.radius * grade;
+  return ['terran', 'ocean', 'lava'].includes(manifest.biome) ? Math.max(0, height) : height;
+}
+
+function persistedTerrainSample(manifest, tile, col, row, terrain) {
+  const size = 2 ** tile.lod;
+  const direction = cubeSphereDirection(tile.face, (tile.x + col / 16) / size * 2 - 1, (tile.y + row / 16) / size * 2 - 1);
+  const angle = Math.acos(bounded(direction[1], -1, 1));
+  const horizontal = Math.hypot(direction[0], direction[2]);
+  const x = horizontal > 1e-8 ? direction[0] / horizontal * angle * terrain.radius : angle * terrain.radius;
+  const z = horizontal > 1e-8 ? direction[2] / horizontal * angle * terrain.radius : 0;
+  const physicalHeight = manifest.biome === 'gas' ? 0 : manifest.height_min_km + tile.heights[row * 17 + col] / 65535
+    * (manifest.height_max_km - manifest.height_min_km);
+  const edge = Math.max(Math.abs(x) - terrain.width * 0.5 - 2, Math.abs(z) - terrain.depth * 0.5 - 2);
+  const t = bounded(edge / (terrain.scale * 0.2), 0, 1);
+  const grade = t * t * (3 - 2 * t);
+  const height = physicalHeight / manifest.radius_km * terrain.radius * grade;
+  const wet = ['terran', 'ocean', 'lava'].includes(manifest.biome) && height < -0.00001;
+  const frozen = manifest.biome === 'ice' || (manifest.biome === 'terran' && physicalHeight > manifest.amplitude_km * 0.55);
+  const material = wet ? manifest.biome === 'lava' ? 3 : 1 : frozen ? 2 : 0;
+  const band = manifest.biome === 'gas' ? Math.sin(direction[1] * 40 + manifest.seed % 100) * 0.1 : 0;
+  const color = material === 1 ? [0.07, 0.28, 0.44] : material === 2 ? [0.72, 0.85, 0.91]
+    : material === 3 ? [0.96, 0.24, 0.035] : manifest.biome === 'gas' ? [0.48 + band, 0.42 + band, 0.58 + band]
+      : manifest.biome === 'desert' ? [0.67, 0.46, 0.24] : manifest.biome === 'lava' ? [0.24, 0.19, 0.18]
+        : manifest.biome === 'rock' ? [0.4, 0.39, 0.37] : [0.24, 0.42, 0.21];
+  const elevation = gradePersistentHeight(manifest, terrain, x, z, physicalHeight);
+  return [...direction.map((value, axis) => value * (terrain.radius + elevation) - (axis === 1 ? terrain.radius : 0)), ...color, material];
+}
+
+function buildPersistedTerrainMesh(manifest, tiles, terrain) {
+  const vertices = new Float32Array(tiles.length * (16 * 16 * 6 + 16 * 4 * 6) * 7);
+  let offset = 0;
+  const append = (point) => { vertices.set(point, offset); offset += 7; };
+  for (const tile of tiles) {
+    const points = Array.from({ length: 17 * 17 }, (_, index) =>
+      persistedTerrainSample(manifest, tile, index % 17, Math.floor(index / 17), terrain));
+    for (let row = 0; row < 16; row++) {
+      for (let col = 0; col < 16; col++) {
+        const a = row * 17 + col, b = a + 1, c = a + 17, d = c + 1;
+        [a, c, b, b, c, d].forEach((index) => append(points[index]));
+      }
+    }
+    // Radial skirts cover cracks between independently refined neighbors.
+    const skirt = Math.max(terrain.radius * 0.0001, terrain.radius / (2 ** tile.lod) * 0.02);
+    const lower = (point) => {
+      const direction = [point[0], point[1] + terrain.radius, point[2]];
+      const length = Math.hypot(...direction);
+      return [...point.slice(0, 3).map((value, axis) => value - direction[axis] / length * skirt), ...point.slice(3)];
+    };
+    for (let index = 0; index < 16; index++) {
+      for (const [a, b] of [[index, index + 1], [272 + index, 273 + index], [index * 17, (index + 1) * 17], [index * 17 + 16, (index + 1) * 17 + 16]]) {
+        const p = points[a], q = points[b], lowP = lower(p), lowQ = lower(q);
+        [p, lowP, q, q, lowP, lowQ].forEach(append);
+      }
+    }
   }
   return { vertices, vertexCount: vertices.length / 7 };
 }
@@ -590,6 +875,9 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._terrainCacheBytes = 0;
     this._terrainLod = null;
     this._terrainFocus = null;
+    this._terrainStream = null;
+    this._terrainState = '';
+    this._persistentMeshKey = '';
     this._skyPipeline = null;
     this._cloudVeilPipeline = null;
     this._skyBindGroup = null;
@@ -657,6 +945,9 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._cameraFocus = null;
     const detail = this._buildingView;
     if (Number(this._sceneData?.colony?.id || 0) !== Number(data?.colony?.id || 0)) {
+      this._terrainStream?.dispose();
+      this._terrainStream = null;
+      this._terrainState = '';
       this._buildingView = null;
       this._requestGeneration++;
       this._request?.abort();
@@ -675,6 +966,13 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     if (terrainKey !== this._terrainKey) {
       this._releaseTerrain();
       this._terrainKey = terrainKey;
+    }
+    if (this._active && !this._terrainStream && Number.isSafeInteger(Number(data?.colony?.id))
+        && Number(data?.colony?.id) > 0) {
+      this._terrainStream = new CubeSphereTerrainStream(Number(data.colony.id), (status) => {
+        this._terrainState = status;
+        this._updateHud();
+      });
     }
     this._entrySpan = Math.max(this._citySpan * 4, this._bodySurface.radius * 3);
     const tallestPart = Math.max(0, ...this._city.parts.map((part) => part.y + part.sy));
@@ -760,6 +1058,9 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._cameraFocus = null;
     this._buildingView = null;
     this._atmosphereState = null;
+    this._terrainStream?.dispose();
+    this._terrainStream = null;
+    this._terrainState = '';
     this._requestGeneration++;
     this._request?.abort();
     this._request = null;
@@ -929,12 +1230,40 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._terrainLod = null;
     this._terrainFocus = null;
     this._terrainKey = '';
+    this._persistentMeshKey = '';
   }
 
   _uploadTerrain() {
     const terrain = this._bodySurface.terrain;
     const aspect = Math.max(0.1, this._canvas.width / Math.max(1, this._canvas.height));
     const span = this._camera.span / Math.min(1, aspect);
+    const stream = this._terrainStream;
+    if (stream && !stream.manifest && !stream.request && !stream.failed) stream.load();
+    if (stream?.manifest) {
+      const point = mapColonySurfacePoint(terrain.radius, this._camera.target.x, 0, this._camera.target.z);
+      const focus = [point[0] / terrain.radius, (point[1] + terrain.radius) / terrain.radius, point[2] / terrain.radius];
+      const tiles = stream.update(terrain.radius * this._canvas.height / span, focus);
+      if (tiles.length) {
+        terrain.heightSampler = (x, z) => stream.sample(x, z, terrain);
+        const key = `${this._terrainKey}:${tiles.map(terrainTileKey).join(',')}`;
+        if (key !== this._persistentMeshKey) {
+          const mesh = buildPersistedTerrainMesh(stream.manifest, tiles, terrain);
+          this._releaseTerrain();
+          this._terrainKey = JSON.stringify(terrain);
+          const buffer = this._device.createBuffer({
+            label: 'colony_persisted_cube_tiles', size: mesh.vertices.byteLength,
+            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+          });
+          this._device.queue.writeBuffer(buffer, 0, mesh.vertices);
+          this._terrainCache.set('persistent', { buffer, bytes: mesh.vertices.byteLength, vertexCount: mesh.vertexCount });
+          this._terrainCacheBytes = mesh.vertices.byteLength;
+          this._terrainBuffer = buffer;
+          this._terrainVertexCount = mesh.vertexCount;
+          this._persistentMeshKey = key;
+        }
+        return;
+      }
+    }
     const projectedScale = terrain.scale * this._canvas.height / span;
     const lod = selectColonyTerrainLod(projectedScale, this._terrainLod);
     const step = terrain.scale * 0.5;
@@ -1038,7 +1367,9 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     const terrain = this._bodySurface.terrain;
     const outsideCity = terrain && (Math.abs(this._camera.target.x) > terrain.width * 0.5
       || Math.abs(this._camera.target.z) > terrain.depth * 0.5);
-    const clearance = outsideCity ? (terrain.amplitude * 2 + 0.35) / (2 * Math.sin(35.264 * Math.PI / 180)) : 0;
+    const manifest = this._terrainStream?.manifest;
+    const amplitude = manifest ? manifest.amplitude_km / manifest.radius_km * terrain.radius : terrain?.amplitude;
+    const clearance = outsideCity ? (amplitude * 2 + 0.35) / (2 * Math.sin(35.264 * Math.PI / 180)) : 0;
     span = bounded(span, Math.max(this._minCameraSpan, clearance), this._entrySpan, this._citySpan);
     this._zoomMultiplier = span / Math.max(0.001, this._transitionBaseSpan());
     this._camera.span = span;
@@ -1311,7 +1642,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       colony.name || 'Colony surface', `${this._slots.length} buildings`,
       Number.isFinite(population) ? `Population ${population.toLocaleString()}` : 'Population unavailable',
       Number.isFinite(happiness) ? `Happiness ${happiness.toFixed(0)}%` : '',
-      classes, status.text, rates, this._snapshotState || 'Saved building state',
+      classes, status.text, rates, this._snapshotState || 'Saved building state', this._terrainState,
     ].filter(Boolean).join(' · ');
     this._hud.querySelector('[data-city-selection]').textContent = this._selected
       ? `${this._selected.type.replace(/_/g, ' ')} · Level ${this._selected.level}${this._selected.upgrade_end ? ' · Construction in progress' : ''}`
@@ -1648,6 +1979,7 @@ if (typeof module !== 'undefined' && module.exports) {
     normalizeCitySlots, buildCityGeometry, cityCameraMatrix, cityCameraPose, colonyAtmosphereState, projectCityPoint,
     mapColonySurfacePoint, projectColonySurfacePoint, resolveBodySurface,
     sampleColonyTerrain, buildColonyTerrainMesh, selectColonyTerrainLod, TERRAIN_LODS, TERRAIN_CACHE_BYTES,
+    cubeSphereDirection, planCubeSphereTiles, validateTerrainManifest, CubeSphereTerrainStream, buildPersistedTerrainMesh,
     cityPedestrians, cityEconomyStatus,
   };
 } else {
