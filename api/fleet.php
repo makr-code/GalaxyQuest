@@ -507,46 +507,9 @@ function send_fleet(PDO $db, int $uid, array $body): never {
 }
 
 function list_wormholes(PDO $db, int $uid, int $originColonyId): never {
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS wormholes (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            endpoint_a_galaxy INT NOT NULL,
-            endpoint_a_system INT NOT NULL,
-            endpoint_b_galaxy INT NOT NULL,
-            endpoint_b_system INT NOT NULL,
-            stability INT NOT NULL DEFAULT 100,
-            cooldown_until DATETIME DEFAULT NULL,
-            is_active TINYINT(1) NOT NULL DEFAULT 1,
-            is_permanent TINYINT(1) NOT NULL DEFAULT 0,
-            label VARCHAR(80) DEFAULT NULL,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_wormholes_a (endpoint_a_galaxy, endpoint_a_system),
-            INDEX idx_wormholes_b (endpoint_b_galaxy, endpoint_b_system)
-        ) ENGINE=InnoDB'
-    );
-    try {
-        $colCheck = $db->query(
-            "SELECT COUNT(*) FROM information_schema.COLUMNS
-             WHERE TABLE_SCHEMA = DATABASE()
-               AND TABLE_NAME = 'wormholes'
-               AND COLUMN_NAME = 'is_permanent'"
-        );
-        $hasPermanentCol = (int)($colCheck ? $colCheck->fetchColumn() : 0) > 0;
-        if (!$hasPermanentCol) {
-            $db->exec('ALTER TABLE wormholes ADD COLUMN is_permanent TINYINT(1) NOT NULL DEFAULT 0 AFTER is_active');
-        }
-    } catch (Throwable $e) {
-        // ignore on restricted/legacy setups; query path will still work on modern MySQL
-    }
-
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS user_wormhole_unlocks (
-            user_id INT NOT NULL PRIMARY KEY,
-            source_quest_code VARCHAR(64) DEFAULT NULL,
-            unlocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB'
-    );
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertWormholes($db);
+    \GalaxyQuest\Schema\GalaxySchema::assertWormholeUnlocks($db);
 
     $origin = null;
     if ($originColonyId > 0) {
@@ -755,45 +718,9 @@ function list_ftl_map(PDO $db, int $uid): never {
 }
 
 function resolve_wormhole_route(PDO $db, int $uid, int $originGalaxy, int $originSystem, int $targetGalaxy, int $targetSystem): ?array {
-    try {
-        $db->exec(
-            'CREATE TABLE IF NOT EXISTS wormholes (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                endpoint_a_galaxy INT NOT NULL,
-                endpoint_a_system INT NOT NULL,
-                endpoint_b_galaxy INT NOT NULL,
-                endpoint_b_system INT NOT NULL,
-                stability INT NOT NULL DEFAULT 100,
-                cooldown_until DATETIME DEFAULT NULL,
-                is_active TINYINT(1) NOT NULL DEFAULT 1,
-                is_permanent TINYINT(1) NOT NULL DEFAULT 0,
-                label VARCHAR(80) DEFAULT NULL,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_wormholes_a (endpoint_a_galaxy, endpoint_a_system),
-                INDEX idx_wormholes_b (endpoint_b_galaxy, endpoint_b_system)
-            ) ENGINE=InnoDB'
-        );
-        $colCheck = $db->query(
-            "SELECT COUNT(*) FROM information_schema.COLUMNS
-             WHERE TABLE_SCHEMA = DATABASE()
-               AND TABLE_NAME = 'wormholes'
-               AND COLUMN_NAME = 'is_permanent'"
-        );
-        $hasPermanentCol = (int)($colCheck ? $colCheck->fetchColumn() : 0) > 0;
-        if (!$hasPermanentCol) {
-            $db->exec('ALTER TABLE wormholes ADD COLUMN is_permanent TINYINT(1) NOT NULL DEFAULT 0 AFTER is_active');
-        }
-        $db->exec(
-            'CREATE TABLE IF NOT EXISTS user_wormhole_unlocks (
-                user_id INT NOT NULL PRIMARY KEY,
-                source_quest_code VARCHAR(64) DEFAULT NULL,
-                unlocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            ) ENGINE=InnoDB'
-        );
-    } catch (Throwable $e) {
-        return null;
-    }
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertWormholes($db);
+    \GalaxyQuest\Schema\GalaxySchema::assertWormholeUnlocks($db);
 
     $theoryStmt = $db->prepare('SELECT level FROM research WHERE user_id = ? AND type = "wormhole_theory" LIMIT 1');
     $theoryStmt->execute([$uid]);

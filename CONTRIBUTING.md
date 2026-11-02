@@ -114,6 +114,91 @@ schema, including tracking checksums and a no-op second run. CI then installs
 entries using `php scripts/migrate.php up --env=TEST`; do not use an alphabetical
 `sql/migrate_*.sql` loop, which also includes down, maintenance and example files.
 
+Galaxy seed runtime guards (star/binary, planet-science, app-state and
+faction/government) no longer create/alter storage.
+Apply canonical migrations (including WD spectral widening and the conditional
+legacy planet-science additions, app-state and government storage) before gameplay or seeding;
+missing schema fails explicitly. The full app still has other runtime DDL, so
+this does not yet permit removing every DDL privilege from the gameplay user.
+See [star/binary rollout and recovery](docs/technical/DATABASE_MIGRATIONS.md#star-and-binary-runtime-schema-boundary).
+See also [planet-science rollout and recovery](docs/technical/DATABASE_MIGRATIONS.md#planet-science-runtime-schema-boundary).
+Planet upgrades must preserve existing science values and column definitions;
+test partial legacy schemas and SELECT-only runtime access against real MySQL.
+For state accessors, also test INSERT/UPDATE-only writes, denied writes and
+transaction retention; do not reintroduce implicit CREATE during reads.
+See [app-state rollout and recovery](docs/technical/DATABASE_MIGRATIONS.md#app-state-runtime-schema-boundary).
+For faction/diplomacy changes, test seed idempotency, modified player values,
+transaction rollback and faction CASCADE behavior with DML-only MySQL rights.
+See [faction/diplomacy rollout and recovery](docs/technical/DATABASE_MIGRATIONS.md#faction-and-diplomacy-runtime-schema-boundary).
+Building/shipyard storage guards also require canonical migrations, including
+blueprint v5 and the new ship queue; do not suppress missing vessel storage.
+Test paid queue preservation, completion/repetition, DML-only vessel spawning
+and failure before count/status mutations when schema is missing.
+See [building/shipyard rollout and recovery](docs/technical/DATABASE_MIGRATIONS.md#building-and-shipyard-runtime-schema-boundary).
+Account/homeworld helpers also require pre-migrated ships, messages and
+character-profile storage. Test existing profile retrieval with SELECT-only,
+data/transaction retention and fail-before-generation on missing schema.
+See [account/homeworld schema boundary](docs/technical/DATABASE_MIGRATIONS.md#account-and-homeworld-runtime-schema-boundary).
+Situation requests also require the canonical gameplay migration; never
+reintroduce runtime CREATE or a process-global schema-success cache.
+Test owner-filtered reads, tick/history rollback and missing storage with
+restricted MySQL rights. See [situation schema boundary](docs/technical/DATABASE_MIGRATIONS.md#situation-runtime-schema-boundary).
+World-scenario ticks require the canonical world-scenario migration. Test
+missing schema before cooldown writes, not-due read-only ticks and transaction/
+event retention with DML-only rights.
+See [world-scenario schema boundary](docs/technical/DATABASE_MIGRATIONS.md#world-scenario-runtime-schema-boundary).
+Generated glossary definitions require the new canonical cache migration.
+Missing storage must fail before RAG/network work, not become a cache miss.
+Test TTL, retained definitions, denied writes and DML-only upsert/rollback.
+See [glossary cache schema boundary](docs/technical/DATABASE_MIGRATIONS.md#glossary-cache-runtime-schema-boundary).
+Player-alliance base storage also requires canonical migrations. Test
+SELECT-only preflight, retained treasury/member/message values and foreign-key
+cleanup. Multi-party alliance-war requests require the new canonical war migration.
+See [player-alliance schema boundary](docs/technical/DATABASE_MIGRATIONS.md#player-alliance-runtime-schema-boundary).
+Test retained scores, exhaustion, sides/peace terms and CASCADE behavior.
+See [multi-party war rollout and recovery](docs/technical/DATABASE_MIGRATIONS.md#multi-party-alliance-war-runtime-schema-boundary).
+Leader marketplace/profile helpers also require canonical base and marketplace
+migrations; never add request-time CREATE/ALTER fallback or a global ready cache.
+Test SELECT-only preflight, transaction retention, populated data and custom
+profile definitions. Missing fields must fail even after earlier success.
+See [leader marketplace schema boundary](docs/technical/DATABASE_MIGRATIONS.md#leader-marketplace-runtime-schema-boundary).
+Fleet wormhole access, NPC regeneration and beacon rewards require canonical
+v8/v9 wormhole migrations. Missing schema must not become an unavailable route
+or consume a due tick marker. Check beacon unlock storage before reward writes;
+ordinary quests must not require it. Test SELECT-only reads, exact stability
+and research gates, DML-only maintenance/rewards and transaction rollback.
+See [wormhole schema boundary](docs/technical/DATABASE_MIGRATIONS.md#wormhole-runtime-schema-boundary).
+Projection workers require the canonical queue v1/runtime v2/claim-token v1 and the respective
+read-model migration before starting. Check schema before any claim; never
+create projection tables in worker bootstrap. Dry runs must work with SELECT
+only and leave queue state unchanged. Use strict projection errors in workers,
+and test denied-write retry behavior via the actual CLI rather than helper-only
+success tests. System snapshots use `(galaxy, system_index)`, not `system_id`.
+See [projection worker runbook](docs/technical/PROJECTION_RUNBOOK.md).
+Projection CLI options must be unique and use `--name=value` for numbers.
+Reject unknown/malformed arguments before loading configuration; keep standalone
+`--help` independent of database setup. Test exact integer overflow and actual
+CLI subprocesses, not only the parser. Batch zero is invalid; zero time/item
+limits remain unlimited. Do not silently clamp invalid supervisor configuration.
+Projection failure transitions must only update processing rows. A fresh enqueue
+must retain its reset attempts/error state and immediate schedule; test both retry
+and dead-letter interleavings with a separate producer connection on real MySQL.
+Check affected rows before reporting a transition. Pass the mandatory token
+returned by `claim_batch()` to completion/failure helpers; never add an optional
+legacy-token bypass. Both producers must clear the token and reset status on
+coalescing. Test stale completion/retry/dead-letter after a replacement claim,
+not merely a queued row. Stop old workers before migration 72/deployment;
+mixed worker versions are unsafe.
+Workers must publish through `complete_projection_claim()`: build payloads
+outside the transaction, then lock the exact claim before strict read-model
+write and acknowledgement on the same PDO connection. The callback must not
+perform DDL, control transactions or mutate gameplay. Require canonical InnoDB
+queue/read-model storage before any claim. Test stale writers never run, writes
+roll back when ack fails, producer updates wait for the lock and uncommitted
+snapshots stay invisible. Count lost claims as skipped, not processed.
+This does not establish consistent source reads, a transactional gameplay outbox,
+exactly-once delivery or automatic crash recovery.
+
 The Playwright smoke-test job uses [`docker-compose.ci.yml`](docker-compose.ci.yml)
 to run only web and database. The override requires Docker Compose 2.24.4+
 (`!override` / `!reset` support). Fixed base-service container names are removed;
@@ -165,6 +250,14 @@ Remote CI and production/GPU readiness remain unproven.
 
 If a local tool, database, Docker daemon, or platform-specific capability is
 unavailable, state that explicitly instead of reporting the check as passed.
+
+Migration changes must also pass
+`npm run check:migration-history -- --base <prior-ancestor-commit>`.
+CI checks that existing manifest entries remain an ordered prefix and historical
+forward SQL retains its Git-clean bytes; new migration files are append-only.
+Do not compare an already committed SQL rewrite against its own HEAD.
+See [Database Migrations](docs/technical/DATABASE_MIGRATIONS.md) for event baseline
+selection, Windows line endings and the distinction from deployed MD5 checks.
 
 ## Application health probes
 

@@ -420,17 +420,21 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         $row = $uqRow->fetch();
         if (!$row) { json_error('Quest not found or not yet completed.', 404); }
 
+                ensure_faction_quest_reward_schema($db, (string)($row['code'] ?? ''));
+
         // Credit rewards to homeworld colony
         $hw = $db->prepare('SELECT id FROM colonies WHERE user_id=? AND is_homeworld=1 LIMIT 1');
         $hw->execute([$uid]);
         $hwId = $hw->fetchColumn();
-        if ($hwId) {
-            $db->prepare(
-                'UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+?,
-                                     rare_earth=rare_earth+? WHERE id=?'
-            )->execute([$row['reward_metal'], $row['reward_crystal'],
-                        $row['reward_deuterium'], $row['reward_rare_earth'], $hwId]);
-        }
+                if ($hwId) {
+                    $db->prepare(
+                        'UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+?,
+                                             rare_earth=rare_earth+? WHERE id=?'
+                    )->execute([
+                        $row['reward_metal'], $row['reward_crystal'],
+                        $row['reward_deuterium'], $row['reward_rare_earth'], $hwId,
+                    ]);
+                }
         // Dark matter + rank points
         $db->prepare('UPDATE users SET dark_matter=dark_matter+?, rank_points=rank_points+? WHERE id=?')
            ->execute([$row['reward_dark_matter'], $row['reward_rank_points'], $uid]);
@@ -443,21 +447,14 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         $db->prepare('UPDATE user_faction_quests SET status=\'claimed\', completed_at=NOW() WHERE id=?')
            ->execute([$uqid]);
 
-        if (($row['code'] ?? '') === 'precursor_wormhole_beacon') {
-            $db->exec(
-                'CREATE TABLE IF NOT EXISTS user_wormhole_unlocks (
-                    user_id INT NOT NULL PRIMARY KEY,
-                    source_quest_code VARCHAR(64) DEFAULT NULL,
-                    unlocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                ) ENGINE=InnoDB'
-            );
-            $db->prepare(
-                'INSERT INTO user_wormhole_unlocks (user_id, source_quest_code, unlocked_at)
-                 VALUES (?, ?, NOW())
-                 ON DUPLICATE KEY UPDATE source_quest_code = VALUES(source_quest_code), unlocked_at = VALUES(unlocked_at)'
-            )->execute([$uid, (string)$row['code']]);
-        }
+                if (($row['code'] ?? '') === 'precursor_wormhole_beacon') {
+                    $db->prepare(
+                        'INSERT INTO user_wormhole_unlocks (user_id, source_quest_code, unlocked_at)
+                         VALUES (?, ?, NOW())
+                         ON DUPLICATE KEY UPDATE source_quest_code = VALUES(source_quest_code),
+                                                 unlocked_at = VALUES(unlocked_at)'
+                    )->execute([$uid, (string)$row['code']]);
+                }
 
         // Increment quests_completed in diplomacy
         $db->prepare(
@@ -476,6 +473,14 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function ensure_faction_quest_reward_schema(PDO $db, string $questCode): void
+{
+    if ($questCode === 'precursor_wormhole_beacon') {
+        require_once __DIR__ . '/../lib/GalaxySchema.php';
+        \GalaxyQuest\Schema\GalaxySchema::assertWormholeUnlocks($db);
+    }
+}
 
 /**
  * Get player's current standing with a faction.

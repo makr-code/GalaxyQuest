@@ -10,6 +10,7 @@
     "check:bundle-budget": "node scripts/check_bundle_budget.mjs",
     "check:repository-artifacts": "node scripts/check_repository_artifacts.mjs",
     "check:release-metadata": "node scripts/check_release_metadata.mjs",
+    "check:migration-history": "node scripts/check_migration_history.mjs",
     "check:docker-context": "node scripts/check_docker_context.mjs",
     "lint:js": "eslint js/ --config .eslintrc.galaxy.js --suppressions-location eslint-suppressions.json --report-unused-disable-directives-severity off --max-warnings 0",
     "export:herald-base": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/export_mpfb_herald_base.ps1",

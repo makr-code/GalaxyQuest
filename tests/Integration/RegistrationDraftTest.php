@@ -21,7 +21,7 @@ final class RegistrationDraftTest extends TestCase {
             'Never run this test against an existing installation.');
         foreach (['schema.sql', 'migrate_security_v1.sql', 'migrate_security_v2_totp.sql', 'migrate_admin_user_crud_v1.sql', 'migrate_fog_of_war.sql',
                   'migrate_faction_homeworlds_v1.sql', 'migrate_registration_drafts_v1.sql', 'migrate_registration_mentor_drafts_v2.sql',
-                  'migrate_registration_portraits_v1.sql'] as $file) {
+                  'migrate_registration_portraits_v1.sql', 'migrate_star_spectral_wd_v1.sql'] as $file) {
             $db->exec(file_get_contents(__DIR__ . '/../../sql/' . $file));
         }
         ensure_star_system_columns($db);

@@ -852,6 +852,30 @@ final class MigrationRunnerMySqlTest extends TestCase
             $this->assertSame('TEST', $migration['environment']);
         }
         $this->assertSame(count($manifest), $runner->verifyDeployment());
+        require_once __DIR__ . '/../../lib/GalaxySchema.php';
+        \GalaxyQuest\Schema\GalaxySchema::assertStars($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertBinaries($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertPlanets($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertAppState($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertFactions($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertGovernments($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertBuildingQueue($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertShipQueue($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertBuiltVessels($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertHomeworldSupport($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertCharacterProfiles($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertSituations($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertWorldScenarios($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertGlossaryCache($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertAlliances($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertAllianceWars($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertLeaderMarketplace($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertLeaderProfiles($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertWormholes($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertWormholeUnlocks($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertProjectionQueue($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertUserProjection($this->db);
+        \GalaxyQuest\Schema\GalaxySchema::assertSystemProjection($this->db);
         $this->assertSame([], $runner->runUp());
         $this->assertFalse($this->db->inTransaction());
     }
@@ -920,6 +944,1795 @@ final class MigrationRunnerMySqlTest extends TestCase
         $this->db->exec('DELETE FROM colonies WHERE id=42');
         $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM colony_economy_state')->fetchColumn());
         $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM economy_colony_market')->fetchColumn());
+    }
+
+    /** @return array{exit:int, output:string, errors:string} */
+    private function runProjector(string $worker, string $username, string $password, array $arguments = []): array
+    {
+        $output = tmpfile();
+        $errors = tmpfile();
+        $this->assertIsResource($output);
+        $this->assertIsResource($errors);
+        $environment = array_merge(getenv(), [
+            'DB_HOST' => '127.0.0.1', 'DB_PORT' => '3306', 'DB_NAME' => $this->database,
+            'DB_USER' => $username, 'DB_PASS' => $password, 'XDEBUG_MODE' => 'off',
+        ]);
+        try {
+            $process = proc_open(
+                [PHP_BINARY, __DIR__ . '/../../scripts/' . $worker . '.php', ...$arguments],
+                [0 => ['pipe', 'r'], 1 => $output, 2 => $errors],
+                $pipes,
+                dirname(__DIR__, 2),
+                $environment
+            );
+            $this->assertIsResource($process);
+            fclose($pipes[0]);
+            $exit = proc_close($process);
+            rewind($output);
+            rewind($errors);
+            return ['exit' => $exit, 'output' => stream_get_contents($output), 'errors' => stream_get_contents($errors)];
+        } finally {
+            fclose($output);
+            fclose($errors);
+        }
+    }
+
+    public function testProjectorCommandsPreflightBeforeClaimAndDryRunsAreReadOnly(): void
+    {
+        require_once __DIR__ . '/../../lib/GalaxySchema.php';
+        $this->db->exec($this->readSqlForTestDatabase('migrate_projection_user_overview_v1.sql'));
+        $this->db->exec($this->readSqlForTestDatabase('migrate_projection_system_snapshot_v1.sql'));
+        $runner = $this->buildRunner(
+            $this->readSqlForTestDatabase('migrate_projection_runtime_v2.sql') . "\n" .
+            $this->readSqlForTestDatabase('migrate_projection_claim_token_v1.sql')
+        );
+        $this->assertCount(1, $runner->runUp());
+        $this->db->exec("INSERT INTO projection_dirty_queue (entity_type,entity_id,reason)
+            VALUES ('user',7,'retained'),('user',8,'retained'),('system',100001,'retained'),('system',100002,'retained');
+            INSERT INTO projection_user_overview (user_id,payload_json,version) VALUES (7,'{\"retained\":true}',8);
+            INSERT INTO projection_system_snapshot (galaxy,system_index,payload_json,version)
+                VALUES (1,1,'{\"retained\":true}',9)");
+        $tables = ['projection_dirty_queue', 'projection_user_overview', 'projection_system_snapshot'];
+        $before = [];
+        $definitions = [];
+        foreach ($tables as $table) {
+            $before[$table] = $this->db->query('SELECT * FROM ' . $table)->fetchAll(PDO::FETCH_ASSOC);
+            $definitions[$table] = $this->db->query('SHOW CREATE TABLE ' . $table)->fetch(PDO::FETCH_NUM);
+        }
+        $username = 'gq_projector_' . bin2hex(random_bytes(6));
+        $account = $this->admin->quote($username) . "@'%'";
+        $password = bin2hex(random_bytes(16));
+        $this->admin->exec('CREATE USER ' . $account . ' IDENTIFIED BY ' . $this->admin->quote($password));
+        try {
+            $this->admin->exec('GRANT SELECT ON `' . $this->database . '`.* TO ' . $account);
+            $reader = new PDO(
+                (string) getenv('GQ_MIGRATION_TEST_DSN'), $username, $password,
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]
+            );
+            $reader->exec('USE `' . $this->database . '`');
+            $reader->beginTransaction();
+            \GalaxyQuest\Schema\GalaxySchema::assertProjectionQueue($reader);
+            \GalaxyQuest\Schema\GalaxySchema::assertUserProjection($reader);
+            \GalaxyQuest\Schema\GalaxySchema::assertSystemProjection($reader);
+            \GalaxyQuest\Schema\GalaxySchema::assertProjectionTransactions($reader, 'projection_user_overview');
+            \GalaxyQuest\Schema\GalaxySchema::assertProjectionTransactions($reader, 'projection_system_snapshot');
+            $this->assertTrue($reader->inTransaction());
+            $reader->rollBack();
+            foreach (['project_user_overview', 'project_system_snapshots'] as $worker) {
+                $invalid = $this->runProjector($worker, $username, $password, ['--dryrun']);
+                $this->assertSame(1, $invalid['exit'], $invalid['errors']);
+                $this->assertStringContainsString('invalid projection argument', $invalid['errors']);
+                $this->assertStringNotContainsString('start ', $invalid['errors']);
+                $result = $this->runProjector($worker, $username, $password, ['--dry-run', '--batch=50', '--max-items=1']);
+                $this->assertSame(0, $result['exit'], $result['errors']);
+                $this->assertStringContainsString('batch_size=50', $result['errors']);
+                $this->assertStringContainsString('dry_run', $result['errors']);
+                $this->assertStringContainsString('processed=1', $result['errors']);
+            }
+            foreach ($tables as $table) {
+                $this->assertSame($before[$table], $this->db->query('SELECT * FROM ' . $table)->fetchAll(PDO::FETCH_ASSOC));
+                $this->assertSame($definitions[$table], $this->db->query('SHOW CREATE TABLE ' . $table)->fetch(PDO::FETCH_NUM));
+            }
+            $this->admin->exec('GRANT UPDATE, DELETE ON `' . $this->database . '`.projection_dirty_queue TO ' . $account);
+            foreach ($tables as $table) {
+                $this->db->exec('ALTER TABLE ' . $table . ' ENGINE=MyISAM');
+                $worker = $table === 'projection_system_snapshot' ? 'project_system_snapshots' : 'project_user_overview';
+                $result = $this->runProjector($worker, $username, $password);
+                $this->assertSame(1, $result['exit'], $result['errors']);
+                $this->assertStringContainsString($table . ' must use InnoDB', $result['errors']);
+                $this->assertSame($before['projection_dirty_queue'],
+                    $this->db->query('SELECT * FROM projection_dirty_queue')->fetchAll(PDO::FETCH_ASSOC));
+                $this->db->exec('ALTER TABLE ' . $table . ' ENGINE=InnoDB');
+            }
+            $result = $this->runProjector('project_user_overview', $username, $password, ['--batch=2', '--max-items=1']);
+            $this->assertSame(2, $result['exit'], $result['errors']);
+            $this->assertStringContainsString('errors=1', $result['errors']);
+            $this->assertSame(1, (int) $this->db->query("SELECT SUM(attempts) FROM projection_dirty_queue WHERE entity_type='user'")->fetchColumn());
+            $this->assertSame(0, (int) $this->db->query("SELECT COUNT(*) FROM projection_dirty_queue WHERE status='processing'")->fetchColumn());
+            $this->assertSame($before['projection_user_overview'], $this->db->query('SELECT * FROM projection_user_overview')->fetchAll(PDO::FETCH_ASSOC));
+            $before['projection_dirty_queue'] = $this->db->query('SELECT * FROM projection_dirty_queue')->fetchAll(PDO::FETCH_ASSOC);
+            $this->db->exec('DROP TABLE projection_user_overview; DROP TABLE projection_system_snapshot');
+            foreach (['project_user_overview', 'project_system_snapshots'] as $worker) {
+                $result = $this->runProjector($worker, $username, $password);
+                $this->assertSame(1, $result['exit'], $result['errors']);
+                $this->assertStringContainsString('FATAL:', $result['errors']);
+                $this->assertStringNotContainsString('finish ', $result['errors']);
+                $this->assertStringNotContainsString('claim_batch failed', $result['errors']);
+            }
+            $this->assertSame($before['projection_dirty_queue'], $this->db->query('SELECT * FROM projection_dirty_queue')->fetchAll(PDO::FETCH_ASSOC));
+            $this->db->exec($this->readSqlForTestDatabase('migrate_projection_user_overview_v1.sql'));
+            $this->db->exec($this->readSqlForTestDatabase('migrate_projection_system_snapshot_v1.sql'));
+            $this->db->exec('ALTER TABLE projection_dirty_queue DROP COLUMN status');
+            foreach (['project_user_overview', 'project_system_snapshots'] as $worker) {
+                $result = $this->runProjector($worker, $username, $password, ['--dry-run']);
+                $this->assertSame(1, $result['exit'], $result['errors']);
+                $this->assertStringContainsString('projection_dirty_queue.status', $result['errors']);
+            }
+            $this->assertSame(4, (int) $this->db->query('SELECT COUNT(*) FROM projection_dirty_queue')->fetchColumn());
+        } finally {
+            if (isset($reader) && $reader->inTransaction()) {
+                $reader->rollBack();
+            }
+            $this->admin->exec('DROP USER ' . $account);
+        }
+    }
+
+    public function testSystemProjectorUsesCanonicalKeysAndRetriesFailedWrites(): void
+    {
+        $this->db->exec($this->readSqlForTestDatabase('migrate_projection_user_overview_v1.sql'));
+        $this->db->exec($this->readSqlForTestDatabase('migrate_projection_system_snapshot_v1.sql'));
+        $runner = $this->buildRunner(
+            $this->readSqlForTestDatabase('migrate_projection_runtime_v2.sql') . "\n" .
+            $this->readSqlForTestDatabase('migrate_projection_claim_token_v1.sql')
+        );
+        $this->assertCount(1, $runner->runUp());
+        $this->db->exec("CREATE TABLE star_systems (id INT PRIMARY KEY, galaxy_index INT, system_index INT,
+                name VARCHAR(64),catalog_name VARCHAR(64),spectral_class VARCHAR(8),subtype INT,
+                x_ly DOUBLE,y_ly DOUBLE,z_ly DOUBLE,planet_count INT,hz_inner_au DOUBLE,hz_outer_au DOUBLE);
+            INSERT INTO star_systems VALUES (77,1,120,'Test','Retained Star','G',2,1,2,3,4,0.9,1.4);
+            CREATE TABLE users (id INT PRIMARY KEY,username VARCHAR(64),empire_color VARCHAR(16));
+            INSERT INTO users VALUES (7,'Owner','#123456');
+            CREATE TABLE celestial_bodies (id INT PRIMARY KEY,galaxy_index INT,system_index INT);
+            INSERT INTO celestial_bodies VALUES (1,1,120);
+            CREATE TABLE colonies (id INT PRIMARY KEY,body_id INT,user_id INT,population BIGINT);
+            INSERT INTO colonies VALUES (1,1,7,500);
+            INSERT INTO projection_dirty_queue (entity_type,entity_id) VALUES ('system',100120),('system',100121)");
+        $username = 'gq_projector_' . bin2hex(random_bytes(6));
+        $account = $this->admin->quote($username) . "@'%'";
+        $password = bin2hex(random_bytes(16));
+        $this->admin->exec('CREATE USER ' . $account . ' IDENTIFIED BY ' . $this->admin->quote($password));
+        try {
+            $this->admin->exec('GRANT SELECT, INSERT, UPDATE, DELETE ON `' . $this->database . '`.* TO ' . $account);
+            $result = $this->runProjector('project_system_snapshots', $username, $password, ['--batch=2', '--max-items=1']);
+            $this->assertSame(0, $result['exit'], $result['errors']);
+            $this->assertStringContainsString('processed=1', $result['errors']);
+            $this->assertSame('queued', $this->db->query('SELECT status FROM projection_dirty_queue')->fetchColumn());
+            $snapshot = $this->db->query('SELECT * FROM projection_system_snapshot')->fetch(PDO::FETCH_ASSOC);
+            $this->assertSame(1, (int) $snapshot['galaxy']);
+            $this->assertSame(120, (int) $snapshot['system_index']);
+            $this->assertSame(7, (int) $snapshot['owner_user_id']);
+            $this->assertSame(500, (int) $snapshot['colony_population']);
+            $this->assertSame(1, (int) $snapshot['version']);
+            $payload = json_decode($snapshot['payload_json'], true, flags: JSON_THROW_ON_ERROR);
+            $this->assertSame('Retained Star', $payload['catalog_name']);
+            $this->assertSame('#123456', $payload['colony_owner_color']);
+            $result = $this->runProjector('project_system_snapshots', $username, $password);
+            $this->assertSame(0, $result['exit'], $result['errors']);
+            $this->assertStringContainsString('star_not_ready', $result['errors']);
+            $this->assertSame(0, (int) $this->db->query('SELECT COUNT(*) FROM projection_dirty_queue')->fetchColumn());
+            $this->db->exec("INSERT INTO projection_dirty_queue (entity_type,entity_id) VALUES ('system',100120);
+                UPDATE projection_system_snapshot SET stale_flag=1");
+            $this->admin->exec('REVOKE INSERT, UPDATE, DELETE ON `' . $this->database . '`.* FROM ' . $account);
+            $this->admin->exec('GRANT INSERT, UPDATE, DELETE ON `' . $this->database . '`.projection_dirty_queue TO ' . $account);
+            $result = $this->runProjector('project_system_snapshots', $username, $password);
+            $this->assertSame(2, $result['exit'], $result['errors']);
+            $this->assertStringContainsString('errors=1', $result['errors']);
+            $queue = $this->db->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC);
+            $this->assertSame('queued', $queue['status']);
+            $this->assertSame(1, (int) $queue['attempts']);
+            $this->assertStringContainsString('denied', $queue['last_error']);
+            $this->assertSame(1, (int) $this->db->query('SELECT version FROM projection_system_snapshot')->fetchColumn());
+            $this->assertSame(1, (int) $this->db->query('SELECT stale_flag FROM projection_system_snapshot')->fetchColumn());
+            $this->admin->exec('GRANT INSERT, UPDATE ON `' . $this->database . '`.projection_system_snapshot TO ' . $account);
+            $this->db->exec('UPDATE projection_dirty_queue SET next_attempt_at=NOW()');
+            $result = $this->runProjector('project_system_snapshots', $username, $password);
+            $this->assertSame(0, $result['exit'], $result['errors']);
+            $this->assertSame(2, (int) $this->db->query('SELECT version FROM projection_system_snapshot')->fetchColumn());
+            $this->assertSame(0, (int) $this->db->query('SELECT stale_flag FROM projection_system_snapshot')->fetchColumn());
+            $this->assertSame(0, (int) $this->db->query('SELECT COUNT(*) FROM projection_dirty_queue')->fetchColumn());
+            $this->db->exec("INSERT INTO projection_dirty_queue (entity_type,entity_id) VALUES ('system',100120);
+                UPDATE projection_system_snapshot SET stale_flag=1");
+            $beforeAckFailure = $this->db->query('SELECT * FROM projection_system_snapshot')->fetch(PDO::FETCH_ASSOC);
+            $this->admin->exec('REVOKE DELETE ON `' . $this->database . '`.projection_dirty_queue FROM ' . $account);
+            $result = $this->runProjector('project_system_snapshots', $username, $password);
+            $this->assertSame(2, $result['exit'], $result['errors']);
+            $this->assertStringContainsString('DELETE command denied', $result['errors']);
+            $this->assertStringNotContainsString('completion_committed', $result['errors']);
+            $this->assertSame($beforeAckFailure,
+                $this->db->query('SELECT * FROM projection_system_snapshot')->fetch(PDO::FETCH_ASSOC));
+            $queue = $this->db->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC);
+            $this->assertSame('queued', $queue['status']);
+            $this->assertSame(1, (int)$queue['attempts']);
+            $this->assertNull($queue['claim_token']);
+            $this->admin->exec('GRANT DELETE ON `' . $this->database . '`.projection_dirty_queue TO ' . $account);
+            $this->db->exec('UPDATE projection_dirty_queue SET next_attempt_at=NOW()');
+            $result = $this->runProjector('project_system_snapshots', $username, $password);
+            $this->assertSame(0, $result['exit'], $result['errors']);
+            $this->assertStringContainsString('completion_committed', $result['errors']);
+            $this->assertSame(3, (int)$this->db->query('SELECT version FROM projection_system_snapshot')->fetchColumn());
+            $this->db->exec("INSERT INTO projection_dirty_queue (entity_type,entity_id) VALUES ('system',100120);
+                DROP TABLE star_systems");
+            $result = $this->runProjector('project_system_snapshots', $username, $password);
+            $this->assertSame(2, $result['exit'], $result['errors']);
+            $this->assertSame('queued', $this->db->query('SELECT status FROM projection_dirty_queue')->fetchColumn());
+            $this->assertSame(3, (int) $this->db->query('SELECT version FROM projection_system_snapshot')->fetchColumn());
+        } finally {
+            $this->admin->exec('DROP USER ' . $account);
+        }
+    }
+
+    public function testProjectionCompletionFencesWritesAndCommitsAckAtomically(): void
+    {
+        require_once __DIR__ . '/../../lib/GalaxySchema.php';
+        foreach (['migrate_projection_user_overview_v1.sql', 'migrate_projection_system_snapshot_v1.sql',
+            'migrate_projection_runtime_v2.sql', 'migrate_projection_claim_token_v1.sql'] as $migration) {
+            $this->db->exec($this->readSqlForTestDatabase($migration));
+        }
+        $producer = $this->secondConnection();
+        $producer->exec('SET SESSION innodb_lock_wait_timeout=1');
+        foreach (['user', 'system'] as $entityType) {
+            $table = $entityType === 'user' ? 'projection_user_overview' : 'projection_system_snapshot';
+            \GalaxyQuest\Schema\GalaxySchema::assertProjectionTransactions($this->db, $table);
+            $write = static function (PDO $connection, string $revision) use ($entityType): void {
+                $payload = ['revision' => $revision, 'colony_population' => 500];
+                if ($entityType === 'user') {
+                    write_user_overview_projection($connection, 7, $payload, true);
+                } else {
+                    write_system_snapshot($connection, 1, 120, $payload, true);
+                }
+            };
+            $enqueue = static function (string $reason) use ($entityType, $producer): void {
+                if ($entityType === 'user') {
+                    enqueue_projection_dirty($producer, 'user', 7, $reason);
+                } else {
+                    enqueue_dirty_system($producer, 1, 120, $reason);
+                }
+            };
+            $write($this->db, 'retained');
+            $before = $producer->query('SELECT * FROM ' . $table)->fetch(PDO::FETCH_ASSOC);
+            $enqueue('old');
+            $old = claim_batch($this->db, $entityType, 1)[0];
+            $enqueue('replacement');
+            $new = claim_batch($this->db, $entityType, 1)[0];
+            $queueBefore = $producer->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC);
+
+            // Reproduce the old unfenced write without retaining its effects.
+            $this->db->beginTransaction();
+            $write($this->db, 'obsolete');
+            $this->assertSame(2, (int)$this->db->query('SELECT version FROM ' . $table)->fetchColumn());
+            $this->db->rollBack();
+            $this->assertFalse(complete_projection_claim(
+                $this->db, (int)$old['id'], $old['claim_token'],
+                static function (PDO $connection): void { self::fail('Old claim must never write.'); },
+            ));
+            $this->assertSame($before, $producer->query('SELECT * FROM ' . $table)->fetch(PDO::FETCH_ASSOC));
+            $this->assertSame($queueBefore,
+                $producer->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC));
+
+            try {
+                complete_projection_claim($this->db, (int)$new['id'], $new['claim_token'],
+                    function (PDO $connection) use ($write, $producer, $table, $before): void {
+                        $write($connection, 'rolled back');
+                        $this->assertSame($before, $producer->query('SELECT * FROM ' . $table)->fetch(PDO::FETCH_ASSOC));
+                        throw new RuntimeException('failure after snapshot write');
+                    });
+                $this->fail('Write failure must propagate.');
+            } catch (RuntimeException $e) {
+                $this->assertSame('failure after snapshot write', $e->getMessage());
+            }
+            $this->assertFalse($this->db->inTransaction());
+            $this->assertSame($before, $producer->query('SELECT * FROM ' . $table)->fetch(PDO::FETCH_ASSOC));
+            $this->assertSame($queueBefore,
+                $producer->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC));
+            $this->assertTrue(complete_projection_claim($this->db, (int)$new['id'], $new['claim_token'],
+                function (PDO $connection) use ($write, $producer, $table, $before, $new): void {
+                    $write($connection, 'committed');
+                    $this->assertSame($before, $producer->query('SELECT * FROM ' . $table)->fetch(PDO::FETCH_ASSOC));
+                    try {
+                        $producer->exec("UPDATE projection_dirty_queue SET status='queued' WHERE id=" . (int)$new['id']);
+                        $this->fail('Producer must wait for the locked claim.');
+                    } catch (PDOException $e) {
+                        $this->assertSame(1205, $e->errorInfo[1]);
+                    }
+                }));
+            $this->assertSame(0, (int)$producer->query('SELECT COUNT(*) FROM projection_dirty_queue')->fetchColumn());
+            $committed = $producer->query('SELECT * FROM ' . $table)->fetch(PDO::FETCH_ASSOC);
+            $this->assertSame(2, (int)$committed['version']);
+            $this->assertSame('committed', json_decode($committed['payload_json'], true)['revision']);
+            $this->assertFalse(complete_projection_claim($this->db, (int)$new['id'], $new['claim_token'],
+                static function (PDO $connection): void { self::fail('Deleted claim must not publish twice.'); }));
+            $this->assertSame($committed, $producer->query('SELECT * FROM ' . $table)->fetch(PDO::FETCH_ASSOC));
+            $enqueue('after commit');
+            $this->assertSame('queued', $producer->query('SELECT status FROM projection_dirty_queue')->fetchColumn());
+            $next = claim_batch($this->db, $entityType, 1)[0];
+            $this->assertTrue(complete_projection_claim($this->db, (int)$next['id'], $next['claim_token'],
+                static function (PDO $connection): void {}));
+            $this->assertSame($committed, $producer->query('SELECT * FROM ' . $table)->fetch(PDO::FETCH_ASSOC));
+        }
+    }
+
+    public function testProjectionTokenMigrationPreservesPopulatedLegacyQueue(): void
+    {
+        $this->db->exec($this->readSqlForTestDatabase('migrate_projection_user_overview_v1.sql'));
+        $this->db->exec($this->readSqlForTestDatabase('migrate_projection_runtime_v2.sql'));
+        $this->db->exec("INSERT INTO projection_dirty_queue (entity_type,entity_id,status,attempts,last_error)
+            VALUES ('user',7,'processing',3,'retained')");
+        $before = $this->db->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC);
+        $runner = $this->buildRunner($this->readSqlForTestDatabase('migrate_projection_claim_token_v1.sql'));
+        $this->assertCount(1, $runner->runUp());
+        $after = $this->db->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC);
+        $this->assertNull($after['claim_token']);
+        unset($after['claim_token']);
+        $this->assertSame($before, $after);
+        $this->db->exec("UPDATE projection_dirty_queue SET claim_token='" . str_repeat('a', 64) . "'");
+        $definition = $this->db->query('SHOW CREATE TABLE projection_dirty_queue')->fetch(PDO::FETCH_NUM);
+        $rows = $this->db->query('SELECT * FROM projection_dirty_queue')->fetchAll(PDO::FETCH_ASSOC);
+        $this->db->exec($this->readSqlForTestDatabase('migrate_projection_claim_token_v1.sql'));
+        $this->assertSame($definition, $this->db->query('SHOW CREATE TABLE projection_dirty_queue')->fetch(PDO::FETCH_NUM));
+        $this->assertSame($rows, $this->db->query('SELECT * FROM projection_dirty_queue')->fetchAll(PDO::FETCH_ASSOC));
+        $this->assertSame([], $runner->runUp());
+    }
+
+    public function testProjectorFailureDoesNotOverwriteRequeuedEvents(): void
+    {
+        require_once __DIR__ . '/../../lib/projection_runtime.php';
+        $this->db->exec($this->readSqlForTestDatabase('migrate_projection_user_overview_v1.sql'));
+        $runner = $this->buildRunner(
+            $this->readSqlForTestDatabase('migrate_projection_runtime_v2.sql') . "\n" .
+            $this->readSqlForTestDatabase('migrate_projection_claim_token_v1.sql')
+        );
+        $this->assertCount(1, $runner->runUp());
+        $producer = $this->secondConnection();
+        $maximum = defined('PROJECTION_MAX_ATTEMPTS') ? (int)PROJECTION_MAX_ATTEMPTS : 10;
+        foreach ([1, $maximum] as $attempt) {
+            enqueue_projection_dirty($producer, 'user', 7, 'old event', 'old', '{"revision":1}');
+            $claim = claim_batch($this->db, 'user', 1);
+            $this->assertCount(1, $claim);
+            $id = (int)$claim[0]['id'];
+            enqueue_projection_dirty($producer, 'user', 7, 'new event', 'new', '{"revision":2}');
+            $before = $producer->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC);
+            mark_failed($this->db, $id, $attempt, 'stale failure', 30, $claim[0]['claim_token']);
+            $this->assertSame($before, $producer->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC));
+            mark_done($this->db, $id, $claim[0]['claim_token']);
+            $this->assertSame($before, $producer->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC));
+            $replacement = claim_batch($this->db, 'user', 1);
+            $this->assertCount(1, $replacement);
+            $this->assertSame('{"revision":2}', $replacement[0]['payload_json']);
+            $this->assertNotSame($claim[0]['claim_token'], $replacement[0]['claim_token']);
+            $reclaimed = $producer->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC);
+            $this->db->beginTransaction();
+            $unfenced = $this->db->prepare("DELETE FROM projection_dirty_queue WHERE id=? AND status='processing'");
+            $unfenced->execute([$id]);
+            $this->assertSame(1, $unfenced->rowCount());
+            $this->db->rollBack();
+            mark_done($this->db, $id, $claim[0]['claim_token']);
+            mark_failed($this->db, $id, $attempt, 'obsolete claim', 30, $claim[0]['claim_token']);
+            $this->assertSame($reclaimed, $producer->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC));
+            mark_done($this->db, $id, $replacement[0]['claim_token']);
+            $this->assertSame(0, (int)$producer->query('SELECT COUNT(*) FROM projection_dirty_queue')->fetchColumn());
+        }
+        enqueue_projection_dirty($producer, 'user', 8, 'retry');
+        $claim = claim_batch($this->db, 'user', 1);
+        $id = (int)$claim[0]['id'];
+        $this->db->beginTransaction();
+        mark_failed($this->db, $id, 1, 'transient', 30, $claim[0]['claim_token']);
+        $this->assertTrue($this->db->inTransaction());
+        $this->assertSame('queued', $this->db->query('SELECT status FROM projection_dirty_queue')->fetchColumn());
+        $this->db->rollBack();
+        $this->assertSame('processing', $producer->query('SELECT status FROM projection_dirty_queue')->fetchColumn());
+        mark_failed($this->db, $id, 1, 'transient', 30, $claim[0]['claim_token']);
+        $retry = $producer->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame('queued', $retry['status']);
+        $this->assertNull($retry['claim_token']);
+        $this->assertSame(1, (int)$retry['attempts']);
+        $this->assertSame('transient', $retry['last_error']);
+        $this->assertGreaterThan(time(), strtotime($retry['next_attempt_at']));
+        mark_failed($this->db, $id, $maximum, 'duplicate failure', 30, $claim[0]['claim_token']);
+        $this->assertSame($retry, $producer->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC));
+        $this->db->exec('UPDATE projection_dirty_queue SET next_attempt_at=NOW()');
+        $claim = claim_batch($this->db, 'user', 1);
+        $this->assertCount(1, $claim);
+        mark_failed($this->db, $id, $maximum, 'permanent failure', 30, $claim[0]['claim_token']);
+        $dead = $producer->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame('failed', $dead['status']);
+        $this->assertNull($dead['claim_token']);
+        $this->assertSame($maximum, (int)$dead['attempts']);
+        mark_failed($this->db, $id, 1, 'late retry', 30, $claim[0]['claim_token']);
+        mark_done($this->db, $id, $claim[0]['claim_token']);
+        $this->assertSame($dead, $producer->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC));
+        $this->assertSame([], claim_batch($this->db, 'user', 1));
+        enqueue_projection_dirty($producer, 'user', 8, 'revived event');
+        $claim = claim_batch($this->db, 'user', 1);
+        $this->assertCount(1, $claim);
+        mark_done($this->db, $id, $claim[0]['claim_token']);
+        mark_failed($this->db, $id, 1, 'deleted row', 30, $claim[0]['claim_token']);
+        $this->assertSame(0, (int)$producer->query('SELECT COUNT(*) FROM projection_dirty_queue')->fetchColumn());
+
+        enqueue_dirty_system($producer, 1, 120, 'system old');
+        $old = claim_batch($this->db, 'system', 1);
+        $this->assertCount(1, $old);
+        $id = (int)$old[0]['id'];
+        enqueue_dirty_system($producer, 1, 120, 'system new');
+        $queued = $producer->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame('queued', $queued['status']);
+        $this->assertNull($queued['claim_token']);
+        $this->assertSame('system new', $queued['reason']);
+        $new = claim_batch($this->db, 'system', 1);
+        $this->assertCount(1, $new);
+        $this->assertNotSame($old[0]['claim_token'], $new[0]['claim_token']);
+        $current = $producer->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC);
+        mark_done($this->db, $id, $old[0]['claim_token']);
+        mark_failed($this->db, $id, 1, 'old system failure', 30, $old[0]['claim_token']);
+        mark_failed($this->db, $id, $maximum, 'old system dead letter', 30, $old[0]['claim_token']);
+        $this->assertSame($current, $producer->query('SELECT * FROM projection_dirty_queue')->fetch(PDO::FETCH_ASSOC));
+        mark_failed($this->db, $id, $maximum, 'current system dead letter', 30, $new[0]['claim_token']);
+        $this->assertSame('failed', $producer->query('SELECT status FROM projection_dirty_queue')->fetchColumn());
+        enqueue_dirty_system($producer, 1, 120, 'system revived');
+        $revived = claim_batch($this->db, 'system', 1);
+        $this->assertCount(1, $revived);
+        $this->assertSame('system revived', $revived[0]['reason']);
+        $this->assertSame(0, (int)$revived[0]['attempts']);
+        mark_done($this->db, $id, $revived[0]['claim_token']);
+        $this->assertSame(0, (int)$producer->query('SELECT COUNT(*) FROM projection_dirty_queue')->fetchColumn());
+    }
+
+    private function prepareWormholeFixture(): MigrationRunner
+    {
+        $this->db->exec("CREATE TABLE users (id INT PRIMARY KEY, dark_matter INT DEFAULT 0,
+                rank_points INT DEFAULT 0) ENGINE=InnoDB;
+            INSERT INTO users (id) VALUES (7),(8),(9);
+            CREATE TABLE npc_factions (id INT PRIMARY KEY, code VARCHAR(64), base_diplomacy INT DEFAULT 0)
+                ENGINE=InnoDB;
+            INSERT INTO npc_factions (id,code) VALUES (1,'precursors');
+            CREATE TABLE celestial_bodies (id INT PRIMARY KEY, galaxy_index INT, system_index INT)
+                ENGINE=InnoDB;
+            INSERT INTO celestial_bodies VALUES (1,1,120);
+            CREATE TABLE colonies (id INT PRIMARY KEY, user_id INT, body_id INT, is_homeworld INT,
+                metal INT DEFAULT 0, crystal INT DEFAULT 0, deuterium INT DEFAULT 0, rare_earth INT DEFAULT 0)
+                ENGINE=InnoDB;
+            INSERT INTO colonies (id,user_id,body_id,is_homeworld) VALUES (1,7,1,1)");
+        $schema = $this->readSqlForTestDatabase('schema.sql');
+        foreach (['research', 'faction_quests', 'user_faction_quests', 'diplomacy'] as $table) {
+            preg_match('/CREATE TABLE IF NOT EXISTS ' . $table . '\s*\(.*?\) ENGINE=InnoDB;/s', $schema, $matches);
+            $this->assertNotEmpty($matches);
+            $this->db->exec($matches[0]);
+        }
+        $this->db->exec("INSERT INTO research (user_id,type,level)
+            VALUES (7,'wormhole_theory',5),(8,'wormhole_theory',4),(9,'wormhole_theory',5)");
+        $this->db->exec($this->readSqlForTestDatabase('migrate_app_state_v1.sql'));
+        $runner = $this->buildRunner(
+            $this->readSqlForTestDatabase('migrate_vessel_blueprints_v8_wormholes.sql') . "\n" .
+            $this->readSqlForTestDatabase('migrate_vessel_blueprints_v9_wormhole_beacons.sql')
+        );
+        $this->assertCount(1, $runner->runUp());
+        return $runner;
+    }
+
+    private function loadWormholeFleetHelpers(): Closure
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/fleet.php');
+        if (!function_exists('resolve_wormhole_route')) {
+            $start = strpos($source, 'function resolve_wormhole_route(');
+            $end = strpos($source, 'function recall_fleet(', $start);
+            $this->assertNotFalse($start);
+            $this->assertNotFalse($end);
+            eval(str_replace('__DIR__', var_export(realpath(__DIR__ . '/../../api'), true), substr($source, $start, $end - $start)));
+        }
+        // Keep the actual list body; return its payload instead of exiting via HTTP serialization.
+        $start = strpos($source, 'function list_wormholes(');
+        $end = strpos($source, 'function list_ftl_status(', $start);
+        $this->assertNotFalse($start);
+        $this->assertNotFalse($end);
+        $listSource = str_replace(
+            ['function list_wormholes(', '): never {', 'json_ok(', '__DIR__'],
+            ['return static function(', '): array {', 'return (', var_export(realpath(__DIR__ . '/../../api'), true)],
+            substr($source, $start, $end - $start)
+        );
+        return eval(rtrim($listSource) . ';');
+    }
+
+    public function testWormholeRoutesAndRegenerationUseCanonicalStorageWithoutDdl(): void
+    {
+        require_once __DIR__ . '/../../api/galaxy_seed.php';
+        require_once __DIR__ . '/../../api/npc_ai.php';
+        $list = $this->loadWormholeFleetHelpers();
+        $runner = $this->prepareWormholeFixture();
+        $this->assertSame([], $runner->runUp());
+        $this->db->exec("ALTER TABLE wormholes MODIFY label VARCHAR(160) DEFAULT NULL;
+            INSERT INTO user_wormhole_unlocks (user_id,source_quest_code) VALUES (7,'retained');
+            UPDATE wormholes SET label='retained route' WHERE is_permanent=1");
+        $before = $this->db->query('SELECT * FROM wormholes ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+        $unlocks = $this->db->query('SELECT * FROM user_wormhole_unlocks')->fetchAll(PDO::FETCH_ASSOC);
+        $definition = $this->db->query('SHOW CREATE TABLE wormholes')->fetch(PDO::FETCH_NUM);
+        $this->db->exec($this->readSqlForTestDatabase('migrate_vessel_blueprints_v8_wormholes.sql'));
+        $this->db->exec($this->readSqlForTestDatabase('migrate_vessel_blueprints_v9_wormhole_beacons.sql'));
+        $this->assertSame($before, $this->db->query('SELECT * FROM wormholes ORDER BY id')->fetchAll(PDO::FETCH_ASSOC));
+        $this->assertSame($unlocks, $this->db->query('SELECT * FROM user_wormhole_unlocks')->fetchAll(PDO::FETCH_ASSOC));
+        $this->assertSame($definition, $this->db->query('SHOW CREATE TABLE wormholes')->fetch(PDO::FETCH_NUM));
+        $username = 'gq_wormhole_' . bin2hex(random_bytes(6));
+        $account = $this->admin->quote($username) . "@'%'";
+        $password = bin2hex(random_bytes(16));
+        $this->admin->exec('CREATE USER ' . $account . ' IDENTIFIED BY ' . $this->admin->quote($password));
+        try {
+            $this->admin->exec('GRANT SELECT ON `' . $this->database . '`.* TO ' . $account);
+            $connect = function () use ($username, $password): PDO {
+                $connection = new PDO(
+                    (string) getenv('GQ_MIGRATION_TEST_DSN'), $username, $password,
+                    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false,
+                        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
+                );
+                $connection->exec('USE `' . $this->database . '`');
+                return $connection;
+            };
+            $reader = $connect();
+            $reader->beginTransaction();
+            $route = resolve_wormhole_route($reader, 7, 1, 120, 1, 260);
+            $this->assertNotNull($route);
+            $this->assertSame('retained route', $route['label']);
+            $this->assertSame($route['id'], resolve_wormhole_route($reader, 7, 1, 260, 1, 120)['id']);
+            $this->assertNull(resolve_wormhole_route($reader, 8, 1, 1, 1, 120));
+            $this->assertNull(resolve_wormhole_route($reader, 9, 1, 120, 1, 260));
+            $this->assertNotNull(resolve_wormhole_route($reader, 9, 1, 1, 1, 120));
+            $payload = $list($reader, 7, 1);
+            $this->assertSame(5, $payload['wormhole_theory_level']);
+            $this->assertTrue($payload['permanent_unlock']);
+            $this->assertCount(2, $payload['wormholes']);
+            $this->assertSame([true, true], array_column($payload['wormholes'], 'available'));
+            $this->assertSame([false, false], array_column($list($reader, 8, 0)['wormholes'], 'available'));
+            $this->assertSame([true, false], array_column($list($reader, 9, 0)['wormholes'], 'available'));
+            $this->assertTrue($reader->inTransaction());
+            $reader->rollBack();
+            $this->assertSame($before, $this->db->query('SELECT * FROM wormholes ORDER BY id')->fetchAll(PDO::FETCH_ASSOC));
+            $this->admin->exec('GRANT INSERT, UPDATE ON `' . $this->database . '`.* TO ' . $account);
+            $writer = $connect();
+            $writer->beginTransaction();
+            consume_wormhole_jump($writer, (int) $route['id']);
+            $this->assertSame(95, (int) $writer->query('SELECT stability FROM wormholes WHERE is_permanent=1')->fetchColumn());
+            $this->assertNull(resolve_wormhole_route($writer, 7, 1, 120, 1, 260));
+            $this->assertFalse($list($writer, 7, 1)['wormholes'][1]['available']);
+            $this->assertTrue($writer->inTransaction());
+            $writer->rollBack();
+            $this->assertSame($before, $this->db->query('SELECT * FROM wormholes ORDER BY id')->fetchAll(PDO::FETCH_ASSOC));
+            $writer->beginTransaction();
+            $writer->exec('UPDATE wormholes SET stability=9 WHERE is_permanent=1');
+            $this->assertNull(resolve_wormhole_route($writer, 7, 1, 120, 1, 260));
+            $this->assertFalse($list($writer, 7, 1)['wormholes'][1]['available']);
+            $writer->exec('UPDATE wormholes SET stability=10 WHERE is_permanent=1');
+            $this->assertNotNull(resolve_wormhole_route($writer, 7, 1, 120, 1, 260));
+            $this->assertTrue($list($writer, 7, 1)['wormholes'][1]['available']);
+            $writer->exec('UPDATE wormholes SET is_active=0 WHERE is_permanent=1');
+            $this->assertNull(resolve_wormhole_route($writer, 7, 1, 120, 1, 260));
+            $this->assertCount(1, $list($writer, 7, 1)['wormholes']);
+            $writer->rollBack();
+            $this->db->exec("UPDATE wormholes SET stability=90, cooldown_until=DATE_SUB(NOW(),INTERVAL 1 MINUTE)
+                WHERE is_permanent=1;
+                UPDATE wormholes SET stability=99 WHERE is_permanent=0;
+                INSERT INTO wormholes (endpoint_a_galaxy,endpoint_a_system,endpoint_b_galaxy,endpoint_b_system,
+                    stability,cooldown_until,is_active,label) VALUES
+                    (2,1,2,2,90,DATE_ADD(NOW(),INTERVAL 1 HOUR),1,'future cooldown'),
+                    (3,1,3,2,90,NULL,0,'inactive')");
+            app_state_set_int($this->db, 'wormholes:regen:last_tick', 0);
+            $writer->beginTransaction();
+            wormhole_regeneration_tick_global($writer);
+            $this->assertTrue($writer->inTransaction());
+            $this->assertSame(92, (int) $writer->query('SELECT stability FROM wormholes WHERE is_permanent=1')->fetchColumn());
+            $this->assertNull($writer->query('SELECT cooldown_until FROM wormholes WHERE is_permanent=1')->fetchColumn());
+            $this->assertSame(100, (int) $writer->query('SELECT stability FROM wormholes WHERE id=1')->fetchColumn());
+            $this->assertSame(90, (int) $writer->query("SELECT stability FROM wormholes WHERE label='future cooldown'")->fetchColumn());
+            $this->assertNotNull($writer->query("SELECT cooldown_until FROM wormholes WHERE label='future cooldown'")->fetchColumn());
+            $this->assertSame(90, (int) $writer->query("SELECT stability FROM wormholes WHERE label='inactive'")->fetchColumn());
+            $writer->rollBack();
+            $this->assertSame(0, app_state_get_int($this->db, 'wormholes:regen:last_tick'));
+            wormhole_regeneration_tick_global($writer);
+            $after = $this->db->query('SELECT * FROM wormholes ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+            wormhole_regeneration_tick_global($reader);
+            $this->assertSame($after, $this->db->query('SELECT * FROM wormholes ORDER BY id')->fetchAll(PDO::FETCH_ASSOC));
+            $this->db->exec('ALTER TABLE wormholes DROP COLUMN is_permanent');
+            app_state_set_int($this->db, 'wormholes:regen:last_tick', 0);
+            foreach ([
+                static fn() => resolve_wormhole_route($reader, 7, 1, 120, 1, 260),
+                static fn() => $list($reader, 7, 1),
+                static fn() => wormhole_regeneration_tick_global($writer),
+            ] as $operation) {
+                try {
+                    $operation();
+                    $this->fail('Missing permanence flag must not be repaired or hidden as no route.');
+                } catch (RuntimeException $error) {
+                    $this->assertStringContainsString('wormholes.is_permanent', $error->getMessage());
+                }
+            }
+            $this->assertSame(0, app_state_get_int($this->db, 'wormholes:regen:last_tick'));
+            $this->db->exec('DROP TABLE wormholes');
+            try {
+                wormhole_regeneration_tick_global($writer);
+                $this->fail('Missing wormholes must not consume a tick or recreate storage.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('wormholes.id', $error->getMessage());
+            }
+            $this->assertSame(0, app_state_get_int($this->db, 'wormholes:regen:last_tick'));
+            $this->assertSame($unlocks, $this->db->query('SELECT * FROM user_wormhole_unlocks')->fetchAll(PDO::FETCH_ASSOC));
+            $this->db->exec('DELETE FROM users WHERE id=7');
+            $this->assertSame(0, (int) $this->db->query('SELECT COUNT(*) FROM user_wormhole_unlocks')->fetchColumn());
+        } finally {
+            foreach ([$reader ?? null, $writer ?? null] as $connection) {
+                if ($connection !== null && $connection->inTransaction()) {
+                    $connection->rollBack();
+                }
+            }
+            $this->admin->exec('DROP USER ' . $account);
+        }
+    }
+
+    public function testBeaconRewardPreflightsUnlockStorageBeforeMutations(): void
+    {
+        require_once __DIR__ . '/../../api/factions.php';
+        $this->loadWormholeFleetHelpers();
+        $this->prepareWormholeFixture();
+        $questId = (int) $this->db->query("SELECT id FROM faction_quests WHERE code='precursor_wormhole_beacon'")->fetchColumn();
+        $this->db->exec("INSERT INTO user_faction_quests (user_id,faction_quest_id,status,progress_json)
+            VALUES (7,$questId,'completed','{}')");
+        $uqid = (int) $this->db->lastInsertId();
+        $row = $this->db->query("SELECT * FROM faction_quests WHERE id=$questId")->fetch(PDO::FETCH_ASSOC);
+        $source = file_get_contents(__DIR__ . '/../../api/factions.php');
+        $start = strpos($source, '                ensure_faction_quest_reward_schema(');
+        $end = strpos($source, '        json_ok([', $start);
+        $this->assertNotFalse($start);
+        $this->assertNotFalse($end);
+        // Execute the actual reward/claim body without authentication or HTTP exit.
+        $rewardSource = str_replace('__DIR__', var_export(realpath(__DIR__ . '/../../api'), true), substr($source, $start, $end - $start));
+        $claim = static function (PDO $db, int $uid, int $uqid, array $row) use ($rewardSource): void {
+            eval($rewardSource);
+        };
+        $tables = ['users', 'colonies', 'user_faction_quests', 'diplomacy'];
+        $before = [];
+        foreach ($tables as $table) {
+            $before[$table] = $this->db->query('SELECT * FROM ' . $table . ' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+        }
+        $this->db->exec('DROP TABLE user_wormhole_unlocks');
+        ensure_faction_quest_reward_schema($this->db, 'ordinary_quest');
+        try {
+            $claim($this->db, 7, $uqid, $row);
+            $this->fail('Beacon schema must fail before any reward or claimed status.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('user_wormhole_unlocks.user_id', $error->getMessage());
+        }
+        foreach ($before as $table => $rows) {
+            $this->assertSame($rows, $this->db->query('SELECT * FROM ' . $table . ' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC));
+        }
+        $this->db->exec($this->readSqlForTestDatabase('migrate_vessel_blueprints_v9_wormhole_beacons.sql'));
+        $username = 'gq_beacon_' . bin2hex(random_bytes(6));
+        $account = $this->admin->quote($username) . "@'%'";
+        $password = bin2hex(random_bytes(16));
+        $this->admin->exec('CREATE USER ' . $account . ' IDENTIFIED BY ' . $this->admin->quote($password));
+        try {
+            $this->admin->exec('GRANT SELECT, INSERT, UPDATE ON `' . $this->database . '`.* TO ' . $account);
+            $writer = new PDO(
+                (string) getenv('GQ_MIGRATION_TEST_DSN'), $username, $password,
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false,
+                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
+            );
+            $writer->exec('USE `' . $this->database . '`');
+            $writer->beginTransaction();
+            $claim($writer, 7, $uqid, $row);
+            $this->assertTrue($writer->inTransaction());
+            $this->assertSame('claimed', $writer->query('SELECT status FROM user_faction_quests')->fetchColumn());
+            $this->assertSame('precursor_wormhole_beacon', $writer->query('SELECT source_quest_code FROM user_wormhole_unlocks')->fetchColumn());
+            $this->assertSame(15000, (int) $writer->query('SELECT metal FROM colonies WHERE id=1')->fetchColumn());
+            $this->assertSame(500, (int) $writer->query('SELECT dark_matter FROM users WHERE id=7')->fetchColumn());
+            $this->assertSame(1, (int) $writer->query('SELECT quests_completed FROM diplomacy WHERE user_id=7')->fetchColumn());
+            $writer->rollBack();
+            foreach ($before as $table => $rows) {
+                $this->assertSame($rows, $this->db->query('SELECT * FROM ' . $table . ' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC));
+            }
+            $this->assertSame(0, (int) $this->db->query('SELECT COUNT(*) FROM user_wormhole_unlocks')->fetchColumn());
+            $this->db->exec("INSERT INTO user_wormhole_unlocks (user_id,source_quest_code) VALUES (7,'earlier')");
+            $claim($writer, 7, $uqid, $row);
+            $this->assertSame(1, (int) $writer->query('SELECT COUNT(*) FROM user_wormhole_unlocks')->fetchColumn());
+            $this->assertSame('precursor_wormhole_beacon', $writer->query('SELECT source_quest_code FROM user_wormhole_unlocks')->fetchColumn());
+            $this->assertNotNull(resolve_wormhole_route($writer, 7, 1, 120, 1, 260));
+            $this->db->exec('DROP TABLE user_wormhole_unlocks');
+            try {
+                $claim($writer, 7, $uqid, $row);
+                $this->fail('Earlier success must not hide missing unlock storage.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('user_wormhole_unlocks.user_id', $error->getMessage());
+            }
+            $this->assertSame(15000, (int) $writer->query('SELECT metal FROM colonies WHERE id=1')->fetchColumn());
+            try {
+                resolve_wormhole_route($writer, 7, 1, 120, 1, 260);
+                $this->fail('Missing unlock schema must not become an unavailable-route result.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('user_wormhole_unlocks.user_id', $error->getMessage());
+            }
+        } finally {
+            if (isset($writer) && $writer->inTransaction()) {
+                $writer->rollBack();
+            }
+            $this->admin->exec('DROP USER ' . $account);
+        }
+    }
+
+    public function testLeaderMarketplaceGuardsPreserveProfilesWithoutDdl(): void
+    {
+        if (!function_exists('ensure_leader_marketplace_schema')) {
+            $source = file_get_contents(__DIR__ . '/../../api/leaders.php');
+            $start = strpos($source, 'function ensure_leader_marketplace_schema(');
+            $end = strpos($source, 'function generate_marketplace_candidates(', $start);
+            $this->assertNotFalse($start);
+            $this->assertNotFalse($end);
+            eval(str_replace('__DIR__', var_export(realpath(__DIR__ . '/../../api'), true), substr($source, $start, $end - $start)));
+        }
+        $schema = $this->readSqlForTestDatabase('schema.sql');
+        $this->db->exec('CREATE TABLE users (id INT PRIMARY KEY) ENGINE=InnoDB; INSERT INTO users VALUES (7);
+            CREATE TABLE colonies (id INT PRIMARY KEY) ENGINE=InnoDB;
+            CREATE TABLE fleets (id INT PRIMARY KEY) ENGINE=InnoDB');
+        preg_match('/CREATE TABLE IF NOT EXISTS leaders\s*\(.*?\) ENGINE=InnoDB;/s', $schema, $matches);
+        $this->assertNotEmpty($matches);
+        $this->db->exec($matches[0]);
+        $runner = $this->buildRunner($this->readSqlForTestDatabase('migrate_marketplace_advisor.sql'));
+        $this->assertCount(1, $runner->runUp());
+        $this->db->exec("ALTER TABLE leaders MODIFY tagline VARCHAR(255) NOT NULL DEFAULT '';
+            INSERT INTO leaders (user_id,name,role,rarity,tagline,skill_guidance)
+                VALUES (7,'Existing','advisor','rare','retained',9);
+            INSERT INTO leader_marketplace (user_id,name,role,backstory,expires_at,is_hired)
+                VALUES (7,'Candidate','advisor','retained',DATE_ADD(NOW(),INTERVAL 1 DAY),1)");
+        $before = [];
+        $definitions = [];
+        foreach (['leaders', 'leader_marketplace'] as $table) {
+            $before[$table] = $this->db->query('SELECT * FROM ' . $table)->fetchAll(PDO::FETCH_ASSOC);
+            $definitions[$table] = $this->db->query('SHOW CREATE TABLE ' . $table)->fetch(PDO::FETCH_NUM);
+        }
+        $username = 'gq_leader_' . bin2hex(random_bytes(6));
+        $account = $this->admin->quote($username) . "@'%'";
+        $password = bin2hex(random_bytes(16));
+        $this->admin->exec('CREATE USER ' . $account . ' IDENTIFIED BY ' . $this->admin->quote($password));
+        try {
+            $this->admin->exec('GRANT SELECT ON `' . $this->database . '`.* TO ' . $account);
+            $reader = new PDO(
+                (string) getenv('GQ_MIGRATION_TEST_DSN'), $username, $password,
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]
+            );
+            $reader->exec('USE `' . $this->database . '`');
+            $reader->beginTransaction();
+            ensure_leader_marketplace_schema($reader);
+            ensure_leaders_marketplace_profile_schema($reader);
+            $this->assertTrue($reader->inTransaction());
+            $reader->rollBack();
+            foreach ($before as $table => $rows) {
+                $this->assertSame($rows, $this->db->query('SELECT * FROM ' . $table)->fetchAll(PDO::FETCH_ASSOC));
+                $this->assertSame($definitions[$table], $this->db->query('SHOW CREATE TABLE ' . $table)->fetch(PDO::FETCH_NUM));
+            }
+            $this->db->exec('ALTER TABLE leaders DROP COLUMN skill_guidance');
+            try {
+                ensure_leaders_marketplace_profile_schema($reader);
+                $this->fail('Missing leader skill must not be added at runtime.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('leaders.skill_guidance', $error->getMessage());
+            }
+            $this->db->exec('DROP TABLE leader_marketplace');
+            try {
+                ensure_leader_marketplace_schema($reader);
+                $this->fail('Earlier success must not recreate marketplace storage.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('leader_marketplace.id', $error->getMessage());
+            }
+            $this->assertSame('retained', $this->db->query('SELECT tagline FROM leaders')->fetchColumn());
+            $this->assertSame(0, (int) $this->db->query(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()
+                 AND table_name='leader_marketplace'"
+            )->fetchColumn());
+        } finally {
+            if (isset($reader) && $reader->inTransaction()) {
+                $reader->rollBack();
+            }
+            $this->admin->exec('DROP USER ' . $account);
+        }
+    }
+
+    public function testAllianceWarMigrationPreservesStateAndRuntimeNeedsOnlySelect(): void
+    {
+        if (!function_exists('aw_ensure_schema')) {
+            $source = file_get_contents(__DIR__ . '/../../api/alliance_wars.php');
+            $start = strpos($source, 'function aw_ensure_schema(');
+            $end = strpos($source, 'function aw_user_leadable_alliances(', $start);
+            $this->assertNotFalse($start);
+            $this->assertNotFalse($end);
+            eval(str_replace('__DIR__', var_export(realpath(__DIR__ . '/../../api'), true), substr($source, $start, $end - $start)));
+        }
+        $this->db->exec('CREATE TABLE users (id INT PRIMARY KEY) ENGINE=InnoDB; INSERT INTO users VALUES (7);
+            CREATE TABLE alliances (id INT PRIMARY KEY) ENGINE=InnoDB; INSERT INTO alliances VALUES (1),(2)');
+        try {
+            aw_ensure_schema($this->db);
+            $this->fail('Missing war storage must not be created.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('alliance_wars.id', $error->getMessage());
+        }
+        $sql = $this->readSqlForTestDatabase('migrate_alliance_wars_v1.sql');
+        $runner = $this->buildRunner($sql);
+        $this->assertCount(1, $runner->runUp());
+        $this->db->exec("ALTER TABLE alliance_wars MODIFY name VARCHAR(180) NOT NULL DEFAULT '';
+            INSERT INTO alliance_wars (id,name,declared_by_user_id,war_score_a,exhaustion_b)
+                VALUES (1,'Retained',7,83,27.50);
+            INSERT INTO alliance_war_sides (war_id,alliance_id,side) VALUES (1,1,'a'),(1,2,'b');
+            INSERT INTO alliance_war_peace_offers (war_id,from_alliance_id,expires_at)
+                VALUES (1,1,DATE_ADD(NOW(),INTERVAL 1 DAY))");
+        $tables = ['alliance_wars', 'alliance_war_sides', 'alliance_war_peace_offers'];
+        $before = [];
+        $definitions = [];
+        foreach ($tables as $table) {
+            $before[$table] = $this->db->query('SELECT * FROM ' . $table . ' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+            $definitions[$table] = $this->db->query('SHOW CREATE TABLE ' . $table)->fetch(PDO::FETCH_NUM);
+        }
+        $this->assertSame('[]', $before['alliance_war_peace_offers'][0]['terms_json']);
+        $this->db->exec($sql);
+        $this->assertSame([], $runner->runUp());
+        $this->assertSame(1, $runner->verifyDeployment());
+        $username = 'gq_wars_' . bin2hex(random_bytes(6));
+        $account = $this->admin->quote($username) . "@'%'";
+        $password = bin2hex(random_bytes(16));
+        $this->admin->exec('CREATE USER ' . $account . ' IDENTIFIED BY ' . $this->admin->quote($password));
+        try {
+            $this->admin->exec('GRANT SELECT ON `' . $this->database . '`.* TO ' . $account);
+            $reader = new PDO(
+                (string) getenv('GQ_MIGRATION_TEST_DSN'), $username, $password,
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]
+            );
+            $reader->exec('USE `' . $this->database . '`');
+            $reader->beginTransaction();
+            aw_ensure_schema($reader);
+            $this->assertTrue($reader->inTransaction());
+            $reader->rollBack();
+            foreach ($tables as $table) {
+                $this->assertSame($before[$table], $this->db->query('SELECT * FROM ' . $table . ' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC));
+                $this->assertSame($definitions[$table], $this->db->query('SHOW CREATE TABLE ' . $table)->fetch(PDO::FETCH_NUM));
+            }
+            $this->db->exec('DELETE FROM alliances WHERE id=1');
+            $this->assertSame(1, (int) $reader->query('SELECT COUNT(*) FROM alliance_war_sides')->fetchColumn());
+            $this->assertSame(0, (int) $reader->query('SELECT COUNT(*) FROM alliance_war_peace_offers')->fetchColumn());
+            $this->db->exec('DELETE FROM users WHERE id=7');
+            $this->assertSame(0, (int) $reader->query('SELECT COUNT(*) FROM alliance_wars')->fetchColumn());
+            $this->assertSame(0, (int) $reader->query('SELECT COUNT(*) FROM alliance_war_sides')->fetchColumn());
+            $this->db->exec('DROP TABLE alliance_war_peace_offers');
+            try {
+                aw_ensure_schema($reader);
+                $this->fail('Missing offers after success must not be recreated.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('alliance_war_peace_offers.id', $error->getMessage());
+            }
+        } finally {
+            if (isset($reader) && $reader->inTransaction()) {
+                $reader->rollBack();
+            }
+            $this->admin->exec('DROP USER ' . $account);
+        }
+    }
+
+    public function testAllianceRuntimeSchemaPreservesDataAndNeedsNoDdl(): void
+    {
+        if (!function_exists('ensure_alliance_schema')) {
+            $source = file_get_contents(__DIR__ . '/../../api/alliances.php');
+            $start = strpos($source, 'function ensure_alliance_schema(');
+            $end = strpos($source, 'function action_list(', $start);
+            $this->assertNotFalse($start);
+            $this->assertNotFalse($end);
+            eval(str_replace('__DIR__', var_export(realpath(__DIR__ . '/../../api'), true), substr($source, $start, $end - $start)));
+        }
+        $this->db->exec('CREATE TABLE users (id INT PRIMARY KEY) ENGINE=InnoDB;
+            INSERT INTO users VALUES (7),(8)');
+        $schema = $this->readSqlForTestDatabase('schema.sql');
+        $tables = ['alliances', 'alliance_members', 'alliance_relations', 'alliance_messages'];
+        foreach ($tables as $table) {
+            preg_match('/CREATE TABLE IF NOT EXISTS ' . $table . '\s*\(.*?\) ENGINE=InnoDB;/s', $schema, $matches);
+            $this->assertNotEmpty($matches);
+            $this->db->exec($matches[0]);
+        }
+        $this->db->exec("INSERT INTO alliances (id,name,tag,leader_user_id,treasury_metal)
+            VALUES (1,'Existing','ONE',7,123.4567),(2,'Other','TWO',8,0);
+            INSERT INTO alliance_members (alliance_id,user_id,role,contributed_resources) VALUES (1,7,'leader',89.1234);
+            INSERT INTO alliance_relations (alliance_id,other_alliance_id,relation_type,declared_by_user_id)
+                VALUES (1,2,'nap',7);
+            INSERT INTO alliance_messages (alliance_id,author_id,message_text) VALUES (1,7,'retained')");
+        $before = [];
+        foreach ($tables as $table) {
+            $before[$table] = $this->db->query('SELECT * FROM ' . $table)->fetchAll(PDO::FETCH_ASSOC);
+        }
+        $username = 'gq_alliance_' . bin2hex(random_bytes(6));
+        $account = $this->admin->quote($username) . "@'%'";
+        $password = bin2hex(random_bytes(16));
+        $this->admin->exec('CREATE USER ' . $account . ' IDENTIFIED BY ' . $this->admin->quote($password));
+        try {
+            $this->admin->exec('GRANT SELECT ON `' . $this->database . '`.* TO ' . $account);
+            $connection = new PDO(
+                (string) getenv('GQ_MIGRATION_TEST_DSN'), $username, $password,
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]
+            );
+            $connection->exec('USE `' . $this->database . '`');
+            $connection->beginTransaction();
+            ensure_alliance_schema($connection);
+            $this->assertTrue($connection->inTransaction());
+            $connection->rollBack();
+            ensure_alliance_schema($connection);
+            foreach ($tables as $table) {
+                $this->assertSame($before[$table], $this->db->query('SELECT * FROM ' . $table)->fetchAll(PDO::FETCH_ASSOC));
+            }
+            $this->db->exec('DELETE FROM alliances WHERE id=2');
+            $this->assertNull($this->db->query('SELECT other_alliance_id FROM alliance_relations')->fetchColumn());
+            $this->assertSame('123.4567', $connection->query('SELECT treasury_metal FROM alliances')->fetchColumn());
+            $this->db->exec('DELETE FROM users WHERE id=7');
+            foreach ($tables as $table) {
+                $this->assertSame(0, (int) $connection->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn());
+            }
+            $this->db->exec('DROP TABLE alliance_messages');
+            try {
+                ensure_alliance_schema($connection);
+                $this->fail('Earlier success must not recreate missing messages.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('alliance_messages.id', $error->getMessage());
+            }
+            $this->db->exec('ALTER TABLE alliances DROP COLUMN treasury_dark_matter');
+            try {
+                ensure_alliance_schema($connection);
+                $this->fail('Missing treasury column must not be silently accepted.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('alliances.treasury_dark_matter', $error->getMessage());
+            }
+        } finally {
+            if (isset($connection) && $connection->inTransaction()) {
+                $connection->rollBack();
+            }
+            $this->admin->exec('DROP USER ' . $account);
+        }
+    }
+
+    public function testGlossaryMigrationAndRuntimePreserveCacheWithRestrictedRights(): void
+    {
+        if (!function_exists('ensure_glossary_cache_table')) {
+            $source = file_get_contents(__DIR__ . '/../../api/glossary.php');
+            $offset = strpos($source, 'function generate_rag_definition(');
+            $this->assertNotFalse($offset);
+            // The endpoint exits on import; load actual helpers without HTTP dispatch.
+            eval(str_replace('__DIR__', var_export(realpath(__DIR__ . '/../../api'), true), substr($source, $offset)));
+        }
+        try {
+            generate_rag_definition($this->db, 'white_dwarf');
+            $this->fail('Missing cache must fail before RAG dependencies are invoked.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('glossary_cache.id', $error->getMessage());
+        }
+        $sql = $this->readSqlForTestDatabase('migrate_glossary_cache_v1.sql');
+        $runner = $this->buildRunner($sql);
+        $this->assertCount(1, $runner->runUp());
+        cache_glossary_definition($this->db, 'white_dwarf', ['definition' => 'retained']);
+        $this->db->exec("ALTER TABLE glossary_cache MODIFY term_key VARCHAR(64) NOT NULL");
+        $before = $this->db->query('SELECT * FROM glossary_cache')->fetchAll(PDO::FETCH_ASSOC);
+        $definition = $this->db->query('SHOW CREATE TABLE glossary_cache')->fetch(PDO::FETCH_NUM);
+        $this->db->exec($sql);
+        $this->assertSame([], $runner->runUp());
+        $this->assertSame(1, $runner->verifyDeployment());
+        $this->assertSame($before, $this->db->query('SELECT * FROM glossary_cache')->fetchAll(PDO::FETCH_ASSOC));
+        $this->assertSame($definition, $this->db->query('SHOW CREATE TABLE glossary_cache')->fetch(PDO::FETCH_NUM));
+        $username = 'gq_glossary_' . bin2hex(random_bytes(6));
+        $account = $this->admin->quote($username) . "@'%'";
+        $password = bin2hex(random_bytes(16));
+        $this->admin->exec('CREATE USER ' . $account . ' IDENTIFIED BY ' . $this->admin->quote($password));
+        try {
+            $this->admin->exec('GRANT SELECT ON `' . $this->database . '`.* TO ' . $account);
+            $connect = function () use ($username, $password): PDO {
+                $connection = new PDO(
+                    (string) getenv('GQ_MIGRATION_TEST_DSN'), $username, $password,
+                    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false,
+                        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
+                );
+                $connection->exec('USE `' . $this->database . '`');
+                return $connection;
+            };
+            $reader = $connect();
+            $this->assertSame([
+                'definition' => 'retained', 'cached_at' => $before[0]['generated_at'],
+            ], get_glossary_cache($reader, 'white_dwarf'));
+            $this->assertNull(get_glossary_cache($reader, 'missing'));
+            try {
+                cache_glossary_definition($reader, 'denied', ['definition' => 'denied']);
+                $this->fail('Denied writes must not be hidden.');
+            } catch (PDOException $error) {
+                $this->assertSame(1142, (int) $error->errorInfo[1]);
+            }
+            $this->admin->exec('GRANT INSERT, UPDATE ON `' . $this->database . '`.* TO ' . $account);
+            $writer = $connect();
+            $writer->beginTransaction();
+            cache_glossary_definition($writer, 'white_dwarf', ['definition' => 'updated']);
+            $this->assertTrue($writer->inTransaction());
+            $this->assertSame('updated', get_glossary_cache($writer, 'white_dwarf')['definition']);
+            $writer->rollBack();
+            $this->assertSame($before, $this->db->query('SELECT * FROM glossary_cache')->fetchAll(PDO::FETCH_ASSOC));
+            cache_glossary_definition($writer, 'white_dwarf', ['definition' => 'updated']);
+            $this->assertSame(1, (int) $reader->query('SELECT COUNT(*) FROM glossary_cache')->fetchColumn());
+            $this->assertSame('updated', get_glossary_cache($reader, 'white_dwarf')['definition']);
+            $this->db->exec("UPDATE glossary_cache SET generated_at=DATE_SUB(NOW(),INTERVAL 6 DAY)");
+            $this->assertNull(get_glossary_cache($reader, 'white_dwarf'));
+            $this->db->exec('DROP TABLE glossary_cache');
+            try {
+                get_glossary_cache($reader, 'white_dwarf');
+                $this->fail('Missing storage must not be treated as a cache miss.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('glossary_cache.id', $error->getMessage());
+            }
+            $this->assertSame(0, (int) $this->db->query(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()
+                 AND table_name='glossary_cache'"
+            )->fetchColumn());
+        } finally {
+            if (isset($writer) && $writer->inTransaction()) {
+                $writer->rollBack();
+            }
+            $this->admin->exec('DROP USER ' . $account);
+        }
+    }
+
+    public function testScenarioTickRejectsMissingSchemaBeforeCooldownAndNeedsNoDdl(): void
+    {
+        require_once __DIR__ . '/../../api/galaxy_seed.php';
+        require_once __DIR__ . '/../../api/llm_soc/ScenarioEngine.php';
+        $this->db->exec('CREATE TABLE users (id INT PRIMARY KEY) ENGINE=InnoDB;
+            CREATE TABLE npc_factions (id INT PRIMARY KEY) ENGINE=InnoDB');
+        $this->db->exec($this->readSqlForTestDatabase('migrate_app_state_v1.sql'));
+        app_state_set_int($this->db, 'scenario_engine:last_tick', 0);
+        $before = $this->db->query('SELECT * FROM app_state')->fetchAll(PDO::FETCH_ASSOC);
+        try {
+            ScenarioEngine::tick($this->db, $this->sqlDir);
+            $this->fail('Missing scenario schema must fail before recording a tick.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('galactic_events.id', $error->getMessage());
+        }
+        $this->assertSame($before, $this->db->query('SELECT * FROM app_state')->fetchAll(PDO::FETCH_ASSOC));
+        $runner = $this->buildRunner($this->readSqlForTestDatabase('migrate_world_scenarios_v1.sql'));
+        $this->assertCount(1, $runner->runUp());
+        ScenarioEngine::seedScenario($this->db, [
+            'code' => 'retained', 'title_de' => 'Existing', 'description_de' => 'Retained',
+        ]);
+        $id = (int) $this->db->query("SELECT id FROM world_scenarios WHERE code='retained'")->fetchColumn();
+        $this->db->exec("INSERT INTO active_world_events (scenario_id,ends_at,flavor_text)
+            VALUES ($id,DATE_ADD(NOW(),INTERVAL 1 DAY),'retained')");
+        $tables = ['galactic_events', 'world_scenarios', 'active_world_events'];
+        $existing = [];
+        foreach ($tables as $table) {
+            $existing[$table] = $this->db->query('SELECT * FROM ' . $table)->fetchAll(PDO::FETCH_ASSOC);
+        }
+        $username = 'gq_scenario_' . bin2hex(random_bytes(6));
+        $account = $this->admin->quote($username) . "@'%'";
+        $password = bin2hex(random_bytes(16));
+        $this->admin->exec('CREATE USER ' . $account . ' IDENTIFIED BY ' . $this->admin->quote($password));
+        try {
+            $this->admin->exec('GRANT SELECT ON `' . $this->database . '`.* TO ' . $account);
+            $connect = function () use ($username, $password): PDO {
+                $connection = new PDO(
+                    (string) getenv('GQ_MIGRATION_TEST_DSN'), $username, $password,
+                    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false,
+                        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
+                );
+                $connection->exec('USE `' . $this->database . '`');
+                return $connection;
+            };
+            $reader = $connect();
+            $guard = new ReflectionMethod(ScenarioEngine::class, 'ensureTables');
+            $guard->invoke(null, $reader);
+            $this->admin->exec('GRANT INSERT, UPDATE ON `' . $this->database . '`.* TO ' . $account);
+            $writer = $connect();
+            $writer->beginTransaction();
+            ScenarioEngine::tick($writer, $this->sqlDir);
+            $this->assertTrue($writer->inTransaction());
+            $this->assertGreaterThan(0, app_state_get_int($writer, 'scenario_engine:last_tick'));
+            $writer->rollBack();
+            $this->assertSame($before, $this->db->query('SELECT * FROM app_state')->fetchAll(PDO::FETCH_ASSOC));
+            ScenarioEngine::tick($writer, $this->sqlDir);
+            $cooldown = $this->db->query('SELECT * FROM app_state')->fetchAll(PDO::FETCH_ASSOC);
+            ScenarioEngine::tick($reader, $this->sqlDir);
+            $this->assertSame($cooldown, $this->db->query('SELECT * FROM app_state')->fetchAll(PDO::FETCH_ASSOC));
+            foreach ($tables as $table) {
+                $this->assertSame($existing[$table], $this->db->query('SELECT * FROM ' . $table)->fetchAll(PDO::FETCH_ASSOC));
+            }
+            $this->db->exec('DROP TABLE active_world_events');
+            app_state_set_int($this->db, 'scenario_engine:last_tick', 0);
+            $marker = $this->db->query('SELECT * FROM app_state')->fetchAll(PDO::FETCH_ASSOC);
+            try {
+                ScenarioEngine::tick($writer, $this->sqlDir);
+                $this->fail('Missing active events must not consume the cooldown.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('active_world_events.id', $error->getMessage());
+            }
+            $this->assertSame($marker, $this->db->query('SELECT * FROM app_state')->fetchAll(PDO::FETCH_ASSOC));
+            $this->assertSame(0, (int) $this->db->query(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()
+                 AND table_name='active_world_events'"
+            )->fetchColumn());
+        } finally {
+            if (isset($writer) && $writer->inTransaction()) {
+                $writer->rollBack();
+            }
+            $this->admin->exec('DROP USER ' . $account);
+        }
+    }
+
+    public function testSituationRuntimeGuardsAndTicksNeedNoDdl(): void
+    {
+        if (!function_exists('ensure_situations_tables')) {
+            $source = file_get_contents(__DIR__ . '/../../api/situations.php');
+            $offset = strpos($source, 'function ensure_situations_tables(');
+            $this->assertNotFalse($offset);
+            // The endpoint dispatches on import; load its actual helper functions only.
+            eval(str_replace('__DIR__', var_export(realpath(__DIR__ . '/../../api'), true), substr($source, $offset)));
+        }
+        $this->db->exec('CREATE TABLE users (id INT PRIMARY KEY) ENGINE=InnoDB;
+            INSERT INTO users VALUES (7),(8);
+            CREATE TABLE colonies (id INT PRIMARY KEY) ENGINE=InnoDB;
+            INSERT INTO colonies VALUES (42)');
+        $runner = $this->buildRunner($this->readSqlForTestDatabase('migrate_gameplay_model_v1.sql'));
+        $this->assertCount(1, $runner->runUp());
+        $this->db->exec("INSERT INTO situation_states
+            (user_id,colony_id,situation_type,progress,monthly_deltas_json,started_at)
+            VALUES (7,42,'retained',20,JSON_OBJECT('progress_per_hour',20),DATE_SUB(NOW(),INTERVAL 1 HOUR))");
+        $id = (int) $this->db->lastInsertId();
+        $before = $this->db->query('SELECT * FROM situation_states')->fetchAll(PDO::FETCH_ASSOC);
+        $username = 'gq_situation_' . bin2hex(random_bytes(6));
+        $account = $this->admin->quote($username) . "@'%'";
+        $password = bin2hex(random_bytes(16));
+        $this->admin->exec('CREATE USER ' . $account . ' IDENTIFIED BY ' . $this->admin->quote($password));
+        try {
+            $this->admin->exec('GRANT SELECT ON `' . $this->database . '`.* TO ' . $account);
+            $connect = function () use ($username, $password): PDO {
+                $connection = new PDO(
+                    (string) getenv('GQ_MIGRATION_TEST_DSN'), $username, $password,
+                    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false,
+                        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
+                );
+                $connection->exec('USE `' . $this->database . '`');
+                return $connection;
+            };
+            $reader = $connect();
+            ensure_situations_tables($reader);
+            $this->assertSame($before[0], load_user_situation($reader, $id, 7));
+            $this->assertNull(load_user_situation($reader, $id, 8));
+            $this->assertSame($before, $this->db->query('SELECT * FROM situation_states')->fetchAll(PDO::FETCH_ASSOC));
+            $this->admin->exec('GRANT INSERT, UPDATE ON `' . $this->database . '`.* TO ' . $account);
+            $writer = $connect();
+            $writer->beginTransaction();
+            ensure_situations_tables($writer);
+            $result = tick_situation($writer, load_user_situation($writer, $id, 7), 7);
+            $this->assertTrue($writer->inTransaction());
+            $this->assertSame('active', $result['status']);
+            $this->assertGreaterThanOrEqual(40.0, $result['progress']);
+            $this->assertSame(2, $result['stage']);
+            $this->assertSame(1, (int) $writer->query('SELECT COUNT(*) FROM situation_stage_log')->fetchColumn());
+            $writer->rollBack();
+            $this->assertSame($before, $this->db->query('SELECT * FROM situation_states')->fetchAll(PDO::FETCH_ASSOC));
+            $this->assertSame(0, (int) $reader->query('SELECT COUNT(*) FROM situation_stage_log')->fetchColumn());
+            tick_situation($writer, load_user_situation($writer, $id, 7), 7);
+            $log = $reader->query('SELECT * FROM situation_stage_log')->fetch(PDO::FETCH_ASSOC);
+            $this->assertSame(1, (int) $log['old_stage']);
+            $this->assertSame(2, (int) $log['new_stage']);
+            $this->assertSame('progress_update', $log['reason']);
+            $this->db->exec('DELETE FROM colonies WHERE id=42');
+            $this->assertNull(load_user_situation($reader, $id, 7)['colony_id']);
+            $this->assertSame(1, (int) $reader->query('SELECT COUNT(*) FROM situation_stage_log')->fetchColumn());
+            $this->db->exec('DELETE FROM users WHERE id=7');
+            $this->assertSame(0, (int) $reader->query('SELECT COUNT(*) FROM situation_states')->fetchColumn());
+            $this->assertSame(0, (int) $reader->query('SELECT COUNT(*) FROM situation_stage_log')->fetchColumn());
+            $this->db->exec('DROP TABLE situation_stage_log');
+            try {
+                ensure_situations_tables($reader);
+                $this->fail('Earlier success must not hide missing stage history.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('situation_stage_log.id', $error->getMessage());
+            }
+            $this->db->exec('DROP TABLE situation_states');
+            try {
+                ensure_situations_tables($reader);
+                $this->fail('Missing situation storage must not be recreated.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('situation_states.id', $error->getMessage());
+            }
+            $this->assertSame(0, (int) $this->db->query(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()
+                 AND table_name IN ('situation_states','situation_stage_log')"
+            )->fetchColumn());
+        } finally {
+            if (isset($writer) && $writer->inTransaction()) {
+                $writer->rollBack();
+            }
+            $this->admin->exec('DROP USER ' . $account);
+        }
+    }
+
+    public function testAccountStorageRuntimeNeedsOnlySelectAndPreservesExistingProfiles(): void
+    {
+        require_once __DIR__ . '/../../api/character_profile_generator.php';
+        if (!function_exists('ensure_homeworld_support_tables')) {
+            $source = file_get_contents(__DIR__ . '/../../api/auth.php');
+            $start = strpos($source, 'function ensure_homeworld_support_tables(');
+            $end = strpos($source, 'function render_story_template(', $start);
+            $this->assertNotFalse($start);
+            $this->assertNotFalse($end);
+            // Auth dispatch exits on import; load only the actual helper under test.
+            eval(str_replace('__DIR__', var_export(realpath(__DIR__ . '/../../api'), true), substr($source, $start, $end - $start)));
+        }
+        $schema = $this->readSqlForTestDatabase('schema.sql');
+        $this->db->exec('CREATE TABLE users (id INT PRIMARY KEY) ENGINE=InnoDB;
+            INSERT INTO users VALUES (7);
+            CREATE TABLE colonies (id INT PRIMARY KEY) ENGINE=InnoDB;
+            INSERT INTO colonies VALUES (42)');
+        foreach (['ships', 'messages', 'user_character_profiles'] as $table) {
+            preg_match('/CREATE TABLE IF NOT EXISTS ' . $table . '\s*\(.*?\) ENGINE=InnoDB;/s', $schema, $matches);
+            $this->assertNotEmpty($matches);
+            $this->db->exec($matches[0]);
+        }
+        $this->db->exec("INSERT INTO ships (colony_id,type,count) VALUES (42,'small_cargo',17);
+            INSERT INTO messages (receiver_id,subject,body,is_read)
+                VALUES (7,'retained','existing welcome',1);
+            INSERT INTO user_character_profiles
+                (user_id,race,profession,stance,vita,profile_json,yaml_path,json_path,storage_dir)
+                VALUES (7,'custom','pilot','neutral','retained','{}','fixture/profile.yaml',
+                    'fixture/profile.json','fixture')");
+        $before = [];
+        foreach (['ships', 'messages', 'user_character_profiles'] as $table) {
+            $before[$table] = $this->db->query('SELECT * FROM ' . $table)->fetchAll(PDO::FETCH_ASSOC);
+        }
+        $username = 'gq_account_' . bin2hex(random_bytes(6));
+        $account = $this->admin->quote($username) . "@'%'";
+        $password = bin2hex(random_bytes(16));
+        $this->admin->exec('CREATE USER ' . $account . ' IDENTIFIED BY ' . $this->admin->quote($password));
+        try {
+            $this->admin->exec('GRANT SELECT ON `' . $this->database . '`.* TO ' . $account);
+            $reader = new PDO(
+                (string) getenv('GQ_MIGRATION_TEST_DSN'), $username, $password,
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]
+            );
+            $reader->exec('USE `' . $this->database . '`');
+            $reader->beginTransaction();
+            ensure_homeworld_support_tables($reader);
+            ensure_character_profile_tables($reader);
+            $this->assertSame($before['user_character_profiles'][0], ensure_user_character_profile($reader, 7));
+            $this->assertTrue($reader->inTransaction());
+            $reader->rollBack();
+            ensure_homeworld_support_tables($reader);
+            ensure_character_profile_tables($reader);
+            foreach ($before as $table => $rows) {
+                $this->assertSame($rows, $this->db->query('SELECT * FROM ' . $table)->fetchAll(PDO::FETCH_ASSOC));
+            }
+            $this->db->exec('DROP TABLE messages');
+            try {
+                ensure_homeworld_support_tables($reader);
+                $this->fail('Missing message storage must not be recreated.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('messages.id', $error->getMessage());
+            }
+            $this->db->exec('DROP TABLE ships');
+            try {
+                ensure_homeworld_support_tables($reader);
+                $this->fail('Missing ship storage must not be recreated.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('ships.id', $error->getMessage());
+            }
+            $this->db->exec('ALTER TABLE user_character_profiles DROP COLUMN last_error');
+            try {
+                ensure_user_character_profile($reader, 7);
+                $this->fail('Incomplete profile schema must not return success or generate assets.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('user_character_profiles.last_error', $error->getMessage());
+            }
+            $this->assertSame('retained', $this->db->query(
+                'SELECT vita FROM user_character_profiles WHERE user_id=7'
+            )->fetchColumn());
+            $this->db->exec('DROP TABLE user_character_profiles');
+            try {
+                ensure_user_character_profile($reader, 7);
+                $this->fail('Missing profile storage must not generate a success fallback.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('user_character_profiles.id', $error->getMessage());
+            }
+            $this->assertSame(0, (int) $this->db->query(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()
+                 AND table_name IN ('ships','messages','user_character_profiles')"
+            )->fetchColumn());
+        } finally {
+            if (isset($reader) && $reader->inTransaction()) {
+                $reader->rollBack();
+            }
+            $this->admin->exec('DROP USER ' . $account);
+        }
+    }
+
+    public function testShipQueueMigrationPreservesPaidWorkAndDefinitions(): void
+    {
+        $this->db->exec('CREATE TABLE colonies (id INT PRIMARY KEY) ENGINE=InnoDB; INSERT INTO colonies VALUES (42)');
+        $sql = $this->readSqlForTestDatabase('migrate_ship_build_queue_v1.sql');
+        $this->db->exec(str_replace('ship_type VARCHAR(64)', 'ship_type VARCHAR(100)', $sql));
+        $this->db->exec("INSERT INTO ship_build_queue
+            (colony_id,ship_type,quantity,cost_metal,duration_secs,status,eta)
+            VALUES (42,'paid_ship',3,789,60,'running','2024-01-01 00:00:00')");
+        $before = $this->db->query('SELECT * FROM ship_build_queue')->fetchAll(PDO::FETCH_ASSOC);
+        $definition = $this->db->query('SHOW CREATE TABLE ship_build_queue')->fetch(PDO::FETCH_NUM);
+        $runner = $this->buildRunner($sql);
+        $this->assertCount(1, $runner->runUp());
+        $this->assertSame([], $runner->runUp());
+        $this->assertSame(1, $runner->verifyDeployment());
+        $this->db->exec($sql);
+        $this->assertSame($before, $this->db->query('SELECT * FROM ship_build_queue')->fetchAll(PDO::FETCH_ASSOC));
+        $this->assertSame($definition, $this->db->query('SHOW CREATE TABLE ship_build_queue')->fetch(PDO::FETCH_NUM));
+    }
+
+    public function testProductionRuntimeGuardsAndVesselSpawnNeedNoDdl(): void
+    {
+        require_once __DIR__ . '/../../api/buildings.php';
+        require_once __DIR__ . '/../../api/shipyard_queue.php';
+        $this->db->exec('CREATE TABLE colonies (id INT PRIMARY KEY, user_id INT) ENGINE=InnoDB;
+            INSERT INTO colonies VALUES (42,7);
+            CREATE TABLE ships (colony_id INT, type VARCHAR(64), count INT,
+                UNIQUE KEY unique_ship (colony_id,type)) ENGINE=InnoDB;
+            CREATE TABLE vessel_blueprints (id BIGINT PRIMARY KEY, compiled_stats_json JSON) ENGINE=InnoDB;
+            INSERT INTO vessel_blueprints VALUES (19,JSON_OBJECT("hull",250))');
+        try {
+            ensure_ship_build_queue_table($this->db);
+            $this->fail('Missing queue must not be created.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('ship_build_queue.id', $error->getMessage());
+        }
+        $runner = $this->buildRunner($this->readSqlForTestDatabase('migrate_ship_build_queue_v1.sql'));
+        $this->assertCount(1, $runner->runUp());
+        $this->db->exec($this->readSqlForTestDatabase('migrate_vessel_blueprints_v5.sql'));
+        $schema = $this->readSqlForTestDatabase('schema.sql');
+        preg_match('/CREATE TABLE IF NOT EXISTS building_upgrade_queue\s*\(.*?\) ENGINE=InnoDB;/s', $schema, $matches);
+        $this->assertNotEmpty($matches);
+        $this->db->exec($matches[0]);
+        $username = 'gq_production_' . bin2hex(random_bytes(6));
+        $account = $this->admin->quote($username) . "@'%'";
+        $password = bin2hex(random_bytes(16));
+        $this->admin->exec('CREATE USER ' . $account . ' IDENTIFIED BY ' . $this->admin->quote($password));
+        try {
+            $this->admin->exec('GRANT SELECT ON `' . $this->database . '`.* TO ' . $account);
+            $connect = function () use ($username, $password): PDO {
+                $connection = new PDO(
+                    (string) getenv('GQ_MIGRATION_TEST_DSN'), $username, $password,
+                    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]
+                );
+                $connection->exec('USE `' . $this->database . '`');
+                return $connection;
+            };
+            $reader = $connect();
+            ensure_building_upgrade_queue_table($reader);
+            ensure_ship_build_queue_table($reader);
+            ensure_built_vessels_table($reader);
+            $this->assertFalse(ship_build_queue_has_pending($reader, 42));
+            $this->admin->exec('GRANT INSERT, UPDATE ON `' . $this->database . '`.* TO ' . $account);
+            $writer = $connect();
+            $writer->beginTransaction();
+            spawn_built_vessels($writer, 42, 7, 19, 2);
+            $this->assertTrue($writer->inTransaction());
+            $this->assertSame(2, (int) $writer->query('SELECT COUNT(*) FROM built_vessels')->fetchColumn());
+            $writer->rollBack();
+            $this->assertSame(0, (int) $reader->query('SELECT COUNT(*) FROM built_vessels')->fetchColumn());
+            spawn_built_vessels($writer, 42, 7, 19, 2);
+            $rows = $reader->query('SELECT * FROM built_vessels')->fetchAll(PDO::FETCH_ASSOC);
+            $this->assertCount(2, $rows);
+            foreach ($rows as $row) {
+                $this->assertSame('docked', $row['status']);
+                $this->assertSame(['hull' => 250], json_decode($row['snapshot_stats_json'], true));
+                $this->assertSame(['hp' => 250, 'max_hp' => 250], json_decode($row['hp_state_json'], true));
+            }
+            $writer->exec("INSERT INTO ship_build_queue
+                (colony_id,ship_type,blueprint_id,quantity,duration_secs,status,eta)
+                VALUES (42,'small_cargo',19,2,60,'running','2024-01-01 00:00:00')");
+            $this->assertTrue(ship_build_queue_has_pending($reader, 42));
+            complete_ship_build_queue($writer, 42);
+            $this->assertSame(2, (int) $reader->query('SELECT count FROM ships')->fetchColumn());
+            $this->assertSame(4, (int) $reader->query('SELECT COUNT(*) FROM built_vessels')->fetchColumn());
+            $this->assertFalse(ship_build_queue_has_pending($reader, 42));
+            complete_ship_build_queue($writer, 42);
+            $this->assertSame(2, (int) $reader->query('SELECT count FROM ships')->fetchColumn());
+            $this->assertSame(4, (int) $reader->query('SELECT COUNT(*) FROM built_vessels')->fetchColumn());
+            $writer->exec("INSERT INTO ship_build_queue
+                (colony_id,ship_type,blueprint_id,quantity,duration_secs,status,eta)
+                VALUES (42,'small_cargo',19,2,60,'running','2024-01-01 00:00:00')");
+            $this->db->exec('DROP TABLE built_vessels');
+            $before = $this->db->query('SELECT * FROM ship_build_queue')->fetchAll(PDO::FETCH_ASSOC);
+            try {
+                complete_ship_build_queue($writer, 42);
+                $this->fail('Completion must not hide missing vessel storage.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('built_vessels.id', $error->getMessage());
+            }
+            $this->assertSame($before, $this->db->query('SELECT * FROM ship_build_queue')->fetchAll(PDO::FETCH_ASSOC));
+            $this->assertSame(2, (int) $reader->query('SELECT count FROM ships')->fetchColumn());
+            $this->db->exec('DROP TABLE building_upgrade_queue');
+            try {
+                ensure_building_upgrade_queue_table($reader);
+                $this->fail('Earlier success must not hide missing building storage.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('building_upgrade_queue.id', $error->getMessage());
+            }
+            $this->db->exec('DELETE FROM colonies WHERE id=42');
+            $this->assertSame(0, (int) $reader->query('SELECT COUNT(*) FROM ship_build_queue')->fetchColumn());
+            $this->db->exec('DROP TABLE ship_build_queue');
+            try {
+                ensure_ship_build_queue_table($reader);
+                $this->fail('Earlier success must not hide missing ship storage.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('ship_build_queue.id', $error->getMessage());
+            }
+        } finally {
+            if (isset($writer) && $writer->inTransaction()) {
+                $writer->rollBack();
+            }
+            $this->admin->exec('DROP USER ' . $account);
+        }
+    }
+
+    public function testFactionGovernmentMigrationPreservesPartialLegacyStorage(): void
+    {
+        require_once __DIR__ . '/../../api/galaxy_seed.php';
+        $this->db->exec($this->readSqlForTestDatabase('schema.sql'));
+        $this->db->exec("CREATE TABLE faction_government (
+            faction_id INT PRIMARY KEY,
+            government_form VARCHAR(64) NOT NULL DEFAULT 'custom',
+            stability_score INT NOT NULL DEFAULT 17,
+            last_form_change DATETIME DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB");
+        $id = (int) $this->db->query('SELECT MIN(id) FROM npc_factions')->fetchColumn();
+        $this->db->exec("INSERT INTO faction_government VALUES ($id,'retained',83,'2024-01-01 00:00:00')");
+        $before = $this->db->query('SELECT * FROM faction_government')->fetchAll(PDO::FETCH_ASSOC);
+        $definition = $this->db->query('SHOW CREATE TABLE faction_government')->fetch(PDO::FETCH_NUM);
+        try {
+            ensure_government_tables($this->db);
+            $this->fail('Missing alliances must not be created.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('faction_alliances.faction_a_id', $error->getMessage());
+        }
+        $runner = $this->buildRunner($this->readSqlForTestDatabase('migrate_faction_government_v1.sql'));
+        $this->assertCount(1, $runner->runUp());
+        ensure_government_tables($this->db);
+        $this->assertSame($before, $this->db->query('SELECT * FROM faction_government')->fetchAll(PDO::FETCH_ASSOC));
+        $this->assertSame($definition, $this->db->query('SHOW CREATE TABLE faction_government')->fetch(PDO::FETCH_NUM));
+        $this->db->exec($this->readSqlForTestDatabase('migrate_faction_government_v1.sql'));
+        $this->assertSame($before, $this->db->query('SELECT * FROM faction_government')->fetchAll(PDO::FETCH_ASSOC));
+        $this->assertSame([], $runner->runUp());
+        $this->assertSame(1, $runner->verifyDeployment());
+    }
+
+    public function testFactionGovernmentRuntimeAndSeedsNeedNoDdlAndPreserveData(): void
+    {
+        require_once __DIR__ . '/../../api/galaxy_seed.php';
+        $this->db->exec($this->readSqlForTestDatabase('schema.sql'));
+        $runner = $this->buildRunner($this->readSqlForTestDatabase('migrate_faction_government_v1.sql'));
+        $this->assertCount(1, $runner->runUp());
+        $username = 'gq_diplomacy_' . bin2hex(random_bytes(6));
+        $account = $this->admin->quote($username) . "@'%'";
+        $password = bin2hex(random_bytes(16));
+        $this->admin->exec('CREATE USER ' . $account . ' IDENTIFIED BY ' . $this->admin->quote($password));
+        try {
+            $this->admin->exec('GRANT SELECT ON `' . $this->database . '`.* TO ' . $account);
+            $reader = new PDO(
+                (string) getenv('GQ_MIGRATION_TEST_DSN'), $username, $password,
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]
+            );
+            $reader->exec('USE `' . $this->database . '`');
+            ensure_pve_faction_tables($reader);
+            ensure_government_tables($reader);
+            $this->admin->exec('GRANT INSERT, UPDATE ON `' . $this->database . '`.* TO ' . $account);
+            $writer = new PDO(
+                (string) getenv('GQ_MIGRATION_TEST_DSN'), $username, $password,
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]
+            );
+            $writer->exec('USE `' . $this->database . '`');
+            $writer->beginTransaction();
+            ensure_pve_factions_seed($writer);
+            ensure_diplomacy_initialized($writer);
+            $this->assertTrue($writer->inTransaction());
+            $factions = (int) $writer->query('SELECT COUNT(*) FROM npc_factions')->fetchColumn();
+            $this->assertGreaterThan(1, $factions);
+            $this->assertSame($factions, (int) $writer->query('SELECT COUNT(*) FROM faction_government')->fetchColumn());
+            $this->assertSame(intdiv($factions * ($factions - 1), 2), (int) $writer->query(
+                'SELECT COUNT(*) FROM faction_alliances'
+            )->fetchColumn());
+            $writer->rollBack();
+            $this->assertSame(0, (int) $reader->query('SELECT COUNT(*) FROM faction_government')->fetchColumn());
+            ensure_pve_factions_seed($writer);
+            ensure_diplomacy_initialized($writer);
+            $this->db->exec('UPDATE faction_government SET stability_score=29');
+            $this->db->exec('UPDATE faction_alliances SET alliance_strength=-13');
+            $tables = ['npc_factions', 'faction_quests', 'faction_government', 'faction_alliances', 'app_state'];
+            $before = [];
+            foreach ($tables as $table) {
+                $before[$table] = $this->db->query('SELECT * FROM ' . $table . ' ORDER BY 1,2')->fetchAll(PDO::FETCH_ASSOC);
+            }
+            ensure_pve_factions_seed($writer);
+            ensure_diplomacy_initialized($writer);
+            $this->db->exec($this->readSqlForTestDatabase('migrate_faction_government_v1.sql'));
+            foreach ($tables as $table) {
+                $this->assertSame($before[$table], $this->db->query(
+                    'SELECT * FROM ' . $table . ' ORDER BY 1,2'
+                )->fetchAll(PDO::FETCH_ASSOC), $table . ' must survive repeated seed/migration.');
+            }
+            $ids = $this->db->query('SELECT id FROM npc_factions ORDER BY id LIMIT 2')->fetchAll(PDO::FETCH_COLUMN);
+            $this->db->exec("INSERT INTO faction_standing_adjustments (user_id,faction_id,adjustment,reason)
+                VALUES (42,{$ids[0]},9,'retained')");
+            $this->db->exec('DELETE FROM npc_factions WHERE id=' . (int) $ids[0]);
+            $this->assertSame(0, (int) $this->db->query(
+                'SELECT COUNT(*) FROM faction_government WHERE faction_id=' . (int) $ids[0]
+            )->fetchColumn());
+            $this->assertSame(0, (int) $this->db->query(
+                'SELECT COUNT(*) FROM faction_alliances WHERE faction_a_id=' . (int) $ids[0]
+                . ' OR faction_b_id=' . (int) $ids[0]
+            )->fetchColumn());
+            $this->assertSame(0, (int) $this->db->query('SELECT COUNT(*) FROM faction_standing_adjustments')->fetchColumn());
+            $this->db->exec('DROP TABLE faction_standing_adjustments');
+            try {
+                ensure_government_tables($reader);
+                $this->fail('Missing adjustments must not be recreated.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('faction_standing_adjustments.id', $error->getMessage());
+            }
+            $this->db->exec('DROP TABLE user_faction_quests');
+            $this->db->exec('DROP TABLE faction_quests');
+            try {
+                ensure_pve_faction_tables($reader);
+                $this->fail('Missing quests must not be recreated.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('faction_quests.id', $error->getMessage());
+            }
+            $this->assertSame(0, (int) $this->db->query(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()
+                 AND table_name IN ('faction_quests','faction_standing_adjustments')"
+            )->fetchColumn());
+        } finally {
+            if (isset($writer) && $writer->inTransaction()) {
+                $writer->rollBack();
+            }
+            $this->admin->exec('DROP USER ' . $account);
+        }
+    }
+
+    public function testAppStateMigrationPreservesExistingDataAndDefinitions(): void
+    {
+        $this->db->exec("CREATE TABLE app_state (
+            state_key VARCHAR(64) PRIMARY KEY,
+            state_value VARCHAR(512) NOT NULL,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB");
+        $this->db->exec("INSERT INTO app_state VALUES
+            ('seed:completed','1','2024-01-01 00:00:00'),
+            ('custom:payload','retained','2024-01-02 00:00:00')");
+        $before = $this->db->query('SELECT * FROM app_state ORDER BY state_key')->fetchAll(PDO::FETCH_ASSOC);
+        $definition = $this->db->query('SHOW CREATE TABLE app_state')->fetch(PDO::FETCH_NUM);
+        $runner = $this->buildRunner($this->readSqlForTestDatabase('migrate_app_state_v1.sql'));
+        $this->assertCount(1, $runner->runUp());
+        $this->assertSame([], $runner->runUp());
+        $this->assertSame(1, $runner->verifyDeployment());
+        $this->db->exec($this->readSqlForTestDatabase('migrate_app_state_v1.sql'));
+        $this->assertSame($before, $this->db->query('SELECT * FROM app_state ORDER BY state_key')->fetchAll(PDO::FETCH_ASSOC));
+        $this->assertSame($definition, $this->db->query('SHOW CREATE TABLE app_state')->fetch(PDO::FETCH_NUM));
+    }
+
+    public function testAppStateMigrationAndAccessorsWorkWithoutDdlPrivileges(): void
+    {
+        require_once __DIR__ . '/../../api/galaxy_seed.php';
+        try {
+            app_state_get_int($this->db, 'missing', 42);
+            $this->fail('Missing storage must fail instead of returning a default.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('app_state.state_key', $error->getMessage());
+        }
+        $this->assertSame(0, (int) $this->db->query(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='app_state'"
+        )->fetchColumn());
+        $runner = $this->buildRunner($this->readSqlForTestDatabase('migrate_app_state_v1.sql'));
+        $runner->runUp();
+        $username = 'gq_state_' . bin2hex(random_bytes(6));
+        $account = $this->admin->quote($username) . "@'%'";
+        $password = bin2hex(random_bytes(16));
+        $this->admin->exec('CREATE USER ' . $account . ' IDENTIFIED BY ' . $this->admin->quote($password));
+        try {
+            $this->admin->exec('GRANT SELECT ON `' . $this->database . '`.app_state TO ' . $account);
+            $connect = function () use ($username, $password): PDO {
+                $connection = new PDO(
+                    (string) getenv('GQ_MIGRATION_TEST_DSN'), $username, $password,
+                    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]
+                );
+                $connection->exec('USE `' . $this->database . '`');
+                return $connection;
+            };
+            $reader = $connect();
+            ensure_app_state_table($reader);
+            $this->assertSame(42, app_state_get_int($reader, 'missing', 42));
+            $this->db->exec("INSERT INTO app_state VALUES ('nonnumeric','abc',CURRENT_TIMESTAMP)");
+            $this->assertSame(7, app_state_get_int($reader, 'nonnumeric', 7));
+            try {
+                app_state_set_int($reader, 'denied', 1);
+                $this->fail('SELECT-only writes must propagate a rights error.');
+            } catch (PDOException $error) {
+                $this->assertSame(1142, (int) $error->errorInfo[1]);
+            }
+            $this->admin->exec('GRANT INSERT, UPDATE ON `' . $this->database . '`.app_state TO ' . $account);
+            $writer = $connect();
+            $writer->beginTransaction();
+            app_state_set_int($writer, 'tick:last', -17);
+            $this->assertTrue($writer->inTransaction(), 'Runtime preflight must not implicitly commit.');
+            $this->assertSame(-17, app_state_get_int($writer, 'tick:last'));
+            $writer->rollBack();
+            $this->assertSame(99, app_state_get_int($reader, 'tick:last', 99));
+            app_state_set_int($writer, 'tick:last', 123);
+            app_state_set_int($writer, 'tick:last', 456);
+            $this->assertSame(456, app_state_get_int($reader, 'tick:last'));
+            $this->assertSame(1, (int) $this->db->query(
+                "SELECT COUNT(*) FROM app_state WHERE state_key='tick:last' AND updated_at IS NOT NULL"
+            )->fetchColumn());
+            $this->db->exec('DROP TABLE app_state');
+            try {
+                app_state_set_int($writer, 'tick:last', 1);
+                $this->fail('Missing storage must not be recreated.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('app_state.state_key', $error->getMessage());
+            }
+            $this->assertSame(0, (int) $this->db->query(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='app_state'"
+            )->fetchColumn());
+        } finally {
+            if (isset($writer) && $writer->inTransaction()) {
+                $writer->rollBack();
+            }
+            $this->admin->exec('DROP USER ' . $account);
+        }
+    }
+
+    public function testWhiteDwarfMigrationPreservesStarsAndWorksWithSelectOnlyRuntime(): void
+    {
+        require_once __DIR__ . '/../../lib/GalaxySchema.php';
+        require_once __DIR__ . '/../../api/galaxy_seed.php';
+        $this->db->exec($this->readSqlForTestDatabase('schema.sql'));
+        $this->db->exec("INSERT INTO star_systems (galaxy_index,system_index,name,spectral_class)
+            VALUES (1,1,'Existing star','G')");
+        $before = $this->db->query('SELECT * FROM star_systems')->fetchAll(PDO::FETCH_ASSOC);
+        $runner = $this->buildRunner($this->readSqlForTestDatabase('migrate_star_spectral_wd_v1.sql'));
+        $runner->runUp();
+        $this->assertSame($before, $this->db->query('SELECT * FROM star_systems')->fetchAll(PDO::FETCH_ASSOC));
+        $this->db->exec("INSERT INTO star_systems (galaxy_index,system_index,name,spectral_class,stellar_type)
+            VALUES (1,2,'White dwarf','WD','white_dwarf')");
+        $this->assertSame([], $runner->runUp());
+        $this->assertSame(1, $runner->verifyDeployment());
+        $username = 'gq_galaxy_' . bin2hex(random_bytes(6));
+        $account = $this->admin->quote($username) . "@'%'";
+        $password = bin2hex(random_bytes(16));
+        $this->admin->exec('CREATE USER ' . $account . ' IDENTIFIED BY ' . $this->admin->quote($password));
+        try {
+            $this->admin->exec('GRANT SELECT ON `' . $this->database . '`.* TO ' . $account);
+            $limited = new PDO(
+                (string) getenv('GQ_MIGRATION_TEST_DSN'), $username, $password,
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+            );
+            $limited->exec('USE `' . $this->database . '`');
+            ensure_star_system_columns($limited);
+            ensure_binary_systems_table($limited);
+            $this->assertSame(2, (int) $limited->query('SELECT COUNT(*) FROM star_systems')->fetchColumn());
+            $this->db->exec('DROP TABLE binary_systems');
+            try {
+                ensure_binary_systems_table($limited);
+                $this->fail('Missing table must not be created by runtime.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('binary_systems.id', $error->getMessage());
+            }
+            $this->assertSame(0, (int) $this->db->query(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='binary_systems'"
+            )->fetchColumn());
+        } finally {
+            $this->admin->exec('DROP USER ' . $account);
+        }
+    }
+
+    public function testOutdatedStarSchemaFailsWithoutChangingType(): void
+    {
+        require_once __DIR__ . '/../../lib/GalaxySchema.php';
+        $this->db->exec($this->readSqlForTestDatabase('schema.sql'));
+        $before = $this->db->query("SHOW COLUMNS FROM star_systems LIKE 'spectral_class'")->fetch(PDO::FETCH_ASSOC);
+        try {
+            \GalaxyQuest\Schema\GalaxySchema::assertStars($this->db);
+            $this->fail('Unmigrated WD schema must not pass.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('Star spectral schema is outdated', $error->getMessage());
+        }
+        $this->assertSame($before, $this->db->query("SHOW COLUMNS FROM star_systems LIKE 'spectral_class'")->fetch(PDO::FETCH_ASSOC));
+    }
+
+    public function testPlanetScienceMigrationUpgradesLegacyAndPreservesPartialData(): void
+    {
+        require_once __DIR__ . '/../../api/galaxy_seed.php';
+        $this->db->exec($this->readSqlForTestDatabase('schema.sql'));
+        $this->db->exec("INSERT INTO planets (galaxy,`system`,position,composition_family,habitability_score,species_affinity_json)
+            VALUES (1,1,1,'custom_material',73,JSON_OBJECT('species','retained'))");
+        $columns = [
+            'dominant_surface_material', 'surface_pressure_bar', 'water_state', 'methane_state',
+            'ammonia_state', 'dominant_surface_liquid', 'radiation_level', 'life_friendliness',
+        ];
+        foreach ($columns as $column) {
+            $this->db->exec('ALTER TABLE planets DROP COLUMN ' . $column);
+        }
+        $before = $this->db->query('SELECT * FROM planets')->fetchAll(PDO::FETCH_ASSOC);
+        try {
+            ensure_planet_science_columns($this->db);
+            $this->fail('Missing science schema must not repair itself.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('planets.dominant_surface_material', $error->getMessage());
+        }
+        $this->assertSame($before, $this->db->query('SELECT * FROM planets')->fetchAll(PDO::FETCH_ASSOC));
+        $runner = $this->buildRunner($this->readSqlForTestDatabase('migrate_planet_science_v1.sql'));
+        $this->assertCount(1, $runner->runUp());
+        $row = $this->db->query('SELECT * FROM planets')->fetch(PDO::FETCH_ASSOC);
+        foreach ($before[0] as $column => $value) {
+            $this->assertSame($value, $row[$column], 'Existing column changed: ' . $column);
+        }
+        $this->assertSame('basaltic_regolith', $row['dominant_surface_material']);
+        $this->assertSame(0.0, (float) $row['surface_pressure_bar']);
+        $this->assertSame('solid', $row['water_state']);
+        $this->assertSame('gas', $row['methane_state']);
+        $this->assertSame('gas', $row['ammonia_state']);
+        $this->assertSame('none', $row['dominant_surface_liquid']);
+        $this->assertSame('moderate', $row['radiation_level']);
+        $this->assertSame('life_hostile', $row['life_friendliness']);
+        ensure_planet_science_columns($this->db);
+        $this->assertSame([], $runner->runUp());
+        $this->assertSame(1, $runner->verifyDeployment());
+        // Direct replay must also preserve all existing science values.
+        $this->db->exec($this->readSqlForTestDatabase('migrate_planet_science_v1.sql'));
+        $this->assertSame($row, $this->db->query('SELECT * FROM planets')->fetch(PDO::FETCH_ASSOC));
+    }
+
+    public function testPlanetScienceMigrationAddsAllMissingColumnsAndRuntimeNeedsOnlySelect(): void
+    {
+        require_once __DIR__ . '/../../api/galaxy_seed.php';
+        $this->db->exec('CREATE TABLE planets (id INT PRIMARY KEY, name VARCHAR(32))');
+        $this->db->exec("INSERT INTO planets VALUES (42, 'Existing planet')");
+        $runner = $this->buildRunner($this->readSqlForTestDatabase('migrate_planet_science_v1.sql'));
+        $runner->runUp();
+        $row = $this->db->query('SELECT * FROM planets')->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame(42, $row['id']);
+        $this->assertSame('Existing planet', $row['name']);
+        $this->assertSame('silicate_metal', $row['composition_family']);
+        $this->assertSame(0, $row['habitability_score']);
+        $this->assertNull($row['species_affinity_json']);
+        $username = 'gq_planet_' . bin2hex(random_bytes(6));
+        $account = $this->admin->quote($username) . "@'%'";
+        $password = bin2hex(random_bytes(16));
+        $this->admin->exec('CREATE USER ' . $account . ' IDENTIFIED BY ' . $this->admin->quote($password));
+        try {
+            $this->admin->exec('GRANT SELECT ON `' . $this->database . '`.* TO ' . $account);
+            $limited = new PDO(
+                (string) getenv('GQ_MIGRATION_TEST_DSN'), $username, $password,
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+            );
+            $limited->exec('USE `' . $this->database . '`');
+            ensure_planet_science_columns($limited);
+            $this->assertSame($row, $limited->query('SELECT * FROM planets')->fetch(PDO::FETCH_ASSOC));
+            $this->db->exec('ALTER TABLE planets DROP COLUMN water_state');
+            try {
+                ensure_planet_science_columns($limited);
+                $this->fail('SELECT-only runtime must reject missing column.');
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('planets.water_state', $error->getMessage());
+            }
+            $this->assertSame(0, (int) $this->db->query(
+                "SELECT COUNT(*) FROM information_schema.columns
+                 WHERE table_schema=DATABASE() AND table_name='planets' AND column_name='water_state'"
+            )->fetchColumn());
+        } finally {
+            $this->admin->exec('DROP USER ' . $account);
+        }
     }
 
     /** @return iterable<string, array{bool}> */

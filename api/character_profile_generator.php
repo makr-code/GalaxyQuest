@@ -101,29 +101,10 @@ function ensure_user_character_profile(PDO $db, int $userId, bool $isNpc = false
     return (array)$reload->fetch(PDO::FETCH_ASSOC);
 }
 
-function ensure_character_profile_tables(PDO $db): void {
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS user_character_profiles (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            user_id INT NOT NULL,
-            is_npc TINYINT(1) NOT NULL DEFAULT 0,
-            race VARCHAR(80) NOT NULL DEFAULT \'Unknown\',
-            profession VARCHAR(80) NOT NULL DEFAULT \'Wanderer\',
-            stance VARCHAR(80) NOT NULL DEFAULT \'Neutral\',
-            vita TEXT NOT NULL,
-            profile_json LONGTEXT NOT NULL,
-            yaml_path VARCHAR(255) NOT NULL,
-            json_path VARCHAR(255) NOT NULL,
-            png_path VARCHAR(255) NOT NULL DEFAULT \'\',
-            storage_dir VARCHAR(255) NOT NULL,
-            generation_status VARCHAR(40) NOT NULL DEFAULT \'generated\',
-            last_error TEXT DEFAULT NULL,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            UNIQUE KEY uniq_character_profile_user (user_id),
-            CONSTRAINT fk_character_profile_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB'
-    );
+function ensure_character_profile_tables(PDO $db): void
+{
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertCharacterProfiles($db);
 }
 
 function character_profile_generate_payload(PDO $db, int $userId, string $username, bool $isNpc, string $speciesCode = ''): array {
