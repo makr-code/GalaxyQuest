@@ -3,6 +3,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        APP_UID: ${GQ_WEB_UID:-1001}
+        APP_GID: ${GQ_WEB_GID:-1001}
     container_name: galaxyquest-web
     depends_on:
       db:
@@ -37,7 +40,7 @@ services:
       THEMISDB_TIMEOUT_SECONDS: 10
       THEMISDB_DUAL_WRITE: 0
     ports:
-      - "127.0.0.1:8081:80"
+      - "127.0.0.1:8081:8080"
     volumes:
       - ./:/var/www/html
 
@@ -165,6 +168,9 @@ services:
     build:
       context: ./docker/comfyui
       dockerfile: Dockerfile
+      args:
+        APP_UID: ${GQ_AI_UID:-1001}
+        APP_GID: ${GQ_AI_GID:-1001}
     container_name: galaxyquest-comfyui
     working_dir: /workspace
     profiles:
@@ -248,6 +254,8 @@ services:
         CUDA_VERSION: 12.1.1
         CUDNN_VERSION: 8
         BASE_OS: ubuntu22.04
+        APP_UID: ${GQ_AI_UID:-1001}
+        APP_GID: ${GQ_AI_GID:-1001}
     container_name: galaxyquest-trellis2
     profiles:
       - ai-3d

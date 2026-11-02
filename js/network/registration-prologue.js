@@ -418,7 +418,7 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     const target = { ...draft.target, position };
     const button = element('choices').querySelector(`[data-tutorial-planet="${position}"]`);
     element('choices').querySelectorAll('button').forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
-    element('story').textContent = `${planet.name} · ${planet.class}\n${Number(planet.diameter_km).toLocaleString()} km Durchmesser · ${Number(planet.semi_major_axis_au).toFixed(2)} AU\nDies ist die für deinen privaten Draft reservierte Startwelt.`;
+    element('story').textContent = `${planet.name} · ${planet.class}\n${Number(planet.diameter_km).toLocaleString('de-DE')} km Durchmesser · ${Number(planet.semi_major_axis_au).toFixed(2)} AU\nDies ist die für deinen privaten Draft reservierte Startwelt.`;
     preview({ stage: 'planet', target, stars: draft.stars, draft });
     next.hidden = false;
     next.disabled = false;
@@ -432,7 +432,7 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     frame(step.title, step.text, `Schritt 3 / Tutorial ${tutorialIndex + 1} von ${tutorialSteps.length}`);
     if (tutorialIndex === 1 && selectedTutorialPlanet) {
       const planet = selectedTutorialPlanet;
-      element('story').textContent = `${planet.name} · ${planet.class}\nDurchmesser: ${Number(planet.diameter_km).toLocaleString()} km\nUmlaufbahn: ${Number(planet.semi_major_axis_au).toFixed(2)} AU\nStatus: kolonialisierbar · Reservierung: privat`;
+      element('story').textContent = `${planet.name} · ${planet.class}\nDurchmesser: ${Number(planet.diameter_km).toLocaleString('de-DE')} km\nUmlaufbahn: ${Number(planet.semi_major_axis_au).toFixed(2)} AU\nStatus: kolonialisierbar · Reservierung: privat`;
     }
     const target = selectedTutorialPlanet
       ? { ...draft.target, position: Number(selectedTutorialPlanet.position) }

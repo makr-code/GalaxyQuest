@@ -1482,8 +1482,10 @@ function normalizeCitySlots(data) {
   const source = saved.length ? saved : buildings.filter((entry) => (Number(entry.level) > 0 || entry.upgrade_end) && entry.meta?.zone !== 'orbital')
     .slice(0, 256).map((entry, index) => ({ ...entry, slot_x: index % cols, slot_y: Math.floor(index / cols) }));
   const persisted = source.some((slot) => slot.slot_x != null);
-  const centerX = (Math.min(0, ...source.map((s) => bounded(s.slot_x, -31, 31))) + Math.max(cols - 1, ...source.map((s) => bounded(s.slot_x, -31, 31)))) / 2;
-  const centerZ = (Math.min(0, ...source.map((s) => bounded(s.slot_y, -31, 31))) + Math.max(rows - 1, ...source.map((s) => bounded(s.slot_y, -31, 31)))) / 2;
+  const slotX = (slot) => Number.isFinite(Number(slot.slot_x)) ? bounded(slot.slot_x, -31, 31) : 0;
+  const slotY = (slot) => Number.isFinite(Number(slot.slot_y)) ? bounded(slot.slot_y, -31, 31) : 0;
+  const centerX = (Math.min(0, ...source.map(slotX)) + Math.max(cols - 1, ...source.map(slotX))) / 2;
+  const centerZ = (Math.min(0, ...source.map(slotY)) + Math.max(rows - 1, ...source.map(slotY))) / 2;
   return source.slice(0, 256).map((slot, index) => {
     const type = String(slot.type || slot.building_type || '');
     const building = buildings.find((entry) => entry.type === type);
@@ -1491,8 +1493,10 @@ function normalizeCitySlots(data) {
       ...building, ...slot, type,
       owner_color: slot.owner_color || data?.colony?.owner_color || data?.colony?.colony_owner_color || data?.colony?.faction_color || '',
       level: bounded(slot.level ?? building?.level, 0, 100, 1),
-      x: persisted ? (bounded(slot.slot_x, -31, 31) - centerX) * 3.1 : bounded(slot.x, -100, 100),
-      z: persisted ? (bounded(slot.slot_y, -31, 31) - centerZ) * 3.1 : bounded(slot.z, -100, 100),
+      x: persisted ? (slotX(slot) - centerX) * 3.1
+        : Number.isFinite(Number(slot.x)) ? bounded(slot.x, -100, 100) : 0,
+      z: persisted ? (slotY(slot) - centerZ) * 3.1
+        : Number.isFinite(Number(slot.z)) ? bounded(slot.z, -100, 100) : 0,
       key: `${type}:${slot.slot_x ?? slot.x ?? index}:${slot.slot_y ?? slot.z ?? 0}`,
     };
   }).filter((slot) => slot.type && (slot.level > 0 || slot.upgrade_end));
@@ -1719,7 +1723,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       this._buildingView = null;
       this._navigation?.surface?.();
     }
-    this._uploadSlots();
+    if (this._active) this._uploadSlots();
     this._rebuildBuildingVfx(this._slots);
     this._updateHud();
   }
@@ -1799,6 +1803,15 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._camera.progress = 0;
     this._camera.target = { x: 0, z: 0 };
     let data = transitionPayload || this._sceneData;
+    const sameColony = Number(this._sceneData?.colony?.id || 0) > 0
+      && Number(transitionPayload?.colony?.id || 0) === Number(this._sceneData.colony.id);
+    if (sameColony && !Array.isArray(transitionPayload?.slots) && !transitionPayload?.layout) {
+      data = {
+        ...this._sceneData,
+        ...transitionPayload,
+        colony: { ...this._sceneData.colony, ...transitionPayload.colony },
+      };
+    }
     const planetColony = transitionPayload?.__slot?.player_planet || transitionPayload?.planet?.__slot?.player_planet || transitionPayload?.planet || transitionPayload;
     if (!transitionPayload?.colony && Number(planetColony?.colony_id) > 0) {
       data = {
@@ -1833,6 +1846,14 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._people = [];
     this._buildingVfxParticles = [];
     this._buildingVfxVertexCount = 0;
+    this._buildingVfxStats = {
+      backend: 'webgpu',
+      quality: 'medium',
+      emitters: 0,
+      particles: 0,
+      profileCounts: {},
+      burstActive: false,
+    };
     this._instanceBuffer?.destroy();
     this._instanceBuffer = null;
     this._instanceBindGroup = null;
@@ -2142,7 +2163,15 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
 
   _uploadSlots() {
     if (!this._device) return;
-    const count = (this._city?.parts.length || 0) + this._people.length * 2 + 1;
+    const count = (this._city?.parts.length || 0) + this._people.length * 2 + (this._selected ? 1 : 0);
+    if (!count) {
+      this._instanceBuffer?.destroy();
+      this._instanceBuffer = null;
+      this._instanceBindGroup = null;
+      this._bodyBindGroup = null;
+      this._slotCount = 0;
+      return;
+    }
     const size   = count * BYTES_PER_SLOT;
     this._instanceBuffer?.destroy();
     this._instanceBuffer = this._device.createBuffer({
@@ -2171,7 +2200,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
 
   _uploadPeople() {
     if (!this._instanceBuffer || !this._city) return;
-    const data = new Float32Array((this._people.length * 2 + 1) * 16);
+    const data = new Float32Array((this._people.length * 2 + (this._selected ? 1 : 0)) * 16);
     this._people.forEach((person, i) => {
       // Deterministic triangular wave along a road; time is bounded and has no economic effect.
       const phase = (this._elapsed * person.speed + person.phase) % 4;
@@ -2180,12 +2209,13 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       this._packPart(data, i * 2, { x, y: 0.08, z: person.z, sx: 0.12, sy: 0.28, sz: 0.12, color });
       this._packPart(data, i * 2 + 1, { x, y: 0.36, z: person.z, sx: 0.13, sy: 0.13, sz: 0.13, color: [0.9, 0.77, 0.65] });
     });
-    const slot = this._selected;
-    this._packPart(data, this._people.length * 2, {
-      x: slot?.x || 0, y: 0.155, z: slot?.z || 0,
-      sx: slot ? 2.6 : 0, sy: 0.035, sz: slot ? 2.6 : 0, color: [0.2, 0.87, 1],
-    });
-    this._device.queue.writeBuffer(this._instanceBuffer, this._city.parts.length * BYTES_PER_SLOT, data);
+    if (this._selected) {
+      this._packPart(data, this._people.length * 2, {
+        x: this._selected.x, y: 0.155, z: this._selected.z,
+        sx: 2.6, sy: 0.035, sz: 2.6, color: [0.2, 0.87, 1],
+      });
+    }
+    if (data.length) this._device.queue.writeBuffer(this._instanceBuffer, this._city.parts.length * BYTES_PER_SLOT, data);
   }
 
   setNavigationHandlers(handlers) {
@@ -2519,7 +2549,9 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
         }
       }
     });
+    const previousKey = this._selected?.key;
     this._selected = selected;
+    if (this._active && previousKey !== selected?.key) this._uploadSlots();
     this._updateHud();
     if (selected) this._navigation?.slotClick?.({ ...selected, colonyId: this._sceneData?.colony?.id });
     return selected;
@@ -2561,16 +2593,18 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   }
 
   _slotVfxProfile(slot) {
-    const explicitProfile = String(slot?.vfx_profile || slot?.fx_profile || '').toLowerCase();
+    const explicitProfile = String(slot?.vfx_profile || slot?.fx_profile
+      || slot?.appearance?.effects?.profile || slot?.effects?.profile || '').toLowerCase();
     const explicitIntensity = Math.max(0.4, Math.min(2.2, Number(slot?.vfx_intensity || slot?.fx_intensity || 1) || 1));
     if (explicitProfile) {
       if (explicitProfile === 'construction' || explicitProfile === 'upgrade') {
         return { profileName: 'construction', particleMul: 1.35 * explicitIntensity, sizeMul: 1.12, opacityAdd: 0.12, driftMul: 1.25, tint: [1.0, 0.70, 0.42] };
       }
-      if (explicitProfile === 'industry' || explicitProfile === 'smelter' || explicitProfile === 'refinery') {
+      if (explicitProfile === 'industry' || explicitProfile === 'industrial'
+          || explicitProfile === 'smelter' || explicitProfile === 'refinery') {
         return { profileName: 'industry', particleMul: 1.2 * explicitIntensity, sizeMul: 1.06, opacityAdd: 0.08, driftMul: 1.16, tint: [1.0, 0.79, 0.47] };
       }
-      if (explicitProfile === 'power' || explicitProfile === 'reactor') {
+      if (explicitProfile === 'power' || explicitProfile === 'reactor' || explicitProfile === 'energy') {
         return { profileName: 'power', particleMul: 1.05 * explicitIntensity, sizeMul: 1.0, opacityAdd: 0.06, driftMul: 1.08, tint: [0.54, 0.84, 1.0] };
       }
       if (explicitProfile === 'research' || explicitProfile === 'science') {
@@ -2615,9 +2649,32 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._ingestUpgradeTransitions(source);
     this._buildingVfxParticles = [];
     this._buildingVfxVertexCount = 0;
-    if (!source.length) return;
+    const scene = this._sceneData || {};
+    const enabled = scene.reduced_motion !== true && scene.visible !== false && scene.vfx_enabled !== false;
+    const emitters = enabled ? source.filter((slot) => {
+      const state = slot?.appearance?.effects?.state || slot?.effects?.state || {};
+      const activity = state.activity ?? slot?.activity;
+      const numericActivity = Number(activity);
+      return slot?.visible !== false && slot?.vfx_enabled !== false
+        && slot?.active !== false && slot?.powered !== false
+        && state.active !== false && state.powered !== false && state.vfx_enabled !== false
+        && (activity == null || !Number.isFinite(numericActivity) || numericActivity > 0);
+    }) : [];
+    if (!emitters.length) {
+      this._buildingVfxBuffer?.destroy();
+      this._buildingVfxBuffer = null;
+      this._buildingVfxStats = {
+        backend: 'webgpu',
+        quality: 'medium',
+        emitters: 0,
+        particles: 0,
+        profileCounts: {},
+        burstActive: false,
+      };
+      return;
+    }
 
-    const quality = this._resolveBuildingVfxQuality(source.length);
+    const quality = this._resolveBuildingVfxQuality(emitters.length);
     const qualityMap = {
       low: { emitters: 10, particlesPerEmitter: 8, size: 0.11, opacity: 0.16 },
       medium: { emitters: 20, particlesPerEmitter: 10, size: 0.12, opacity: 0.2 },
@@ -2627,13 +2684,13 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     const profileCounts = {};
     const maxParticles = 900;
     const maxEmittersByCap = Math.max(1, Math.floor(maxParticles / Math.max(1, cfg.particlesPerEmitter)));
-    const emitterCount = Math.min(source.length, cfg.emitters, maxEmittersByCap);
-    const stride = Math.max(1, Math.floor(source.length / emitterCount));
+    const emitterCount = Math.min(emitters.length, cfg.emitters, maxEmittersByCap);
+    const stride = Math.max(1, Math.floor(emitters.length / emitterCount));
     let remainingParticles = maxParticles;
 
     for (let e = 0; e < emitterCount; e += 1) {
       if (remainingParticles <= 0) break;
-      const slot = source[Math.min(source.length - 1, e * stride)] || {};
+      const slot = emitters[Math.min(emitters.length - 1, e * stride)] || {};
       const profile = this._slotVfxProfile(slot);
       const profileName = String(profile.profileName || 'auto');
       profileCounts[profileName] = (profileCounts[profileName] || 0) + 1;
@@ -2660,7 +2717,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     }
 
     this._buildingVfxVertexCount = this._buildingVfxParticles.length * 6;
-    this._ensureBuildingVfxBufferCapacity(this._buildingVfxVertexCount);
+    if (this._active) this._ensureBuildingVfxBufferCapacity(this._buildingVfxVertexCount);
     this._buildingVfxStats = {
       backend: 'webgpu',
       quality,

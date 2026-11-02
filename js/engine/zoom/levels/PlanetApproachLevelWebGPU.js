@@ -1,452 +1,388 @@
 /**
- * Planet approach on the shared galaxy WebGPU device, canvas and frame loop.
- * The incoming flight state drives projection; double-click/scroll enters the city.
- * License: MIT — makr-code/GalaxyQuest
+ * Native planet approach. Analytic ray/sphere intersections avoid tessellation
+ * seams and invalid clip coordinates; shared local maps supply seeded terrain.
+ * Lambert/water highlights, cloud shell and atmosphere are not full planet PBR.
  */
 'use strict';
 
 var { IZoomLevelRenderer: ZoomLevelRendererBase } = typeof require !== 'undefined'
-  ? require('../IZoomLevelRenderer.js')
-  : window.GQIZoomLevelRenderer;
+  ? require('../IZoomLevelRenderer.js') : window.GQIZoomLevelRenderer;
 
-const PLANET_APPROACH_WGSL = `
-struct Uniforms {
-  viewProjection: mat4x4<f32>,
-  base: vec4<f32>,
-  atmosphere: vec4<f32>,
-  animation: vec4<f32>,
-  shape: vec4<f32>,
-  eye: vec4<f32>,
-};
-@group(0) @binding(0) var<uniform> u: Uniforms;
-struct Out {
-  @builtin(position) position: vec4<f32>,
-  @location(0) normal: vec3<f32>,
-  @location(1) uv: vec2<f32>,
-  @location(2) world: vec3<f32>,
-  @location(3) bodyPoint: vec3<f32>,
-  @location(4) region: vec4<f32>,
-};
-fn noise(p: vec2<f32>) -> f32 {
-  return sin(p.x * 2.7 + sin(p.y * 3.8)) * cos(p.y * 2.1 + sin(p.x * 1.7)) * 0.5 + 0.5;
-}
-@vertex fn vs_main(@builtin(vertex_index) vertex: u32) -> Out {
-  let cell = vertex / 6u;
-  let corner = array<vec2<f32>, 6>(
-    vec2<f32>(0,0), vec2<f32>(1,0), vec2<f32>(0,1),
-    vec2<f32>(0,1), vec2<f32>(1,0), vec2<f32>(1,1));
-  let uv = (vec2<f32>(f32(cell / 64u), f32(cell % 64u)) + corner[vertex % 6u]) / vec2<f32>(32,64);
-  let latitude = uv.x * 3.14159265 - 1.57079633;
-  let longitude = uv.y * 6.2831853 + u.animation.x;
-  let normal = vec3<f32>(cos(latitude) * cos(longitude), sin(latitude), cos(latitude) * sin(longitude));
-  var out: Out;
-  let canonical = vec3<f32>(cos(latitude) * cos(uv.y * 6.2831853),sin(latitude),cos(latitude) * sin(uv.y * 6.2831853));
-  let wave = 0.6 * (canonical.x * canonical.x - canonical.y * canonical.y) + 0.4 * canonical.x * canonical.z;
-  let factor = (1.0 + u.shape.w * wave) / length(canonical / max(u.shape.xyz,vec3<f32>(0.5)));
-  out.world = normal * factor;
-  out.bodyPoint = canonical * factor;
-  out.position = u.viewProjection * vec4<f32>(out.world,1);
-  out.normal = normal;
-  out.uv = uv;
-  out.region = vec4<f32>(0);
-  return out;
-}
-@fragment fn fs_main(in: Out, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
-  let face = cross(dpdx(in.world),dpdy(in.world));
-  let geometric = face / max(length(face),0.00001);
-  let radialNormal = select(-geometric,geometric,dot(geometric,in.normal) >= 0.0);
-  let normal = select(radialNormal,select(geometric,-geometric,front),u.animation.w > 0.5);
-  let c = cos(u.animation.x);
-  let s = sin(u.animation.x);
-  let canonicalNormal = vec3<f32>(normal.x * c + normal.z * s,normal.y,-normal.x * s + normal.z * c);
-  let worldView = normalize(u.eye.xyz - in.world);
-  let view = vec3<f32>(worldView.x * c + worldView.z * s,worldView.y,-worldView.x * s + worldView.z * c);
-  var surface = gqSurface(in.bodyPoint,in.bodyPoint * gqMaterial.scale.y,canonicalNormal,-1.0);
-  surface.albedo = mix(surface.albedo,gqLinear(in.region.rgb),in.region.a);
-  let cloud = smoothstep(0.65,0.9,noise(in.uv * vec2<f32>(15,23) + vec2<f32>(u.animation.y * 0.02,0))) * (1.0 - u.animation.w);
-  let light = normalize(vec3<f32>(-0.7,0.8,1));
-  let canonicalLight = vec3<f32>(light.x * c + light.z * s,light.y,-light.x * s + light.z * c);
-  var color = surface.albedo * 0.3 + surface.emission + gqDirect(surface,view,canonicalLight,vec3<f32>(2.8));
-  color = mix(color,vec3<f32>(0.8),cloud * 0.17);
-  let rim = pow(1.0 - abs(normal.z),3.0);
-  return vec4<f32>(gqFinish(mix(color,gqLinear(u.atmosphere.rgb),rim * 0.3 * (1.0 - u.animation.w))) * u.animation.z,1);
-}
-@vertex fn vs_mesh(@location(0) point: vec3<f32>, @location(1) region: vec4<f32>) -> Out {
-  let c = cos(u.animation.x);
-  let s = sin(u.animation.x);
-  let world = vec3<f32>(point.x * c - point.z * s,point.y,point.x * s + point.z * c);
-  var out: Out;
-  out.world = world;
-  out.bodyPoint = point;
-  out.position = u.viewProjection * vec4<f32>(world,1);
-  out.normal = normalize(world);
-  out.uv = vec2<f32>(atan2(point.z,point.x) / 6.2831853,asin(clamp(normalize(point).y,-1.0,1.0)) / 3.14159265);
-  out.region = region;
-  return out;
-}
-`;
-
-function planetColor(value, fallback) {
-  const hex = /^#?[0-9a-f]{6}$/i.test(String(value || '')) ? String(value).replace('#', '') : fallback;
-  return [0,2,4].map((index) => parseInt(hex.slice(index, index + 2), 16) / 255);
-}
-
-function normalizeVector(vector, fallback) {
-  const length = Math.hypot(...vector);
-  return length > 1e-8 ? vector.map((value) => value / length) : fallback.slice();
-}
-
-function cross(a, b) {
-  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-}
-
-function multiplyMatrix(a, b) {
-  const out = new Float32Array(16);
-  for (let col = 0; col < 4; col++) {
-    for (let row = 0; row < 4; row++) {
-      for (let k = 0; k < 4; k++) out[col * 4 + row] += a[k * 4 + row] * b[col * 4 + k];
-    }
-  }
-  return out;
-}
-
-function planetViewProjection(cameraState, aspect, distance, near = 0.1, far = 20) {
-  const target = [
-    Number(cameraState?.target?.x) || 0,
-    Number(cameraState?.target?.y) || 0,
-    Number(cameraState?.target?.z) || 0,
-  ];
-  const requestedPosition = [
-    Number(cameraState?.position?.x) || 0,
-    Number(cameraState?.position?.y) || 0,
-    Number(cameraState?.position?.z) || 0,
-  ];
-  const back = normalizeVector(
-    requestedPosition.map((value, axis) => value - target[axis]),
-    [0, 0, 1]
-  );
-  const referenceUp = Math.abs(back[1]) > 0.98 ? [0, 0, 1] : [0, 1, 0];
-  const right = normalizeVector(cross(referenceUp, back), [1, 0, 0]);
-  const up = normalizeVector(cross(back, right), [0, 1, 0]);
-  const eye = target.map((value, axis) => value + back[axis] * distance);
-  const view = new Float32Array([
-    right[0], up[0], back[0], 0,
-    right[1], up[1], back[1], 0,
-    right[2], up[2], back[2], 0,
-    -right.reduce((sum, value, axis) => sum + value * eye[axis], 0),
-    -up.reduce((sum, value, axis) => sum + value * eye[axis], 0),
-    -back.reduce((sum, value, axis) => sum + value * eye[axis], 0),
-    1,
-  ]);
-  const projection = new Float32Array([
-    1.73 / aspect,0,0,0, 0,1.73,0,0, 0,0,far / (near - far),-1,
-    0,0,(far * near) / (near - far),0,
-  ]);
-  return multiplyMatrix(projection, view);
-}
-
-class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
+class PlanetLivingWorldApproachRenderer extends ZoomLevelRendererBase {
   constructor() {
     super();
-    this._canvas = null;
-    this._backend = null;
-    this._device = null;
-    this._context = null;
-    this._pipeline = null;
-    this._uniformBuffer = null;
-    this._sceneData = null;
-    this._rotation = 0;
-    this._time = 0;
-    this._active = false;
-    this._inputCleanups = [];
-    this._hint = null;
-    this._visualPalette = { base: [0.2,0.45,0.8], atmo: [0.55,0.75,1], clear: [0,0,0.02] };
+    this._canvas = this._backend = this._sceneData = null;
+    this._device = this._context = this._pipeline = null;
+    this._uniformBuffer = this._bindGroup = null;
+    this._textures = [];
+    this._rotation = this._cloudRotation = 0;
+    this._unloaded = false;
+    this._resourceEpoch = 0;
+    this._visualPalette = { base: [0.2, 0.45, 0.8], atmo: [0.33, 0.67, 1], clear: [0.016, 0.031, 0.078] };
   }
 
   async initialize(canvas, backend) {
+    this._releaseOwned();
+    this._unloaded = false;
+    const epoch = this._resourceEpoch;
     this._canvas = canvas;
     this._backend = backend;
     this._device = backend?.device || null;
     this._context = backend?.context || null;
-    if (!this._device || !this._context) throw new Error('PlanetApproachLevelWebGPU requires the shared WebGPU device and canvas context');
-    await this._buildPipeline();
+    if (!this._device || !this._context) {
+      throw new Error('PlanetApproachLevelWebGPU requires the shared WebGPU device and canvas context');
+    }
+    const device = this._device;
+    const world = await this._loadWorld();
+    if (!this._isCurrent(epoch, device)) return;
+    this._world = world;
+    await this._buildPipeline(epoch);
+    if (!this._isCurrent(epoch, device)) return;
+    this._applySceneDataVisuals(this._sceneData);
+  }
+
+  async _loadWorld() {
+    if (typeof require !== 'undefined') return require('./PlanetLivingWorld.js');
+    if (window.GQPlanetLivingWorld) return window.GQPlanetLivingWorld;
+    await import('../../../rendering/planet-textures.js');
+    await import('./PlanetLivingWorld.js');
+    return window.GQPlanetLivingWorld;
+  }
+
+  _isCurrent(epoch, device) {
+    return epoch === this._resourceEpoch && this._device === device && !!device && !this._unloaded;
   }
 
   setSceneData(data) {
-    this._terrainStream?.dispose();
-    this._terrainStream = null;
-    this._terrainManifest = null;
-    this._sceneData = data;
+    this._sceneData = data || null;
     this._applySceneDataVisuals(data);
   }
 
-  setNavigationHandlers(handlers) {
-    this._navigation = handlers;
+  render(dt, cameraState) {
+    if (this._unloaded || !this._pipeline) return;
+    const policy = this._world.policy(this._sceneData);
+    if (!policy.visible) return;
+    if (policy.motion) {
+      const seconds = this._world.delta(dt);
+      this._rotation = (this._rotation + seconds * 0.05) % (Math.PI * 2);
+      this._cloudRotation = (this._cloudRotation + seconds * 0.073) % (Math.PI * 2);
+    }
+    this._refreshMaps(policy);
+    this._drawFrame(cameraState, policy);
   }
 
-  async enter(prevLevel, payload) {
-    await this.exit();
-    this._active = true;
-    this._rotation = 0;
-    this._time = 0;
-    if (payload) this.setSceneData(payload);
+  async enter(prevLevel, transitionPayload) {
+    const epoch = ++this._resourceEpoch;
+    const device = this._device;
+    this._unloaded = false;
+    this._rotation = this._cloudRotation = 0;
+    if (transitionPayload) this._sceneData = transitionPayload;
+    if (!this._world) {
+      const world = await this._loadWorld();
+      if (!this._isCurrent(epoch, device)) return;
+      this._world = world;
+    }
+    if (!this._isCurrent(epoch, device)) return;
+    if (!this._pipeline) await this._buildPipeline(epoch);
+    if (!this._isCurrent(epoch, device)) return;
     this._applySceneDataVisuals(this._sceneData);
-    if (!this._canvas?.addEventListener) return;
-    const land = (event) => {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (event.type === 'wheel' && event.deltaY >= 0) {
-        this._navigation?.back?.();
-      } else {
-        this._navigation?.surface?.(this._sceneData);
-      }
-    };
-    for (const name of ['dblclick', 'wheel']) {
-      const options = { capture: true, passive: false };
-      this._canvas.addEventListener(name, land, options);
-      this._inputCleanups.push(() => this._canvas.removeEventListener(name, land, options));
-    }
-    if (this._canvas.parentElement) {
-      this._hint = document.createElement('div');
-      Object.assign(this._hint.style, { position: 'absolute', top: '72px', left: '12px', zIndex: '20' });
-      const landButton = document.createElement('button');
-      landButton.className = 'btn btn-secondary btn-sm';
-      landButton.textContent = 'Land on colony · double-click or scroll in';
-      landButton.addEventListener('click', land);
-      const backButton = document.createElement('button');
-      backButton.className = 'btn btn-secondary btn-sm';
-      backButton.textContent = 'Back';
-      backButton.addEventListener('click', () => this._navigation?.back?.());
-      this._hint.append(landButton, backButton);
-      this._canvas.parentElement.appendChild(this._hint);
-    }
   }
 
   async exit() {
-    this._active = false;
-    this._terrainStream?.dispose();
-    this._terrainStream = null;
-    this._inputCleanups.splice(0).forEach((cleanup) => cleanup());
-    this._hint?.remove();
-    this._hint = null;
-    this._solidBuffer?.destroy();
-    this._solidBuffer = null;
-    this._solidMeshKey = '';
-    this._depthTexture?.destroy();
-    this._depthTexture = null;
+    this._unloaded = true;
+    this._releaseOwned();
   }
 
-  render(dt, cameraState) {
-    if (!this._active || !this._pipeline) return;
-    if (globalThis.document?.hidden) return;
-    const rect = this._canvas.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.right <= 0
-        || rect.top >= globalThis.innerHeight || rect.left >= globalThis.innerWidth) return;
-    if (!this._terrainStream && !this._terrainManifest) {
-      const source = this._sceneData?.focusPlanet || this._sceneData?.planet || this._sceneData;
-      const colonyId = Number(this._sceneData?.colony?.id || source?.colony_id || source?.__slot?.player_planet?.colony_id);
-      const Stream = typeof require !== 'undefined'
-        ? require('./ColonySurfaceLevelWebGPU.js').CubeSphereTerrainStream
-        : window.GQColonySurfaceLevelWebGPU?.CubeSphereTerrainStream;
-      if (Stream && Number.isSafeInteger(colonyId) && colonyId > 0) {
-        this._terrainStream = new Stream(colonyId, (status) => {
-          if (this._terrainStream?.manifest) this._terrainManifest = this._terrainStream.manifest;
-          if (this._hint) {
-            let message = this._hint.querySelector('[data-body-shape-status]');
-            if (!message) {
-              message = document.createElement('span');
-              message.dataset.bodyShapeStatus = '';
-              this._hint.appendChild(message);
-            }
-            message.textContent = ` ${status}`;
-          }
-        });
-        this._terrainStream.load();
+  _releaseOwned() {
+    this._resourceEpoch++;
+    this._textures.forEach(texture => texture.destroy());
+    this._textures = [];
+    this._uniformBuffer?.destroy();
+    this._uniformBuffer = this._bindGroup = this._pipeline = null;
+    this._mapKey = null;
+  }
+
+  dispose() {
+    this._unloaded = true;
+    this._releaseOwned();
+    this._device = this._context = this._canvas = this._backend = null;
+  }
+
+  async _buildPipeline(epoch = this._resourceEpoch) {
+    const device = this._device;
+    if (!this._isCurrent(epoch, device)) return;
+    const context = this._context;
+    const module = device.createShaderModule({ code: /* wgsl */`
+      struct Uniforms {
+        camera: vec4f, aim: vec4f, motion: vec4f, effects: vec4f, owner: vec4f,
+      };
+      @group(0) @binding(0) var<uniform> u: Uniforms;
+      @group(0) @binding(1) var mapSampler: sampler;
+      @group(0) @binding(2) var surfaceMap: texture_2d<f32>;
+      @group(0) @binding(3) var cloudMap: texture_2d<f32>;
+      @group(0) @binding(4) var nightMap: texture_2d<f32>;
+      struct Vertex { @builtin(position) position: vec4f, @location(0) screen: vec2f };
+      @vertex fn vs_main(@builtin(vertex_index) index: u32) -> Vertex {
+        let p = vec2f(f32((index << 1u) & 2u), f32(index & 2u)) * 2.0 - 1.0;
+        var out: Vertex;
+        out.position = vec4f(p, 0.0, 1.0); out.screen = p; return out;
       }
+      fn intersect(origin: vec3f, ray: vec3f, radius: f32) -> f32 {
+        let b = dot(origin, ray);
+        let d = b * b - dot(origin, origin) + radius * radius;
+        if (d < 0.0) { return -1.0; }
+        let near = -b - sqrt(d);
+        if (near > 0.0) { return near; }
+        return -1.0;
+      }
+      fn uv(normal: vec3f, rotation: f32) -> vec2f {
+        return vec2f(fract(0.5 - atan2(normal.z, normal.x) / 6.2831853 - rotation / 6.2831853),
+          0.5 - asin(clamp(normal.y, -1.0, 1.0)) / 3.14159265);
+      }
+      fn srgbToLinear(color: vec3f) -> vec3f {
+        return select(pow((color + 0.055) / 1.055, vec3f(2.4)), color / 12.92,
+          color <= vec3f(0.04045));
+      }
+      fn linearToSrgb(color: vec3f) -> vec3f {
+        let value = max(color, vec3f(0.0));
+        return select(1.055 * pow(value, vec3f(1.0 / 2.4)) - 0.055, value * 12.92,
+          value <= vec3f(0.0031308));
+      }
+      @fragment fn fs_main(in: Vertex) -> @location(0) vec4f {
+        let origin = u.camera.xyz;
+        let forward = normalize(u.aim.xyz - origin);
+        var upAxis = vec3f(0.0, 1.0, 0.0);
+        if (abs(forward.y) > 0.99) { upAxis = vec3f(0.0, 0.0, 1.0); }
+        let right = normalize(cross(forward, upAxis));
+        let up = cross(right, forward);
+        let ray = normalize(forward + 0.57735027 * (in.screen.x * u.camera.w * right + in.screen.y * up));
+        let sun = normalize(vec3f(-0.75, 0.4, 0.38));
+        var col = srgbToLinear(vec3f(0.016, 0.031, 0.078));
+        let hit = intersect(origin, ray, 5.0);
+        if (hit > 0.0) {
+          let normal = normalize(origin + ray * hit);
+          let coords = uv(normal, u.motion.x);
+          let surface = textureSampleLevel(surfaceMap, mapSampler, coords, 0.0);
+          let daylight = max(0.0, dot(normal, sun));
+          let night = 1.0 - smoothstep(-0.15, 0.2, dot(normal, sun));
+          col = surface.rgb * (0.045 + daylight * 1.3);
+          let halfVector = normalize(sun - ray);
+          col += vec3f(0.55, 0.72, 0.85) * pow(max(0.0, dot(normal, halfVector)), 60.0)
+            * surface.a * daylight;
+          let emission = textureSampleLevel(nightMap, mapSampler, coords, 0.0).rgb;
+          col += emission * (night * u.effects.z + u.effects.w);
+          col += vec3f(0.12, 0.35, 0.65) * pow(1.0 - max(0.0, dot(normal, -ray)), 4.0)
+            * u.effects.y * (0.15 + daylight);
+        }
+        let cloudHit = intersect(origin, ray, 5.12);
+        if (cloudHit > 0.0 && u.effects.x > 0.0) {
+          let normal = normalize(origin + ray * cloudHit);
+          let clouds = textureSampleLevel(cloudMap, mapSampler, uv(normal, u.motion.y), 0.0).a;
+          let light = 0.08 + max(0.0, dot(normal, sun)) * 1.1;
+          col = mix(col, vec3f(light), clouds * 0.8);
+        }
+        let atmoHit = intersect(origin, ray, 5.4);
+        if (atmoHit > 0.0 && hit < 0.0) {
+          let normal = normalize(origin + ray * atmoHit);
+          let rim = pow(max(0.0, 1.0 - dot(normal, -ray)), 2.0);
+          col += vec3f(0.12, 0.35, 0.65) * rim * u.effects.y * 0.5;
+        }
+        let impact = length(cross(origin, ray));
+        if (dot(origin, ray) < 0.0 && impact > 6.08 && impact < 6.22 && u.owner.w > 0.0) {
+          col = mix(col, srgbToLinear(u.owner.rgb), 0.85);
+        }
+        // Reinhard in linear light, then exactly one encoding for the unorm canvas.
+        return vec4f(linearToSrgb(col / (col + vec3f(1.0))), 1.0);
+      }
+    ` });
+    let compilation;
+    try {
+      compilation = await module.getCompilationInfo?.();
+    } catch (error) {
+      if (!this._isCurrent(epoch, device)) return;
+      throw error;
     }
-    const seconds = Math.max(0, Math.min(0.1, dt > 1 ? dt / 1000 : Number(dt) || 0.016));
-    this._rotation += seconds * 0.05;
-    this._time += seconds;
-    this._drawFrame(cameraState);
+    if (!this._isCurrent(epoch, device)) return;
+    const errors = compilation?.messages.filter(message => message.type === 'error') || [];
+    if (errors.length) throw new Error(errors.map(message => message.message).join('\n'));
+    const config = {
+      layout: 'auto', vertex: { module, entryPoint: 'vs_main' },
+      fragment: { module, entryPoint: 'fs_main', targets: [{
+        format: context.getConfiguration?.()?.format || navigator.gpu.getPreferredCanvasFormat(),
+      }] }, primitive: { topology: 'triangle-list' },
+    };
+    let pipeline;
+    try {
+      pipeline = device.createRenderPipelineAsync
+        ? await device.createRenderPipelineAsync(config) : device.createRenderPipeline(config);
+    } catch (error) {
+      if (!this._isCurrent(epoch, device)) return;
+      throw error;
+    }
+    if (!this._isCurrent(epoch, device)) return;
+    this._pipeline = pipeline;
+    this._uniformBuffer = device.createBuffer({
+      size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
   }
 
-  renderBackdrop(dt, cameraState, opacity) {
-    if (!this._pipeline) return false;
-    this._rotation += dt * 0.05;
-    this._time += dt;
-    this._drawFrame(cameraState, opacity);
-    return true;
+  _applySceneDataVisuals(data) {
+    if (!this._world) return;
+    this._visualPalette = this._world.palette(data);
+    this._descriptor = this._world.describe(data);
+    if (this._pipeline && !this._unloaded) this._refreshMaps(this._world.policy(data));
   }
 
-  async _buildPipeline() {
-    const materialModel = typeof require !== 'undefined'
-      ? require('../../../rendering/body-material.js') : window.GQBodyMaterial;
-    if (!materialModel) throw new Error('Shared body material module is required');
-    const module = this._device.createShaderModule({ label: 'planet_approach', code: materialModel.shader(PLANET_APPROACH_WGSL) });
-    const format = globalThis.navigator?.gpu?.getPreferredCanvasFormat?.() || 'bgra8unorm';
-    this._pipeline = this._device.createRenderPipeline({
-      layout: 'auto',
-      vertex: { module, entryPoint: 'vs_main' },
-      fragment: { module, entryPoint: 'fs_main', targets: [{ format }] },
-      primitive: { topology: 'triangle-list', cullMode: 'back' },
-      depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
-    });
-    this._solidPipeline = this._device.createRenderPipeline({
-      layout: 'auto',
-      vertex: { module, entryPoint: 'vs_mesh', buffers: [{
-        arrayStride: 28, attributes: [
-          { shaderLocation: 0, offset: 0, format: 'float32x3' },
-          { shaderLocation: 1, offset: 12, format: 'float32x4' },
-        ],
-      }] },
-      fragment: { module, entryPoint: 'fs_main', targets: [{ format }] },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
-    });
-    this._uniformBuffer = this._device.createBuffer({ size: 144, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this._materialBuffer = this._device.createBuffer({
-      label: 'approach_body_material', size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  _refreshMaps(policy) {
+    const descriptor = this._descriptor || this._world.describe(this._sceneData);
+    const key = JSON.stringify([descriptor, policy.size]);
+    if (key === this._mapKey) return;
+    const maps = this._world.maps(descriptor, policy.size);
+    this._textures.forEach(texture => texture.destroy());
+    this._textures = ['surface', 'cloud', 'night'].map(name => {
+      const texture = this._device.createTexture({
+        size: [maps.width, maps.height], format: name === 'cloud' ? 'rgba8unorm' : 'rgba8unorm-srgb',
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      });
+      this._device.queue.writeTexture({ texture }, maps[name],
+        { bytesPerRow: maps.width * 4 }, [maps.width, maps.height]);
+      return texture;
     });
     this._bindGroup = this._device.createBindGroup({
       layout: this._pipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this._uniformBuffer } },
-        { binding: 2, resource: { buffer: this._materialBuffer } },
+        { binding: 1, resource: this._device.createSampler({
+          magFilter: 'linear', minFilter: 'linear', addressModeU: 'repeat', addressModeV: 'clamp-to-edge',
+        }) },
+        ...this._textures.map((texture, index) => ({ binding: index + 2, resource: texture.createView() })),
       ],
     });
-    this._solidBindGroup = this._device.createBindGroup({
-      layout: this._solidPipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this._uniformBuffer } },
-        { binding: 2, resource: { buffer: this._materialBuffer } },
-      ],
-    });
+    this._mapKey = key;
   }
 
-  _drawFrame(cameraState, opacity = 1) {
-    const aspect = this._canvas.width / Math.max(1, this._canvas.height);
-    const target = cameraState?.target || { x: 0, y: 0, z: 0 };
-    const position = cameraState?.position || { x: 0, y: 0, z: 15 };
-    const cameraDistance = Math.hypot(
-      (Number(position.x) || 0) - (Number(target.x) || 0),
-      (Number(position.y) || 0) - (Number(target.y) || 0),
-      (Number(position.z) || 0) - (Number(target.z) || 0)
-    );
-    const shape = this._terrainManifest?.shape;
-    const geometry = typeof require !== 'undefined'
-      ? require('./ColonySurfaceLevelWebGPU.js') : window.GQColonySurfaceLevelWebGPU;
-    const solid = this._terrainManifest?.solid;
-    const hasRegions = !!this._terrainManifest?.regions?.features?.length;
-    const meshSurface = !!solid || hasRegions;
-    const extent = solid ? geometry.bodySolidBound(solid)
-      : Math.max(...(shape?.axes || [1, 1, 1])) * (1 + (shape?.deformation || 0));
-    const distance = (2.8 + Math.min(2, cameraDistance / 50)) * extent;
-    const near = 0.1;
-    const far = Math.max(20, distance + extent * 2);
-    const uniforms = new Float32Array(36);
-    uniforms.set(planetViewProjection(cameraState, aspect, distance, near, far));
-    uniforms.set([...this._visualPalette.base,1],16);
-    uniforms.set([...this._visualPalette.atmo,1],20);
-    uniforms.set([this._rotation,this._time,opacity,solid ? 1 : 0],24);
-    uniforms.set([...(shape?.axes || [1, 1, 1]),shape?.deformation || 0],28);
-    const back = normalizeVector([position.x - target.x, position.y - target.y, position.z - target.z], [0, 0, 1]);
-    uniforms.set([back[0] * distance + target.x, back[1] * distance + target.y, back[2] * distance + target.z, 0],32);
-    this._device.queue.writeBuffer(this._uniformBuffer,0,uniforms);
-    const materialModel = typeof require !== 'undefined'
-      ? require('../../../rendering/body-material.js') : window.GQBodyMaterial;
-    const source = this._sceneData?.focusPlanet || this._sceneData?.planet || this._sceneData?.colony || this._sceneData || {};
-    this._materialState = materialModel.resolveBodyMaterial(source, this._terrainManifest);
-    this._materialPixels = this._canvas.height * 1.73 / distance;
-    this._device.queue.writeBuffer(this._materialBuffer, 0,
-      materialModel.materialUniforms(this._materialState, this._materialPixels));
-    if (this._terrainManifest && this._publishedTerrainManifest !== this._terrainManifest) {
-      this._backend?.setBodyTerrainManifest?.(this._terrainManifest);
-      this._publishedTerrainManifest = this._terrainManifest;
-    }
-    if (meshSurface) {
-      const key = JSON.stringify(this._terrainManifest);
-      if (key !== this._solidMeshKey) {
-        let vertices, vertexCount;
-        if (solid) {
-          const mesh = geometry.buildCompositeBodyMesh(this._terrainManifest, 160);
-          vertices = new Float32Array(mesh.vertexCount * 7);
-          for (let index = 0; index < mesh.vertexCount; index++) {
-            const point = Array.from(mesh.vertices.subarray(index * 3, index * 3 + 3));
-            const region = geometry.terrainRegionVisual?.(this._terrainManifest.regions,
-              point.map((value) => value / Math.max(1e-10, Math.hypot(...point))), this._terrainManifest.radius_km);
-            vertices.set([...point, ...(region?.color || [0, 0, 0]), region?.weight || 0], index * 7);
-          }
-          vertexCount = mesh.vertexCount;
-        } else {
-          const mesh = geometry.buildTerrainRegionSphereMesh(this._terrainManifest);
-          vertices = mesh.vertices;
-          vertexCount = mesh.vertexCount;
-        }
-        this._solidBuffer?.destroy();
-        this._solidBuffer = this._device.createBuffer({
-          label: solid ? 'approach_composite_solid' : 'approach_geojson_regions', size: vertices.byteLength,
-          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        });
-        this._device.queue.writeBuffer(this._solidBuffer, 0, vertices);
-        this._solidVertexCount = vertexCount;
-        this._solidMeshKey = key;
-      }
-    }
-    if (!this._depthTexture || this._depthTexture.width !== this._canvas.width || this._depthTexture.height !== this._canvas.height) {
-      this._depthTexture?.destroy();
-      this._depthTexture = this._device.createTexture({
-        label: 'approach_depth', size: [this._canvas.width, this._canvas.height], format: 'depth24plus',
-        usage: GPUTextureUsage.RENDER_ATTACHMENT,
-      });
-    }
+  _drawFrame(cameraState, policy) {
+    const position = cameraState?.position;
+    const target = cameraState?.target;
+    const safe = (value, fallback) => Number.isFinite(value) ? Math.max(-1e6, Math.min(1e6, value)) : fallback;
+    const camera = [safe(position?.x, 0), safe(position?.y, 0), safe(position?.z, 20)];
+    if (Math.hypot(...camera) < 5.5) camera.splice(0, 3, 0, 0, 20);
+    const aim = [safe(target?.x, 0), safe(target?.y, 0), safe(target?.z, 0)];
+    if (Math.hypot(...aim.map((value, i) => value - camera[i])) < 0.001) aim.splice(0, 3, 0, 0, 0);
+    const owner = this._world.rgb(this._visualPalette.ringColor);
+    this._device.queue.writeBuffer(this._uniformBuffer, 0, new Float32Array([
+      ...camera, Math.max(1, this._canvas.width) / Math.max(1, this._canvas.height),
+      ...aim, 0, this._rotation, this._cloudRotation, 0, 0,
+      policy.enabled ? 1 : 0, policy.enabled ? this._descriptor.atmosphere : 0,
+      policy.enabled ? this._world.state(this._sceneData) : 0,
+      policy.enabled && this._descriptor.variant === 'lava' ? 0.6 : 0,
+      ...owner, this._visualPalette.isOwned ? 1 : 0,
+    ]));
     const encoder = this._device.createCommandEncoder();
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: this._context.getCurrentTexture().createView(),
-        clearValue: { r: this._visualPalette.clear[0], g: this._visualPalette.clear[1], b: this._visualPalette.clear[2], a: 1 },
-        loadOp: 'clear', storeOp: 'store',
-      }],
-      depthStencilAttachment: {
-        view: this._depthTexture.createView(), depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store',
-      },
-    });
-    pass.setPipeline(meshSurface ? this._solidPipeline : this._pipeline);
-    pass.setBindGroup(0, meshSurface ? this._solidBindGroup : this._bindGroup);
-    if (meshSurface) pass.setVertexBuffer(0, this._solidBuffer);
-    pass.draw(meshSurface ? this._solidVertexCount : 32 * 64 * 6,1,0,0);
+    const pass = encoder.beginRenderPass({ colorAttachments: [{
+      view: this._context.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store',
+      clearValue: { r: 0.016, g: 0.031, b: 0.078, a: 1 },
+    }] });
+    pass.setPipeline(this._pipeline);
+    pass.setBindGroup(0, this._bindGroup);
+    pass.draw(3);
     pass.end();
     this._device.queue.submit([encoder.finish()]);
   }
+}
 
-  _applySceneDataVisuals(data) {
-    const source = data?.focusPlanet || data?.planet || data?.colony || data?.target || data || {};
-    const owner = source.colony_owner_color || source.owner_color || source.faction_color;
-    this._visualPalette = {
-      base: planetColor(owner, '3373cc'),
-      atmo: planetColor(Number(source.colony_is_player || source.is_player) === 1 ? '#7dffb2' : owner, '8cc4ff'),
-      clear: owner ? [0.02,0.04,0.07] : [0,0,0.02],
-    };
+function hasPersistentBodyData(data) {
+  const source = data?.focusPlanet || data?.planet || data?.colony || data?.target || data || {};
+  const manifest = data?.bodyTerrainManifest || data?.body_terrain_manifest
+    || data?.terrainManifest || data?.terrain_manifest
+    || source?.bodyTerrainManifest || source?.body_terrain_manifest || source?.terrain_manifest;
+  const shape = manifest?.shape || source?.shape;
+  const nonSpherical = shape && (
+    Number(shape.deformation) > 0
+    || (Array.isArray(shape.axes) && shape.axes.some((axis) => Math.abs(Number(axis) - 1) > 1e-6))
+  );
+  const regions = manifest?.regions || source?.regions;
+  const colonyId = Number(data?.colony?.id || source?.colony_id
+    || source?.__slot?.player_planet?.colony_id || 0);
+  return !!(manifest || source?.solid || regions?.features?.length || nonSpherical
+    || (Number.isSafeInteger(colonyId) && colonyId > 0));
+}
+
+class PlanetApproachLevelWebGPU extends PlanetLivingWorldApproachRenderer {
+  constructor() {
+    super();
+    this._persistentRenderer = null;
+    this._persistentActive = false;
+    this._navigation = null;
+  }
+
+  setNavigationHandlers(handlers) {
+    this._navigation = handlers;
+    this._persistentRenderer?.setNavigationHandlers(handlers);
+  }
+
+  setSceneData(data) {
+    super.setSceneData(data);
+    this._persistentActive = hasPersistentBodyData(this._sceneData);
+    this._persistentRenderer?.setSceneData(this._sceneData);
+  }
+
+  async _ensurePersistentRenderer() {
+    if (!this._persistentRenderer) {
+      const persistent = typeof require !== 'undefined'
+        ? require('./PersistentBodyPlanetApproachRenderer.js')
+        : window.GQPersistentBodyPlanetApproach || await import('./PersistentBodyPlanetApproachRenderer.js');
+      const PersistentRenderer = persistent.PersistentBodyPlanetApproachRenderer
+        || window.GQPersistentBodyPlanetApproach?.PersistentBodyPlanetApproachRenderer;
+      if (!PersistentRenderer) throw new Error('Persistent body approach renderer is unavailable');
+      this._persistentRenderer = new PersistentRenderer();
+      await this._persistentRenderer.initialize(this._canvas, this._backend);
+      this._persistentRenderer.setNavigationHandlers(this._navigation);
+      this._persistentRenderer.setSceneData(this._sceneData);
+    }
+  }
+
+  async enter(prevLevel, transitionPayload) {
+    await super.enter(prevLevel, transitionPayload);
+    this.setSceneData(transitionPayload || this._sceneData);
+    if (!this._persistentActive) return;
+    await this._ensurePersistentRenderer();
+    await this._persistentRenderer.enter(prevLevel, transitionPayload);
+  }
+
+  render(dt, cameraState) {
+    if (this._persistentActive && this._persistentRenderer) {
+      this._persistentRenderer.render(dt, cameraState);
+      return;
+    }
+    super.render(dt, cameraState);
+  }
+
+  renderBackdrop(dt, cameraState, opacity) {
+    if (!this._persistentActive || !this._persistentRenderer) return false;
+    return this._persistentRenderer.renderBackdrop(dt, cameraState, opacity);
+  }
+
+  async exit(nextLevel) {
+    this._persistentActive = false;
+    await this._persistentRenderer?.exit(nextLevel);
+    await super.exit(nextLevel);
   }
 
   dispose() {
-    this.exit();
-    this._uniformBuffer?.destroy();
-    this._uniformBuffer = null;
-    this._materialBuffer?.destroy();
-    this._materialBuffer = null;
-    this._pipeline = null;
-    this._solidPipeline = null;
-    this._solidBindGroup = null;
-    this._bindGroup = null;
-    this._device = null;
-    this._context = null;
-    this._canvas = null;
-    this._backend = null;
+    this._persistentRenderer?.dispose();
+    this._persistentRenderer = null;
+    super.dispose();
   }
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { PlanetApproachLevelWebGPU, PLANET_APPROACH_WGSL, planetViewProjection };
+  const persistent = require('./PersistentBodyPlanetApproachRenderer.js');
+  module.exports = {
+    PlanetApproachLevelWebGPU,
+    PLANET_APPROACH_WGSL: persistent.PLANET_APPROACH_WGSL,
+    planetViewProjection: persistent.planetViewProjection,
+  };
 } else {
   window.GQPlanetApproachLevelWebGPU = { PlanetApproachLevelWebGPU };
 }

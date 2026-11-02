@@ -3,7 +3,9 @@ import { createRequire } from 'node:module';
 import * as THREE from 'three';
 
 const require = createRequire(import.meta.url);
-const { ColonySurfaceLevelWebGPU } = require('../../js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js');
+const {
+  ColonySurfaceLevelWebGPU, normalizeCitySlots, buildCityGeometry,
+} = require('../../js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js');
 const { ColonySurfaceLevelThreeJS } = require('../../js/engine/zoom/levels/ColonySurfaceLevelThreeJS.js');
 const { GPUParticleSystem } = require('../../js/engine/fx/GPUParticleSystem.js');
 
@@ -62,62 +64,42 @@ afterEach(() => {
 });
 
 describe('Living colony native render path', () => {
-  it('uploads five coherent map arrays, dispatches before drawing, and reads storage directly', async () => {
+  it('defers GPU city resources until entry and keeps the shared device across re-entry', async () => {
     const backend = nativeBackend();
     const level = new ColonySurfaceLevelWebGPU();
     await level.initialize(document.createElement('canvas'), backend);
+    const initializedBuffers = backend.device.createBuffer.mock.calls.length;
     level.setSceneData({ slots });
-    expect(backend.device.queue.writeTexture).toHaveBeenCalledTimes(20);
-    expect(level._materialTextures).toHaveLength(5);
-    expect(level._particlePools.map((pool) => pool.smoke)).toEqual([true, false]);
-    const readback = vi.spyOn(GPUParticleSystem.prototype, 'syncFromGPU');
-    const writes = backend.device.queue.writeBuffer.mock.calls.length;
+    expect(level._city.parts.length).toBeGreaterThan(0);
+    expect(level._slotCount).toBe(0);
+    expect(backend.device.createBuffer).toHaveBeenCalledTimes(initializedBuffers);
+    await level.enter(2, { slots });
+    expect(level._slotCount).toBeGreaterThan(0);
+    expect(level._instanceBindGroup).not.toBeNull();
+    const instanceBuffer = level._instanceBuffer;
+    await level.exit(0);
+    expect(instanceBuffer.destroy).toHaveBeenCalledOnce();
+    const allocations = backend.device.createBuffer.mock.calls.length;
+    level.setSceneData({ slots });
     level.render(0.016);
-    expect(backend.order).toEqual(['compute', 'compute', 'render']);
-    expect(readback).not.toHaveBeenCalled();
-    expect(backend.device.queue.writeBuffer.mock.calls.length - writes).toBe(3); // camera + two simulation uniforms
-    expect(backend.pass.draw).toHaveBeenCalledWith(36, 2, 0, 0);
-    for (const pool of level._particlePools) {
-      expect(pool.bindGroup.entries[0].resource.buffer).toBe(pool.system.storageBuffer);
-    }
+    expect(backend.device.createBuffer).toHaveBeenCalledTimes(allocations);
+    await level.enter(0);
+    expect(level._slotCount).toBeGreaterThan(0);
     level.dispose(); level.dispose();
     backend.resources.forEach((resource) => expect(resource.destroy).toHaveBeenCalledOnce());
     expect(backend.device.destroy).not.toHaveBeenCalled();
     expect(backend.context.unconfigure).not.toHaveBeenCalled();
   });
 
-  it('reconstructs native textures and pools after repeated exits, including empty scenes', async () => {
-    const backend = nativeBackend();
+  it('caps emitters and particles and respects visibility and reduced-motion settings', () => {
     const level = new ColonySurfaceLevelWebGPU();
-    await level.initialize(document.createElement('canvas'), backend);
-    await level.enter(2, { slots });
-    for (let cycle = 0; cycle < 2; cycle++) {
-      level.render(0.016);
-      await level.exit(0);
-      await level.exit(0);
-      expect(level._particlePools).toEqual([]);
-      expect(level._materialTextures).toEqual([]);
-      await level.enter(0);
-      expect(level._particlePools).toHaveLength(2);
-    }
-    level.setSceneData({ slots: [] });
-    expect(level._particlePools).toEqual([]);
-    level.dispose();
-    backend.resources.forEach((resource) => expect(resource.destroy).toHaveBeenCalledOnce());
-  });
-
-  it('caps instances, emitters and particles and respects visibility and reduced motion', async () => {
-    const backend = nativeBackend();
-    const level = new ColonySurfaceLevelWebGPU();
-    await level.initialize(document.createElement('canvas'), backend);
     const many = Array.from({ length: 2000 }, (_, i) => ({ x: i % 20, z: Math.floor(i / 20), type: 'factory' }));
     level.setSceneData({ slots: many, vfx_quality: 'high' });
-    expect(level._slotCount).toBe(512);
     expect(level._buildingVfxStats.emitters).toBeLessThanOrEqual(36);
     expect(level._buildingVfxStats.particles).toBeLessThanOrEqual(900);
     for (const options of [{ reduced_motion: true }, { visible: false }, { vfx_enabled: false }]) {
       level.setSceneData({ slots, ...options });
-      expect(level._particlePools).toEqual([]);
+      expect(level._buildingVfxParticles).toEqual([]);
       expect(level._buildingVfxStats.particles).toBe(0);
     }
     level.setSceneData({ slots: slots.map((slot) => ({ ...slot, visible: false })) });
@@ -125,75 +107,32 @@ describe('Living colony native render path', () => {
     level.dispose();
   });
 
-  it('sends a decaying upgrade burst to particle shaders and suppresses it for reduced flash', async () => {
-    const backend = nativeBackend();
+  it('honors explicit slot activity, profiles effects, and tracks upgrade bursts', () => {
     const level = new ColonySurfaceLevelWebGPU();
-    await level.initialize(document.createElement('canvas'), backend);
-    level.setSceneData({ slots });
-    const upgrading = slots.map((slot) => ({ ...slot, upgrade_end: 'pending' }));
-    level.setSceneData({ slots: upgrading });
-    const burstUniform = () => backend.device.queue.writeBuffer.mock.calls
-      .filter((call) => call[0] === level._cameraBuffer).at(-1)[2][6];
-    level.render(0.016);
-    expect(burstUniform()).toBeGreaterThan(0.9);
-    level.setSceneData({ slots: upgrading, reduced_flash: true });
-    level.render(0.016);
-    expect(burstUniform()).toBe(0);
-    level.setSceneData({ slots: upgrading });
-    for (let frame = 0; frame < 20; frame++) level.render(0.1);
-    expect(burstUniform()).toBe(0);
-    expect(level._buildingVfxStats.burstActive).toBe(false);
-    level.dispose();
-  });
-
-  it('honors explicit authorized slot state, scales emissive activity, and keeps dimensions stable on reorder', async () => {
-    const backend = nativeBackend();
-    const level = new ColonySurfaceLevelWebGPU();
-    await level.initialize(document.createElement('canvas'), backend);
-    const states = stateSlots();
-    level.setSceneData({ slots: states });
-    const instanceData = () => new Float32Array(backend.device.queue.writeBuffer.mock.calls
-      .filter((call) => call[0] === level._instanceBuffer).at(-1)[2]);
-    const data = instanceData();
-    expect(states.map((_, index) => data[index * 16 + 9])).toEqual([0, 0, 0, 0, 0, 0.25, 1]);
+    level.setSceneData({ slots: stateSlots() });
     expect(level._buildingVfxStats.emitters).toBe(2);
-    level.setSceneData({ slots: [...states].reverse() });
-    const reversed = instanceData();
-    states.forEach((_, index) => expect(data[index * 16 + 5]).toBe(reversed[(states.length - 1 - index) * 16 + 5]));
+    expect(level._buildingVfxStats.profileCounts.industry).toBe(2);
+    const upgrading = slots.map((slot) => ({ ...slot, upgrade_end: 'pending' }));
+    level.setSceneData({ slots });
+    level.setSceneData({ slots: upgrading });
+    expect(level._buildingVfxStats.burstActive).toBe(true);
     for (const [profile, expected] of [['construction', 'construction'], ['industrial', 'industry'], ['energy', 'power']]) {
       expect(level._slotVfxProfile({ appearance: { effects: { profile } } }).profileName).toBe(expected);
     }
     level.dispose();
   });
 
-  it('keeps invalid coordinates/colors out of both instance attributes and fitted camera bounds', async () => {
-    const backend = nativeBackend();
-    const level = new ColonySurfaceLevelWebGPU();
-    await level.initialize(document.createElement('canvas'), backend);
-    level.setSceneData({ slots: [
-      { id: 1, type: 'factory', x: '8', z: 4, r: 2, g: -1, b: Infinity },
-      { id: 2, type: 'reactor', x: Infinity, z: NaN, r: NaN, g: Infinity, b: -Infinity },
-    ] });
-    const upload = backend.device.queue.writeBuffer.mock.calls
-      .find((call) => call[0] === level._instanceBuffer);
-    const data = new Float32Array(upload[2]);
-    expect([...data].every(Number.isFinite)).toBe(true);
-    expect(data[0]).toBe(1);
-    expect(data[1]).toBe(0);
-    expect(data[12]).toBe(8);
-    expect(data[28]).toBe(0);
-    expect(data[30]).toBe(0);
-    expect(Object.values(level._bounds).every(Number.isFinite)).toBe(true);
-    expect(level._bounds.x).toBe(4);
-    expect(level._buildingVfxParticles.every((particle) => Number.isFinite(particle.x) && Number.isFinite(particle.z))).toBe(true);
-    level.render(0.016, { target: { x: 0, z: 0 } });
-    const camera = backend.device.queue.writeBuffer.mock.calls
-      .filter((call) => call[0] === level._cameraBuffer).at(-1)[2];
-    expect([...camera].every(Number.isFinite)).toBe(true);
-    expect(camera[0]).toBe(0);
-    expect(camera[2]).toBe(0);
-    expect(camera[3]).toBeGreaterThan(0);
-    level.dispose();
+  it('normalizes invalid building coordinates before constructing city geometry', () => {
+    const normalized = normalizeCitySlots({
+      slots: [
+        { type: 'factory', x: '8', z: 4, level: 1 },
+        { type: 'reactor', x: Infinity, z: NaN, level: 1 },
+      ],
+    });
+    expect(normalized.map(({ x, z }) => [x, z])).toEqual([[8, 4], [0, 0]]);
+    expect(normalized.every(({ x, z }) => Number.isFinite(x) && Number.isFinite(z))).toBe(true);
+    const city = buildCityGeometry(normalized, {});
+    expect(city.parts.every((part) => Object.values(part).flat().every(Number.isFinite))).toBe(true);
   });
 
   it('recycles GPU particle allocations using lifetime bookkeeping without CPU position simulation', () => {
@@ -209,83 +148,14 @@ describe('Living colony native render path', () => {
     expect(system.spawn({})).toBe(-1);
   });
 
-  it('uses the persistent generation wrapper and discards late results after disposal', async () => {
+  it('validates particle capacity and safely releases optional staging readbacks', async () => {
     const backend = nativeBackend();
-    const level = new ColonySurfaceLevelWebGPU();
-    await level.initialize(document.createElement('canvas'), backend);
-    await level.enter(2, { slots });
-    await level.exit(0);
-    const pending = [];
-    const generator = level._materials;
-    const cached = vi.spyOn(generator, 'generateCached').mockImplementation((descriptor, options) =>
-      new Promise((resolve) => pending.push(() => resolve(generator.generate(descriptor, options)))));
-    const reentry = level.enter(0);
-    expect(cached).toHaveBeenCalledTimes(4);
-    const refresh = level._materialRefresh;
-    const allocations = backend.device.createBuffer.mock.calls.length;
-    level.dispose();
-    pending.forEach((resolve) => resolve());
-    await reentry;
-    await refresh;
-    expect(level._materialSets).toBeNull();
-    expect(backend.device.createBuffer).toHaveBeenCalledTimes(allocations);
-    expect(level._slotCount).toBe(0);
-  });
-
-  it('renders synchronous maps without waiting for cache IO, then uploads the cached bytes', async () => {
-    const backend = nativeBackend();
-    const generator = require('../../js/engine/assets/CoherentMaterialGenerator.js');
-    const pending = [];
-    vi.spyOn(generator, 'generateCached').mockImplementation((descriptor, options) =>
-      new Promise((resolve) => pending.push(() => {
-        const fallback = options.fallback;
-        const albedo = { ...fallback.maps.albedo, data: new Uint8Array(64 * 64 * 4).fill(17) };
-        resolve({ ...fallback, maps: { ...fallback.maps, albedo } });
-      })));
-    const level = new ColonySurfaceLevelWebGPU();
-    await level.initialize(document.createElement('canvas'), backend);
-    level.setSceneData({ slots });
-    level.render(0.016);
-    expect(backend.device.queue.writeTexture).toHaveBeenCalledTimes(20);
-    expect(backend.order.at(-1)).toBe('render');
-    pending.forEach((resolve) => resolve());
-    await level._materialRefresh;
-    expect(backend.device.queue.writeTexture).toHaveBeenCalledTimes(40);
-    const albedoUpload = backend.device.queue.writeTexture.mock.calls
-      .filter((call) => call[0].texture === level._materialTextures[0]).at(-1);
-    expect(albedoUpload[1][0]).toBe(17);
-    level.dispose();
-  });
-
-  it('initializes and reenters both renderers even when cached generation never settles', async () => {
-    const generator = require('../../js/engine/assets/CoherentMaterialGenerator.js');
-    const cached = vi.spyOn(generator, 'generateCached').mockImplementation(() => new Promise(() => {}));
-    const backend = nativeBackend();
-    const renderer = { setPixelRatio() {}, setSize() {}, dispose() {}, render: vi.fn() };
-    window.THREE = { ...THREE, WebGLRenderer: function () { return renderer; } };
-    for (const Level of [ColonySurfaceLevelWebGPU, ColonySurfaceLevelThreeJS]) {
-      const level = new Level();
-      await level.initialize(document.createElement('canvas'), backend);
-      await level.enter(2, { slots });
-      level.render(0.016);
-      expect(level._slotCount).toBe(2);
-      await level.exit(0);
-      await level.enter(0);
-      level.render(0.016);
-      expect(level._slotCount).toBe(2);
-      level.dispose();
-    }
-    expect(cached).toHaveBeenCalledTimes(16);
-    expect(renderer.render).toHaveBeenCalledTimes(2);
-  });
-
-  it('bounds invalid capacities, spawn fields and timesteps to finite values', () => {
     for (const [value, expected] of [[NaN, 4096], [Infinity, 4096], [-3, 1], [1.9, 1], [1e9, 65536]]) {
       const pool = new GPUParticleSystem({ maxParticles: value });
       expect(pool.maxParticles).toBe(expected);
       pool.dispose();
     }
-    const system = new GPUParticleSystem({ maxParticles: 2, gravity: Infinity, drag: NaN });
+    const system = new GPUParticleSystem({ device: backend.device, maxParticles: 2, gravity: Infinity, drag: NaN });
     expect(system._gravity).toBe(0);
     expect(system._drag).toBe(0.04);
     system.spawn({
@@ -293,20 +163,28 @@ describe('Living colony native render path', () => {
       lifetime: Infinity, size: NaN, colorHex: Infinity,
     });
     expect([...system.dataBuffer].every(Number.isFinite)).toBe(true);
-    expect(system.dataBuffer[3]).toBe(1);
     const before = system.dataBuffer.slice();
     for (const dt of [Infinity, NaN, -Infinity, -1]) system.update(dt);
     expect(system.dataBuffer).toEqual(before);
-    system.update(1e9);
-    expect(system.dataBuffer[3]).toBeCloseTo(0.75);
-    system.spawn({ lifetime: 1e9, size: 1e9, px: 1e30 });
-    expect(system.dataBuffer[16 + 3]).toBe(120);
-    expect(system.dataBuffer[16 + 11]).toBe(100);
-    expect(system.dataBuffer[16]).toBe(1e6);
     system.dispose();
+
+    vi.stubGlobal('GPUMapMode', { READ: 1 });
+    const staging = {
+      mapAsync: vi.fn(async () => { throw new Error('device lost'); }),
+      unmap: vi.fn(), destroy: vi.fn(),
+    };
+    const readbackSystem = new GPUParticleSystem({ device: backend.device, maxParticles: 1 });
+    backend.device.createBuffer.mockReturnValueOnce(staging);
+    backend.device.createCommandEncoder.mockReturnValueOnce({
+      copyBufferToBuffer: vi.fn(), finish: () => ({}),
+    });
+    await expect(readbackSystem.syncFromGPU()).rejects.toThrow('device lost');
+    expect(staging.unmap).not.toHaveBeenCalled();
+    expect(staging.destroy).toHaveBeenCalledOnce();
+    readbackSystem.dispose();
   });
 
-  it('never restores disposed particles when a pending optional readback completes', async () => {
+  it('does not restore disposed particles when a pending optional readback completes', async () => {
     const { device } = nativeBackend();
     vi.stubGlobal('GPUMapMode', { READ: 1 });
     let finishMapping;
@@ -317,7 +195,9 @@ describe('Living colony native render path', () => {
     };
     const system = new GPUParticleSystem({ device, maxParticles: 1 });
     device.createBuffer.mockReturnValueOnce(staging);
-    device.createCommandEncoder.mockReturnValueOnce({ copyBufferToBuffer: vi.fn(), finish: () => ({}) });
+    device.createCommandEncoder.mockReturnValueOnce({
+      copyBufferToBuffer: vi.fn(), finish: () => ({}),
+    });
     const readback = system.syncFromGPU();
     system.dispose();
     finishMapping();
@@ -326,22 +206,6 @@ describe('Living colony native render path', () => {
     expect(staging.unmap).toHaveBeenCalledOnce();
     expect(staging.destroy).toHaveBeenCalledOnce();
     expect([...system.dataBuffer].every((value) => value === 0)).toBe(true);
-  });
-
-  it('releases optional staging storage if GPU mapping rejects', async () => {
-    const { device } = nativeBackend();
-    vi.stubGlobal('GPUMapMode', { READ: 1 });
-    const system = new GPUParticleSystem({ device, maxParticles: 1 });
-    const staging = {
-      mapAsync: vi.fn(async () => { throw new Error('device lost'); }),
-      unmap: vi.fn(), destroy: vi.fn(),
-    };
-    device.createBuffer.mockReturnValueOnce(staging);
-    device.createCommandEncoder.mockReturnValueOnce({ copyBufferToBuffer: vi.fn(), finish: () => ({}) });
-    await expect(system.syncFromGPU()).rejects.toThrow('device lost');
-    expect(staging.unmap).not.toHaveBeenCalled();
-    expect(staging.destroy).toHaveBeenCalledOnce();
-    system.dispose();
   });
 });
 

@@ -45,6 +45,7 @@
     struct StarAttribs {
       @location(0) pos   : vec2<f32>,   // normalised [−1,1]
       @location(1) color : vec4<f32>,   // rgba
+      @location(2) index : u32,
     };
 
     struct VSOut {

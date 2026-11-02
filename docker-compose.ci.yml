@@ -13,7 +13,7 @@ services:
       NPC_LLM_CONTROLLER_ENABLED: 0
       TTS_ENABLED: 0
     healthcheck:
-      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1/health/live', false, stream_context_create(['http' => ['timeout' => 3]])) === false ? 1 : 0);"]
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1:8080/health/live', false, stream_context_create(['http' => ['timeout' => 3]])) === false ? 1 : 0);"]
       interval: 5s
       timeout: 5s
       retries: 20

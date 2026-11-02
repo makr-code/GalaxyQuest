@@ -41,6 +41,9 @@ test('colony city uses the live galaxy device, canvas and frame loop', async ({ 
     'js/engine/zoom/SeamlessZoomOrchestrator.js',
     'js/engine/zoom/levels/GalaxyLevelWebGPU.js',
     'js/engine/zoom/levels/SystemLevelWebGPU.js',
+    'js/rendering/planet-textures.js',
+    'js/engine/zoom/levels/PlanetLivingWorld.js',
+    'js/engine/zoom/levels/PersistentBodyPlanetApproachRenderer.js',
     'js/engine/zoom/levels/PlanetApproachLevelWebGPU.js',
     'js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js',
   ]) await page.addScriptTag({ content: fs.readFileSync(path.join(root, file), 'utf8') });

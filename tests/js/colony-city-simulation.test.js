@@ -635,6 +635,7 @@ describe('Isometric camera and shared WebGPU rendering', () => {
 
   it('replaces populated scenes with an empty colony without ghost instances or emitters', async () => {
     const { level } = await makeLevel();
+    await level.enter(2, scene());
     level.setSceneData(scene());
     const count = level._slotCount;
     level.setSceneData(scene({ slots: [] }));
