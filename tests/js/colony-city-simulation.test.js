@@ -5,7 +5,7 @@ const require = createRequire(import.meta.url);
 const {
   ColonySurfaceLevelWebGPU, normalizeCitySlots, buildCityGeometry,
   cityCameraMatrix, cityCameraPose, colonyAtmosphereState, projectCityPoint, mapColonySurfacePoint, projectColonySurfacePoint,
-  resolveBodySurface, cityPedestrians, cityEconomyStatus,
+  resolveBodySurface, sampleColonyTerrain, buildColonyTerrainMesh, cityPedestrians, cityEconomyStatus,
 } = require('../../js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js');
 const { SeamlessZoomOrchestrator, ZOOM_LEVEL } = require('../../js/engine/zoom/SeamlessZoomOrchestrator.js');
 const { planetViewProjection } = require('../../js/engine/zoom/levels/PlanetApproachLevelWebGPU.js');
@@ -162,6 +162,129 @@ describe('Authoritative city scene mapping', () => {
     expect(cityPedestrians(100, slots)[0].z).toBe(1.55);
     const people = cityPedestrians(1e9, slots, { colonist: 75, scientist: 25 });
     expect(people.filter((person) => person.role === 'scientist')).toHaveLength(24);
+  });
+});
+
+describe('Detailed body terrain', () => {
+  const terrainFor = (kind, id = 7) => resolveBodySurface({
+    colony: { id, planet_class: kind },
+  }, 24, 18).terrain;
+
+  it.each([
+    ['terran', [0, 1, 2]], ['ocean', [0, 1]], ['ice_dwarf', [2]],
+    ['desert', [0]], ['volcanic', [0, 3]], ['moon', [0]], ['comet', [2]],
+  ])('generates deterministic %s relief with the correct surface materials', (kind, expectedMaterials) => {
+    const terrain = terrainFor(kind);
+    const materials = new Set();
+    const heights = [];
+    for (let x = -100; x <= 100; x += 4) {
+      for (let z = -100; z <= 100; z += 4) {
+        const sample = sampleColonyTerrain(terrain, x, z);
+        expect(sample).toEqual(sampleColonyTerrain(terrainFor(kind), x, z));
+        expect([...sample.color, sample.height].every(Number.isFinite)).toBe(true);
+        materials.add(sample.material);
+        heights.push(sample.height);
+        if (sample.material === 1 || sample.material === 3) expect(sample.height).toBe(-0.5);
+      }
+    }
+    expect([...materials].sort()).toEqual(expectedMaterials);
+    expect(Math.max(...heights) - Math.min(...heights)).toBeGreaterThan(4);
+  });
+
+  it('keeps colony foundations and roads dry and graded, with a continuous transition to relief', () => {
+    for (const kind of ['terran', 'ocean', 'ice_dwarf', 'desert', 'volcanic']) {
+      const terrain = terrainFor(kind);
+      for (let x = -14; x <= 14; x += 1) {
+        for (let z = -11; z <= 11; z += 1) {
+          expect(sampleColonyTerrain(terrain, x, z).height).toBeCloseTo(0);
+        }
+      }
+      const edge = sampleColonyTerrain(terrain, 14 + 0.0001, 0);
+      expect(Math.abs(edge.height)).toBeLessThan(0.0001);
+      const ground = mapColonySurfacePoint(terrain.radius, 4, 0, 3, terrain);
+      const foundation = mapColonySurfacePoint(terrain.radius, 4, 0.15, 3, terrain);
+      expect(Math.hypot(...foundation.map((value, axis) => value - ground[axis]))).toBeCloseTo(0.15);
+    }
+    expect(sampleColonyTerrain(terrainFor('terran', 7), 45, 28).elevation)
+      .not.toBe(sampleColonyTerrain(terrainFor('terran', 8), 45, 28).elevation);
+  });
+
+  it('builds a bounded, non-rotating displaced sphere with finite geometry and matching height samples', () => {
+    const terrain = terrainFor('terran');
+    const mesh = buildColonyTerrainMesh(terrain);
+    expect(mesh.vertexCount).toBe(104 * 128 * 6);
+    expect(mesh.vertices.byteLength).toBeLessThan(2.5 * 1024 * 1024);
+    expect([...mesh.vertices].every(Number.isFinite)).toBe(true);
+    const radialHeights = [];
+    for (let i = 0; i < mesh.vertices.length; i += 7) {
+      radialHeights.push(Math.hypot(mesh.vertices[i], mesh.vertices[i + 1] + terrain.radius, mesh.vertices[i + 2]) - terrain.radius);
+    }
+    expect(Math.max(...radialHeights)).toBeGreaterThan(2);
+    expect(Math.min(...radialHeights)).toBeCloseTo(-0.5, 3);
+    const x = 35, z = 25;
+    const point = mapColonySurfacePoint(terrain.radius, x, 0, z, terrain);
+    expect(Math.hypot(point[0], point[1] + terrain.radius, point[2]) - terrain.radius)
+      .toBeCloseTo(sampleColonyTerrain(terrain, x, z).height);
+    const pose = cityCameraPose(25, 1, { x, z }, terrain.radius, terrain);
+    pose.target.forEach((value, axis) => expect(value).toBeCloseTo(point[axis]));
+    const matrix = cityCameraMatrix(1.5, 25, 1, { x, z }, terrain.radius, terrain);
+    expect(projectColonySurfacePoint(matrix, terrain.radius, x, 0, z, terrain)[0]).toBeCloseTo(0);
+    expect(projectColonySurfacePoint(matrix, terrain.radius, x, 0, z, terrain)[1]).toBeCloseTo(0);
+  });
+
+  it('does not invent mountains or liquid surfaces on a gas giant', () => {
+    const terrain = terrainFor('gas_giant');
+    for (const [x, z] of [[0, 0], [30, 40], [-100, 50]]) {
+      expect(sampleColonyTerrain(terrain, x, z)).toMatchObject({ height: 0, material: 0 });
+    }
+  });
+
+  it('reuses uploaded terrain across snapshots and releases it on body changes and exit', async () => {
+    const { level, backend } = await makeLevel();
+    await level.enter(2, scene());
+    const terrain = level._terrainBuffer;
+    level.setSceneData(scene({ economy: { shortages: {} } }));
+    expect(level._terrainBuffer).toBe(terrain);
+    level.render(0.016);
+    expect(backend.pass.setVertexBuffer).toHaveBeenCalledWith(0, terrain);
+    expect(backend.pass.draw).toHaveBeenCalledWith(level._terrainVertexCount, 1, 0, 0);
+    level.setSceneData(scene({ colony: { id: 7, planet_class: 'ice_dwarf' } }));
+    expect(terrain.destroy).toHaveBeenCalledOnce();
+    const ice = level._terrainBuffer;
+    await level.exit();
+    expect(ice.destroy).toHaveBeenCalledOnce();
+    expect(level._terrainBuffer).toBeNull();
+    expect(level._terrainVertexCount).toBe(0);
+  });
+
+  it('subdivides roads to keep their middle above the curved terrain', () => {
+    const city = buildCityGeometry(normalizeCitySlots(scene()), scene());
+    const radius = resolveBodySurface(scene(), city.width, city.depth).radius;
+    const roads = city.parts.filter((part) => part.sy === 0.03);
+    expect(roads.length).toBeGreaterThan(20);
+    for (const road of roads) {
+      const half = Math.max(road.sx, road.sz) / 2;
+      const chordSag = radius - Math.sqrt(radius * radius - half * half);
+      expect(chordSag).toBeLessThan(road.y);
+    }
+    expect(city.parts.length).toBeLessThan(8192);
+    expect(city.parts.some((part) => part.sx > 3 && part.sz > 3)).toBe(false);
+  });
+
+  it('raises camera clearance outside graded colony land and follows the terrain target', async () => {
+    const { level } = await makeLevel();
+    await level.enter(2, scene());
+    level._camera.progress = 1;
+    level._camera.target = { x: 45, z: 28 };
+    level._setCameraSpan(1);
+    level.render(0);
+    const terrain = level._bodySurface.terrain;
+    const pose = cityCameraPose(level._camera.span, 1, level._camera.target, terrain.radius, terrain);
+    const altitude = Math.hypot(pose.eye[0], pose.eye[1] + terrain.radius, pose.eye[2]) - terrain.radius;
+    expect(altitude).toBeGreaterThan(terrain.amplitude * 1.1 + 0.35);
+    const projected = projectColonySurfacePoint(level._viewProjection, terrain.radius, 45, 0, 28, terrain);
+    expect(projected[0]).toBeCloseTo(0);
+    expect(projected[1]).toBeCloseTo(0);
   });
 });
 

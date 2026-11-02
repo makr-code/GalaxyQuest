@@ -87,6 +87,15 @@ test('colony city uses the live galaxy device, canvas and frame loop', async ({ 
     scoped: null, errors: [], shared: true, canvases: initial.canvases, hooks: 1, independentRaf: 0, buildings: 5, people: 96,
   });
   expect(rendered.frames).toBeGreaterThan(2);
+  const terrainBuffers = await page.evaluate(() => {
+    const city = window.cityTest.orchestrator._active;
+    const buffer = city._terrainBuffer;
+    city.setSceneData({ ...city._sceneData });
+    city.render(0);
+    return { reused: city._terrainBuffer === buffer, vertices: city._terrainVertexCount, bytes: buffer.size };
+  });
+  expect(terrainBuffers).toMatchObject({ reused: true, vertices: 79872 });
+  expect(terrainBuffers.bytes).toBeLessThan(2.5 * 1024 * 1024);
   await page.locator('#host').screenshot({ path: testInfo.outputPath('colony-view.png') });
   const clouds = await page.evaluate(() => {
     const { orchestrator, renderer } = window.cityTest;
@@ -217,6 +226,55 @@ test('colony city uses the live galaxy device, canvas and frame loop', async ({ 
   await page.mouse.up();
   expect(await page.evaluate(() => ({ ...window.cityTest.renderer._view }))).toEqual(galaxyPan);
   expect(requests).toBe(1);
+  expect(await page.evaluate(() => window.cityTest.validationErrors)).toEqual([]);
+  await page.evaluate(() => {
+    const { orchestrator, renderer } = window.cityTest;
+    window.cityTest.terrainHooks = [...renderer._frameHooks];
+    renderer._frameHooks.clear();
+    window.cityTest.terrainScene = orchestrator._active._sceneData;
+  });
+  const biomePixels = {};
+  try {
+    for (const kind of ['ocean', 'ice_dwarf', 'desert', 'volcanic']) {
+      await page.evaluate((planetClass) => {
+        const { orchestrator, terrainScene } = window.cityTest;
+        const city = orchestrator._active;
+        city.setSceneData({
+          ...terrainScene,
+          focusPlanet: { id: 7, planet_class: planetClass, atmosphere_type: 'none' },
+        });
+        city._camera.progress = 1;
+        city._camera.target = { x: 0, z: 0 };
+        city._setCameraSpan(city._citySpan * 2);
+        city.render(0);
+      }, kind);
+      const image = await page.locator('#host').screenshot({ path: testInfo.outputPath(`colony-terrain-${kind}.png`) });
+      biomePixels[kind] = await page.evaluate(async (base64) => {
+        const bytes = Uint8Array.from(atob(base64), (value) => value.charCodeAt(0));
+        const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+        const sample = new OffscreenCanvas(32, 32);
+        const context = sample.getContext('2d');
+        context.drawImage(bitmap, 400, 0, 600, 700, 0, 0, 32, 32);
+        bitmap.close();
+        const { data } = context.getImageData(0, 0, 32, 32);
+        const rgb = [0, 0, 0];
+        for (let i = 0; i < data.length; i += 4) {
+          for (let channel = 0; channel < 3; channel++) rgb[channel] += data[i + channel] / (32 * 32);
+        }
+        return rgb;
+      }, image.toString('base64'));
+    }
+  } finally {
+    await page.evaluate(() => {
+      const { orchestrator, renderer, terrainHooks, terrainScene } = window.cityTest;
+      orchestrator._active.setSceneData(terrainScene);
+      for (const hook of terrainHooks) renderer._frameHooks.add(hook);
+    });
+  }
+  expect(biomePixels.ocean[2] - biomePixels.ocean[0]).toBeGreaterThan(10);
+  expect(biomePixels.ice_dwarf[2]).toBeGreaterThan(biomePixels.ocean[2] + 30);
+  expect(biomePixels.desert[0] - biomePixels.desert[2]).toBeGreaterThan(15);
+  expect(biomePixels.volcanic[0] - biomePixels.volcanic[2]).toBeGreaterThan(15);
   expect(await page.evaluate(() => window.cityTest.validationErrors)).toEqual([]);
   await page.getByRole('button', { name: 'Back to orbit' }).click();
   await expect(page.getByRole('region', { name: 'Colony surface simulation' })).toHaveCount(0);

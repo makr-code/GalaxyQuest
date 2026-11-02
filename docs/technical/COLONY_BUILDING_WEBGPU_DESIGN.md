@@ -50,6 +50,26 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
   steuern die Darstellung; explizit atmosphärenlose Körper sowie standardmäßig
   Monde, Kometen und Asteroiden erhalten weder Wolken noch Himmel.
   Ein explizit atmosphärischer Mond kann dennoch eine Kuppel zeigen.
+- **Detailgelände:** Ein körperstabiler Seed erzeugt echtes verdrängtes
+  Kugelgelände statt bloßer Farbflecken. 72 konzentrische Ringe verdichten die
+  Kolonieregion, 32 weitere schließen die restliche Kugel; 128 Segmente ergeben
+  maximal 79.872 Vertices (ca. 2,14 MiB). Das Gelände rotiert nicht unter der
+  Stadt und wird bei unveränderten Körper-/Layoutdaten nicht erneut hochgeladen.
+  Erdähnliche Welten zeigen grüne Niederungen, Wasser, Felsrücken und Schnee
+  auf hohen Gipfeln; Ozeanwelten mehr Wasser, Eiswelten Eisgebirge,
+  Wüsten Sand-/Gesteinsfarben, Vulkanwelten dunkles Gestein und Lava.
+  Monde/Asteroiden bleiben felsig, Kometen eisig. Gas-/Eisriesen behalten eine
+  gebänderte Ersatzoberfläche ohne erfundene feste Berge oder Seen.
+  Im Fragmentshader entstehen zusätzliche Gesteinskörnung, Schichten,
+  Eisfarben und zeitabhängige Wasserrippel; die Beleuchtung nutzt die wirkliche
+  Dreiecksgeometrie statt ausschließlich der Kugelnormale.
+  Die bestehende Koloniefläche wird trocken und eben entlang der Kugel
+  gradiert und weich ins Relief eingebettet. Gebäude und Figuren stehen damit
+  auf derselben Oberfläche; die bisherige große Bodenplatte entfällt.
+  Straßen werden abhängig vom Körperradius unterteilt, damit ihre geraden
+  Teilstücke nicht in der Krümmung versinken. Außerhalb der gradierten Fläche
+  folgen Kameratarget, Picking und Effekte derselben CPU-Höhenfunktion;
+  die Kamera erhält zusätzlichen Abstand zum maximalen Relief.
 - **Interaktion:** Ziehen verschiebt die Kamera, Mausrad oder +/- zoomt,
   Doppelklick bzw. „Focus building“ fährt Target und Zoom weich in mindestens
   650 ms zum Gebäude; der vorhandene Frame-Hook steuert diese Bewegung ohne
@@ -89,7 +109,8 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
   Tiefentextur; gecachte Pipelines werden beim Orchestrator-Dispose freigegeben.
 
 **Bewusste Grenzen:** stilisierte prozedurale Gebäude statt JSON-/GLTF-Modellen,
-prozedurale Kugeloberfläche statt vollständigem Planetenterrain, kein GPU-Picking,
+prozedurales, begrenztes Relief statt streamender Planetenterrain-LOD,
+keine Erosion, unterirdische Geometrie oder hydrologische Simulation, kein GPU-Picking,
 keine Wegfindungs-/Haushalts-/Arbeitsmarkt-Simulation einzelner Personen, keine
 neuen Bau-Mutationen im 3D-Viewport. Fußgänger laufen kosmetische Straßenzyklen.
 Die Legacy-Three.js-Familie und der separate alte Gebäude-Close-up bei direktem
@@ -112,6 +133,9 @@ genau einen Snapshot-Request. Ein lokal vorhandener Chromium kann über
 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` gewählt werden.
 Zusätzlich vergleicht er echte Canvas-Pixel mit und ohne Wolkenschleier an
 derselben Kamerapose und legt `colony-view.png` als Screenshot-Artefakt ab.
+Weitere Pixelvergleiche und Screenshots prüfen Ozean-, Eis-, Wüsten- und
+Vulkangelände. Unit-Tests messen Höhenvariation, Materialverteilung, trockene
+Fundamente, Straßenabstand, Geometriebudget, Kameraabstand und Buffer-Lebensdauer.
 
 ---
 
