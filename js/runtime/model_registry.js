@@ -22,7 +22,7 @@
 /* global THREE */
 
 class GQModelRegistry {
-  constructor() {
+  constructor({ gltfLoader = null, ktx2Loader = null, ownsGltfResources = !gltfLoader } = {}) {
     /** @type {Map<string, THREE.Group>} cached template groups (do NOT add to scene) */
     this._cache     = new Map();
     /** @type {Map<string, Promise<void>>} in-flight requests */
@@ -34,6 +34,8 @@ class GQModelRegistry {
     ]);
 
     this._textureCache = new Map();
+    this._textureLoading = new Map();
+    this.configureAssetLoaders({ gltfLoader, ktx2Loader, ownsGltfResources });
     /** @type {((instance: THREE.Group, payload: object) => void)|null} */
     this._vfxBridge = null;
   }
@@ -42,6 +44,26 @@ class GQModelRegistry {
 
   hasCached(type) {
     return this._cache.has(String(type));
+  }
+
+  /** Warm the small installation catalog without blocking renderer startup. */
+  preload() {
+    return Promise.all(Array.from(this._allowList, (type) => this.load(type)));
+  }
+
+  /**
+   * Inject existing Three.js loaders. KTX2 requires setTranscoderPath() and
+   * detectSupport(renderer) beforehand; this registry never guesses GPU formats.
+   * Injected glTF results are borrowed unless ownsGltfResources is explicitly true.
+   */
+  configureAssetLoaders({ gltfLoader = null, ktx2Loader = null, ownsGltfResources = !gltfLoader } = {}) {
+    if (ktx2Loader && (!ktx2Loader.transcoderPath || !ktx2Loader.workerConfig
+      || typeof ktx2Loader.load !== 'function')) {
+      throw new Error('KTX2 loader requires a transcoder path and detected renderer support');
+    }
+    this._gltfLoader = gltfLoader;
+    this._ktx2Loader = ktx2Loader;
+    this._ownsGltfResources = ownsGltfResources;
   }
 
   getAnimations(type) {
@@ -146,20 +168,24 @@ class GQModelRegistry {
     const template = this._cache.get(String(type));
     if (!template) return null;
 
-    const clone = template.clone(true); // deep clone
+    const clone = template.userData?.hasSkinnedMeshes
+      ? this._cloneSkinned(template) : template.clone(true);
     clone.visible = true;
 
     if (tintHex) {
       const tint = new THREE.Color(tintHex);
       clone.traverse((node) => {
         if (node.isMesh && node.material) {
-          const mat = node.material.clone();
-          // Only tint materials that carry the 'tintable' user-data flag
-          if (node.userData?.tintable !== false) {
-            mat.color.multiply(tint);
-            if (mat.emissive) mat.emissive.copy(mat.color).multiplyScalar(0.7);
-          }
-          node.material = mat;
+          const tintMaterial = (source) => {
+            const mat = source.clone();
+            if (node.userData?.tintable !== false && mat.color) {
+              mat.color.multiply(tint);
+              if (mat.emissive) mat.emissive.copy(mat.color).multiplyScalar(0.7);
+            }
+            return mat;
+          };
+          node.material = Array.isArray(node.material)
+            ? node.material.map(tintMaterial) : tintMaterial(node.material);
         }
       });
     }
@@ -251,13 +277,126 @@ class GQModelRegistry {
    * @returns {THREE.Group}
    */
   _buildFromDescriptor(descriptor) {
+    if (descriptor?.model_url || descriptor?.lods) {
+      return this._buildFromGltfDescriptor(descriptor);
+    }
     // Three.js Object/Scene JSON format (preferred)
     if (descriptor?.metadata?.type === 'Object' && descriptor?.object) {
-      return this._buildFromThreeObjectJson(descriptor);
+      return this._buildFromThreeObjectJson(descriptor)
+        .then((group) => this._applyRenderSettings(group, descriptor.rendering));
     }
 
     // Legacy primitive descriptor fallback
-    return Promise.resolve(this._buildFromLegacyDescriptor(descriptor));
+    const group = this._buildFromLegacyDescriptor(descriptor);
+    return Promise.all(Array.from(this._textureLoading.values(), (entry) => entry.promise))
+      .then(() => this._applyRenderSettings(group, descriptor.rendering));
+  }
+
+  /**
+   * Accept model_url or prepared lods: [{ model_url, distance }].
+   * All prepared LODs load up front; selection is not per-level asset streaming.
+   */
+  async _buildFromGltfDescriptor(descriptor) {
+    const levels = descriptor.lods || [{ distance: 0, model_url: descriptor.model_url }];
+    if (!Array.isArray(levels) || !levels.length || levels.some((level, index) => (
+      !level || typeof level.model_url !== 'string'
+      || !/\.(?:glb|gltf)(?:[?#]|$)/i.test(level.model_url)
+      || !Number.isFinite(level.distance) || level.distance < 0
+      || (index === 0 ? level.distance !== 0 : level.distance <= levels[index - 1].distance)
+    ))) {
+      throw new Error('Model LODs require glTF/GLB URLs and increasing distances starting at zero');
+    }
+    if (!this._gltfLoader) {
+      const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+      this._gltfLoader = new GLTFLoader();
+    }
+    const loader = this._gltfLoader;
+    if (this._ktx2Loader) loader.setKTX2Loader(this._ktx2Loader);
+    const ownsResources = this._ownsGltfResources;
+    const results = await Promise.allSettled(levels.map((level) => (
+      Promise.resolve().then(() => loader.loadAsync(level.model_url))
+    )));
+    const assets = results.filter((result) => result.status === 'fulfilled').map((result) => result.value);
+    try {
+      const failed = results.find((result) => result.status === 'rejected');
+      if (failed) throw failed.reason;
+      if (assets.some((asset) => !asset?.scene)) throw new Error('glTF asset has no default scene');
+      let hasSkinnedMeshes = false;
+      for (const asset of assets) {
+        asset.scene.traverse((node) => { if (node.isSkinnedMesh) hasSkinnedMeshes = true; });
+      }
+      if (hasSkinnedMeshes) {
+        const { clone } = await import('three/addons/utils/SkeletonUtils.js');
+        this._cloneSkinned = clone;
+      }
+      const group = levels.length > 1 ? new THREE.LOD() : new THREE.Group();
+      assets.forEach((asset, index) => {
+        if (group.isLOD) group.addLevel(asset.scene, levels[index].distance);
+        else group.add(asset.scene);
+      });
+      group.userData.hasSkinnedMeshes = hasSkinnedMeshes;
+      group.userData.modelType = descriptor.modelId || descriptor.id || 'unknown';
+      group.userData.modelVersion = descriptor.version || 1;
+      group.userData.rawAnims = [];
+      group.userData.nativeClipMap = { idle: [], active: [], alert: [] };
+      for (const asset of assets) {
+        for (const clip of asset.animations || []) {
+          group.userData.nativeClipMap[this._deriveAnimStateFromClipName(clip.name)].push(clip);
+        }
+      }
+      const scale = Number(descriptor.scale ?? 1);
+      if (Number.isFinite(scale) && scale > 0) group.scale.setScalar(scale);
+      return this._applyRenderSettings(group, descriptor.rendering);
+    } catch (error) {
+      if (ownsResources) this._disposeGltfAssets(assets);
+      throw error;
+    }
+  }
+
+  _disposeGltfAssets(assets) {
+    const resources = new Set();
+    for (const asset of assets) {
+      const scenes = new Set([asset?.scene, ...(asset?.scenes || [])]);
+      for (const scene of scenes) {
+        scene?.traverse?.((node) => {
+          if (node.geometry) resources.add(node.geometry);
+          if (node.skeleton) resources.add(node.skeleton);
+          for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+            if (!material) continue;
+            resources.add(material);
+            if (material.userData?.sharedTexture) continue;
+            for (const value of Object.values(material)) {
+              if (value?.isTexture) resources.add(value);
+            }
+          }
+        });
+      }
+    }
+    for (const resource of resources) {
+      try {
+        resource.dispose?.();
+      } catch (error) {
+        console.warn('[ModelRegistry] glTF resource cleanup failed:', error);
+      }
+    }
+  }
+
+  _applyRenderSettings(group, settings = {}) {
+    group.traverse((node) => {
+      if (!node.isMesh) return;
+      for (const key of ['castShadow', 'receiveShadow']) {
+        const value = node.userData?.[key] ?? settings?.[key];
+        if (typeof value === 'boolean') node[key] = value;
+      }
+      if (Number.isFinite(settings?.envMapIntensity) && settings.envMapIntensity >= 0) {
+        for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+          if (material && 'envMapIntensity' in material) {
+            material.envMapIntensity = settings.envMapIntensity;
+          }
+        }
+      }
+    });
+    return group;
   }
 
   _buildFromThreeObjectJson(descriptor) {
@@ -428,18 +567,57 @@ class GQModelRegistry {
     };
     if (def.color)     opts.color     = new THREE.Color(def.color);
     if (def.emissive)  opts.emissive  = new THREE.Color(def.emissive);
-    if (def.map)       opts.map       = this._loadTexture(def.map);
-    if (def.emissiveMap) opts.emissiveMap = this._loadTexture(def.emissiveMap);
-    if (def.alphaMap)  opts.alphaMap  = this._loadTexture(def.alphaMap);
+    if (Number.isFinite(def.envMapIntensity) && def.envMapIntensity >= 0) opts.envMapIntensity = def.envMapIntensity;
     if (def.transparent) { opts.transparent = true; opts.opacity = def.opacity ?? 1.0; }
-    return new THREE.MeshStandardMaterial(opts);
+    const material = new THREE.MeshStandardMaterial(opts);
+    for (const slot of ['map', 'emissiveMap', 'bumpMap', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'alphaMap']) {
+      if (!def[slot]) continue;
+      material[slot] = this._loadTexture(def[slot], slot === 'map' || slot === 'emissiveMap', (texture) => {
+        material[slot] = texture;
+        material.needsUpdate = true;
+      });
+    }
+    return material;
   }
 
-  _loadTexture(url) {
-    const key = String(url || '');
-    if (!key) return null;
+  _loadTexture(source, isColor = true, onLoad = null) {
+    let url = typeof source === 'string' ? source : source?.url;
+    if (typeof url !== 'string' || !url) return null;
+    let compressed = /\.ktx2(?:[?#]|$)/i.test(url);
+    if (compressed && !this._ktx2Loader) {
+      url = typeof source?.fallback === 'string' ? source.fallback : '';
+      if (!url || /\.ktx2(?:[?#]|$)/i.test(url)) return null;
+      compressed = false;
+    }
+    const key = `${isColor ? 'color' : 'data'}:${url}`;
     if (this._textureCache.has(key)) return this._textureCache.get(key);
-    const texture = new THREE.TextureLoader().load(key);
+    if (compressed) {
+      if (this._textureLoading.has(key)) {
+        if (onLoad) this._textureLoading.get(key).callbacks.push(onLoad);
+        return null;
+      }
+      const callbacks = onLoad ? [onLoad] : [];
+      let finish;
+      const promise = new Promise((resolve) => { finish = resolve; });
+      this._textureLoading.set(key, { callbacks, promise });
+      // Unlike TextureLoader, KTX2Loader.load() does not return a placeholder.
+      this._ktx2Loader.load(url, (loaded) => {
+        const texture = loaded.clone();
+        texture.colorSpace = isColor ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+        texture.needsUpdate = true;
+        this._textureCache.set(key, texture);
+        this._textureLoading.delete(key);
+        callbacks.forEach((callback) => callback(texture));
+        finish();
+      }, undefined, (error) => {
+        this._textureLoading.delete(key);
+        console.warn('[ModelRegistry] compressed texture load failed:', error);
+        finish();
+      });
+      return null;
+    }
+    const texture = new THREE.TextureLoader().load(url);
+    texture.colorSpace = isColor ? THREE.SRGBColorSpace : THREE.NoColorSpace;
     this._textureCache.set(key, texture);
     return texture;
   }

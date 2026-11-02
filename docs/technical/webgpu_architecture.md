@@ -3,7 +3,109 @@
 > **Version:** Phase 0  
 > **Basiert auf:** Three.js (MIT), Babylon.js (Apache 2.0), WebGPU Samples (Apache 2.0), PlayCanvas (MIT), OSG.JS (MIT)
 
-## Opt-in Babylon colony evaluation (not a production migration)
+## Rendering direction: Three.js / WebGPU
+
+GalaxyQuest continues with Three.js and the existing native WebGPU paths.
+Babylon.js remains an implementation reference; the isolated comparison below
+is a development tool, not a migration target or a production backend.
+
+The implementation priorities are deliberately bounded:
+
+- **Measure first:** distinguish frame cadence, synchronous CPU submission time,
+  optional GPU execution time and memory accounting. Unsupported measurements
+  remain unknown, not zero. Three.js geometry/texture counts are not byte sizes.
+- **Residency before world size:** load only needed partitions, bound concurrent
+  work and resident data, reject stale results after navigation, and unload through
+  the owner that acquired the resources.
+- **Visibility before complexity:** retain instancing, cull conservatively, and
+  preserve stable selection identities when choosing visible detail. LOD and
+  streaming must not alter authoritative game state.
+- **Asset and lighting consistency:** use glTF 2.0 / GLB for imported scenes,
+  declared detail levels, capability-configured compressed texture loaders and
+  consistent PBR color/data texture conventions. Existing procedural descriptors
+  remain a compatibility path; assets are not silently converted at runtime.
+- **Explicit pass ownership:** declare dependencies where required; keep legacy
+  insertion order where none are declared. Render targets must be released on
+  resize and disposal, with no read/write feedback.
+
+Full global illumination and GPU occlusion are deferred until repeatable target
+scene measurements justify them. Native WebGPU shading is not automatically
+equivalent to Three.js PBR merely because both render the same model.
+
+### Native galaxy budgets and GPU partitions
+
+The active `Galaxy3DRendererWebGPU` loads the existing performance monitor and
+GPU profiler lazily. Its debug snapshot exposes `performance` and
+`performanceStatus`; constructor `performanceBudget` options configure rolling
+window sampling and threshold overrides. This scope is **native-main-pass**:
+CPU time covers preparation/submission, not subsequent 2D overlays or frame hooks.
+Frame intervals include browser scheduling. GPU samples cover that render pass
+only, using standard pass `timestampWrites` when `timestamp-query` was enabled
+on the device; `gpuTimestamps: false` disables the optional feature.
+Readback is asynchronous and sampled every 60 frames, never awaited by the loop.
+
+Metrics are numeric or null. Three.js geometry/texture statistics remain counts.
+Actual owned buffer bytes are reported separately from unknown total VRAM;
+`memoryBytes` must be supplied by a trustworthy accounting source before a total
+memory threshold can be evaluated. Thresholds are configurable targets, not
+claims about measured reference hardware. Rolling samples and regression history
+are bounded.
+
+Star GPU data is partitioned spatially into units of at most 2,048 stars.
+Only conservatively intersecting viewport partitions become GPU-resident.
+`starResidencyMaxBytes` defaults to 16 MiB, bounded between 57,344 bytes and
+128 MiB. Under pressure, selected/hovered partitions and the viewport center
+take priority. Replaced and invisible allocations are destroyed; re-entry uploads
+from the retained CPU catalog. Packed sprites still use one instanced draw, carry
+their original selection indices and retain source blending order.
+
+This is **GPU partition residency**, not complete server-side World Partition:
+the CPU star catalog remains resident, network loading is unchanged, and system/
+colony asset streaming is not claimed to be solved by culling galaxy stars.
+Prepared model LODs and existing view lifecycles remain separate concerns.
+
+### Postprocessing dependency contract
+
+The existing `EffectComposer` accepts optional pass metadata: a unique nonempty
+`id`, `after` (registered predecessors; disabled providers are ignored) and
+`requires` (registered predecessors that must be enabled). Both dependency lists
+contain pass IDs and affect execution order, **not** named texture bindings.
+Unannotated chains retain insertion order and existing truthy `enabled` behavior.
+Ready passes use insertion order as a stable tie-breaker.
+
+The composer validates metadata, missing providers and enabled dependency cycles
+before submitting a frame. Disabled consumers do not enforce their dependencies.
+Source/destination texture aliasing is rejected before dispatch. Resize allocates
+replacement targets first, then releases old targets to their original pool with
+their original dimensions. Disposal releases targets and passes exactly once,
+attempting remaining cleanup even if a resource throws.
+
+### Shared Three.js assets, materials and lighting
+
+The model registry accepts the existing procedural descriptors and imported
+glTF/GLB descriptors. An imported descriptor supplies `model_url`, or authored
+`lods` containing `model_url` and finite `distance` values: the first distance is
+zero and subsequent distances strictly increase. Multiple levels use Three.js
+`LOD`; this is prepared geometry selection, not runtime mesh simplification or
+per-level network streaming. Imported geometry retains glTF material semantics.
+
+`configureAssetLoaders` can inject a GLTF loader and an existing KTX2 loader. The
+KTX2 loader must already have its transcoder path and renderer support configured;
+no transcoder CDN, GPU format guess or runtime texture compression is introduced.
+Without that configuration, use ordinary glTF-supported textures. Color and
+emissive textures use sRGB; normal, roughness, metalness and other data maps use
+no color-space conversion. Role-specific texture sharing must not change another
+consumer's color interpretation.
+
+Material profiles preserve their existing roughness/metalness defaults.
+Descriptor `rendering.envMapIntensity` and mesh `castShadow`/`receiveShadow`
+settings are optional; shadows are not globally enabled. The light-rig manager
+accepts an externally supplied prefiltered PMREM `environmentMap` and optional
+`environmentIntensity`. It restores the prior scene environment when relinquishing
+ownership, never destroys borrowed environment textures, and releases owned
+shadow resources when profiles/scenes change or the manager is disposed.
+
+## Historical opt-in Babylon colony evaluation (not a production migration)
 
 The diagrams below describe engine components, **not** a guarantee that every
 game renderer obeys `IGraphicsRenderer`. Native zoom classes still use browser

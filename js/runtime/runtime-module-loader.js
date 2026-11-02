@@ -4,6 +4,7 @@ const runtimeModules = new Map([
   ['js/runtime/wm.js', () => import('./wm.js')],
   ['js/runtime/wm-widgets.js', () => import('./wm-widgets.js')],
   ['js/runtime/gqwm.js', () => import('./gqwm.js')],
+  ['js/runtime/model_registry.js', () => import('./model_registry.js')],
   ['js/vendor/three.min.js', () => import('../three-runtime.js')],
   ['js/rendering/starfield-webgpu.js', () => import('../rendering/starfield-webgpu.js')],
   ['js/rendering/Galaxy3DRendererWebGPU.js', () => import('../rendering/Galaxy3DRendererWebGPU.js')],
@@ -13,7 +14,12 @@ const runtimeModules = new Map([
   ['js/rendering/geometry-manager.js', () => import('../rendering/geometry-manager.js')],
   ['js/rendering/material-factory.js', () => import('../rendering/material-factory.js')],
   ['js/rendering/light-rig-manager.js', () => import('../rendering/light-rig-manager.js')],
-  ['js/rendering/galaxy-renderer-core.js', () => import('../rendering/galaxy-renderer-core.js')],
+  ['js/rendering/galaxy-renderer-core.js', async () => {
+    await loadRuntimeModule('js/runtime/model_registry.js');
+    Promise.resolve().then(() => window.__GQ_ModelRegistry.preload())
+      .catch((error) => console.warn('[ModelRegistry] background preload failed:', error));
+    return import('../rendering/galaxy-renderer-core.js');
+  }],
 ]);
 
 const loadedModules = new Map();

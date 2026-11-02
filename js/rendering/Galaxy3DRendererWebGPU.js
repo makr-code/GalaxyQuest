@@ -60,7 +60,7 @@
     };
 
     @vertex
-    fn vs_main(in : StarAttribs, @builtin(vertex_index) vertexIndex : u32, @builtin(instance_index) instanceIndex : u32) -> VSOut {
+    fn vs_main(in : StarAttribs, @builtin(vertex_index) vertexIndex : u32) -> VSOut {
       var out : VSOut;
 
       let corners = array<vec2<f32>, 4>(
@@ -78,8 +78,8 @@
       var brightness = 1.0;
       var sz = 2.5;
 
-      let selected = i32(instanceIndex) == uView.selectedIdx;
-      let hovered  = i32(instanceIndex) == uView.hoveredIdx;
+      let selected = i32(in.index) == uView.selectedIdx;
+      let hovered  = i32(in.index) == uView.hoveredIdx;
 
       if (selected) {
         brightness = 2.2;
@@ -962,6 +962,20 @@
       this._heroIndexFormat = 'uint16';
       this._heroLodKey = '';
       this._starCount  = 0;
+      this._starBatches = [];
+      this._starChunks = [];
+      this._starSourceData = null;
+      this._residentChunkKey = '';
+      this._residentStarBytes = 0;
+      this._starResidencyBudget = Math.max(28 * 2048, Math.min(128 * 1048576,
+        Number(opts.starResidencyMaxBytes) || 16 * 1048576));
+      this._submittedStars = 0;
+      this._passDrawCalls = 0;
+      this._passTriangles = 0;
+      this._performanceMonitor = null;
+      this._gpuProfiler = null;
+      this._pendingGpuMs = null;
+      this._telemetryTimestamp = null;
       this._starScale  = 1;
       this._chunkSummaries = [];
       this._selectionIndex = buildStarSelectionIndex([], 1);
@@ -975,6 +989,7 @@
       this._objectMeshBindGroupLayout = null;
       this._objectMeshes = new Set();
       this._lastCameraDriverTime = 0;
+      this._disposed = false;
       this._timeOrigin = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
       this._systemPayload = null;
       this._systemPlanetEntries = [];
@@ -1056,15 +1071,17 @@
     // ── Async init ─────────────────────────────────────────────────────────
 
     async init() {
-      if (this.ready) return;
+      if (this.ready || this._disposed) return;
 
       const gpuOk = await probeWebGPU();
+      if (this._disposed) return;
 
       if (gpuOk) {
         const canvas = this._ensureCanvas();
         if (canvas) {
           try {
             await this._initWebGPU(canvas);
+            if (this._disposed) return;
             this._backend = 'webgpu';
             this.ready = true;
             this._attachInteraction(canvas);
@@ -1072,6 +1089,7 @@
             emitRenderTelemetry('backend-active', { backend: 'webgpu', interactive: true });
             return;
           } catch (err) {
+            if (this._disposed) return;
             emitRenderTelemetry('fallback', {
               from: 'webgpu',
               to: 'webgl2',
@@ -1121,9 +1139,34 @@
       this._ensureOverlayCanvas();
 
       this._adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+      if (this._disposed) throw new Error('Renderer disposed');
       if (!this._adapter) throw new Error('No WebGPU adapter available');
 
-      this._device = await this._adapter.requestDevice();
+      const timestampQuery = !!this._adapter.features?.has('timestamp-query')
+        && this._opts.gpuTimestamps !== false;
+      const device = await this._adapter.requestDevice({
+        requiredFeatures: timestampQuery ? ['timestamp-query'] : [],
+      });
+      if (this._disposed) {
+        device.destroy();
+        throw new Error('Renderer disposed');
+      }
+      this._device = device;
+      try {
+        await Promise.all([
+          window.GQPerformanceBudget ? null : import('../telemetry/performance-budget.js'),
+          window.GQWebGPUProfiler ? null : import('../engine/utils/WebGPUProfiler.js'),
+        ]);
+      } catch (error) {
+        emitRenderTelemetry('performance-monitor-unavailable', { message: String(error?.message || error) });
+      }
+      if (this._disposed) throw new Error('Renderer disposed');
+      this._performanceMonitor = window.GQPerformanceBudget?.createMonitor(null, {
+        ...this._opts.performanceBudget,
+        scope: 'native-main-pass',
+      }) ?? null;
+      const Profiler = window.GQWebGPUProfiler?.WebGPUProfiler;
+      this._gpuProfiler = Profiler ? new Profiler(this._device) : null;
       this._device.lost.then((info) => {
         if (info.reason !== 'destroyed') {
           emitRenderTelemetry('device-lost', { reason: info.reason });
@@ -1902,12 +1945,12 @@
           entryPoint: 'vs_main',
           buffers: [
             {
-              // Position + colour per star (6 floats × 4 bytes = 24 bytes/vertex)
-              arrayStride: 24,
-              stepMode: 'vertex',
+              // Position, colour and stable original selection index.
+              arrayStride: 28,
               attributes: [
                 { shaderLocation: 0, offset: 0,  format: 'float32x2' }, // pos
                 { shaderLocation: 1, offset: 8,  format: 'float32x4' }, // color
+                { shaderLocation: 2, offset: 24, format: 'uint32' },
               ],
               stepMode: 'instance',
             },
@@ -2290,6 +2333,8 @@
       pass.setVertexBuffer(0, this._heroVertexBuf);
       pass.setIndexBuffer(this._heroIndexBuf, this._heroIndexFormat);
       pass.drawIndexed(this._heroIndexCount, 1, 0, 0, 0);
+      this._passDrawCalls++;
+      this._passTriangles += Math.floor(this._heroIndexCount / 3);
 
       this._writeHeroUniforms(heroState, 1.0);
       pass.setPipeline(this._heroPipeline);
@@ -2297,6 +2342,8 @@
       pass.setVertexBuffer(0, this._heroVertexBuf);
       pass.setIndexBuffer(this._heroIndexBuf, this._heroIndexFormat);
       pass.drawIndexed(this._heroIndexCount, 1, 0, 0, 0);
+      this._passDrawCalls++;
+      this._passTriangles += Math.floor(this._heroIndexCount / 3);
     }
 
     _rebuildSystemPlanetEntries() {
@@ -2402,6 +2449,7 @@
         pass.setBindGroup(0, this._orbitBindGroup);
         pass.setVertexBuffer(0, this._orbitVertexBuf);
         pass.draw(this._orbitVertexCount, 1, 0, 0);
+        this._passDrawCalls++;
 
         const angle = entry.angle + now * entry.speed;
         const px = heroState.clipX + (Math.cos(angle) * entry.orbitRadius) / Math.max(this._aspect, 0.0001);
@@ -2412,6 +2460,8 @@
         pass.setVertexBuffer(0, this._heroVertexBuf);
         pass.setIndexBuffer(this._heroIndexBuf, this._heroIndexFormat);
         pass.drawIndexed(this._heroIndexCount, 1, 0, 0, 0);
+        this._passDrawCalls++;
+        this._passTriangles += Math.floor(this._heroIndexCount / 3);
       }
     }
 
@@ -2423,17 +2473,120 @@
       const { attribs, scale } = buildStarAttribs(stars);
       this._starScale = scale;
       this._starCount = Math.floor(attribs.length / 6);
+      this._starBatches = [];
+      this._starChunks = [];
+      this._starSourceData = null;
+      this._residentChunkKey = '';
+      this._residentStarBytes = 0;
+      this._submittedStars = 0;
 
       // Destroy old buffers
       if (this._starBuf)  { this._starBuf.destroy();  this._starBuf  = null; }
       if (!this._starCount) return;
 
-      // Vertex buffer (pos + color)
+      // Partition spatially without reordering public star/picking arrays.
+      // Explicit original indices preserve highlights through GPU compaction.
+      const cells = new Map();
+      const sourceData = new ArrayBuffer(this._starCount * 28);
+      const sourceFloats = new Float32Array(sourceData);
+      const sourceIndices = new Uint32Array(sourceData);
+      for (let i = 0; i < this._starCount; i++) {
+        sourceFloats.set(attribs.subarray(i * 6, i * 6 + 6), i * 7);
+        sourceIndices[i * 7 + 6] = i;
+        const x = attribs[i * 6], y = attribs[i * 6 + 1];
+        const key = `${Math.floor(x * 4)}:${Math.floor(y * 4)}`;
+        if (!cells.has(key)) cells.set(key, []);
+        cells.get(key).push(i);
+      }
+      this._starSourceData = sourceIndices;
+      for (const members of cells.values()) {
+        // Bound each residency unit, including pathological dense sectors.
+        for (let start = 0; start < members.length; start += 2048) {
+          const ids = members.slice(start, start + 2048);
+          const batch = {
+            id: this._starChunks.length, count: ids.length, ids,
+            minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity,
+          };
+          for (let offset = 0; offset < ids.length; offset++) {
+            const index = ids[offset];
+            batch.minX = Math.min(batch.minX, attribs[index * 6]);
+            batch.maxX = Math.max(batch.maxX, attribs[index * 6]);
+            batch.minY = Math.min(batch.minY, attribs[index * 6 + 1]);
+            batch.maxY = Math.max(batch.maxY, attribs[index * 6 + 1]);
+          }
+          this._starChunks.push(batch);
+        }
+      }
+      this._updateStarResidency();
+    }
+
+    _starChunkVisible(batch) {
+      // Include the largest selection sprite's full radius, even at screen edges.
+      const marginX = 10 / Math.max(1, this._canvas?.width || 1);
+      const marginY = 10 / Math.max(1, this._canvas?.height || 1);
+      const { panX, panY, zoom } = this._view;
+      return !((batch.maxX + panX) * zoom / this._aspect < -1 - marginX
+          || (batch.minX + panX) * zoom / this._aspect > 1 + marginX
+          || (batch.maxY + panY) * zoom < -1 - marginY
+          || (batch.minY + panY) * zoom > 1 + marginY);
+    }
+
+    _updateStarResidency() {
+      if (!this._device) return;
+      const candidates = this._starChunks.filter(batch => this._starChunkVisible(batch));
+      const distance = batch => {
+        const x = (batch.minX + batch.maxX) / 2 + this._view.panX;
+        const y = (batch.minY + batch.maxY) / 2 + this._view.panY;
+        return x * x + y * y;
+      };
+      // Prioritize interactive targets, then the viewport center if oversubscribed.
+      if (candidates.reduce((sum, batch) => sum + batch.count * 28, 0) > this._starResidencyBudget) {
+        const priorities = new Map(candidates.map(batch => [batch.id, {
+          priority: batch.ids.includes(this._selectedIdx) ? 2 : batch.ids.includes(this._hoveredIdx) ? 1 : 0,
+          distance: distance(batch),
+        }]));
+        candidates.sort((a, b) => priorities.get(b.id).priority - priorities.get(a.id).priority
+          || priorities.get(a.id).distance - priorities.get(b.id).distance || a.id - b.id);
+      }
+      let bytes = 0;
+      const resident = [];
+      for (const batch of candidates) {
+        if (bytes + batch.count * 28 > this._starResidencyBudget) continue;
+        resident.push(batch);
+        bytes += batch.count * 28;
+      }
+      resident.sort((a, b) => a.id - b.id);
+      const key = resident.map(batch => batch.id).join(',');
+      if (key === this._residentChunkKey && !!this._starBuf === !!bytes) return;
+      // Replaced/empty partitions release their GPU allocation synchronously.
+      this._starBuf?.destroy();
+      this._starBuf = null;
+      this._starBatches = [];
+      this._residentChunkKey = key;
+      this._residentStarBytes = bytes;
+      if (!bytes) return;
       this._starBuf = this._device.createBuffer({
-        size: attribs.byteLength,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        size: bytes, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       });
-      this._device.queue.writeBuffer(this._starBuf, 0, attribs.buffer, attribs.byteOffset, attribs.byteLength);
+      const ids = resident.flatMap(batch => batch.ids).sort((a, b) => a - b);
+      const packed = new Uint32Array(bytes / 4);
+      for (let i = 0; i < ids.length; i++) {
+        packed.set(this._starSourceData.subarray(ids[i] * 7, ids[i] * 7 + 7), i * 7);
+      }
+      // Keep original alpha-blend ordering across cell boundaries.
+      this._device.queue.writeBuffer(this._starBuf, 0, packed);
+      let first = 0;
+      for (const batch of resident) {
+        this._starBatches.push({ first, count: batch.count });
+        first += batch.count;
+      }
+    }
+
+    _visibleStarRanges() {
+      // Residency packs only visible chunks. A single instanced draw retains
+      // batching even when chunks have different original selection indices.
+      const count = this._starBatches.reduce((sum, batch) => sum + batch.count, 0);
+      return count ? [{ first: 0, count }] : [];
     }
 
     // ── Render loop ─────────────────────────────────────────────────────────
@@ -2451,7 +2604,13 @@
 
     _renderFrame(timestamp = performance.now()) {
       if (!this._device || !this._context || !this._pipeline || !this._uniformBuf) return;
+      const cpuStart = performance.now();
       const now = Number.isFinite(Number(timestamp)) ? Number(timestamp) : performance.now();
+      const frameMs = this._telemetryTimestamp === null ? null : now - this._telemetryTimestamp;
+      this._telemetryTimestamp = now;
+      this._passDrawCalls = 0;
+      this._passTriangles = 0;
+      this._submittedStars = 0;
       const dt = this._lastCameraDriverTime
         ? Math.max(0, Math.min(0.048, (now - this._lastCameraDriverTime) / 1000))
         : (1 / 60);
@@ -2516,6 +2675,7 @@
       this._view.panX = Math.max(-PCLAMP, Math.min(PCLAMP, this._view.panX));
       this._view.panY = Math.max(-PCLAMP, Math.min(PCLAMP, this._view.panY));
       this._view.zoom = Math.max(0.45,    Math.min(6,     this._view.zoom));
+      this._updateStarResidency();
 
       // Upload uniforms (32 bytes = 8 × f32)
       const uni = new DataView(new ArrayBuffer(32));
@@ -2532,7 +2692,9 @@
 
       const encoder = this._device.createCommandEncoder();
       const view    = this._context.getCurrentTexture().createView();
+      const timestampWrites = this._frameTick % 60 === 0 ? this._gpuProfiler?.begin('main-pass') : null;
       const pass    = encoder.beginRenderPass({
+        ...(timestampWrites ? { timestampWrites } : {}),
         colorAttachments: [{
           view,
           clearValue: { r: 0.02, g: 0.03, b: 0.08, a: 1.0 },
@@ -2545,14 +2707,37 @@
         pass.setPipeline(this._pipeline);
         pass.setBindGroup(0, this._bindGroup);
         pass.setVertexBuffer(0, this._starBuf);
-        pass.draw(4, this._starCount, 0, 0);
+        for (const range of this._visibleStarRanges()) {
+          pass.draw(4, range.count, 0, range.first);
+          this._passDrawCalls++;
+          this._submittedStars += range.count;
+          this._passTriangles += range.count * 2;
+        }
       }
 
       this._drawSystemPlanets(pass);
       this._drawHeroStar(pass);
 
       pass.end();
+      if (timestampWrites) this._gpuProfiler.resolve('main-pass', encoder);
       this._device.queue.submit([encoder.finish()]);
+      if (timestampWrites) {
+        void this._gpuProfiler.end('main-pass').then(ms => { this._pendingGpuMs = ms; });
+      }
+      const ownedBuffers = new Set([
+        this._starBuf, this._uniformBuf, this._lightUniformBuf, this._heroUniformBuf,
+        this._heroVertexBuf, this._heroIndexBuf, this._planetUniformBuf,
+        this._orbitUniformBuf, this._orbitVertexBuf, this._indexBuf,
+      ].filter(Boolean));
+      const sizes = [...ownedBuffers].map(buffer => buffer.size);
+      this._performanceMonitor?.update({
+        timestampMs: now, frameMs, cpuSubmissionMs: performance.now() - cpuStart,
+        gpuMs: this._pendingGpuMs, drawCalls: this._passDrawCalls, triangles: this._passTriangles,
+        ownedBufferBytes: sizes.every(Number.isFinite) ? sizes.reduce((sum, size) => sum + size, 0) : null,
+        // Owned buffers are a partial allocation count, not total VRAM.
+        memoryBytes: null,
+      });
+      this._pendingGpuMs = null;
       this._renderGalaxyOverlay2D();
 
       this._frameTick++;
@@ -3031,6 +3216,7 @@
     // ── Public API — mirrors Galaxy3DRenderer ───────────────────────────────
 
     setStars(stars, _opts) {
+      if (this._disposed) return;
       if (this._delegate) return this._delegate.setStars?.(stars, _opts);
       const opts = _opts && typeof _opts === 'object' ? _opts : {};
       this._rawStars  = Array.isArray(stars) ? stars.slice() : [];
@@ -3611,12 +3797,19 @@
         pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
         rawStars: this._rawStars.length,
         visibleStars: this._starCount,
+        submittedStars: this._submittedStars,
         chunkCount: Array.isArray(this._chunkSummaries) ? this._chunkSummaries.length : 0,
+        residentStarChunks: this._starBatches.length,
+        residentStarBytes: this._residentStarBytes,
+        starResidencyMaxBytes: this._starResidencyBudget,
         selectionIndexCells: Number(this._selectionIndex?.cellCount || 0),
         frameTick: this._frameTick,
         instanceId: this._instanceId || '',
         systemMode: !!this.systemMode,
         systemPlanets: this._systemPlanetEntries.length,
+        performance: this._performanceMonitor?.getMetrics() ?? null,
+        performanceStatus: this._performanceMonitor?.getStatus() ?? null,
+        gpuTimings: this._gpuProfiler?.report() ?? null,
       };
     }
 
@@ -3631,6 +3824,7 @@
     }
 
     dispose() {
+      this._disposed = true;
       if (this._delegate) {
         // Call both destroy and dispose for maximum compatibility with Three.js renderers
         this._delegate.destroy?.();
@@ -3648,6 +3842,17 @@
         this._resizeObserver = null;
       }
       this._detachInteraction();
+      this._gpuProfiler?.dispose();
+      this._gpuProfiler = null;
+      this._performanceMonitor = null;
+      this._starBatches = [];
+      this._starChunks = [];
+      this._starSourceData = null;
+      this._residentStarBytes = 0;
+      this._residentChunkKey = '';
+      this._rawStars = [];
+      this.stars = this._rawStars;
+      this.starPoints = this._rawStars;
       for (const mesh of this._objectMeshes) this.destroyMesh(mesh);
       try { this._starBuf?.destroy();  } catch (_) {}
       try { this._indexBuf?.destroy(); } catch (_) {}
@@ -3655,6 +3860,7 @@
       try { this._heroIndexBuf?.destroy(); } catch (_) {}
       try { this._orbitVertexBuf?.destroy(); } catch (_) {}
       try { this._uniformBuf?.destroy(); } catch (_) {}
+      try { this._lightUniformBuf?.destroy(); } catch (_) {}
       try { this._heroUniformBuf?.destroy(); } catch (_) {}
       try { this._planetUniformBuf?.destroy(); } catch (_) {}
       try { this._orbitUniformBuf?.destroy(); } catch (_) {}
@@ -3664,6 +3870,7 @@
       this._heroIndexBuf = null;
       this._orbitVertexBuf = null;
       this._uniformBuf = null;
+      this._lightUniformBuf = null;
       this._heroUniformBuf = null;
       this._planetUniformBuf = null;
       this._orbitUniformBuf = null;
