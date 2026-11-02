@@ -2,6 +2,13 @@
 
 This introduces an explicit simulation runtime path independent from frontend rendering.
 
+Body-bound resource profiles and the staged inventory capture are documented in
+[Body resource foundation](BODY_RESOURCE_FOUNDATION.md). They do not yet change the
+economy tick or activate a second resource writer.
+
+Colony stockpiles still settle **on demand**, not through a new periodic engine;
+see [Colony on-demand economy](COLONY_ON_DEMAND_ECONOMY.md).
+
 ## What is included
 
 - Runtime orchestrator: `api/simulation_runtime.php`
@@ -16,9 +23,12 @@ This introduces an explicit simulation runtime path independent from frontend re
 
 - Single persistent galaxy mode remains active.
 - Flexible tick cadence is supported via scheduler frequency + cooldowns.
-- Simulation side-effects on overview reads are now feature-flagged:
-  - `SIMULATION_TICK_ON_READ_ENABLED=0` (default, recommended)
-  - `SIMULATION_TICK_ON_READ_ENABLED=1` (legacy compatibility)
+- Overview GETs never execute simulation side-effects. The legacy
+  `SIMULATION_TICK_ON_READ_ENABLED` setting has been retired; changing it in an
+  environment file has no effect.
+- Simulation runs only through the explicit HTTP or CLI trigger paths below.
+- The overview still performs lazy colony-resource settlement from `last_update`;
+  this on-demand economy accounting is separate from simulation ticks.
 
 ## Trigger ticks
 

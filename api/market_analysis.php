@@ -10,9 +10,12 @@
 
 declare(strict_types=1);
 
+use GalaxyQuest\Economy\OnDemandEconomy;
+
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/economy_flush.php';
+require_once __DIR__ . '/game_engine.php';
 
 if (!defined('GQ_MARKET_ANALYSIS_BASE_PRICES')) {
     define('GQ_MARKET_ANALYSIS_BASE_PRICES', [
@@ -58,6 +61,23 @@ function calculate_system_supply_demand(
     int $galaxy_index,
     int $system_index
 ): array {
+    if (ON_DEMAND_ECONOMY_ENABLED) {
+        require_once __DIR__ . '/game_engine.php';
+        $market = (new OnDemandEconomy($db))->market($galaxy_index, $system_index);
+        $analysis = [];
+        foreach ($market['goods'] as $type => $good) {
+            $supply = $good['quantity'] / 24 + $good['production_per_hour'];
+            $demand = $good['consumption_per_hour'];
+            $analysis[$type] = [
+                'production' => $good['production_per_hour'],
+                'consumption' => $demand, 'available_supply' => $supply,
+                'desired_demand' => $demand, 'net_balance' => $supply - $demand,
+                'oldest_settled_at' => $good['oldest_settled_at'],
+                'represented_colonies' => $good['represented_colonies'],
+            ];
+        }
+        return $analysis;
+    }
     try {
         // 1. Get all colonies in this system
         $colStmt = $db->prepare(<<<SQL
@@ -123,7 +143,7 @@ function calculate_system_supply_demand(
         $analysis['food']['available_supply']      += (float)$col['food'];
         
         // Food consumption (primary resource, not in processed_goods)
-        $analysis['food']['consumption'] += $pop * 1.0;
+        $analysis['food']['consumption'] += colony_food_consumption($pop);
         
         // Processed goods: stock, production rate, and consumption rate
         $goodsStmt = $db->prepare(<<<SQL
@@ -143,8 +163,7 @@ function calculate_system_supply_demand(
         }
 
         // Desired demand: consumer_goods proportional to population
-        $goodsConsumption = $pop * 0.2;
-        $analysis['consumer_goods']['consumption']    += $goodsConsumption;
+        $goodsConsumption = ECONOMY_POP_CONSUMPTION_RATES['consumer_goods'] * ($pop / 1000.0);
         $analysis['consumer_goods']['desired_demand'] += $goodsConsumption * 0.5;
     }
     
@@ -166,6 +185,24 @@ function calculate_system_supply_demand(
  * @return int Number of rows updated
  */
 function update_supply_demand_table(PDO $db): int {
+    if (ON_DEMAND_ECONOMY_ENABLED) {
+        $statement = $db->prepare(<<<SQL
+            INSERT INTO market_supply_demand
+                (galaxy_index,system_index,resource_type,production_per_hour,consumption_per_hour,
+                 available_supply,desired_demand,net_balance)
+            SELECT galaxy_index,system_index,good_type,SUM(production),SUM(consumption),
+                   SUM(quantity)/24+SUM(production),SUM(consumption),
+                   SUM(quantity)/24+SUM(production)-SUM(consumption)
+            FROM economy_colony_market GROUP BY galaxy_index,system_index,good_type
+            ON DUPLICATE KEY UPDATE
+                production_per_hour=VALUES(production_per_hour),
+                consumption_per_hour=VALUES(consumption_per_hour),
+                available_supply=VALUES(available_supply),desired_demand=VALUES(desired_demand),
+                net_balance=VALUES(net_balance),updated_at=NOW()
+            SQL);
+        $statement->execute();
+        return $statement->rowCount();
+    }
     // Get list of all systems with colonies
     $sysStmt = $db->prepare(<<<SQL
         SELECT DISTINCT
@@ -466,5 +503,3 @@ function system_distance(PDO $db, int $galA, int $sysA, int $galB, int $sysB): f
     $dz = (float)$a['z_ly'] - (float)$b['z_ly'];
     return max(1.0, sqrt($dx * $dx + $dy * $dy + $dz * $dz));
 }
-
-

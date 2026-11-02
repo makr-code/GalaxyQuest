@@ -11,6 +11,28 @@ companion `_down.sql` files.
 
 ## Quick Start
 
+### On-demand colony economy rollout
+
+Keep `ON_DEMAND_ECONOMY_ENABLED=0` while applying and verifying the canonical
+manifest. Its final `migrate_economy_on_demand_v1.sql` migration adds the durable
+settlement cursor, spatial construction mappings and indexed system/galaxy
+market projections. It also adds `users.credits` only if absent (1,000 initial
+credits); existing credit balances are preserved.
+
+After `up` and `verify` succeed, enable the flag in the PHP runtime environment.
+The first visit initializes each colony without granting historical economic
+output; existing primary stocks, class counts and spatial building levels are
+retained/reconciled. More than one offline day requires additional snapshot
+requests; HTTP 409 on mutations means catch-up is still needed. Macro reads expose
+projection age and coverage and never settle every colony.
+
+There is deliberately no destructive down migration. To stop the new path,
+disable the flag; do not delete settlement state or reset cursors. This pauses
+the new model but is not a semantic rollback of accrued production or spent
+credits. Back up before activation and restore that backup if economic effects
+must be reversed. Re-enabling after a legacy-mode interval requires an operator
+decision about the retained cursor; it is not an automatic model conversion.
+
 ```bash
 # Show which migrations are applied / pending
 php scripts/migrate.php status
@@ -999,6 +1021,22 @@ Source reads remain outside the completion transaction; request-side writers,
 gameplay mutations and enqueue/outbox atomicity are not covered. No expiring
 lease, exactly-once guarantee or connection-loss-at-commit/process-crash/restore
 acceptance is implied. No new full-manifest/image/browser run for this block.
+
+### Retired destructive ship-designer initializer
+
+`api/_init_tables.php` and `sql/init_ship_designer.sql` are not migration paths.
+Their former `DROP TABLE` behavior could destroy user designs/jobs, while the
+legacy MyISAM/column definitions conflict with the current API and unmanifested
+TRELLIS2 SQL. Both entry points now fail explicitly before DB access or schema
+mutation. Do not revive them or claim the feature is initialized. Ship-designer
+persistence remains unsupported until a reviewed canonical migration matches
+the API/worker contract and preserves existing custom installations.
+
+The actual CLI subprocess proves the PHP path makes no DB connection; a MySQL
+regression invokes the standalone SQL against populated design, queue and asset
+tables and confirms all definitions and rows survive the explicit SQL error.
+No migration was added because the conflicting storage contract has not been
+resolved.
 
 ## Writing a New Migration
 

@@ -1,8 +1,15 @@
 # TRELLIS2 Production-Ready Setup Guide
 
-**Status**: Complete Implementation for Production Deployment  
+**Status**: Historical setup notes; not a current production sign-off
 **Date**: 2026-08-02  
 **Version**: 1.0 Production
+
+> **Not a current production sign-off.** The legacy ship-designer initializer
+> `api/_init_tables.php` and `sql/init_ship_designer.sql` are retired because
+> they could delete existing design data and disagree with the current API
+> schema. They now fail closed without modifying the database. Do not enable
+> ship-designer persistence until its schema has a reviewed canonical migration
+> and an acceptance test against the actual API/worker paths.
 
 ---
 

@@ -8,6 +8,8 @@
 //   get_history      — recent trade transactions for the current player
 //   get_active_events — list active market events
 
+use GalaxyQuest\Economy\OnDemandEconomy;
+
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/economy_flush.php';
@@ -90,6 +92,15 @@ function fetch_colony_market_scope(PDO $db, int $colonyId): ?array {
 }
 
 function fetch_market_snapshot(PDO $db, string $goodType, ?int $colonyId = null): array {
+    if (ON_DEMAND_ECONOMY_ENABLED) {
+        $scope = $colonyId === null ? null : fetch_colony_market_scope($db, $colonyId);
+        $market = (new OnDemandEconomy($db))->market($scope['galaxy'] ?? null, $scope['system'] ?? null);
+        $good = $market['goods'][$goodType] ?? [];
+        return [
+            'supply' => ($good['quantity'] ?? 0) / 24 + ($good['production_per_hour'] ?? 0),
+            'demand' => $good['consumption_per_hour'] ?? 0,
+        ];
+    }
     if ($colonyId !== null) {
         $scope = fetch_colony_market_scope($db, $colonyId);
         if ($scope !== null) {
@@ -136,6 +147,9 @@ function compute_price(PDO $db, string $goodType, ?int $colonyId = null): float 
     $demand   = max(1.0, (float)$snapshot['demand']);
     $mult     = pow($demand / $supply, PRICE_ELASTICITY);
     $mult     = max(PRICE_MULT_MIN, min(PRICE_MULT_MAX, $mult));
+    if (ON_DEMAND_ECONOMY_ENABLED) {
+        return round((BASE_PRICES[$goodType] ?? 10) * $mult, 2);
+    }
 
     $evStmt = $db->prepare(<<<SQL
         SELECT price_mult FROM economy_market_events
@@ -237,6 +251,9 @@ function action_get_prices(PDO $db, int $uid): never {
         $stmt->execute([$colonyId, $uid]);
         if (!$stmt->fetch()) {
             json_error('Colony not found or access denied', 403);
+        }
+        if (ON_DEMAND_ECONOMY_ENABLED) {
+            (new OnDemandEconomy($db))->settle($colonyId, $uid);
         }
     }
 
@@ -394,6 +411,20 @@ function action_get_region_prices(PDO $db, int $uid): never {
 function action_buy(PDO $db, int $uid): never {
     verify_csrf();
     $body     = json_decode(file_get_contents('php://input'), true) ?? [];
+    if (ON_DEMAND_ECONOMY_ENABLED) {
+        require_once __DIR__ . '/game_engine.php';
+        try {
+            json_ok((new OnDemandEconomy($db))->exchange(
+                (int)($body['colony_id'] ?? 0),
+                $uid,
+                (string)($body['good_type'] ?? ''),
+                (float)($body['quantity'] ?? 0),
+                true
+            ));
+        } catch (DomainException $error) {
+            json_error($error->getMessage(), $error->getCode() ?: 400);
+        }
+    }
     $colonyId = (int)($body['colony_id'] ?? 0);
     $goodType = trim($body['good_type'] ?? '');
     $quantity = (float)($body['quantity'] ?? 0);
@@ -488,6 +519,20 @@ function action_buy(PDO $db, int $uid): never {
 function action_sell(PDO $db, int $uid): never {
     verify_csrf();
     $body     = json_decode(file_get_contents('php://input'), true) ?? [];
+    if (ON_DEMAND_ECONOMY_ENABLED) {
+        require_once __DIR__ . '/game_engine.php';
+        try {
+            json_ok((new OnDemandEconomy($db))->exchange(
+                (int)($body['colony_id'] ?? 0),
+                $uid,
+                (string)($body['good_type'] ?? ''),
+                (float)($body['quantity'] ?? 0),
+                false
+            ));
+        } catch (DomainException $error) {
+            json_error($error->getMessage(), $error->getCode() ?: 400);
+        }
+    }
     $colonyId = (int)($body['colony_id'] ?? 0);
     $goodType = trim($body['good_type'] ?? '');
     $quantity = (float)($body['quantity'] ?? 0);

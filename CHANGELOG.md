@@ -18,6 +18,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The existing `1.0.0` version is historical metadata, not a production-readiness
   claim. No released `1.0.0` changelog or tag has been invented.
 
+### Retired — Destructive ship-designer initializers
+
+- The legacy PHP initializer and standalone SQL reset no longer drop/recreate
+  ship-design, generation-queue or asset tables. Both fail explicitly without
+  accessing/changing the database.
+- Existing MySQL tables/definitions/rows are preserved in regression coverage.
+  Ship-designer persistence remains unsupported until a canonical schema
+  migration and API/worker acceptance resolve conflicting legacy definitions.
+
 ### Changed — Image publication gates
 
 - Main-branch image publication now waits for all main CI lint, test and E2E
@@ -36,6 +45,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and legacy gzip bundles are retained.
 - A synthetic real-Docker context gate and negative policy regressions verify
   these boundaries in CI without copying actual secrets or publishing images.
+
+### Changed — Fleet arrival processing
+
+- Fleet listing is read-only. Due arrivals are processed through the
+  CSRF-protected `POST fleet.php?action=check` endpoint when the resource-scan
+  overview requests fleet data.
+- Fleet delivery smoke checks now use the explicit POST mutation path.
+
+### Changed — Trade route dispatch
+
+- Trade read requests no longer dispatch due routes. The trade-routes view uses
+  an explicit CSRF-protected `POST trade.php?action=dispatch_due` request and
+  then reloads the route list without cache.
+- Dispatch results report dispatched, skipped and failed route counts.
+
+### Changed — Overview simulation ticks
+
+- Overview GETs always suppress simulation side-effects; the legacy
+  `SIMULATION_TICK_ON_READ_ENABLED` setting was removed.
+- Explicit HTTP/CLI simulation triggers and lazy colony-resource settlement
+  remain separate paths.
 
 ### Changed — Isolated CI smoke stack
 

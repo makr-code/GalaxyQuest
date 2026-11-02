@@ -240,7 +240,7 @@ try {
 
     // Force arrival and process
     $db->prepare('UPDATE fleets SET arrival_time = DATE_SUB(NOW(), INTERVAL 2 SECOND) WHERE id = ?')->execute([$fleetId]);
-    $checkResp = http_json('GET', $fleetBase . '?action=check', null, $cookies);
+    $checkResp = http_json('POST', $fleetBase . '?action=check', [], $cookies, $csrf);
     if ($checkResp['status'] !== 200 || ($checkResp['json']['success'] ?? false) !== true) {
         $hasFailure = true;
         fail('fleet check failed (status=' . $checkResp['status'] . ')');

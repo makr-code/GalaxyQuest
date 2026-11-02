@@ -1,9 +1,13 @@
 <?php
+
 /**
  * Shipyard API
  * GET  /api/shipyard.php?action=list&colony_id=X
  * POST /api/shipyard.php?action=build  body: {colony_id, type, count}
  */
+
+use GalaxyQuest\Economy\OnDemandEconomy;
+
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/cache.php';
 require_once __DIR__ . '/game_engine.php';
@@ -15,154 +19,165 @@ const SBQ_STATUS_QUEUED  = 'queued';
 const SBQ_STATUS_RUNNING = 'running';
 
 if (PHP_SAPI !== 'cli') {
+    $action = $_GET['action'] ?? '';
+    $uid    = require_auth();
 
-$action = $_GET['action'] ?? '';
-$uid    = require_auth();
+    switch ($action) {
+        case 'list':
+            only_method('GET');
+            action_shipyard_list(get_db(), $uid, (int)($_GET['colony_id'] ?? 0));
+            break;
 
-switch ($action) {
-    case 'list':
-        only_method('GET');
-        action_shipyard_list(get_db(), $uid, (int)($_GET['colony_id'] ?? 0));
-        break;
+        case 'list_hulls':
+            only_method('GET');
+            action_list_hulls(get_db(), $uid, (int)($_GET['colony_id'] ?? 0));
+            break;
 
-    case 'list_hulls':
-        only_method('GET');
-        action_list_hulls(get_db(), $uid, (int)($_GET['colony_id'] ?? 0));
-        break;
+        case 'list_modules':
+            only_method('GET');
+            action_list_modules(
+                get_db(),
+                $uid,
+                (int)($_GET['colony_id'] ?? 0),
+                (string)($_GET['hull_code'] ?? ''),
+                (string)($_GET['slot_layout_code'] ?? 'default')
+            );
+            break;
 
-    case 'list_modules':
-        only_method('GET');
-        action_list_modules(
-            get_db(),
-            $uid,
-            (int)($_GET['colony_id'] ?? 0),
-            (string)($_GET['hull_code'] ?? ''),
-            (string)($_GET['slot_layout_code'] ?? 'default')
-        );
-        break;
+        case 'list_blueprints':
+            only_method('GET');
+            action_list_blueprints(get_db(), $uid, (int)($_GET['colony_id'] ?? 0));
+            break;
 
-    case 'list_blueprints':
-        only_method('GET');
-        action_list_blueprints(get_db(), $uid, (int)($_GET['colony_id'] ?? 0));
-        break;
+        case 'list_vessels':
+            only_method('GET');
+            action_list_vessels(get_db(), $uid, (int)($_GET['colony_id'] ?? 0));
+            break;
 
-    case 'list_vessels':
-        only_method('GET');
-        action_list_vessels(get_db(), $uid, (int)($_GET['colony_id'] ?? 0));
-        break;
+        case 'decommission_vessel':
+            only_method('POST');
+            verify_csrf();
+            action_decommission_vessel(get_db(), $uid, get_json_body());
+            break;
 
-    case 'decommission_vessel':
-        only_method('POST');
-        verify_csrf();
-        action_decommission_vessel(get_db(), $uid, get_json_body());
-        break;
+        case 'repair_vessel':
+            only_method('POST');
+            verify_csrf();
+            action_repair_vessel(get_db(), $uid, get_json_body());
+            break;
 
-    case 'repair_vessel':
-        only_method('POST');
-        verify_csrf();
-        action_repair_vessel(get_db(), $uid, get_json_body());
-        break;
+        case 'create_blueprint':
+            only_method('POST');
+            verify_csrf();
+            action_create_blueprint(get_db(), $uid, get_json_body());
+            break;
 
-    case 'create_blueprint':
-        only_method('POST');
-        verify_csrf();
-        action_create_blueprint(get_db(), $uid, get_json_body());
-        break;
+        case 'delete_blueprint':
+            only_method('POST');
+            verify_csrf();
+            action_delete_blueprint(get_db(), $uid, get_json_body());
+            break;
 
-    case 'delete_blueprint':
-        only_method('POST');
-        verify_csrf();
-        action_delete_blueprint(get_db(), $uid, get_json_body());
-        break;
+        case 'build':
+            only_method('POST');
+            verify_csrf();
+            $body  = get_json_body();
+            $cid   = (int)($body['colony_id'] ?? 0);
+            $type  = $body['type'] ?? '';
+            $count = max(1, (int)($body['count'] ?? 1));
+            $db    = get_db();
+            verify_colony_ownership($db, $cid, $uid);
 
-    case 'build':
-        only_method('POST');
-        verify_csrf();
-        $body  = get_json_body();
-        $cid   = (int)($body['colony_id'] ?? 0);
-        $type  = $body['type'] ?? '';
-        $count = max(1, (int)($body['count'] ?? 1));
-        $db    = get_db();
-        verify_colony_ownership($db, $cid, $uid);
+            if (get_building_level($db, $cid, 'shipyard') < 1) {
+                json_error('A Shipyard building is required.');
+            }
 
-        if (get_building_level($db, $cid, 'shipyard') < 1) {
-            json_error('A Shipyard building is required.');
-        }
+            ensure_ship_build_queue_table($db);
+            complete_ship_build_queue($db, $cid);
 
-        ensure_ship_build_queue_table($db);
-        complete_ship_build_queue($db, $cid);
+            $blueprintId = (int)($body['blueprint_id'] ?? 0);
+            $buildType = resolve_shipyard_build_type($db, $uid, $type, $blueprintId);
+            if (!ship_exists_runtime($buildType, $db)) {
+                json_error('Unknown ship type.');
+            }
 
-        $blueprintId = (int)($body['blueprint_id'] ?? 0);
-        $buildType = resolve_shipyard_build_type($db, $uid, $type, $blueprintId);
-        if (!ship_exists_runtime($buildType, $db)) {
-            json_error('Unknown ship type.');
-        }
+            update_colony_resources($db, $cid);
+            $cost      = ship_cost($buildType);
 
-        update_colony_resources($db, $cid);
-        $cost      = ship_cost($buildType);
-        
-        // Apply colony-type ship cost bonus (industrial colony −10%)
-        $colonyStmt = $db->prepare('SELECT colony_type FROM colonies WHERE id = ?');
-        $colonyStmt->execute([$cid]);
-        $colonyRow = $colonyStmt->fetch();
-        if ($colonyRow && $colonyRow['colony_type'] === 'industrial') {
-            $cost['metal']     = (int)round($cost['metal']     * 0.9);
-            $cost['crystal']   = (int)round($cost['crystal']   * 0.9);
-            $cost['deuterium'] = (int)round($cost['deuterium'] * 0.9);
-        }
-        
-        $totalCost = [
+            // Apply colony-type ship cost bonus (industrial colony −10%)
+            $colonyStmt = $db->prepare('SELECT colony_type FROM colonies WHERE id = ?');
+            $colonyStmt->execute([$cid]);
+            $colonyRow = $colonyStmt->fetch();
+            if ($colonyRow && $colonyRow['colony_type'] === 'industrial') {
+                $cost['metal']     = (int)round($cost['metal']     * 0.9);
+                $cost['crystal']   = (int)round($cost['crystal']   * 0.9);
+                $cost['deuterium'] = (int)round($cost['deuterium'] * 0.9);
+            }
+
+            $totalCost = [
             'metal'     => $cost['metal']     * $count,
             'crystal'   => $cost['crystal']   * $count,
             'deuterium' => $cost['deuterium'] * $count,
-        ];
+            ];
 
-        $colony = $db->prepare('SELECT metal, crystal, deuterium FROM colonies WHERE id = ?');
-        $colony->execute([$cid]);
-        $res = $colony->fetch();
+            $colony = $db->prepare('SELECT metal, crystal, deuterium FROM colonies WHERE id = ?');
+            $colony->execute([$cid]);
+            $res = $colony->fetch();
 
-        if ($res['metal'] < $totalCost['metal']
-            || $res['crystal'] < $totalCost['crystal']
-            || $res['deuterium'] < $totalCost['deuterium']) {
-            json_error('Insufficient resources.');
-        }
-
-        $db->prepare(
-            'UPDATE colonies SET metal=metal-?, crystal=crystal-?, deuterium=deuterium-? WHERE id=?'
-        )->execute([$totalCost['metal'], $totalCost['crystal'], $totalCost['deuterium'], $cid]);
-
-        $durationSecs = estimate_ship_build_duration($db, $cid, $buildType, $count);
-        $db->prepare(
-            'INSERT INTO ship_build_queue
-             (colony_id, ship_type, blueprint_id, quantity, cost_metal, cost_crystal, cost_deuterium,
-              duration_secs, queued_at, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), \'queued\')'
-        )->execute([
-            $cid,
-            $buildType,
-            $blueprintId > 0 ? $blueprintId : null,
-            $count,
-            (int)$totalCost['metal'],
-            (int)$totalCost['crystal'],
-            (int)$totalCost['deuterium'],
-            $durationSecs,
-        ]);
-        $queueId = (int)$db->lastInsertId();
-
-        gq_cache_delete('shipyard_list', ['uid' => $uid, 'cid' => $cid]);
-        gq_cache_delete('buildings_list', ['uid' => $uid, 'cid' => $cid]);
-
-        start_next_ship_build_queue($db, $cid);
-        $queue = list_ship_build_queue($db, $cid);
-        $queuedEntry = null;
-        foreach ($queue as $entry) {
-            if ((int)($entry['id'] ?? 0) === $queueId) {
-                $queuedEntry = $entry;
-                break;
+            if (
+                $res['metal'] < $totalCost['metal']
+                || $res['crystal'] < $totalCost['crystal']
+                || $res['deuterium'] < $totalCost['deuterium']
+            ) {
+                json_error('Insufficient resources.');
             }
-        }
 
-        json_ok([
+            $durationSecs = estimate_ship_build_duration($db, $cid, $buildType, $count);
+            $enqueue = function () use ($db, $cid, $buildType, $blueprintId, $count, $totalCost, $durationSecs): int {
+                $db->prepare(
+                    'INSERT INTO ship_build_queue
+                     (colony_id, ship_type, blueprint_id, quantity, cost_metal, cost_crystal, cost_deuterium,
+                      duration_secs, queued_at, status)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), \'queued\')'
+                )->execute([
+                    $cid,
+                    $buildType,
+                    $blueprintId > 0 ? $blueprintId : null,
+                    $count,
+                    (int)$totalCost['metal'],
+                    (int)$totalCost['crystal'],
+                    (int)$totalCost['deuterium'],
+                    $durationSecs,
+                ]);
+                return (int)$db->lastInsertId();
+            };
+            if (ON_DEMAND_ECONOMY_ENABLED) {
+                try {
+                    $queueId = (new OnDemandEconomy($db))->spend($cid, $uid, $totalCost, $enqueue);
+                } catch (DomainException $error) {
+                    json_error($error->getMessage(), $error->getCode() ?: 400);
+                }
+            } else {
+                $db->prepare(
+                    'UPDATE colonies SET metal=metal-?, crystal=crystal-?, deuterium=deuterium-? WHERE id=?'
+                )->execute([$totalCost['metal'], $totalCost['crystal'], $totalCost['deuterium'], $cid]);
+                $queueId = $enqueue();
+            }
+
+            gq_cache_delete('shipyard_list', ['uid' => $uid, 'cid' => $cid]);
+            gq_cache_delete('buildings_list', ['uid' => $uid, 'cid' => $cid]);
+
+            start_next_ship_build_queue($db, $cid);
+            $queue = list_ship_build_queue($db, $cid);
+            $queuedEntry = null;
+            foreach ($queue as $entry) {
+                if ((int)($entry['id'] ?? 0) === $queueId) {
+                    $queuedEntry = $entry;
+                    break;
+                }
+            }
+
+            json_ok([
             'queued' => true,
             'queue_id' => $queueId,
             'queue_position' => (int)($queuedEntry['position'] ?? 1),
@@ -172,13 +187,12 @@ switch ($action) {
             'status' => $queuedEntry['status'] ?? 'queued',
             'type' => $buildType,
             'blueprint_id' => $blueprintId > 0 ? $blueprintId : null,
-        ]);
-        break;
+            ]);
+            break;
 
-    default:
-        json_error('Unknown action');
-}
-
+        default:
+            json_error('Unknown action');
+    }
 } // end if (PHP_SAPI !== 'cli')
 
 function action_shipyard_list(PDO $db, int $uid, int $cid): never {
@@ -1293,4 +1307,3 @@ function apply_faction_affinity_stat_mult(array $affinities, string $groupCode, 
         $stats[$key] = (float)$stats[$key] * (1.0 + $mult);
     }
 }
-

@@ -62,6 +62,11 @@ function extractWgslConstant(relPath, constantName) {
 function buildShaderCatalogue() {
   return [
     {
+      label: 'Galaxy3DRendererWebGPU — stable-index instanced stars',
+      type: 'render',
+      source: extractWgslConstant('js/rendering/Galaxy3DRendererWebGPU.js', 'STAR_SHADER_WGSL'),
+    },
+    {
       label: 'Planet approach — flight-projected sphere',
       type: 'render',
       source: extractWgslFromModule(

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use GalaxyQuest\Economy\OnDemandEconomy;
 
 final class MigrationRunnerMySqlTest extends TestCase
 {
@@ -879,6 +880,72 @@ final class MigrationRunnerMySqlTest extends TestCase
         $this->assertFalse($this->db->inTransaction());
     }
 
+    public function testOnDemandEconomyUsesCanonicalMySqlSchemaAndNativePrepares(): void
+    {
+        $this->db->exec($this->readSqlForTestDatabase('schema.sql'));
+        $manifest = require __DIR__ . '/../../config/migrations_manifest.php';
+        foreach ($manifest as $file) {
+            file_put_contents($this->sqlDir . '/' . $file, $this->readSqlForTestDatabase($file));
+        }
+        file_put_contents($this->sqlDir . '/manifest.php', '<?php return ' . var_export($manifest, true) . ';');
+        $runner = new MigrationRunner($this->db, $this->sqlDir, 'TEST', $this->sqlDir . '/manifest.php');
+        $runner->bootstrap();
+        $runner->runUp();
+        $this->db->exec(<<<'SQL'
+            INSERT INTO users (id,username,email,password_hash,credits)
+                VALUES (42,'economic_test','economy@example.invalid','not-a-password',100000);
+            INSERT INTO planets (id,galaxy,`system`,position) VALUES (42,1,1,1);
+            INSERT INTO celestial_bodies (id,body_uid,galaxy_index,system_index,position,body_type,name)
+                VALUES (42,'economy-test-body',1,1,1,'planet','Economic test');
+            INSERT INTO colonies (id,user_id,body_id,planet_id,metal,crystal,deuterium,food)
+                VALUES (42,42,42,42,10000,10000,10000,500);
+            INSERT INTO buildings (colony_id,type,level) VALUES
+                (42,'solar_plant',10),(42,'metal_mine',1),(42,'hydroponic_farm',1),
+                (42,'habitat',1),(42,'hospital',1);
+            INSERT INTO research (user_id,type,level) VALUES (42,'energy_tech',1);
+            SQL);
+        $economy = new OnDemandEconomy($this->db);
+        $now = time();
+        $snapshot = $economy->settle(42, 42, $now - 3600);
+        $this->assertSame(100, array_sum($snapshot['pop_classes']));
+        $snapshot = $economy->settle(42, 42, $now);
+        $this->assertSame($now, $snapshot['economy']['settled_at']);
+        $this->assertGreaterThan(0, $snapshot['economy']['production']['metal']);
+        $economy->configure(42, 'tax_income', 0.2);
+        $economy->configure(42, 'subsidy_agriculture', true);
+        $economy->method(42, 42, 'metallurgy', 'efficient');
+        $queue = $economy->queue(42, 42, 'metallurgy', [1, 1]);
+        $this->assertSame(1, $queue['target_level']);
+        $this->assertGreaterThan(0, $queue['cost']['metal']);
+        $before = (float)$this->db->query('SELECT food FROM colonies WHERE id=42')->fetchColumn();
+        $economy->exchange(42, 42, 'food', 10, true);
+        $this->assertEqualsWithDelta(
+            $before + 10,
+            (float)$this->db->query('SELECT food FROM colonies WHERE id=42')->fetchColumn(),
+            0.1
+        );
+        $this->assertSame(1, $economy->market(1, 1)['goods']['food']['represented_colonies']);
+        $this->assertFalse($this->db->inTransaction());
+        $other = $this->secondConnection();
+        $other->exec('SET SESSION innodb_lock_wait_timeout=1');
+        $this->db->beginTransaction();
+        $this->db->query('SELECT id FROM users WHERE id=42 FOR UPDATE')->fetch();
+        try {
+            (new OnDemandEconomy($other))->exchange(42, 42, 'food', 1, true);
+            $this->fail('A concurrent order must not bypass the account lock.');
+        } catch (PDOException $error) {
+            $this->assertSame(1205, (int)$error->errorInfo[1]);
+            $this->assertFalse($other->inTransaction());
+        } finally {
+            $this->db->rollBack();
+        }
+        (new OnDemandEconomy($other))->exchange(42, 42, 'food', 1, true);
+        $this->assertFalse($other->inTransaction());
+        $this->db->exec('DELETE FROM colonies WHERE id=42');
+        $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM colony_economy_state')->fetchColumn());
+        $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM economy_colony_market')->fetchColumn());
+    }
+
     /** @return array{exit:int, output:string, errors:string} */
     private function runProjector(string $worker, string $username, string $password, array $arguments = []): array
     {
@@ -1191,6 +1258,37 @@ final class MigrationRunnerMySqlTest extends TestCase
             $this->assertTrue(complete_projection_claim($this->db, (int)$next['id'], $next['claim_token'],
                 static function (PDO $connection): void {}));
             $this->assertSame($committed, $producer->query('SELECT * FROM ' . $table)->fetch(PDO::FETCH_ASSOC));
+        }
+    }
+
+    public function testRetiredShipDesignerSqlInitializerDoesNotDropExistingData(): void
+    {
+        $this->db->exec("CREATE TABLE vessel_designs (design_id VARCHAR(16) PRIMARY KEY) ENGINE=InnoDB;
+            CREATE TABLE generation_queue (queue_id VARCHAR(16) PRIMARY KEY) ENGINE=InnoDB;
+            CREATE TABLE asset_generations (generation_id VARCHAR(16) PRIMARY KEY) ENGINE=InnoDB;
+            INSERT INTO vessel_designs VALUES ('design-1');
+            INSERT INTO generation_queue VALUES ('queue-1');
+            INSERT INTO asset_generations VALUES ('generation-1')");
+        $tablesBefore = [];
+        foreach (['vessel_designs', 'generation_queue', 'asset_generations'] as $table) {
+            $tablesBefore[$table] = [
+                'definition' => $this->db->query('SHOW CREATE TABLE ' . $table)->fetch(PDO::FETCH_NUM),
+                'rows' => $this->db->query('SELECT * FROM ' . $table)->fetchAll(PDO::FETCH_ASSOC),
+            ];
+        }
+
+        try {
+            $this->db->exec($this->readSqlForTestDatabase('init_ship_designer.sql'));
+            $this->fail('Retired initializer must fail closed.');
+        } catch (PDOException $e) {
+            $this->assertStringContainsString('retired', strtolower($e->getMessage()));
+        }
+
+        foreach ($tablesBefore as $table => $before) {
+            $this->assertSame($before['definition'],
+                $this->db->query('SHOW CREATE TABLE ' . $table)->fetch(PDO::FETCH_NUM));
+            $this->assertSame($before['rows'],
+                $this->db->query('SELECT * FROM ' . $table)->fetchAll(PDO::FETCH_ASSOC));
         }
     }
 

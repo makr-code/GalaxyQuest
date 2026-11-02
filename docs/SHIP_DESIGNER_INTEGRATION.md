@@ -1,7 +1,11 @@
 # Ship Designer — TRELLIS2 Integration Guide
 
-**Status**: ✅ Integrated with TRELLIS2 API  
+**Status**: Legacy integration notes; ship-designer persistence is not production-ready
 **Date**: 2026-08-02
+
+> Ship-designer storage is currently disabled pending a reviewed canonical
+> schema migration and API/worker acceptance. The old PHP and SQL initializers
+> now fail closed; do not use them to initialize or reset a database.
 
 ---
 

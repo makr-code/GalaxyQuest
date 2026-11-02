@@ -18,6 +18,10 @@ function loadRenderer() {
   );
   // eslint-disable-next-line no-eval
   window.eval(materialSrc);
+  for (const file of ['js/telemetry/performance-budget.js', 'js/engine/utils/WebGPUProfiler.js']) {
+    // eslint-disable-next-line no-eval
+    window.eval(fs.readFileSync(path.resolve(process.cwd(), file), 'utf8'));
+  }
   const chunkUtilsSrc = fs.readFileSync(
     path.resolve(process.cwd(), 'js/runtime/galaxy-chunk-utils.js'),
     'utf8',
@@ -290,6 +294,138 @@ describe('Galaxy3DRendererWebGPU — native WebGPU path (mocked GPU)', () => {
     expect(r._starCount).toBe(3);
     expect(mockDevice.createBuffer).toHaveBeenCalled();
     expect(mockQueue.writeBuffer).toHaveBeenCalled();
+  });
+
+  it('bounds star GPU residency, unloads invisible chunks, and reloads after camera movement', async () => {
+    const r = new Ctor(container, { starResidencyMaxBytes: 2048 * 28 });
+    await r.init();
+    r.setStars(Array.from({ length: 5000 }, (_, i) => ({ x_ly: i % 2 ? 100 : -100, y_ly: 0 })));
+    expect(r._residentStarBytes).toBeLessThanOrEqual(2048 * 28);
+    expect(r._residentStarBytes).toBeGreaterThan(0);
+    const originalStars = r.stars;
+    const oldBuffer = r._starBuf;
+    r._view.panX = 0;
+    r._view.panY = 1.8;
+    r._view.zoom = 6;
+    r._updateStarResidency();
+    expect(oldBuffer.destroy).toHaveBeenCalled();
+    expect(r._starBuf).toBeNull();
+    expect(r._residentStarBytes).toBe(0);
+    r._view.panY = 0;
+    r._view.zoom = 1;
+    r._updateStarResidency();
+    expect(r._starBuf).not.toBeNull();
+    expect(r.stars).toBe(originalStars);
+    r.dispose();
+    expect(r._starChunks).toEqual([]);
+    expect(r.stars).toEqual([]);
+  });
+
+  it('preserves original selection IDs in spatially reordered and compacted GPU data', async () => {
+    const r = new Ctor(container, {});
+    await r.init();
+    const stars = [
+      { x_ly: 100, y_ly: 0 }, { x_ly: -100, y_ly: 0 }, { x_ly: 100, y_ly: 0 },
+    ];
+    r.setStars(stars);
+    expect(r._starChunks.flatMap(batch => batch.ids)).toEqual([0, 2, 1]);
+    expect(r.stars).toEqual(stars);
+    r._selectedIdx = 2;
+    r._view.zoom = 6;
+    r._view.panX = -1;
+    r._updateStarResidency();
+    expect(r._starBatches.reduce((count, batch) => count + batch.count, 0)).toBe(2);
+    const packed = mockQueue.writeBuffer.mock.calls.at(-1)[2];
+    expect([packed[6], packed[13]]).toEqual([0, 2]);
+    expect(r._selectedIdx).toBe(2);
+    r.dispose();
+  });
+
+  it('collects actual native frame telemetry without inventing GPU or VRAM measurements', async () => {
+    const r = new Ctor(container, {});
+    await r.init();
+    r.setStars(SAMPLE_STARS);
+    r._renderFrame(1000);
+    r._renderFrame(1016);
+    expect(r.getRenderStats().performance).toMatchObject({
+      scope: 'native-main-pass', frameTimeAvgMs: 16, drawCallsAvg: 1,
+      gpuTimeAvgMs: null, memoryAvgMB: null, sampleCount: 2,
+    });
+    expect(r.getRenderStats().performance.cpuSubmissionAvgMs).toBeGreaterThanOrEqual(0);
+    r.dispose();
+  });
+
+  it('continues native rendering when optional telemetry modules cannot be loaded', async () => {
+    delete window.GQPerformanceBudget;
+    delete window.GQWebGPUProfiler;
+    const r = new Ctor(container, {});
+    await r.init();
+    expect(r._backend).toBe('webgpu');
+    r.setStars(SAMPLE_STARS);
+    expect(() => r._renderFrame(1000)).not.toThrow();
+    expect(r.getRenderStats().performance).toBeNull();
+    r.dispose();
+  });
+
+  it('retains asynchronous GPU results until a throttled budget sample accepts them', async () => {
+    vi.stubGlobal('requestAnimationFrame', vi.fn(() => 0));
+    const r = new Ctor(container, { performanceBudget: { sampleIntervalMs: 96 } });
+    await r.init();
+    r.setStars(SAMPLE_STARS);
+    for (let frame = 0; frame <= 126; frame++) {
+      // Timestamp frames 0,60,120 finish asynchronously on frames 1,61,121.
+      if (frame % 60 === 1) r._pendingGpuMs = 1 + Math.floor(frame / 60);
+      r._renderFrame(frame * 16);
+      if (frame % 60 === 1) expect(r._pendingGpuMs).not.toBeNull();
+      if ([6, 66, 126].includes(frame)) expect(r._pendingGpuMs).toBeNull();
+    }
+    expect(r.getRenderStats().performance).toMatchObject({ gpuTimeAvgMs: 2, sampleCount: 22 });
+    r.dispose();
+  });
+
+  it('requests optional timestamp-query and connects standard pass timestamps to render telemetry', async () => {
+    vi.stubGlobal('requestAnimationFrame', vi.fn(() => 0));
+    mockAdapter.features = new Set(['timestamp-query']);
+    mockDevice.features = new Set(['timestamp-query']);
+    mockDevice.createQuerySet = vi.fn(() => ({ destroy: vi.fn() }));
+    mockDevice.createBuffer.mockImplementation(descriptor => ({
+      size: descriptor.size, destroy: vi.fn(), unmap: vi.fn(),
+      mapAsync: vi.fn(async () => {}),
+      getMappedRange: () => new BigUint64Array([1000000n, 3500000n]).buffer,
+    }));
+    const encoder = mockDevice.createCommandEncoder();
+    encoder.resolveQuerySet = vi.fn();
+    encoder.copyBufferToBuffer = vi.fn();
+    mockDevice.createCommandEncoder.mockReturnValue(encoder);
+    const r = new Ctor(container, {});
+    await r.init();
+    r.setStars(SAMPLE_STARS);
+    r._renderFrame(1000);
+    expect(mockAdapter.requestDevice).toHaveBeenCalledWith({ requiredFeatures: ['timestamp-query'] });
+    expect(encoder.beginRenderPass.mock.calls.at(-1)[0].timestampWrites).toMatchObject({
+      beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1,
+    });
+    expect(encoder.resolveQuerySet).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(r._pendingGpuMs).toBe(2.5));
+    r._renderFrame(1016);
+    expect(r.getRenderStats().performance).toMatchObject({ gpuTimeAvgMs: 2.5 });
+    expect(r.getRenderStats().performance.ownedBufferBytes).toBeGreaterThan(0);
+    r.dispose();
+  });
+
+  it('destroys a late device result and never starts rendering after disposal during init', async () => {
+    let resolveDevice;
+    mockAdapter.requestDevice.mockImplementation(() => new Promise(resolve => { resolveDevice = resolve; }));
+    const r = new Ctor(container, {});
+    const init = r.init();
+    await vi.waitFor(() => expect(resolveDevice).toBeTypeOf('function'));
+    r.dispose();
+    resolveDevice(mockDevice);
+    await init;
+    expect(mockDevice.destroy).toHaveBeenCalledOnce();
+    expect(r._device).toBeNull();
+    expect(r.ready).toBe(false);
+    expect(r._running).toBe(false);
   });
 
   it('updates the native WebGPU view from a camera-driver flight pose', async () => {

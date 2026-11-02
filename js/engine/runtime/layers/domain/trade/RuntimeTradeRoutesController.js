@@ -28,8 +28,17 @@
         let data;
         let suggestionsData;
         try {
+          const dispatch = await api.dispatchTradeRoutes();
+          if (Number(dispatch?.failed_routes || 0) > 0) {
+            gameLog('warn', 'Einige fällige Handelsrouten konnten nicht gestartet werden', dispatch);
+          }
+        } catch (err) {
+          gameLog('warn', 'Fällige Handelsrouten konnten nicht verarbeitet werden', err);
+        }
+
+        try {
           [data, suggestionsData] = await Promise.all([
-            api.tradeRoutes(),
+            api.tradeRoutes({ cacheMode: 'no-store' }),
             api.listTradeSuggestions({ limit: 12, interval_hours: this.suggestionIntervalHours }),
           ]);
         } catch (err) {

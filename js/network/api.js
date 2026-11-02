@@ -362,6 +362,14 @@ const API = (() => {
     return get('api/fleet.php', options);
   };
 
+  const fleets = async (options = {}) => {
+    return get('api/fleet.php?action=list', options);
+  };
+
+  const processFleetArrivals = async (options = {}) => {
+    return post('api/fleet.php?action=check', {}, options);
+  };
+
   const galaxy = async (coords, options = {}) => {
     const endpoint = `api/galaxy.php?x=${coords.x}&y=${coords.y}`;
     const raw = await get(endpoint, options);
@@ -565,6 +573,8 @@ const API = (() => {
     research,
     shipyard,
     fleet,
+    fleets,
+    processFleetArrivals,
     galaxy,
     map,
     war,
@@ -698,7 +708,8 @@ const API = (() => {
     battleReportDetail: (id)   => get(`api/reports.php?action=battle_detail&id=${id}`),
 
     // Trade Routes
-    tradeRoutes: ()            => get('api/trade.php?action=list'),
+    tradeRoutes: (options = {}) => get('api/trade.php?action=list', options),
+    dispatchTradeRoutes: ()    => post('api/trade.php?action=dispatch_due', {}),
     createTradeRoute: (data)   => post('api/trade.php?action=create', data),
     deleteTradeRoute: (id)     => post('api/trade.php?action=delete', { route_id: id }),
     toggleTradeRoute: (id)     => post('api/trade.php?action=toggle', { route_id: id }),

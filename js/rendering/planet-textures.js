@@ -1,5 +1,17 @@
-(function () {
+(function (root) {
   class GQPlanetTexturePipeline {
+    // Pure, bounded adapter for native renderers: no canvas, THREE, URL or GPU
+    // allocation. The existing CanvasTexture path uses the same generator below.
+    static generateRawMaps(descriptor = {}, options = {}) {
+      const size = [64, 128, 256].includes(options.size) ? options.size : 128;
+      const generator = new GQPlanetTexturePipeline({ serverTexturesEnabled: false });
+      generator.size = size;
+      return generator._generateRawMaps(descriptor, 0x9aa7b8, {
+        separateClouds: options.separateClouds === true,
+        height: size / 2,
+      });
+    }
+
     constructor(opts = {}) {
       this.size = Math.max(128, Number(opts.size || 256));
       this.cache = new Map();
@@ -293,52 +305,21 @@
       };
     }
 
-    _buildTextureBundle(descriptor, fallbackColor, options = null) {
+    _generateRawMaps(descriptor, fallbackColor, options = null) {
       const size = this.size;
       const width = size;
-      const height = Math.max(64, Math.floor(size / 2));
-      const colorCanvas = document.createElement('canvas');
-      colorCanvas.width = width;
-      colorCanvas.height = height;
-      const bumpCanvas = document.createElement('canvas');
-      bumpCanvas.width = width;
-      bumpCanvas.height = height;
-      const emissiveCanvas = document.createElement('canvas');
-      emissiveCanvas.width = width;
-      emissiveCanvas.height = height;
-      const normalCanvas = document.createElement('canvas');
-      normalCanvas.width = width;
-      normalCanvas.height = height;
-      const cloudCanvas = document.createElement('canvas');
-      cloudCanvas.width = width;
-      cloudCanvas.height = height;
-      const ctx = colorCanvas.getContext('2d');
-      const bumpCtx = bumpCanvas.getContext('2d');
-      const emissiveCtx = emissiveCanvas.getContext('2d');
-      const normalCtx = normalCanvas.getContext('2d');
-      const cloudCtx = cloudCanvas.getContext('2d');
-      const cityCanvas = document.createElement('canvas');
-      cityCanvas.width = width;
-      cityCanvas.height = height;
-      const cityCtx = cityCanvas.getContext('2d');
-      if (!ctx || !bumpCtx || !emissiveCtx || !normalCtx || !cloudCtx || !cityCtx) {
-        const map = new THREE.CanvasTexture(colorCanvas);
-        return { map, bumpMap: null, normalMap: null, emissiveMap: null, cityMap: null, cloudAlphaMap: null };
-      }
-
-      const image = ctx.createImageData(width, height);
-      const bumpImage = bumpCtx.createImageData(width, height);
-      const emissiveImage = emissiveCtx.createImageData(width, height);
-      const normalImage = normalCtx.createImageData(width, height);
-      const cityImage = cityCtx.createImageData(width, height);
-      const cloudImage = cloudCtx.createImageData(width, height);
-      const data = image.data;
-      const bumpData = bumpImage.data;
-      const emissiveData = emissiveImage.data;
-      const normalData = normalImage.data;
-      const cityData = cityImage.data;
-      const cloudData = cloudImage.data;
-      const seed = Number(descriptor?.seed || fallbackColor || 1) >>> 0;
+      const height = options?.height || Math.max(64, Math.floor(size / 2));
+      const data = new Uint8ClampedArray(width * height * 4);
+      const bumpData = new Uint8ClampedArray(data.length);
+      const emissiveData = new Uint8ClampedArray(data.length);
+      const normalData = new Uint8ClampedArray(data.length);
+      const cityData = new Uint8ClampedArray(data.length);
+      const cloudData = new Uint8ClampedArray(data.length);
+      const suppliedSeed = descriptor?.seed;
+      const numericSeed = typeof suppliedSeed === 'number'
+        || (typeof suppliedSeed === 'string' && suppliedSeed.trim())
+        ? Number(suppliedSeed) : NaN;
+      const seed = (Number.isFinite(numericSeed) ? Math.trunc(numericSeed) : Number(fallbackColor) || 1) >>> 0;
       const variant = String(descriptor?.variant || 'rocky').toLowerCase();
       const palette = descriptor?.palette || {};
       const base = this._hexToRgb(palette.base, this._hexToRgb(fallbackColor.toString(16).padStart(6, '0')));
@@ -416,7 +397,9 @@
           let cloudMask = 0;
           if (clouds > 0.02) {
             cloudMask = Math.max(0, (this._fbm(seed + 911, u * 5.1, v * 5.1, 4) - (0.62 - clouds * 0.22)) / 0.38);
-            if (cloudMask > 0) color = this._mix(color, { r: 244, g: 246, b: 250 }, cloudMask * clouds * 0.88);
+            if (cloudMask > 0 && options?.separateClouds !== true) {
+              color = this._mix(color, { r: 244, g: 246, b: 250 }, cloudMask * clouds * 0.88);
+            }
           }
 
           const relief = Math.max(0, Math.min(1, (n1 * 0.58) + (n2 * 0.42)));
@@ -480,12 +463,31 @@
         }
       }
 
-      ctx.putImageData(image, 0, 0);
-      bumpCtx.putImageData(bumpImage, 0, 0);
-      emissiveCtx.putImageData(emissiveImage, 0, 0);
-      normalCtx.putImageData(normalImage, 0, 0);
-      cityCtx.putImageData(cityImage, 0, 0);
-      cloudCtx.putImageData(cloudImage, 0, 0);
+      return { width, height, albedo: data, bump: bumpData, normal: normalData,
+        emissive: emissiveData, city: cityData, cloud: cloudData };
+    }
+
+    _buildTextureBundle(descriptor, fallbackColor, options = null) {
+      const raw = this._generateRawMaps(descriptor, fallbackColor, options);
+      const { width, height } = raw;
+      const canvases = ['albedo', 'bump', 'emissive', 'normal', 'city', 'cloud'].map(name => {
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext('2d');
+        if (context) {
+          const image = context.createImageData(width, height);
+          image.data.set(raw[name]);
+          context.putImageData(image, 0, 0);
+        }
+        return { canvas, context };
+      });
+      const [colorCanvas, bumpCanvas, emissiveCanvas, normalCanvas, cityCanvas, cloudCanvas] =
+        canvases.map(entry => entry.canvas);
+      if (canvases.some(entry => !entry.context)) {
+        const map = new THREE.CanvasTexture(colorCanvas);
+        return { map, bumpMap: null, normalMap: null, emissiveMap: null, cityMap: null, cloudAlphaMap: null };
+      }
 
       const map = new THREE.CanvasTexture(colorCanvas);
       this._applyTextureSampling(map, 'albedo');
@@ -526,5 +528,6 @@
     }
   }
 
-  window.GQPlanetTexturePipeline = GQPlanetTexturePipeline;
-})();
+  if (typeof module !== 'undefined' && module.exports) module.exports = GQPlanetTexturePipeline;
+  if (root) root.GQPlanetTexturePipeline = GQPlanetTexturePipeline;
+})(typeof window !== 'undefined' ? window : globalThis);

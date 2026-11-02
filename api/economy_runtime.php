@@ -18,14 +18,17 @@ if (!defined('ECONOMY_POP_CONSUMPTION_RATES')) {
 }
 
 if (!function_exists('fetch_colony_runtime_row')) {
-    function fetch_colony_runtime_row(PDO $db, int $colonyId): ?array {
+    function fetch_colony_runtime_row(PDO $db, int $colonyId, bool $lock = false): ?array
+    {
+        $suffix = $lock && $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
         $stmt = $db->prepare(<<<SQL
-            SELECT c.id, c.user_id, c.name, c.colony_type, c.metal, c.crystal, c.deuterium,
+            SELECT c.id, c.planet_id, c.user_id, c.name, c.last_update, c.colony_type, c.metal, c.crystal, c.deuterium,
                    c.rare_earth, c.food, c.energy, c.population, c.max_population,
                    c.happiness, c.public_services,
                    cb.galaxy_index, cb.system_index, cb.position,
                    p.temp_max, p.richness_metal, p.richness_crystal,
                    p.richness_deuterium, p.richness_rare_earth,
+                   p.deposit_metal, p.deposit_crystal, p.deposit_deuterium, p.deposit_rare_earth,
                    b_mm.level  AS metal_mine_level,
                    b_cm.level  AS crystal_mine_level,
                    b_ds.level  AS deuterium_synth_level,
@@ -61,7 +64,7 @@ if (!function_exists('fetch_colony_runtime_row')) {
             LEFT JOIN buildings b_se ON b_se.colony_id = c.id AND b_se.type = 'security_post'
             WHERE c.id = ?
             LIMIT 1
-        SQL);
+        SQL . $suffix);
         $stmt->execute([$colonyId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return $row ?: null;
@@ -69,8 +72,45 @@ if (!function_exists('fetch_colony_runtime_row')) {
 }
 
 if (!function_exists('build_colony_consumption_snapshot')) {
-    function build_colony_consumption_snapshot(PDO $db, array $row): array {
+    function load_colony_economy_context(PDO $db, array $row): array
+    {
         $userId = (int)($row['user_id'] ?? 0);
+        $research = $db->prepare(
+            'SELECT type, level FROM research
+             WHERE user_id = ? AND type IN (\'genetic_engineering\', \'dark_energy_tap\', \'terraforming_tech\')'
+        );
+        $research->execute([$userId]);
+        $researchLevels = $research->fetchAll(PDO::FETCH_KEY_PAIR);
+        $events = $db->prepare(
+            'SELECT event_type FROM colony_events WHERE colony_id = ? AND expires_at > ?
+             ORDER BY expires_at, event_type LIMIT 1'
+        );
+        $events->execute([(int)$row['id'], $row['simulation_now'] ?? date('Y-m-d H:i:s')]);
+        $event = $events->fetchColumn() ?: null;
+        if ($event === 'disease' && (int)($row['hospital_level'] ?? 0) >= 3) {
+            $event = null;
+        }
+        $ships = $db->prepare(
+            'SELECT COALESCE(SUM(count), 0) FROM ships WHERE colony_id = ? AND type = \'hospital_ship\''
+        );
+        $ships->execute([(int)$row['id']]);
+        return [
+            'effects' => $userId > 0 ? empire_dynamic_effects($db, $userId) : [],
+            'research' => $researchLevels,
+            'event' => $event,
+            'manager' => get_colony_leader($db, (int)$row['id'], 'colony_manager'),
+            'hospital_ships' => min(3, (int)$ships->fetchColumn()),
+        ];
+    }
+
+    function build_colony_consumption_snapshot(PDO $db, array $row, float $hours = 1.0): array
+    {
+        return calculate_colony_consumption_snapshot($row, load_colony_economy_context($db, $row), $hours);
+    }
+
+    /** Shared, read-only calculation used by both persistence and API snapshots. */
+    function calculate_colony_consumption_snapshot(array $row, array $context = [], float $hours = 1.0): array
+    {
         $population = max(1, (int)($row['population'] ?? 1));
         $happiness = (int)($row['happiness'] ?? 70);
 
@@ -90,15 +130,15 @@ if (!function_exists('build_colony_consumption_snapshot')) {
         $schoolLevel = (int)($row['school_level'] ?? 0);
         $securityLevel = (int)($row['security_post_level'] ?? 0);
 
-        $dynamicEffects = $userId > 0 ? empire_dynamic_effects($db, $userId) : [
-            'resource_output_mult' => 0.0,
-            'food_output_mult' => 0.0,
-            'pop_growth_mult' => 0.0,
-            'happiness_flat' => 0.0,
-            'public_services_flat' => 0.0,
-        ];
+        $dynamicEffects = $context['effects'] ?? [];
+        $research = $context['research'] ?? [];
+        $event = $context['event'] ?? null;
+        $genetics = (int)($research['genetic_engineering'] ?? 0) >= 1;
 
         $energyProduction = solar_energy($solarPlantLevel) + fusion_energy($fusionReactorLevel);
+        if ($event === 'solar_flare') {
+            $energyProduction *= 0.7;
+        }
         $energyRequired = metal_production_energy($metalMineLevel)
             + crystal_production_energy($crystalMineLevel)
             + deuterium_production_energy($deuteriumSynthLevel)
@@ -109,24 +149,29 @@ if (!function_exists('build_colony_consumption_snapshot')) {
 
         $colonyType = (string)($row['colony_type'] ?? 'balanced');
         $foodProduction = food_production($hydroponicFarmLevel);
+        if ($genetics) {
+            $foodProduction *= 1.25;
+        }
         if ($colonyType === 'agricultural') {
             $foodProduction *= 1.5;
         }
         $foodProduction *= (1.0 + (float)($dynamicEffects['food_output_mult'] ?? 0.0));
-        $foodProduction = max(0.0, $foodProduction);
-        $foodConsumed = $population / 100.0;
-        $foodCoverage = $foodConsumed > 0.0 ? min(2.0, $foodProduction / $foodConsumed) : 1.0;
+        $foodProduction = max(0.0, $foodProduction) * $efficiency;
+        $foodConsumed = colony_food_consumption($population);
 
         $resourceOutputMult = (float)($dynamicEffects['resource_output_mult'] ?? 0.0);
-        $prodMultiplier = happiness_productivity($happiness) * $efficiency * (1.0 + $resourceOutputMult);
-        $metalProduction = metal_production($metalMineLevel) * max(0.1, (float)($row['richness_metal'] ?? 1.0)) * $prodMultiplier;
-        $crystalProduction = crystal_production($crystalMineLevel) * max(0.1, (float)($row['richness_crystal'] ?? 1.0)) * $prodMultiplier;
-        $deuteriumProduction = deuterium_production($deuteriumSynthLevel, (int)($row['temp_max'] ?? 20))
+        $prodMultiplier = happiness_productivity($happiness) * $efficiency * max(0.0, 1.0 + $resourceOutputMult);
+        $metalProduction = metal_production($metalMineLevel)
+            * max(0.1, (float)($row['richness_metal'] ?? 1.0)) * $prodMultiplier;
+        $crystalProduction = crystal_production($crystalMineLevel)
+            * max(0.1, (float)($row['richness_crystal'] ?? 1.0)) * $prodMultiplier;
+        $temperature = (int)($row['temp_max'] ?? 20) + ((int)($research['terraforming_tech'] ?? 0) >= 1 ? 10 : 0);
+        $deuteriumProduction = deuterium_production($deuteriumSynthLevel, $temperature)
             * max(0.1, (float)($row['richness_deuterium'] ?? 1.0)) * $prodMultiplier;
         $rareEarthProduction = rare_earth_production($rareEarthDrillLevel)
             * max(0.1, (float)($row['richness_rare_earth'] ?? 0.5)) * $prodMultiplier;
 
-        $manager = get_colony_leader($db, (int)$row['id'], 'colony_manager');
+        $manager = $context['manager'] ?? null;
         if ($manager) {
             $skill = (int)($manager['skill_production'] ?? 0);
             $metalProduction = leader_production_bonus($metalProduction, $skill);
@@ -142,6 +187,17 @@ if (!function_exists('build_colony_consumption_snapshot')) {
             $deuteriumProduction *= 1.2;
             $rareEarthProduction *= 1.2;
         }
+        if ($event === 'mineral_vein') {
+            $metalProduction *= 1.2;
+        }
+        $foodBalance = colony_food_balance(
+            (float)($row['food'] ?? 0) + (float)($row['stock_remainders']['food'] ?? 0),
+            $foodProduction,
+            $foodConsumed,
+            food_storage_cap($foodSiloLevel),
+            $hours
+        );
+        $foodCoverage = $foodBalance['coverage'];
 
         $publicServices = compute_public_services($hospitalLevel, $schoolLevel, $securityLevel, $population);
         $publicServices = clamp_int_range(
@@ -156,13 +212,42 @@ if (!function_exists('build_colony_consumption_snapshot')) {
             0,
             100
         );
+        if ($event === 'disease') {
+            $welfareHappiness = clamp_int_range($welfareHappiness - 25, 0, 100);
+        }
         if ($colonyType === 'agricultural') {
             $welfareHappiness = clamp_int_range($welfareHappiness + 15, 0, 100);
         }
+        $welfareHappiness = clamp_int_range($welfareHappiness + (int)($context['hospital_ships'] ?? 0) * 8, 0, 100);
 
         $maxPopulation = 500 + habitat_capacity($habitatLevel);
+        if ($genetics) {
+            $maxPopulation = (int)round($maxPopulation * 1.1);
+        }
         $populationGrowth = population_growth($population, $maxPopulation, $welfareHappiness, $foodCoverage);
-        $populationGrowth = (int)round($populationGrowth * (1.0 + (float)($dynamicEffects['pop_growth_mult'] ?? 0.0)));
+        $populationGrowth *= max(0.0, 1.0 + (float)($dynamicEffects['pop_growth_mult'] ?? 0.0));
+
+        $storage = [
+            'metal' => storage_cap($metalStorageLevel), 'crystal' => storage_cap($crystalStorageLevel),
+            'deuterium' => storage_cap($deuteriumTankLevel), 'rare_earth' => 50000.0,
+            'food' => food_storage_cap($foodSiloLevel),
+        ];
+        $rates = [
+            'metal' => $metalProduction, 'crystal' => $crystalProduction,
+            'deuterium' => $deuteriumProduction, 'rare_earth' => $rareEarthProduction,
+        ];
+        $extraction = [];
+        foreach ($rates as $resource => $rate) {
+            $extraction[$resource] = colony_extraction(
+                (float)($row[$resource] ?? 0),
+                $rate,
+                $storage[$resource],
+                (float)($row['deposit_' . $resource] ?? -1),
+                $hours,
+                (float)($row['stock_remainders'][$resource] ?? 0)
+            );
+            $rates[$resource] = $extraction[$resource]['extracted'] / $hours;
+        }
 
         $processedConsumption = [];
         foreach (ECONOMY_POP_CONSUMPTION_RATES as $good => $ratePerK) {
@@ -178,24 +263,21 @@ if (!function_exists('build_colony_consumption_snapshot')) {
                 'food' => (float)($row['food'] ?? 0.0),
                 'energy' => (float)($row['energy'] ?? 0.0),
             ],
-            'storage' => [
-                'metal' => storage_cap($metalStorageLevel),
-                'crystal' => storage_cap($crystalStorageLevel),
-                'deuterium' => storage_cap($deuteriumTankLevel),
-                'food' => food_storage_cap($foodSiloLevel),
-                'rare_earth' => 50000.0,
-            ],
+            'storage' => $storage,
+            'extraction' => $extraction,
+            'food_balance' => $foodBalance,
             'production' => [
-                'metal_per_hour' => round($metalProduction, 4),
-                'crystal_per_hour' => round($crystalProduction, 4),
-                'deuterium_per_hour' => round($deuteriumProduction, 4),
-                'rare_earth_per_hour' => round($rareEarthProduction, 4),
+                'metal_per_hour' => $rates['metal'],
+                'crystal_per_hour' => $rates['crystal'],
+                'deuterium_per_hour' => $rates['deuterium'],
+                'rare_earth_per_hour' => $rates['rare_earth'],
                 'food_per_hour' => round($foodProduction, 4),
                 'energy_per_hour' => round($energyProduction, 4),
             ],
             'consumption' => [
                 'food_per_hour' => round($foodConsumed, 4),
                 'energy_required_per_hour' => round($energyRequired, 4),
+                'food_supplied_per_hour' => $foodBalance['consumed'] / $hours,
                 'processed_goods_per_hour' => $processedConsumption,
             ],
             'welfare' => [
@@ -203,10 +285,12 @@ if (!function_exists('build_colony_consumption_snapshot')) {
                 'energy_balance' => $energyBalance,
                 'public_services' => $publicServices,
                 'happiness' => $welfareHappiness,
-                'productivity_multiplier' => round(happiness_productivity($welfareHappiness) * $efficiency, 4),
+                'productivity_multiplier' => round($prodMultiplier, 4),
                 'population_growth_per_hour' => $populationGrowth,
                 'population_capacity' => $maxPopulation,
             ],
+            'dark_matter_per_hour' => (int)($research['dark_energy_tap'] ?? 0) >= 1 && $fusionReactorLevel > 0
+                ? $energyProduction * 0.005 : 0.0,
             'building_levels' => [
                 'metal_mine' => $metalMineLevel,
                 'crystal_mine' => $crystalMineLevel,

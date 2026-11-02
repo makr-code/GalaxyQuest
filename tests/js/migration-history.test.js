@@ -11,7 +11,7 @@ const manifest = (names) => `<?php\ndeclare(strict_types=1);\nreturn ${JSON.stri
 
 describe('strict non-executing migration manifest parser', () => {
   it('reads canonical repository manifest and comments', () => {
-    expect(parseMigrationManifest(readFileSync(path.resolve('config', 'migrations_manifest.php'), 'utf8'))).toHaveLength(72);
+    expect(parseMigrationManifest(readFileSync(path.resolve('config', 'migrations_manifest.php'), 'utf8'))).toHaveLength(75);
     expect(parseMigrationManifest("<?php /* comment */ return [// line\n'a.sql', 'b.sql',];"))
       .toEqual(['a.sql', 'b.sql']);
     expect(parseMigrationManifest('<?php return [];')).toEqual([]);

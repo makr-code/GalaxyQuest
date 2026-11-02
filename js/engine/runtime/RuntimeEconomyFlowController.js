@@ -52,19 +52,28 @@
 
       estimateColonyProduction(colony, resource) {
         const key = String(resource || 'metal').toLowerCase();
-        if (key === 'food') return Number(colony.food_production || 0.5);
-        if (key === 'metal') return Number(colony.metal_production || 0);
-        if (key === 'crystal') return Number(colony.crystal_production || 0);
-        if (key === 'deuterium') return Number(colony.deuterium_production || 0);
-        return 0;
+        return this.readHourlyRate(colony, `${key}_per_hour`);
       },
 
       estimateColonyConsumption(colony, resource) {
         const key = String(resource || 'metal').toLowerCase();
-        const pop = Number(colony.population || 0);
-        if (key === 'food') return Math.max(0.1, pop * 0.8);
-        if (key === 'metal' || key === 'crystal' || key === 'deuterium') return 0.2;
+        if (key === 'food') return this.readHourlyRate(colony, 'food_consumption_per_hour');
+        // Construction and trade are transactions, not recurring raw-material needs.
         return 0;
+      },
+
+      readHourlyRate(colony, field) {
+        const value = colony[field];
+        const rate = Number(value);
+        if (
+          (typeof value !== 'number' && typeof value !== 'string')
+          || (typeof value === 'string' && value.trim() === '')
+          || !Number.isFinite(rate)
+          || rate < 0
+        ) {
+          throw new Error(`Missing or invalid economy rate: ${field} (colony ${colony.id})`);
+        }
+        return rate;
       },
 
       buildFlowHtml(dataset) {

@@ -314,7 +314,7 @@ try {
         throw new RuntimeException('Login failed for attacker user.');
     }
 
-    $checkResp = http_json('GET', $fleetUrl . '?action=check', null, $cookies);
+    $checkResp = http_json('POST', $fleetUrl . '?action=check', [], $cookies, $csrf);
     if ($checkResp['status'] !== 200 || (bool)($checkResp['json']['success'] ?? false) !== true) {
         throw new RuntimeException('fleet.php?action=check failed: HTTP ' . $checkResp['status']);
     }
