@@ -214,11 +214,61 @@ Returned geometries are caller-owned clones. Its asynchronous asteroid API can
 persist CPU geometry attributes; synchronous callers remain synchronous and are
 not falsely described as disk-cached.
 
+### Expansion boundaries
+
+Ship hull maps describe reusable paint/metal surfaces. Fleet missions, throttle,
+damage and visibility are runtime inputs, not public material-cache parameters.
+Changing a mission must not silently regenerate a ship's geometry or texture seed.
+Mesh materials retain their borrowed textures until disposal; scene teardown must
+also release nested meshes and instancing buffers.
+Active Three.js fleet formations and ambient shuttles now request bounded
+painted-metal templates with all five coherent maps, with optional asynchronous
+persisted-byte refresh after the immediate material is available. A formation
+draws at most 20 sampled ships. Existing mission markers remain mission-colored
+without changing hull appearance.
+
+Engine glow follows explicit `engine_power`, `throttle` or `engine_active`;
+navigation lights and trails require their respective flags. Ambient shuttles
+read `traffic_state`. Hidden, disabled, unpowered or inactive vessels suppress
+these effects; quality and reduced motion constrain them further. Shuttle angles
+accumulate bounded frame deltas rather than multiplying total elapsed time by
+current throttle, so stopping freezes the current position.
+
+The Three.js special-body factory adds a seeded instanced rock layer to asteroid
+belts. Quality caps are 32/64/128 rocks, with 96 as the unspecified default.
+An automatically updated LOD hides rock detail at distance; the inexpensive
+points remain available even when mesh/material capabilities are missing.
+The normal runtime module loader loads the procedural generator and special-body
+factory before the renderer core. This is a Three.js mesh path, not a new native
+galaxy marker shader or an asynchronous geometry-cache consumer.
+
+Planet approach must separate terrain from ownership and settlement activity.
+Ownership indicators and explicitly supplied night-light intensity can change
+without changing the public surface. Cloud drift and rotation are local visual
+time only; hiding or leaving a view must not trigger catch-up simulation.
+`PlanetLivingWorld` adapts backend planet bodies and the existing
+`planet_texture_manifest` to bounded public terrain parameters. It consumes raw
+maps from `GQPlanetTexturePipeline`, sharing the existing generator rather than
+maintaining an independent terrain noise system. The adapter keeps at most eight
+CPU map sets; map resolution is 64/128/256 by quality, not an unbounded allocation.
+This planet CPU cache is not claimed to be persistent IndexedDB storage.
+
+The native approach draws analytic ray/sphere intersections with terrain,
+water highlights, cloud coverage, atmosphere and night-side emission. It is
+Lambert-style shading, not full terrestrial PBR or global illumination. Three.js
+retains its standard material path. Settlement lights require explicit
+`night_lights`/`city_lights`; merely owning a planet does not switch them on.
+Both backends release owned view resources on exit and rebuild on re-entry,
+without destroying the shared WebGPU device or canvas context.
+After a planet flight completes, the zoom orchestrator retains that flight's
+endpoint for idle rendering instead of reverting to the galaxy camera distance.
+
 ### Deliberate scope limits
 
-This block supplies the reference colony and reusable infrastructure, not an
-automatically authored library of modular ships/buildings. Existing planet clouds,
-night lighting, fleet traffic and combat effects remain their existing integrations.
+The living-world work supplies reusable presentation infrastructure, not an
+automatically authored library of modular ships/buildings. Extending an existing
+Three.js mesh path does not automatically add textured mesh rendering to the
+native galaxy renderer's fleet markers or other overlay paths.
 The optional AI endpoint's independent PBR image requests are not promoted to a
 guaranteed coherent material set; no AI request is added to the render loop.
 Full network World Partition, offline AO baking, global illumination and

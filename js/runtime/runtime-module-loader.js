@@ -22,10 +22,16 @@ const runtimeModules = new Map([
   ['js/rendering/geometry-manager.js', () => import('../rendering/geometry-manager.js')],
   ['js/rendering/material-factory.js', () => import('../rendering/material-factory.js')],
   ['js/rendering/light-rig-manager.js', () => import('../rendering/light-rig-manager.js')],
+  ['js/engine/procedural/ProceduralMeshGenerator.js', () => import('../engine/procedural/ProceduralMeshGenerator.js')],
+  ['js/rendering/SystemSpecialBodiesRenderer.js', async () => {
+    await loadRuntimeModule('js/engine/procedural/ProceduralMeshGenerator.js');
+    return import('../rendering/SystemSpecialBodiesRenderer.js');
+  }],
   ['js/rendering/galaxy-renderer-core.js', async () => {
     await loadRuntimeModule('js/runtime/model_registry.js');
     Promise.resolve().then(() => window.__GQ_ModelRegistry.preload())
       .catch((error) => console.warn('[ModelRegistry] background preload failed:', error));
+    await loadRuntimeModule('js/rendering/SystemSpecialBodiesRenderer.js');
     return import('../rendering/galaxy-renderer-core.js');
   }],
 ]);

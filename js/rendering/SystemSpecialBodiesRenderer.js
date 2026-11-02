@@ -2,7 +2,7 @@
  * SystemSpecialBodiesRenderer.js
  *
  * Mesh factories for non-spherical star-system bodies:
- *   - asteroid_belt   : torus-shaped particle ring around the star
+ *   - asteroid_belt   : particle ring with bounded near-detail PBR rocks
  *   - nebula_cloud    : layered billboard cloud at a system position
  *   - irregular_planet: noise-displaced sphere (unförmiger Planet)
  *   - planet_fragment : cluster of rocky chunks (zerbrochener Planet)
@@ -93,6 +93,78 @@ function makeRng(seed) {
 // Factory: Asteroid Belt
 // ---------------------------------------------------------------------------
 
+function asteroidSeed(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value >>> 0 : 1;
+  if (typeof value !== 'string') return 1;
+  let hash = 2166136261;
+  for (const character of value.slice(0, 128)) {
+    hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+  }
+  return hash >>> 0;
+}
+
+/**
+ * Optional, synchronous detail layer. Points remain usable on older renderers.
+ * The generator owns no retained CPU cache; the returned mesh owns its buffers.
+ */
+function buildAsteroidRocks(THREE, params, { seed, color, radius, tube, height }) {
+  if (!THREE.InstancedMesh || !THREE.Object3D || !THREE.IcosahedronGeometry
+    || !THREE.MeshStandardMaterial) return null;
+  const Generator = (typeof window !== 'undefined'
+    && window.GQProceduralMeshGenerator?.ProceduralMeshGenerator)
+    || (typeof module !== 'undefined' && module.exports
+      && require('../engine/procedural/ProceduralMeshGenerator.js').ProceduralMeshGenerator);
+  if (!Generator) return null;
+
+  const budget = params.quality === 'low' ? 32 : params.quality === 'medium' ? 64
+    : params.quality === 'high' ? 128 : 96;
+  const requestedCount = Number(params.rockCount ?? budget);
+  const count = Number.isFinite(requestedCount) ? Math.floor(clamp(requestedCount, 0, budget)) : budget;
+  if (!count) return null;
+  let geometry;
+  let material;
+  let rocks;
+  let generator;
+  try {
+    generator = new Generator({ three: THREE, maxCacheSize: 0, maxCacheBytes: 0 });
+    geometry = generator.generateAsteroid({ seed, scale: 1, complexity: 2, fracture: true });
+    const descriptor = {
+      seed, color, materialFamily: 'rock', biome: 'barren',
+      geometry: { kind: 'rock' }, quality: 'low',
+    };
+    const bundle = params.textureManager?.getCoherentMaterialBundle?.(descriptor, { size: 32 });
+    material = bundle
+      ? params.materialFactory?.createMoonMaterial?.(color, bundle) || bundle.material
+      : new THREE.MeshStandardMaterial({ color, roughness: 0.94, metalness: 0.02 });
+    rocks = new THREE.InstancedMesh(geometry, material, count);
+    const transform = new THREE.Object3D();
+    const rng = makeRng(seed ^ 0x726f636b);
+    const baseSize = clamp(params.rockSize ?? tube * 0.12, 0.15, 2.5);
+    for (let i = 0; i < count; i++) {
+      const theta = rng() * Math.PI * 2;
+      const radial = radius + (rng() + rng() - 1) * tube;
+      transform.position.set(Math.cos(theta) * radial, (rng() * 2 - 1) * height, Math.sin(theta) * radial);
+      transform.rotation.set(rng() * Math.PI * 2, rng() * Math.PI * 2, rng() * Math.PI * 2);
+      const size = baseSize * (0.45 + rng() * 0.9);
+      transform.scale.set(size * (0.7 + rng() * 0.6), size * (0.7 + rng() * 0.6), size);
+      transform.updateMatrix();
+      rocks.setMatrixAt(i, transform.matrix);
+    }
+    rocks.instanceMatrix.needsUpdate = true;
+    rocks.computeBoundingSphere?.();
+    rocks.userData = { kind: 'asteroid-belt-rocks', seed, instanceBudget: budget };
+    return rocks;
+  } catch {
+    // Missing renderer capabilities must not make the inexpensive belt disappear.
+    rocks?.dispose?.();
+    geometry?.dispose?.();
+    material?.dispose?.();
+    return null;
+  } finally {
+    generator?.dispose?.();
+  }
+}
+
 /**
  * Build a torus-shaped asteroid-belt render object.
  *
@@ -108,16 +180,20 @@ function makeRng(seed) {
  * @param {number|string} [params.color=0x8f8173]
  * @param {number} [params.opacity=0.72]
  * @param {number} [params.seed=1]              - Randomisation seed
+ * @param {number} [params.rockCount=96]        - Bounded near-detail instances (max 128)
+ * @param {string} [params.quality]            - low/medium/high budgets: 32/64/128
+ * @param {object} [params.textureManager]     - Shared coherent rock texture provider
+ * @param {object} [params.materialFactory]    - Shared PBR material factory
  * @returns {THREE.Group}
  */
 function buildAsteroidBeltMesh(THREE, params = {}) {
   const radius = clamp(params.radius ?? 120, 10, 800);
   const tube = clamp(params.tube ?? 10, 1, radius * 0.4);
   const height = clamp(params.height ?? 4, 0.5, tube * 1.5);
-  const particleCount = clamp(params.particleCount ?? 600, 50, 8000);
+  const particleCount = Math.floor(clamp(params.particleCount ?? 600, 50, 8000));
   const color = parseColorHex(params.color, 0x8f8173);
   const opacity = clamp(params.opacity ?? 0.72, 0.1, 1.0);
-  const seed = params.seed ?? 1;
+  const seed = asteroidSeed(params.seed ?? 1);
 
   const rng = makeRng(seed);
 
@@ -167,6 +243,19 @@ function buildAsteroidBeltMesh(THREE, params = {}) {
   const group = new THREE.Group();
   group.add(points);
   group.add(torusMesh);
+  const rocks = buildAsteroidRocks(THREE, params, { seed, color, radius, tube, height });
+  if (rocks) {
+    if (THREE.LOD) {
+      // Three's renderer updates LOD automatically; points remain at all distances.
+      const lod = new THREE.LOD();
+      lod.addLevel(rocks, 0);
+      lod.addLevel(new THREE.Group(), radius * 3 + tube, 0.15);
+      lod.userData = { kind: 'asteroid-belt-lod' };
+      group.add(lod);
+    } else {
+      group.add(rocks);
+    }
+  }
   group.userData = {
     kind: 'asteroid_belt',
     color,
@@ -1230,6 +1319,7 @@ const SystemSpecialBodiesRenderer = {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = SystemSpecialBodiesRenderer;
-} else if (typeof window !== 'undefined') {
+}
+if (typeof window !== 'undefined') {
   window.GQSystemSpecialBodiesRenderer = SystemSpecialBodiesRenderer;
 }
