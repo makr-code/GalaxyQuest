@@ -35,11 +35,23 @@ function hexToRgbFloat(hex) {
 const BYTES_PER_SLOT = 64;
 
 const COLONY_CITY_WGSL = `
-struct Camera { viewProjection: mat4x4<f32>, transition: vec4<f32> };
+struct Camera { viewProjection: mat4x4<f32>, transition: vec4<f32>, surface: vec4<f32> };
 struct Instance { color: vec4<f32>, position: vec4<f32>, scale: vec4<f32>, extra: vec4<f32> };
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<storage, read> instances: array<Instance>;
 struct Out { @builtin(position) position: vec4<f32>, @location(0) color: vec4<f32> };
+fn surfacePoint(local: vec3<f32>) -> vec3<f32> {
+  let radius = max(camera.transition.y, 0.001);
+  let horizontal = local.xz;
+  let distance = length(horizontal);
+  let angle = distance / radius;
+  var normal = vec3<f32>(0, 1, 0);
+  if (distance > 0.0001) {
+    let tangent = horizontal / distance;
+    normal = vec3<f32>(tangent.x * sin(angle), cos(angle), tangent.y * sin(angle));
+  }
+  return normal * (radius + local.y) + vec3<f32>(0, -radius, 0);
+}
 @vertex fn vs_main(@builtin(vertex_index) vertex: u32, @builtin(instance_index) index: u32) -> Out {
   let corners = array<vec3<f32>, 8>(
     vec3<f32>(-0.5,0,-0.5), vec3<f32>(0.5,0,-0.5),
@@ -51,13 +63,45 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) color: vec4<f3
     3,0,4,3,4,7, 4,5,6,4,6,7, 0,3,2,0,2,1);
   let shade = array<f32, 6>(0.72,0.87,0.65,0.78,1.15,0.45);
   let instance = instances[index];
-  let world = instance.position.xyz + corners[indices[vertex]] * instance.scale.xyz;
+  let local = instance.position.xyz + corners[indices[vertex]] * instance.scale.xyz;
+  let world = surfacePoint(local);
   var out: Out;
   out.position = camera.viewProjection * vec4<f32>(world,1);
   out.color = vec4<f32>(instance.color.rgb * shade[vertex / 6u], instance.color.a * camera.transition.x);
   return out;
 }
 @fragment fn fs_main(in: Out) -> @location(0) vec4<f32> { return in.color; }
+`;
+
+const COLONY_BODY_WGSL = `
+struct Camera { viewProjection: mat4x4<f32>, transition: vec4<f32>, surface: vec4<f32> };
+@group(0) @binding(0) var<uniform> camera: Camera;
+struct Out {
+  @builtin(position) position: vec4<f32>,
+  @location(0) normal: vec3<f32>,
+};
+@vertex fn vs_main(@builtin(vertex_index) vertex: u32) -> Out {
+  let cell = vertex / 6u;
+  let corner = array<vec2<f32>, 6>(
+    vec2<f32>(0,0), vec2<f32>(1,0), vec2<f32>(0,1),
+    vec2<f32>(0,1), vec2<f32>(1,0), vec2<f32>(1,1));
+  let uv = (vec2<f32>(f32(cell / 64u), f32(cell % 64u)) + corner[vertex % 6u]) / vec2<f32>(32,64);
+  let latitude = uv.x * 3.14159265 - 1.57079633;
+  let longitude = uv.y * 6.2831853 + camera.transition.w * 0.02;
+  let normal = vec3<f32>(cos(latitude) * cos(longitude), sin(latitude), cos(latitude) * sin(longitude));
+  let radius = camera.transition.y;
+  var out: Out;
+  out.position = camera.viewProjection * vec4<f32>(normal * radius + vec3<f32>(0,-radius,0), 1);
+  out.normal = normal;
+  return out;
+}
+@fragment fn fs_main(in: Out) -> @location(0) vec4<f32> {
+  let normal = normalize(in.normal);
+  let terrain = sin(normal.x * 19.0 + sin(normal.z * 13.0)) * cos(normal.z * 17.0 + normal.y * 9.0) * 0.5 + 0.5;
+  let light = 0.28 + 0.72 * max(0.0, dot(normal, normalize(vec3<f32>(-0.7,0.8,1.0))));
+  let surface = mix(camera.surface.rgb * 0.52, camera.surface.rgb * 1.3, terrain);
+  return vec4<f32>(surface * light, 1.0);
+}
 `;
 
 const COLONY_VFX_WGSL = `
@@ -89,22 +133,92 @@ function projectCityPoint(matrix, x, y, z) {
     (matrix[row] * x + matrix[4 + row] * y + matrix[8 + row] * z + matrix[12 + row]) / w);
 }
 
-function cityCameraMatrix(aspect, span, progress = 1, target = { x: 0, z: 0 }) {
+function mapColonySurfacePoint(radius, x, y, z) {
+  const safeRadius = Math.max(0.001, Number(radius) || 0.001);
+  const distance = Math.hypot(x, z);
+  const angle = distance / safeRadius;
+  if (distance < 0.0001) return [0, y, 0];
+  const tangentScale = Math.sin(angle) / distance;
+  const normal = [x * tangentScale, Math.cos(angle), z * tangentScale];
+  return [
+    normal[0] * (safeRadius + y),
+    normal[1] * (safeRadius + y) - safeRadius,
+    normal[2] * (safeRadius + y),
+  ];
+}
+
+function projectColonySurfacePoint(matrix, radius, x, y, z) {
+  const point = mapColonySurfacePoint(radius, x, y, z);
+  return projectCityPoint(matrix, point[0], point[1], point[2]);
+}
+
+function resolveBodySurface(data, cityWidth, cityDepth) {
+  const colony = data?.colony || {};
+  const body = data?.focusPlanet || data?.planet || colony?.body || colony;
+  const layout = data?.layout || colony?.layout || {};
+  const diameter = Number(
+    body?.diameter_km ?? body?.diameter ?? body?.planet_diameter
+      ?? layout?.planet_scale?.diameter ?? 0
+  );
+  const citySpan = Math.max(cityWidth, cityDepth, 1);
+  const physicalRadius = Number.isFinite(diameter) && diameter > 0 ? diameter / 20 : citySpan * 6;
+  const radius = bounded(physicalRadius, citySpan * 1.5, citySpan * 80, citySpan * 6);
+  const kind = String(body?.planet_class || body?.planet_type || body?.body_type || '').toLowerCase();
+  const tint = /ice|frost|tundra/.test(kind) ? [0.35, 0.58, 0.72]
+    : /lava|volcan|molten/.test(kind) ? [0.66, 0.29, 0.18]
+      : /desert|arid|barren/.test(kind) ? [0.64, 0.48, 0.29]
+        : /gas|jovian/.test(kind) ? [0.43, 0.42, 0.66]
+          : /moon|comet|asteroid/.test(kind) ? [0.48, 0.51, 0.49]
+            : [0.25, 0.42, 0.29];
+  return { radius, kind: kind || 'planet', tint };
+}
+
+function cityCameraMatrix(aspect, span, progress = 1, target = { x: 0, z: 0 }, surfaceRadius = 0) {
   const t = bounded(progress, 0, 1);
   const eased = t * t * (3 - 2 * t);
   const yaw = Math.PI / 4;
   const pitch = (65 + (35.264 - 65) * eased) * Math.PI / 180;
   const distance = span * (2.6 - eased * 0.6);
-  const right = [Math.cos(yaw), 0, -Math.sin(yaw)];
-  const back = [Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)];
-  const up = [-Math.sin(yaw) * Math.sin(pitch), Math.cos(pitch), -Math.cos(yaw) * Math.sin(pitch)];
+  let right = [Math.cos(yaw), 0, -Math.sin(yaw)];
+  let back = [Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)];
+  let up = [-Math.sin(yaw) * Math.sin(pitch), Math.cos(pitch), -Math.cos(yaw) * Math.sin(pitch)];
   const tx = Number(target.x) || 0;
   const tz = Number(target.z) || 0;
+  let targetPosition = [tx, 0, tz];
+  if (surfaceRadius > 0) {
+    targetPosition = mapColonySurfacePoint(surfaceRadius, tx, 0, tz);
+    const normal = [
+      targetPosition[0] / surfaceRadius,
+      (targetPosition[1] + surfaceRadius) / surfaceRadius,
+      targetPosition[2] / surfaceRadius,
+    ];
+    let east = [1 - normal[0] * normal[0], -normal[0] * normal[1], -normal[0] * normal[2]];
+    const eastLength = Math.hypot(...east);
+    if (eastLength < 1e-8) east = [0, 0, 1];
+    else east = east.map((value) => value / eastLength);
+    let north = [
+      east[1] * normal[2] - east[2] * normal[1],
+      east[2] * normal[0] - east[0] * normal[2],
+      east[0] * normal[1] - east[1] * normal[0],
+    ];
+    const northLength = Math.hypot(...north);
+    north = north.map((value) => value / Math.max(1e-8, northLength));
+    const orient = (vector) => [
+      east[0] * vector[0] + normal[0] * vector[1] + north[0] * vector[2],
+      east[1] * vector[0] + normal[1] * vector[1] + north[1] * vector[2],
+      east[2] * vector[0] + normal[2] * vector[1] + north[2] * vector[2],
+    ];
+    right = orient(right);
+    up = orient(up);
+    back = orient(back);
+  }
   const view = new Float32Array([
     right[0], up[0], back[0], 0, right[1], up[1], back[1], 0,
     right[2], up[2], back[2], 0,
-    -(right[0] * tx + right[2] * tz), -(up[0] * tx + up[2] * tz),
-    -distance - back[0] * tx - back[2] * tz, 1,
+    -right.reduce((sum, value, axis) => sum + value * targetPosition[axis], 0),
+    -up.reduce((sum, value, axis) => sum + value * targetPosition[axis], 0),
+    -distance - back.reduce((sum, value, axis) => sum + value * targetPosition[axis], 0),
+    1,
   ]);
   const near = 0.1;
   const far = span * 10;
@@ -172,10 +286,10 @@ function buildCityGeometry(slots, data) {
   const depth = Math.max(bounded(data?.layout?.grid?.rows, 1, 32, 4) * 3.1, ...slots.map((s) => Math.abs(s.z) * 2 + 3.1));
   const cols = Math.round(width / 3.1);
   const rows = Math.round(depth / 3.1);
-  add(0, -0.22, 0, width + 2, 0.2, depth + 2, [0.12, 0.23, 0.19]);
+  add(0, 0.12, 0, width + 2, 0.2, depth + 2, [0.12, 0.23, 0.19]);
   // Roads lie between plots, so cosmetic traffic never walks through buildings.
-  for (let x = -cols / 2; x <= cols / 2; x++) add(x * 3.1, -0.01, 0, 0.52, 0.03, depth, [0.16, 0.20, 0.24]);
-  for (let z = -rows / 2; z <= rows / 2; z++) add(0, -0.01, z * 3.1, width, 0.03, 0.52, [0.16, 0.20, 0.24]);
+  for (let x = -cols / 2; x <= cols / 2; x++) add(x * 3.1, 0.07, 0, 0.52, 0.03, depth, [0.16, 0.20, 0.24]);
+  for (let z = -rows / 2; z <= rows / 2; z++) add(0, 0.07, z * 3.1, width, 0.03, 0.52, [0.16, 0.20, 0.24]);
   const status = cityEconomyStatus(data);
   slots.forEach((s) => {
     const text = `${s.type} ${s.category || ''}`.toLowerCase();
@@ -228,6 +342,8 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._device         = null;
     this._context        = null;
     this._meshPipeline   = null;
+    this._bodyPipeline   = null;
+    this._bodyBindGroup  = null;
     this._vfxPipeline    = null;
     this._instanceBuffer = null;
     this._instanceBindGroup = null;
@@ -248,6 +364,11 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._slotCount      = 0;
     this._slots = [];
     this._city = null;
+    this._bodySurface = { radius: 150, kind: 'planet', tint: [0.25, 0.42, 0.29] };
+    this._citySpan = 25;
+    this._entrySpan = 100;
+    this._minCameraSpan = 3.5;
+    this._zoomMultiplier = 1;
     this._people = [];
     this._cameraBuffer = null;
     this._depthTexture = null;
@@ -292,8 +413,14 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._applySceneDataVisuals(data);
     this._slots = normalizeCitySlots(data);
     this._city = buildCityGeometry(this._slots, data);
+    this._citySpan = Math.max(this._city.width, this._city.depth) * 1.35;
+    this._bodySurface = resolveBodySurface(data, this._city.width, this._city.depth);
+    this._entrySpan = Math.max(this._citySpan * 4, this._bodySurface.radius * 3);
+    const tallestPart = Math.max(0, ...this._city.parts.map((part) => part.y + part.sy));
+    this._minCameraSpan = Math.max(3.5, (tallestPart + 0.35) / (2 * Math.sin(35.264 * Math.PI / 180)));
+    this._zoomMultiplier = 1;
     this._people = cityPedestrians(data?.colony?.population, this._slots, data?.pop_classes);
-    this._camera.span = Math.max(this._city.width, this._city.depth) * 1.35;
+    this._camera.span = this._entrySpan;
     this._selected = null;
     this._uploadSlots();
     this._rebuildBuildingVfx(this._slots);
@@ -305,13 +432,20 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     const seconds = bounded(Number(dt) > 1 ? Number(dt) / 1000 : dt, 0, 0.1, 0.016);
     this._elapsed += seconds;
     this._camera.progress = Math.min(1, this._camera.progress + seconds / 1.2);
+    this._camera.span = this._transitionBaseSpan() * this._zoomMultiplier;
     const aspect = Math.max(0.1, this._canvas.width / Math.max(1, this._canvas.height));
-    this._viewProjection = cityCameraMatrix(aspect, this._camera.span / Math.min(1, aspect), this._camera.progress, this._camera.target);
+    this._viewProjection = cityCameraMatrix(
+      aspect, this._camera.span / Math.min(1, aspect), this._camera.progress,
+      this._camera.target, this._bodySurface.radius
+    );
     this._backdropRendered = this._camera.progress < 1
       && !!this._planetBackdrop?.renderBackdrop(seconds, this._backdropPose, 1 - this._camera.progress);
-    const uniforms = new Float32Array(20);
+    const uniforms = new Float32Array(24);
     uniforms.set(this._viewProjection);
     uniforms[16] = this._backdropRendered ? this._camera.progress : 1;
+    uniforms[17] = this._bodySurface.radius;
+    uniforms[19] = this._elapsed;
+    uniforms.set([...this._bodySurface.tint, 1], 20);
     this._device.queue.writeBuffer(this._cameraBuffer, 0, uniforms);
     this._uploadPeople();
     this._updateBuildingVfxBuffer(seconds);
@@ -372,6 +506,8 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       this._buildingVfxBuffer = null;
     }
     this._meshPipeline = null;
+    this._bodyPipeline = null;
+    this._bodyBindGroup = null;
     this._vfxPipeline = null;
     this._instanceBindGroup = null;
     this._buildingVfxVertexCount = 0;
@@ -415,8 +551,17 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       primitive: { topology: 'triangle-list' },
       depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     });
+    const bodyShader = this._device.createShaderModule({ label: 'colony_body_surface', code: COLONY_BODY_WGSL });
+    this._bodyPipeline = this._device.createRenderPipeline({
+      label: 'colony_body_surface',
+      layout: 'auto',
+      vertex: { module: bodyShader, entryPoint: 'vs_main' },
+      fragment: { module: bodyShader, entryPoint: 'fs_main', targets: [{ format }] },
+      primitive: { topology: 'triangle-list' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+    });
     this._cameraBuffer = this._device.createBuffer({
-      size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     const vfxShader = this._device.createShaderModule({ label: 'colony_vfx', code: COLONY_VFX_WGSL });
     this._vfxPipeline = this._device.createRenderPipeline({
@@ -465,6 +610,10 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
         { binding: 1, resource: { buffer: this._instanceBuffer } },
       ],
     });
+    this._bodyBindGroup = this._device.createBindGroup({
+      layout: this._bodyPipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this._cameraBuffer } }],
+    });
     this._slotCount = count;
   }
 
@@ -496,6 +645,18 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._backdropPose = pose;
   }
 
+  _transitionBaseSpan() {
+    const t = bounded(this._camera.progress, 0, 1);
+    const eased = t * t * (3 - 2 * t);
+    return this._entrySpan + (this._citySpan - this._entrySpan) * eased;
+  }
+
+  _setCameraSpan(span) {
+    const currentSpan = Math.max(0.001, this._camera.span);
+    this._zoomMultiplier *= span / currentSpan;
+    this._camera.span = span;
+  }
+
   async _loadSnapshot() {
     if (!this._active || globalThis.document?.hidden) return;
     const id = Number(this._sceneData?.colony?.id || 0);
@@ -525,6 +686,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       if (preserveCamera) {
         this._camera.target = target;
         this._camera.span = span;
+        this._zoomMultiplier = span / Math.max(0.001, this._citySpan);
       }
     } catch (error) {
       if (!this._active || generation !== this._requestGeneration || error.name === 'AbortError') return;
@@ -592,13 +754,22 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       stop(event);
       if (this._selected) {
         this._camera.target = { x: this._selected.x, z: this._selected.z };
-        this._camera.span = 9;
+        this._camera.progress = 1;
+        this._camera.span = this._citySpan;
+        this._zoomMultiplier = 1;
+        this._setCameraSpan(9);
       }
     }, capture);
     listen(canvas, 'wheel', (event) => {
       event.preventDefault();
       stop(event);
-      this._camera.span = bounded(this._camera.span * Math.exp(bounded(event.deltaY, -150, 150) * 0.002), 7, 100, 25);
+      const direction = bounded(event.deltaY, -150, 150);
+      const nextSpan = this._camera.span * Math.exp(direction * 0.002);
+      if (direction > 0 && nextSpan >= this._entrySpan * 0.98) {
+        this._navigation?.back?.();
+        return;
+      }
+      this._setCameraSpan(bounded(nextSpan, this._minCameraSpan, this._entrySpan, this._citySpan));
     }, { capture: true, passive: false });
     listen(window, 'keydown', (event) => {
       if (/input|textarea|select/i.test(event.target?.tagName) || event.target?.isContentEditable) return;
@@ -607,8 +778,14 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       stop(event);
       event.preventDefault();
       if (key === 'Escape') this._navigation?.back?.();
-      if (key === '+' || key === '=') this._camera.span = Math.max(7, this._camera.span * 0.9);
-      if (key === '-') this._camera.span = Math.min(100, this._camera.span * 1.1);
+      if (key === '+' || key === '=') {
+        this._setCameraSpan(Math.max(this._minCameraSpan, this._camera.span * 0.9));
+      }
+      if (key === '-') {
+        const nextSpan = this._camera.span * 1.1;
+        if (nextSpan >= this._entrySpan * 0.98) this._navigation?.back?.();
+        else this._setCameraSpan(nextSpan);
+      }
       if (key === 'ArrowLeft') this._camera.target.x -= 0.8;
       if (key === 'ArrowRight') this._camera.target.x += 0.8;
       if (key === 'ArrowUp') this._camera.target.z -= 0.8;
@@ -639,7 +816,10 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
         if (typeof this._sceneData?.onOpenBuildings === 'function') this._sceneData.onOpenBuildings(this._selected);
         else if (this._selected) {
           this._camera.target = { x: this._selected.x, z: this._selected.z };
-          this._camera.span = 9;
+          this._camera.progress = 1;
+          this._camera.span = this._citySpan;
+          this._zoomMultiplier = 1;
+          this._setCameraSpan(9);
         }
       }],
     ]) {
@@ -691,7 +871,9 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       const corners = [
         [-1.22,0,-1.22], [1.22,0,-1.22], [1.22,0,1.22], [-1.22,0,1.22],
         [-1.22,height,-1.22], [1.22,height,-1.22], [1.22,height,1.22], [-1.22,height,1.22],
-      ].map(([x,y,z]) => projectCityPoint(this._viewProjection, slot.x + x, y, slot.z + z));
+      ].map(([x,y,z]) => projectColonySurfacePoint(
+        this._viewProjection, this._bodySurface.radius, slot.x + x, y + 0.13, slot.z + z
+      ));
       for (let i = 0; i < triangles.length; i += 3) {
         const [a,b,c] = triangles.slice(i, i + 3).map((idx) => corners[idx]);
         const det = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
@@ -888,7 +1070,9 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     particles.forEach((p, index) => {
       const pulse = 0.5 + 0.5 * Math.sin(t * (1.15 + index * 0.001) + p.pulsePhase);
       const driftY = Math.sin(t * p.drift + p.pulsePhase) * 0.22;
-      const center = projectCityPoint(this._viewProjection, p.x, p.y + driftY, p.z);
+      const center = projectColonySurfacePoint(
+        this._viewProjection, this._bodySurface.radius, p.x, p.y + driftY, p.z
+      );
       const cx = center[0];
       const cy = center[1];
       const hs = Math.max(0.001, p.size / this._camera.span * (1 + burstT * 0.18));
@@ -944,6 +1128,11 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
         depthLoadOp: 'clear', depthStoreOp: 'store',
       },
     });
+    if (this._bodyPipeline && this._bodyBindGroup) {
+      pass.setPipeline(this._bodyPipeline);
+      pass.setBindGroup(0, this._bodyBindGroup);
+      pass.draw(32 * 64 * 6, 1, 0, 0);
+    }
     if (this._instanceBindGroup && this._slotCount > 0) {
       pass.setPipeline(this._meshPipeline);
       pass.setBindGroup(0, this._instanceBindGroup);
@@ -985,8 +1174,10 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    ColonySurfaceLevelWebGPU, COLONY_CITY_WGSL, COLONY_VFX_WGSL,
-    normalizeCitySlots, buildCityGeometry, cityCameraMatrix, projectCityPoint, cityPedestrians, cityEconomyStatus,
+    ColonySurfaceLevelWebGPU, COLONY_CITY_WGSL, COLONY_BODY_WGSL, COLONY_VFX_WGSL,
+    normalizeCitySlots, buildCityGeometry, cityCameraMatrix, projectCityPoint,
+    mapColonySurfacePoint, projectColonySurfacePoint, resolveBodySurface,
+    cityPedestrians, cityEconomyStatus,
   };
 } else {
   window.GQColonySurfaceLevelWebGPU = { ColonySurfaceLevelWebGPU };

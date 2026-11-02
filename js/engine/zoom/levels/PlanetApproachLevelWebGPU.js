@@ -56,6 +56,60 @@ function planetColor(value, fallback) {
   return [0,2,4].map((index) => parseInt(hex.slice(index, index + 2), 16) / 255);
 }
 
+function normalizeVector(vector, fallback) {
+  const length = Math.hypot(...vector);
+  return length > 1e-8 ? vector.map((value) => value / length) : fallback.slice();
+}
+
+function cross(a, b) {
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+}
+
+function multiplyMatrix(a, b) {
+  const out = new Float32Array(16);
+  for (let col = 0; col < 4; col++) {
+    for (let row = 0; row < 4; row++) {
+      for (let k = 0; k < 4; k++) out[col * 4 + row] += a[k * 4 + row] * b[col * 4 + k];
+    }
+  }
+  return out;
+}
+
+function planetViewProjection(cameraState, aspect, distance, near = 0.1, far = 20) {
+  const target = [
+    Number(cameraState?.target?.x) || 0,
+    Number(cameraState?.target?.y) || 0,
+    Number(cameraState?.target?.z) || 0,
+  ];
+  const requestedPosition = [
+    Number(cameraState?.position?.x) || 0,
+    Number(cameraState?.position?.y) || 0,
+    Number(cameraState?.position?.z) || 0,
+  ];
+  const back = normalizeVector(
+    requestedPosition.map((value, axis) => value - target[axis]),
+    [0, 0, 1]
+  );
+  const referenceUp = Math.abs(back[1]) > 0.98 ? [0, 0, 1] : [0, 1, 0];
+  const right = normalizeVector(cross(referenceUp, back), [1, 0, 0]);
+  const up = normalizeVector(cross(back, right), [0, 1, 0]);
+  const eye = target.map((value, axis) => value + back[axis] * distance);
+  const view = new Float32Array([
+    right[0], up[0], back[0], 0,
+    right[1], up[1], back[1], 0,
+    right[2], up[2], back[2], 0,
+    -right.reduce((sum, value, axis) => sum + value * eye[axis], 0),
+    -up.reduce((sum, value, axis) => sum + value * eye[axis], 0),
+    -back.reduce((sum, value, axis) => sum + value * eye[axis], 0),
+    1,
+  ]);
+  const projection = new Float32Array([
+    1.73 / aspect,0,0,0, 0,1.73,0,0, 0,0,far / (near - far),-1,
+    0,0,(far * near) / (near - far),0,
+  ]);
+  return multiplyMatrix(projection, view);
+}
+
 class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
   constructor() {
     super();
@@ -101,10 +155,13 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
     this._applySceneDataVisuals(this._sceneData);
     if (!this._canvas?.addEventListener) return;
     const land = (event) => {
-      if (event.type === 'wheel' && event.deltaY >= 0) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      this._navigation?.surface?.(this._sceneData);
+      if (event.type === 'wheel' && event.deltaY >= 0) {
+        this._navigation?.back?.();
+      } else {
+        this._navigation?.surface?.(this._sceneData);
+      }
     };
     for (const name of ['dblclick', 'wheel']) {
       const options = { capture: true, passive: false };
@@ -120,7 +177,7 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
       landButton.addEventListener('click', land);
       const backButton = document.createElement('button');
       backButton.className = 'btn btn-secondary btn-sm';
-      backButton.textContent = 'Back to system';
+      backButton.textContent = 'Back';
       backButton.addEventListener('click', () => this._navigation?.back?.());
       this._hint.append(landButton, backButton);
       this._canvas.parentElement.appendChild(this._hint);
@@ -168,16 +225,18 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
 
   _drawFrame(cameraState, opacity = 1) {
     const aspect = this._canvas.width / Math.max(1, this._canvas.height);
-    const z = Math.abs(Number(cameraState?.position?.z) || 15);
-    const distance = 2.8 + Math.min(2, z / 50);
+    const target = cameraState?.target || { x: 0, y: 0, z: 0 };
+    const position = cameraState?.position || { x: 0, y: 0, z: 15 };
+    const cameraDistance = Math.hypot(
+      (Number(position.x) || 0) - (Number(target.x) || 0),
+      (Number(position.y) || 0) - (Number(target.y) || 0),
+      (Number(position.z) || 0) - (Number(target.z) || 0)
+    );
+    const distance = 2.8 + Math.min(2, cameraDistance / 50);
     const near = 0.1;
     const far = 20;
-    const projection = new Float32Array([
-      1.73 / aspect,0,0,0, 0,1.73,0,0, 0,0,far / (near - far),-1,
-      0,0,(far * near - far * distance) / (near - far),distance,
-    ]);
     const uniforms = new Float32Array(28);
-    uniforms.set(projection);
+    uniforms.set(planetViewProjection(cameraState, aspect, distance, near, far));
     uniforms.set([...this._visualPalette.base,1],16);
     uniforms.set([...this._visualPalette.atmo,1],20);
     uniforms.set([this._rotation,this._time,opacity,0],24);
@@ -221,7 +280,7 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { PlanetApproachLevelWebGPU, PLANET_APPROACH_WGSL };
+  module.exports = { PlanetApproachLevelWebGPU, PLANET_APPROACH_WGSL, planetViewProjection };
 } else {
   window.GQPlanetApproachLevelWebGPU = { PlanetApproachLevelWebGPU };
 }

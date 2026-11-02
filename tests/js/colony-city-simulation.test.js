@@ -4,9 +4,11 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const {
   ColonySurfaceLevelWebGPU, normalizeCitySlots, buildCityGeometry,
-  cityCameraMatrix, projectCityPoint, cityPedestrians, cityEconomyStatus,
+  cityCameraMatrix, projectCityPoint, mapColonySurfacePoint, projectColonySurfacePoint,
+  resolveBodySurface, cityPedestrians, cityEconomyStatus,
 } = require('../../js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js');
 const { SeamlessZoomOrchestrator, ZOOM_LEVEL } = require('../../js/engine/zoom/SeamlessZoomOrchestrator.js');
+const { planetViewProjection } = require('../../js/engine/zoom/levels/PlanetApproachLevelWebGPU.js');
 const mapping = require('../../js/engine/runtime/RuntimeColonySurfaceSlotMapping.js');
 
 const scene = (overrides = {}) => ({
@@ -118,6 +120,24 @@ describe('Authoritative city scene mapping', () => {
     expect(JSON.stringify(data)).toBe(before);
   });
 
+  it('maps colony ground to a spherical surface and scales the body for planets, moons and small bodies', () => {
+    const point = mapColonySurfacePoint(200, 12, 0, -8);
+    expect(Math.hypot(point[0], point[1] + 200, point[2])).toBeCloseTo(200);
+    expect(point[1]).toBeLessThan(0);
+    expect(mapColonySurfacePoint(200, 0, 0.5, 0)).toEqual([0, 0.5, 0]);
+
+    const earth = resolveBodySurface({ colony: { diameter: 12742, planet_class: 'terran' } }, 24, 18);
+    const moon = resolveBodySurface({ colony: { diameter: 3474, planet_type: 'moon' } }, 24, 18);
+    const comet = resolveBodySurface({ colony: { body_type: 'comet' } }, 24, 18);
+    expect(earth.radius).toBeGreaterThan(moon.radius);
+    expect(moon.radius).toBeGreaterThan(comet.radius);
+    expect(comet.kind).toBe('comet');
+
+    const matrix = cityCameraMatrix(1, 25);
+    expect(projectColonySurfacePoint(matrix, 200, 0, 0.5, 0))
+      .toEqual(projectCityPoint(matrix, 0, 0.5, 0));
+  });
+
   it('creates bounded deterministic cosmetic people only for populated built colonies', () => {
     const slots = normalizeCitySlots(scene());
     expect(cityPedestrians(1e9, slots)).toHaveLength(96);
@@ -149,6 +169,19 @@ describe('Isometric camera and shared WebGPU rendering', () => {
     const z = projectCityPoint(iso, 0, 0, 1);
     expect(x[0]).toBeCloseTo(-z[0]);
     expect(x[1]).toBeCloseTo(z[1]);
+  });
+
+  it('keeps an explicit camera target centered while changing the approach direction', () => {
+    const target = { x: 2, y: -1, z: 3 };
+    const north = planetViewProjection({
+      position: { x: 2, y: -1, z: 13 }, target,
+    }, 1.5, 3.2);
+    const east = planetViewProjection({
+      position: { x: 12, y: -1, z: 3 }, target,
+    }, 1.5, 3.2);
+    projectCityPoint(north, target.x, target.y, target.z).slice(0, 2).forEach((value) => expect(value).toBeCloseTo(0));
+    projectCityPoint(east, target.x, target.y, target.z).slice(0, 2).forEach((value) => expect(value).toBeCloseTo(0));
+    expect([...north]).not.toEqual([...east]);
   });
 
   it('draws depth-tested 36-vertex instances on the borrowed context and resizes owned depth only', async () => {
@@ -246,6 +279,40 @@ describe('Isometric camera and shared WebGPU rendering', () => {
     await promise;
     orchestrator.tick(0.016);
     expect(incoming.render.mock.lastCall[1]).toMatchObject({ t: 1, position: { z: 15 } });
+  });
+
+  it('returns from a colony to its planet, then from the planet to its system', async () => {
+    const orchestrator = new SeamlessZoomOrchestrator(document.createElement('canvas'));
+    orchestrator._backend = {};
+    vi.spyOn(SeamlessZoomOrchestrator, '_requiresCameraFlight')
+      .mockImplementation((level) => level === ZOOM_LEVEL.PLANET_APPROACH);
+    const flyTo = vi.spyOn(orchestrator._flight, 'flyTo').mockResolvedValue(undefined);
+    let planetNavigation;
+    let colonyNavigation;
+    const makeRenderer = (capture) => ({
+      _initialised: true,
+      initialize: vi.fn(),
+      enter: vi.fn(),
+      exit: vi.fn(),
+      render: vi.fn(),
+      setNavigationHandlers: vi.fn((handlers) => { capture(handlers); }),
+    });
+    const renderers = {
+      [ZOOM_LEVEL.SYSTEM]: makeRenderer(() => {}),
+      [ZOOM_LEVEL.PLANET_APPROACH]: makeRenderer((handlers) => { planetNavigation = handlers; }),
+      [ZOOM_LEVEL.COLONY_SURFACE]: makeRenderer((handlers) => { colonyNavigation = handlers; }),
+    };
+    orchestrator._registry.resolve = (level) => renderers[level];
+
+    await orchestrator.zoomTo(ZOOM_LEVEL.SYSTEM, null);
+    await orchestrator.zoomTo(ZOOM_LEVEL.PLANET_APPROACH, { id: 'planet' });
+    await orchestrator.zoomTo(ZOOM_LEVEL.COLONY_SURFACE, { colony: { id: 7 } });
+    colonyNavigation.back();
+    await vi.waitFor(() => expect(orchestrator._activeLevel).toBe(ZOOM_LEVEL.PLANET_APPROACH));
+    planetNavigation.back();
+    await vi.waitFor(() => expect(orchestrator._activeLevel).toBe(ZOOM_LEVEL.SYSTEM));
+    expect(flyTo).toHaveBeenCalledOnce();
+    orchestrator.dispose();
   });
 });
 

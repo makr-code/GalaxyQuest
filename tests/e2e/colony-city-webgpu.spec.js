@@ -108,7 +108,8 @@ test('colony city uses the live galaxy device, canvas and frame loop', async ({ 
   expect(requests).toBe(1);
   await page.getByRole('button', { name: 'Back to orbit' }).click();
   await expect(page.getByRole('region', { name: 'Colony surface simulation' })).toHaveCount(0);
-  expect(await page.evaluate(() => window.cityTest.renderer._zoomSceneActive)).toBe(false);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.cityTest.renderer._zoomSceneActive)).toBe(false);
   expect(errors).toEqual([]);
   await page.evaluate(() => window.cityTest.orchestrator.dispose());
 });

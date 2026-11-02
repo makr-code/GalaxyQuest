@@ -162,6 +162,8 @@ class SeamlessZoomOrchestrator {
     this._flight     = new CameraFlightPathCtor();
     this._active     = null;   // currently active IZoomLevelRenderer
     this._activeLevel = null;
+    this._planetReturnLevel = ZOOM_LEVEL.SYSTEM;
+    this._surfaceReturnLevel = ZOOM_LEVEL.PLANET_APPROACH;
     this._transition = false;  // guard flag
     this._rafId      = 0;
     this._removeFrameHook = null;
@@ -280,6 +282,10 @@ class SeamlessZoomOrchestrator {
    * @param {object} [opts]
    * @param {THREE.Vector3|{x,y,z}} [opts.cameraFrom]  required for Level-2 / Level-4
    * @param {THREE.Vector3|{x,y,z}} [opts.cameraTo]    required for Level-2 / Level-4
+   * @param {object|Function}       [opts.cameraTarget] live look target or target provider
+   * @param {Array<object>}         [opts.cameraColliders] sphere/box obstacles in world coordinates
+   * @param {number}                [opts.cameraCollisionRadius=0.25] camera clearance radius
+   * @param {boolean}               [opts.skipCameraFlight] suppresses a flight when returning to a parent
    * @param {number}                [opts.flyDuration]  default 2500 ms
    * @returns {Promise<void>}
    */
@@ -307,12 +313,29 @@ class SeamlessZoomOrchestrator {
       if (typeof next.setNavigationHandlers === 'function') {
         next.setNavigationHandlers({
           slotClick: (slot) => this._emit('slotClick', slot),
-          back: () => this.zoomTo(level === ZOOM_LEVEL.COLONY_SURFACE ? this._surfaceReturnLevel ?? ZOOM_LEVEL.SYSTEM : ZOOM_LEVEL.SYSTEM, null),
+          back: () => this.zoomTo(
+            level === ZOOM_LEVEL.COLONY_SURFACE
+              ? this._surfaceReturnLevel
+              : level === ZOOM_LEVEL.PLANET_APPROACH
+                ? this._planetReturnLevel
+                : ZOOM_LEVEL.SYSTEM,
+            null,
+            { skipCameraFlight: true }
+          ),
           surface: (data) => this.zoomTo(ZOOM_LEVEL.COLONY_SURFACE, data),
         });
       }
       if (level === ZOOM_LEVEL.COLONY_SURFACE && this._activeLevel !== level) {
-        this._surfaceReturnLevel = this._activeLevel === ZOOM_LEVEL.GALAXY ? ZOOM_LEVEL.GALAXY : ZOOM_LEVEL.SYSTEM;
+        this._surfaceReturnLevel = Number.isFinite(this._activeLevel)
+          ? this._activeLevel
+          : ZOOM_LEVEL.PLANET_APPROACH;
+      }
+      if (level === ZOOM_LEVEL.PLANET_APPROACH
+          && this._activeLevel !== level
+          && this._activeLevel !== ZOOM_LEVEL.COLONY_SURFACE) {
+        this._planetReturnLevel = Number.isFinite(this._activeLevel)
+          ? this._activeLevel
+          : ZOOM_LEVEL.SYSTEM;
       }
       await next.enter(this._activeLevel, payload);
 
@@ -321,13 +344,21 @@ class SeamlessZoomOrchestrator {
       this._backend?.setZoomSceneActive?.(level >= ZOOM_LEVEL.PLANET_APPROACH);
       // The incoming renderer must receive the flight camera, not an already
       // exited outgoing level. Keep the final pose after the flight completes.
-      if (SeamlessZoomOrchestrator._requiresCameraFlight(level)) {
+      if (!opts.skipCameraFlight && SeamlessZoomOrchestrator._requiresCameraFlight(level)) {
         await this._flight.flyTo(
           opts.cameraFrom || { x: 0, y: 0, z: 100 },
           opts.cameraTo || { x: 0, y: 0, z: 15 },
           opts.flyDuration ?? 2500,
           {
             starBlur: 0.4,
+            target: opts.cameraTarget ?? payload?.cameraTarget ?? { x: 0, y: 0, z: 0 },
+            colliders: [
+              ...(level === ZOOM_LEVEL.PLANET_APPROACH
+                ? [{ type: 'sphere', center: { x: 0, y: 0, z: 0 }, radius: 1 }]
+                : []),
+              ...(opts.cameraColliders || []),
+            ],
+            collisionRadius: opts.cameraCollisionRadius ?? 0.25,
             onAtmosphereScale: opts.onAtmosphereScale || null,
             onStarBlur: opts.onStarBlur || null,
           },

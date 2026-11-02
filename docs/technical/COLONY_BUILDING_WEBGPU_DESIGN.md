@@ -26,9 +26,15 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
 - **Navigation:** Planet doppelklicken → Anflug → „Land on colony“ bzw.
   doppelklicken/hineinscrollen. Alternativ öffnet „3D city“ im Koloniefenster
   direkt die Oberfläche, sobald der native Galaxy-Renderer initialisiert ist.
-  Die Kamera interpoliert in 1,2 Sekunden von Perspektive/Überblick zur
-  orthographischen Isometrie (45° Azimut, 35,264° Höhe). Beim Landen wird der
-  bisherige Planet im gleichen Kontext überblendet.
+  Die Kamera interpoliert in 1,2 Sekunden vom ganzen Himmelskörper zur
+  isometrischen Stadtansicht. Die Stadt, Straßen, Figuren, Effekte und das
+  Picking werden über dieselbe geodätische Abbildung auf eine Kugelkappe
+  projiziert; der sichtbare Planetenkörper wird im selben WebGPU-Pass gerendert.
+  Scrollen führt vom Körper in die Kolonie und beim Herauszoomen wieder zum
+  jeweiligen Eltern-Level zurück. Flugkameras richten sich auf ein eigenes,
+  optional dynamisches Target aus; ihre Bewegung prüft eine Kamerakugel gegen
+  Körper-Sphären und AABB-Hindernisse. Die Kolonie-Kamera hält zusätzlich
+  Mindestabstand zu den höchsten Gebäuden.
 - **Interaktion:** Ziehen verschiebt die Kamera, Mausrad oder +/- zoomt,
   Doppelklick fokussiert ein Gebäude. CPU-Picking projizierter Gebäude-Bounds
   berücksichtigt Tiefe und Viewportgröße. Auswahl zeigt Typ/Level/Bauzustand.
@@ -52,7 +58,7 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
   Tiefentextur; gecachte Pipelines werden beim Orchestrator-Dispose freigegeben.
 
 **Bewusste Grenzen:** stilisierte prozedurale Gebäude statt JSON-/GLTF-Modellen,
-keine vollständige Planetenterrain-/Geometrie-Morph-Engine, kein GPU-Picking,
+prozedurale Kugeloberfläche statt vollständigem Planetenterrain, kein GPU-Picking,
 keine Wegfindungs-/Haushalts-/Arbeitsmarkt-Simulation einzelner Personen, keine
 neuen Bau-Mutationen im 3D-Viewport. Fußgänger laufen kosmetische Straßenzyklen.
 Die Legacy-Three.js-Familie und der separate alte Gebäude-Close-up sind nicht

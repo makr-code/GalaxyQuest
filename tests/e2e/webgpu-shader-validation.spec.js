@@ -73,6 +73,13 @@ function buildShaderCatalogue() {
       ),
     },
     {
+      label: 'Colony surface — geodesic body shell',
+      type: 'render',
+      source: extractWgslFromModule(
+        'js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js', 'COLONY_BODY_WGSL',
+      ),
+    },
+    {
       label: 'Colony surface — projected activity particles',
       type: 'render',
       source: extractWgslFromModule(

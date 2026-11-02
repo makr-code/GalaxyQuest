@@ -323,6 +323,16 @@ describe('SeamlessZoomOrchestrator — PLANET_APPROACH triggers flyTo()', () => 
     // Transitioning to PLANET_APPROACH should call flyTo().
     await orch.zoomTo(ZOOM_LEVEL.PLANET_APPROACH, { planet: { id: 7 } });
     expect(flyToSpy).toHaveBeenCalledOnce();
+    expect(flyToSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        target: { x: 0, y: 0, z: 0 },
+        colliders: [expect.objectContaining({ type: 'sphere', radius: 1 })],
+        collisionRadius: 0.25,
+      })
+    );
   });
 });
 
@@ -380,6 +390,34 @@ describe('CameraFlightPath — tick() t progression', () => {
   it('returns null when idle (no flight active)', () => {
     const flight = new CameraFlightPath();
     expect(flight.tick(16)).toBeNull();
+  });
+
+  it('tracks a moving target object independently of the flight destination', () => {
+    const flight = new CameraFlightPath();
+    const target = { position: { x: 1, y: 2, z: 3 } };
+    flight.flyTo({ x: 0, y: 0, z: 100 }, { x: 0, y: 0, z: 10 }, 500, { target }).catch(() => {});
+    expect(flight.tick(32).target).toEqual({ x: 1, y: 2, z: 3 });
+    target.position.x = 8;
+    expect(flight.tick(32).target).toEqual({ x: 8, y: 2, z: 3 });
+  });
+
+  it('sweeps the camera clearance sphere against body and box colliders', () => {
+    const flight = new CameraFlightPath();
+    flight.flyTo({ x: 0, y: 0, z: 10 }, { x: 0, y: 0, z: -10 }, 100, {
+      target: { x: 0, y: 0, z: 0 },
+      collisionRadius: 0.5,
+      colliders: [{ type: 'sphere', center: { x: 0, y: 0, z: 0 }, radius: 2 }],
+    }).catch(() => {});
+    const sphereHit = flight.tick(100);
+    expect(Math.hypot(sphereHit.position.x, sphereHit.position.y, sphereHit.position.z)).toBeGreaterThanOrEqual(2.49);
+
+    flight.flyTo({ x: 0, y: 0, z: 10 }, { x: 0, y: 0, z: -10 }, 100, {
+      target: { x: 0, y: 0, z: 0 },
+      collisionRadius: 0.5,
+      colliders: [{ type: 'box', min: { x: -1, y: -1, z: -1 }, max: { x: 1, y: 1, z: 1 } }],
+    }).catch(() => {});
+    const boxHit = flight.tick(100);
+    expect(boxHit.position.z).toBeGreaterThanOrEqual(1.49);
   });
 });
 
