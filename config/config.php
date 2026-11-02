@@ -15,6 +15,7 @@ define('DB_CHARSET', env_value('DB_CHARSET', 'utf8mb4'));
 
 // Game configuration
 define('GAME_SPEED', (int) env_value('GAME_SPEED', 1));   // Resource/fleet speed multiplier
+define('ON_DEMAND_ECONOMY_ENABLED', (int) env_value('ON_DEMAND_ECONOMY_ENABLED', 0));
 define('GALAXY_MAX', (int) env_value('GALAXY_MAX', 9));   // Max galaxies
 define('SYSTEM_MAX', (int) env_value('SYSTEM_MAX', 25000)); // Max systems per galaxy
 define('POSITION_MAX', (int) env_value('POSITION_MAX', 15)); // Max planets per system

@@ -3,7 +3,12 @@
  * Core game engine: resource production, building costs, ship stats, etc.
  */
 
+use GalaxyQuest\Economy\ColonyEconomySimulation;
+use GalaxyQuest\Economy\OnDemandEconomy;
+
 require_once __DIR__ . '/galaxy_seed.php';
+require_once __DIR__ . '/../src/Economy/ColonyEconomySimulation.php';
+require_once __DIR__ . '/../src/Economy/OnDemandEconomy.php';
 
 if (!function_exists('normalize_angle_rad')) {
     function normalize_angle_rad(float $angle): float {
@@ -61,7 +66,7 @@ function ship_definitions(): array {
 }
 
 function building_definitions(): array {
-    return [
+    $definitions = [
         'metal_mine'       => ['category' => 'extraction', 'label' => 'Metal Mine',       'icon' => '⬡', 'zone' => 'surface', 'footprint' => 2, 'class_key' => 'industrial'],
         'crystal_mine'     => ['category' => 'extraction', 'label' => 'Crystal Mine',     'icon' => '💎', 'zone' => 'surface', 'footprint' => 2, 'class_key' => 'industrial'],
         'deuterium_synth'  => ['category' => 'extraction', 'label' => 'Deuterium Synth',  'icon' => '🔵', 'zone' => 'surface', 'footprint' => 2, 'class_key' => 'industrial'],
@@ -90,6 +95,10 @@ function building_definitions(): array {
         'relay_station'    => ['category' => 'infrastructure', 'label' => 'Relay Station', 'icon' => '📡', 'zone' => 'star_orbit', 'footprint' => 0, 'class_key' => 'orbital', 'min_level' => 1],
         'deep_space_radar' => ['category' => 'surveillance','label' => 'Deep Space Radar','icon' => '📶', 'zone' => 'star_orbit', 'footprint' => 0, 'class_key' => 'orbital', 'min_level' => 1],
     ];
+    if (ON_DEMAND_ECONOMY_ENABLED) {
+        $definitions += OnDemandEconomy::catalog();
+    }
+    return $definitions;
 }
 
 function colony_layout_profile(array $planet): array {
@@ -468,6 +477,9 @@ function vessel_manifest(array $ships, int $capPerType = 10): array {
 // ─── Building costs ──────────────────────────────────────────────────────────
 
 function building_cost(string $type, int $nextLevel): array {
+    if (ON_DEMAND_ECONOMY_ENABLED && isset(ColonyEconomySimulation::RECIPES[$type])) {
+        return OnDemandEconomy::processingCost($type, $nextLevel);
+    }
     $base = BUILDING_BASE_COST[$type] ?? ['metal' => 60, 'crystal' => 15, 'deuterium' => 0];
     $f    = BUILDING_COST_FACTOR[$type] ?? 1.5;
     return [
@@ -1329,6 +1341,10 @@ function clamp_int_range(int $value, int $min, int $max): int {
 }
 
 function update_colony_resources(PDO $db, int $colonyId): void {
+    if (ON_DEMAND_ECONOMY_ENABLED) {
+        (new OnDemandEconomy($db))->settle($colonyId);
+        return;
+    }
     $stmt = $db->prepare(
         'SELECT c.id, c.user_id, c.metal, c.crystal, c.deuterium, c.rare_earth, c.food,
                 c.energy, c.population, c.max_population, c.happiness,
@@ -1911,21 +1927,117 @@ function process_war_runtime_tick(PDO $db, bool $force = false): array {
 }
 
 /**
- * Process economy pop satisfaction tick.
+ * Process war attrition tick.
  *
- * Calculates satisfaction_index based on:
- * - Employment level (availability of jobs)
- * - Wages relative to requirements
- * - Culture spending (happiness)
- * - Safety budget (protection from pirates)
- * - War status (morale effects)
- * - Production yields (affects satisfaction)
+ * Calculates attrition damage based on:
+ * - Supply line efficiency (distance + blockades)
+ * - War exhaustion (prolonged conflict morale)
+ * - Troop conditions (supply shortage penalties)
  *
- * Satisfaction drives:
- * - Production multiplier (0.5x to 1.5x based on 0-100 satisfaction)
- * - Population migration (between colonies, out of faction)
- * - Building efficiency (workshop, university, temples)
+ * Attrition reduces unit counts without direct combat engagement.
  */
+function process_war_attrition_tick(PDO $db, bool $force = false): array
+{
+    $result = [
+        'processed'         => false,
+        'wars_processed'    => 0,
+        'attrition_events'  => 0,
+        'total_losses'      => 0,
+        'elapsed_seconds'   => 0,
+    ];
+
+    $now = time();
+    $stateKey = 'war:attrition_last_tick';
+
+    if (function_exists('app_state_get_int')) {
+        $lastTick = app_state_get_int($db, $stateKey, $now);
+        if ($lastTick <= 0) {
+            $lastTick = $now;
+        }
+    } else {
+        $lastTick = $now;
+    }
+
+    $elapsed = max(0, $now - $lastTick);
+    $result['elapsed_seconds'] = $elapsed;
+
+    try {
+        // Get all active wars
+        $stmt = $db->query(
+            'SELECT id, attacker_user_id, defender_user_id, exhaustion_att, exhaustion_def '
+                . 'FROM wars WHERE status = "active"'
+        );
+        $wars = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        foreach ($wars as $war) {
+            $warId = (int)$war['id'];
+            $attackerId = (int)$war['attacker_user_id'];
+            $defenderId = (int)$war['defender_user_id'];
+            $exhaustionAtt = (float)$war['exhaustion_att'];
+            $exhaustionDef = (float)$war['exhaustion_def'];
+
+            // Calculate base attrition from exhaustion
+            // Higher exhaustion = higher attrition (0.5% base + 0.1% per exhaustion point)
+            $baseAttritionAtt = 0.5 + ($exhaustionAtt * 0.001);
+            $baseAttritionDef = 0.5 + ($exhaustionDef * 0.001);
+
+            // Check supply efficiency penalties
+            $supplyStmt = $db->prepare(<<<SQL
+                SELECT
+                    COUNT(*) as total_lines,
+                    SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_lines,
+                    AVG(supply_capacity - interdiction_level * 0.5) as avg_efficiency
+                FROM war_supply_lines
+                WHERE war_id = ?
+            SQL);
+            $supplyStmt->execute([$warId]);
+            $supply = $supplyStmt->fetch(PDO::FETCH_ASSOC);
+
+            $supplyPenalty = 0;
+            if ((int)$supply['total_lines'] > 0) {
+                $avgEff = (float)($supply['avg_efficiency'] ?? 100);
+                $supplyPenalty = (100 - $avgEff) * 0.01; // 1% attrition per 1% supply loss
+            }
+
+            // Calculate final attrition rates
+            $attritionAtt = min(50, $baseAttritionAtt + $supplyPenalty); // Cap at 50% per tick
+            $attritionDef = min(50, $baseAttritionDef + $supplyPenalty);
+
+            // Record attrition events
+            $eventStmt = $db->prepare(<<<SQL
+                INSERT INTO war_attrition_events
+                (war_id, attacker_id, defender_id, attrition_rate, cause, attacker_losses, defender_losses)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            SQL);
+            $eventStmt->execute([
+                $warId,
+                $attackerId,
+                $defenderId,
+                $attritionAtt,
+                'supply_shortage',
+                (int)($attritionAtt * 10), // Placeholder loss calculations
+                (int)($attritionDef * 10),
+            ]);
+
+            $result['total_losses'] += (int)($attritionAtt * 10) + (int)($attritionDef * 10);
+            $result['attrition_events']++;
+            $result['wars_processed']++;
+        }
+
+        $result['processed'] = true;
+
+        if (function_exists('app_state_set_int')) {
+            app_state_set_int($db, $stateKey, $now);
+        }
+
+    } catch (Throwable $e) {
+        error_log('process_war_attrition_tick error: ' . $e->getMessage());
+    }
+
+    return $result;
+}
+
+/** Process legacy population satisfaction; the on-demand ledger owns it when enabled. */
 function process_economy_pop_satisfaction_tick(PDO $db, bool $force = false): array {
     $result = [
         'processed'           => false,
@@ -1936,119 +2048,16 @@ function process_economy_pop_satisfaction_tick(PDO $db, bool $force = false): ar
         'elapsed_seconds'     => 0,
         'last_tick'           => 0,
     ];
+    if (ON_DEMAND_ECONOMY_ENABLED) {
+        return array_merge($result, ['schema_ready' => true, 'mode' => 'on_demand']);
+    }
 
-    // Check if tables exist
     $stmt = $db->query("SHOW TABLES LIKE 'economy_pop_classes'");
     if (!$stmt->fetch()) {
         return $result;
     }
     $result['schema_ready'] = true;
-
     $now = time();
-    /**
-     * Process war attrition tick.
-     *
-     * Calculates attrition damage based on:
-     * - Supply line efficiency (distance + blockades)
-     * - War exhaustion (prolonged conflict morale)
-     * - Troop conditions (supply shortage penalties)
-     *
-     * Attrition reduces unit counts without direct combat engagement.
-     */
-    function process_war_attrition_tick(PDO $db, bool $force = false): array {
-        $result = [
-            'processed'         => false,
-            'wars_processed'    => 0,
-            'attrition_events'  => 0,
-            'total_losses'      => 0,
-            'elapsed_seconds'   => 0,
-        ];
-
-        $now = time();
-        $stateKey = 'war:attrition_last_tick';
-
-        if (function_exists('app_state_get_int')) {
-            $lastTick = app_state_get_int($db, $stateKey, $now);
-            if ($lastTick <= 0) $lastTick = $now;
-        } else {
-            $lastTick = $now;
-        }
-
-        $elapsed = max(0, $now - $lastTick);
-        $result['elapsed_seconds'] = $elapsed;
-
-        try {
-            // Get all active wars
-            $stmt = $db->query('SELECT id, attacker_user_id, defender_user_id, exhaustion_att, exhaustion_def FROM wars WHERE status = "active"');
-            $wars = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-
-            foreach ($wars as $war) {
-                $warId = (int)$war['id'];
-                $attackerId = (int)$war['attacker_user_id'];
-                $defenderId = (int)$war['defender_user_id'];
-                $exhaustionAtt = (float)$war['exhaustion_att'];
-                $exhaustionDef = (float)$war['exhaustion_def'];
-
-                // Calculate base attrition from exhaustion
-                // Higher exhaustion = higher attrition (0.5% base + 0.1% per exhaustion point)
-                $baseAttritionAtt = 0.5 + ($exhaustionAtt * 0.001);
-                $baseAttritionDef = 0.5 + ($exhaustionDef * 0.001);
-
-                // Check supply efficiency penalties
-                $supplyStmt = $db->prepare(<<<SQL
-                    SELECT 
-                        COUNT(*) as total_lines,
-                        SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_lines,
-                        AVG(supply_capacity - interdiction_level * 0.5) as avg_efficiency
-                    FROM war_supply_lines
-                    WHERE war_id = ?
-                SQL);
-                $supplyStmt->execute([$warId]);
-                $supply = $supplyStmt->fetch(PDO::FETCH_ASSOC);
-
-                $supplyPenalty = 0;
-                if ((int)$supply['total_lines'] > 0) {
-                    $avgEff = (float)($supply['avg_efficiency'] ?? 100);
-                    $supplyPenalty = (100 - $avgEff) * 0.01; // 1% attrition per 1% supply loss
-                }
-
-                // Calculate final attrition rates
-                $attritionAtt = min(50, $baseAttritionAtt + $supplyPenalty); // Cap at 50% per tick
-                $attritionDef = min(50, $baseAttritionDef + $supplyPenalty);
-
-                // Record attrition events
-                $eventStmt = $db->prepare(<<<SQL
-                    INSERT INTO war_attrition_events
-                    (war_id, attacker_id, defender_id, attrition_rate, cause, attacker_losses, defender_losses)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                SQL);
-                $eventStmt->execute([
-                    $warId,
-                    $attackerId,
-                    $defenderId,
-                    $attritionAtt,
-                    'supply_shortage',
-                    (int)($attritionAtt * 10), // Placeholder loss calculations
-                    (int)($attritionDef * 10),
-                ]);
-
-                $result['total_losses'] += (int)($attritionAtt * 10) + (int)($attritionDef * 10);
-                $result['attrition_events']++;
-                $result['wars_processed']++;
-            }
-
-            $result['processed'] = true;
-
-            if (function_exists('app_state_set_int')) {
-                app_state_set_int($db, $stateKey, $now);
-            }
-
-        } catch (Throwable $e) {
-            error_log('process_war_attrition_tick error: ' . $e->getMessage());
-        }
-
-        return $result;
-    }
 
     /**
      * Parse war-goal location tuple.
@@ -2539,6 +2548,12 @@ function process_war_goal_progress(PDO $db, int $elapsedSeconds): array {
  * @return array{processed: bool, schema_ready: bool, colonies_flushed: int, shortage_events: int, elapsed_seconds: int}
  */
 function process_economy_production_tick(PDO $db, bool $force = false): array {
+    if (ON_DEMAND_ECONOMY_ENABLED) {
+        return [
+            'processed' => false, 'schema_ready' => true, 'colonies_flushed' => 0,
+            'shortage_events' => 0, 'elapsed_seconds' => 0, 'mode' => 'on_demand',
+        ];
+    }
     $result = [
         'processed'        => false,
         'schema_ready'     => false,

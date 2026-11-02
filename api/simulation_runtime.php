@@ -130,7 +130,7 @@ function simulation_tick_global(PDO $db, bool $force = false): array
 
     $hasSuccessfulTick = false;
     foreach ($result['ticks'] as $tick) {
-        if (is_array($tick) && !empty($tick['ok'])) {
+        if (!empty($tick['ok'])) {
             $hasSuccessfulTick = true;
             break;
         }

@@ -227,7 +227,8 @@ GalaxyQuest gilt als produktionsreif, wenn **alle** folgenden Aussagen nachweisb
 **Spielintegrität** (BE-01 … BE-03)
 - [ ] Gemeinsamer `ResourceLedger`-Service: Transaktion + `SELECT … FOR UPDATE` + bedingtes Update; Einsatz in Bau, Forschung, Werft, Flotte, Handel und Markt
 - [ ] Nebenläufigkeitstests (parallele Requests) für jede Ressourcenmutation; Invariante „Ressourcen ≥ 0“ per DB-Constraint oder Check
-- [ ] Simulation als **eigener Worker-Prozess** (Supervisor/systemd/Container) mit Lease (`GET_LOCK` oder Lease-Tabelle) und idempotenter Tick-Nummer; `--force` nur für Admin-CLI
+- [x] Opt-in Koloniewirtschaft als serverseitiger On-Demand-Prozess: persistente 300-Sekunden-Schritte, begrenztes Catch-up, reale Produktionsinputs und Bevoelkerungsklassen, gemeinsame Bau-/Markt-Abrechnung und aggregierte System-/Galaxieprojektionen mit Altersangabe. Migration und `ON_DEMAND_ECONOMY_ENABLED=1` erforderlich; kein Wirtschaftsworker. Externe Marktliquiditaet bleibt ein Market-Maker.
+- [ ] Nichtwirtschaftliche Weltsimulation als eigener Worker-Prozess mit Lease und idempotenter Tick-Nummer pruefen; dies ist keine Voraussetzung fuer Kolonieproduktion.
 - [ ] Tick-on-Read entfernen (`trade.php`, `fleet.php` u. a.); Lesepfade bleiben frei von Seiteneffekten
 - [ ] Tick-Metriken: Dauer, Lag, Fehler pro Subsystem
 

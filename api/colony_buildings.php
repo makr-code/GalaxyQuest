@@ -16,11 +16,60 @@
  * Referenz: docs/gamedesign/COLONY_BUILDING_SYSTEM_DESIGN.md
  *           docs/github-issues/09-colony-buildings-backend.md
  */
+use GalaxyQuest\Economy\OnDemandEconomy;
+
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/game_engine.php';
 
 $action = $_GET['action'] ?? '';
 $uid    = require_auth();
 $db     = get_db();
+
+if (ON_DEMAND_ECONOMY_ENABLED) {
+    $economy = new OnDemandEconomy($db);
+    try {
+        if (in_array($action, ['place_building', 'upgrade_slot', 'remove_building'], true)) {
+            only_method('POST');
+            verify_csrf();
+            $body = get_json_body();
+            $cid = (int)($body['colony_id'] ?? 0);
+            $x = filter_var($body['slot_x'] ?? null, FILTER_VALIDATE_INT);
+            $y = filter_var($body['slot_y'] ?? null, FILTER_VALIDATE_INT);
+            if ($x === false || $y === false) {
+                json_error('Integer slot coordinates required.', 400);
+            }
+            $snapshot = $economy->settle($cid, $uid);
+            if ($action === 'remove_building') {
+                $economy->remove($cid, $uid, $x, $y);
+                json_ok();
+            }
+            $type = $body['building_type'] ?? '';
+            if ($action === 'upgrade_slot') {
+                $type = '';
+                foreach ($snapshot['slots'] as $slot) {
+                    if ((int)$slot['slot_x'] === $x && (int)$slot['slot_y'] === $y) {
+                        $type = $slot['building_type'];
+                    }
+                }
+            } else {
+                foreach ($snapshot['slots'] as $slot) {
+                    if ((int)$slot['slot_x'] === $x && (int)$slot['slot_y'] === $y) {
+                        json_error('Slot already occupied.', 409);
+                    }
+                }
+            }
+            if (!is_string($type) || $type === '') {
+                json_error('Building not found.', 404);
+            }
+            json_ok($economy->queue($cid, $uid, $type, [$x, $y]));
+        }
+        if (in_array($action, ['get_layout', 'get_slot_info'], true)) {
+            $economy->settle((int)($_GET['colony_id'] ?? 0), $uid);
+        }
+    } catch (DomainException $error) {
+        json_error($error->getMessage(), $error->getCode() ?: 400);
+    }
+}
 
 switch ($action) {
 
