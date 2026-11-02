@@ -11,6 +11,7 @@ function runtime({ gpuFails = false } = {}) {
     setSize(w, h) { this.canvas.width = w; this.canvas.height = h; }
     beginFrame = vi.fn();
     endFrame = vi.fn();
+    onContextLostObservable = { add: callback => { this.loseContext = callback; } };
   }
   class Scene {
     constructor() {
@@ -143,6 +144,32 @@ describe('isolated Babylon colony lifecycle', () => {
     expect(B.engines[0].dispose).toHaveBeenCalledTimes(2);
     expect(B.scenes).toHaveLength(0);
   });
+
+  it.each(['observable', 'webgl-event', 'device'])('invalidates capture on %s loss and requires reload', async route => {
+    const B = runtime();
+    let loseDevice;
+    if (route === 'device') {
+      navigator.gpu = {};
+      B.Engine.prototype._device = { lost: new Promise(resolve => { loseDevice = resolve; }) };
+    }
+    const capture = new FrameCapture({ warmup: 1, samples: 2 });
+    const invalidated = vi.fn(message => { capture.cancel(message); adapter.dispose(); });
+    const adapter = new BabylonColonyAdapter({ load: async () => B, onInvalidated: invalidated });
+    await adapter.initialize(document.createElement('canvas'));
+    await adapter.enter();
+    const rejection = expect(capture.promise).rejects.toThrow('reload the renderer');
+    if (route === 'device') loseDevice({});
+    else if (route === 'webgl-event') adapter.canvas.dispatchEvent(new Event('webglcontextlost'));
+    else B.engines[0].loseContext();
+    await rejection;
+    expect(invalidated).toHaveBeenCalledOnce();
+    expect(B.engines[0].dispose).toHaveBeenCalledOnce();
+    adapter.render(0.016);
+    expect(B.scenes[0].render).not.toHaveBeenCalled();
+    await expect(adapter.enter()).rejects.toThrow('disposed');
+    B.engines[0].loseContext();
+    expect(invalidated).toHaveBeenCalledOnce();
+  });
 });
 
 describe('bounded benchmark validity', () => {
@@ -232,6 +259,7 @@ describe('bounded benchmark validity', () => {
     const target = Object.assign(Object.create(proto), { tag: 7 });
     const baseline = captureLiveBaseline({
       target, canvas: document.createElement('canvas'), scene: 'galaxy', backend: 'native-webgpu',
+      readState: () => ({ scene: 'galaxy', backend: 'native-webgpu', ready: true }),
       warmup: 1, samples: 2,
     });
     expect(target.render()).toBe(42); target.render(); target.render();
@@ -244,7 +272,8 @@ describe('bounded benchmark validity', () => {
 
   it('restores a live method on cancel/error and refuses double wrapping', async () => {
     const target = { render: vi.fn() }, original = target.render;
-    const options = { target, canvas: document.createElement('canvas'), scene: 'dense-system', backend: 'webgl' };
+    const options = { target, canvas: document.createElement('canvas'), scene: 'dense-system', backend: 'webgl',
+      readState: () => ({ scene: 'dense-system', backend: 'webgl', ready: true }) };
     const live = captureLiveBaseline(options);
     expect(() => captureLiveBaseline(options)).toThrow('Already capturing');
     live.cancel();
@@ -255,5 +284,61 @@ describe('bounded benchmark validity', () => {
     expect(() => target.render()).toThrow('broken');
     await expect(failed.promise).rejects.toThrow('Renderer failed');
     expect(target.render.evaluationCapture).toBeUndefined();
+  });
+
+  it('rejects unfinished initialization and invalidates scene/backend changes without interrupting rendering', async () => {
+    const target = { render: vi.fn() }, original = target.render;
+    const state = { scene: 'galaxy', backend: 'webgpu', sceneKey: 'save-a', ready: false };
+    const options = { target, canvas: document.createElement('canvas'), scene: 'galaxy', backend: 'webgpu',
+      readState: () => state, warmup: 1, samples: 2 };
+    expect(() => captureLiveBaseline(options)).toThrow('Finish renderer initialization');
+    state.ready = true;
+    for (const [field, changed] of [['scene', 'dense-system'], ['backend', 'webgl'], ['sceneKey', 'save-b']]) {
+      const before = state[field], capture = captureLiveBaseline(options);
+      target.render();
+      state[field] = changed;
+      target.render();
+      await expect(capture.promise).rejects.toThrow('capture invalid');
+      expect(target.render).toBe(original);
+      state[field] = before;
+    }
+    expect(original).toHaveBeenCalledTimes(6);
+  });
+
+  it('cleans up promptly if the observed method is replaced or rendering stops after readiness loss', async () => {
+    vi.useFakeTimers();
+    const target = { render: vi.fn() }, replacement = vi.fn();
+    const state = { scene: 'galaxy', backend: 'webgpu', ready: true };
+    const options = { target, canvas: document.createElement('canvas'), scene: 'galaxy', backend: 'webgpu',
+      readState: () => state };
+    const replaced = captureLiveBaseline(options);
+    const rejected = expect(replaced.promise).rejects.toThrow('Render method replaced');
+    Object.defineProperty(target, 'render', { value: replacement });
+    vi.advanceTimersByTime(101);
+    await rejected;
+    expect(target.render).toBe(replacement);
+    expect(vi.getTimerCount()).toBe(0);
+    const lost = captureLiveBaseline(options);
+    const invalid = expect(lost.promise).rejects.toThrow('capture invalid');
+    state.ready = false;
+    vi.advanceTimersByTime(101);
+    await invalid;
+    expect(target.render).toBe(replacement);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('resolves with null optional telemetry if browser memory/resource APIs throw', async () => {
+    vi.stubGlobal('performance', {
+      now: () => 1,
+      get memory() { throw new Error('Memory access denied'); },
+      getEntriesByType() { throw new Error('Resource timing unavailable'); },
+    });
+    const capture = new FrameCapture({ warmup: 0, samples: 2 });
+    capture.observe(1, 0.1); capture.observe(2, 0.1); capture.observe(3, 0.1);
+    const result = await capture.promise;
+    expect(result.memoryBefore).toEqual({ jsHeapUsedBytes: null, jsHeapLimitBytes: null, gpuBytes: null });
+    expect(result.memoryAfter).toEqual(result.memoryBefore);
+    expect(result.resources).toBeNull();
+    expect(capture.done).toBe(true);
   });
 });

@@ -44,10 +44,31 @@ initializes until **Load / switch renderer** is pressed.
    Babylon's lit scene; picking reports only slot IDs. Blue emissive pulses are
    an evaluation effect, not a claim of native particle-effect parity.
 
+Device/context loss immediately cancels any current capture and disposes its
+renderer; measurement stays disabled until a fresh renderer is loaded. Automatic
+Babylon recovery is disabled so replacement device resources cannot silently
+enter a run. The adapter's device-loss listener uses the pinned 9.33.1 internal
+device handle (no public accessor), which remains entirely inside the adapter.
+
 The native colony class is used unmodified with its actual interface dependency
-loaded first. Its simplified projection ignores the navigation camera and some
-building properties, so same-data results are **not visual-equivalence results**.
+loaded first. Its simplified projection ignores the navigation camera, sets
+translation y to zero, and ignores z when positioning vertices: slot rows overlap.
+It also ignores some building properties, so same-data results are **not matched
+visual workloads or visual-equivalence results**.
 Do not treat this synthetic scene as a galaxy/dense-system workload.
+
+The existing Playwright runner also provides a reproducible browser correctness
+smoke (not a hardware performance claim). With the Vite server running:
+
+```sh
+GQ_WEBGPU_SHADER_CI=1 GQ_BASE_URL=http://127.0.0.1:8080 \
+  npx playwright test tests/e2e/babylon-colony-evaluation.spec.js --project=chromium --workers=1
+```
+
+Without `GQ_WEBGPU_SHADER_CI=1`, only explicit Babylon WebGL is exercised.
+Use `GQ_EVALUATION_BROWSER_PATH=/usr/bin/chromium` if the existing system Chromium
+should be used instead of the Playwright-managed browser. To check the built page,
+run its preview server and set `GQ_BASE_URL=http://127.0.0.1:4174`.
 
 ### Live-game galaxy, dense-system and colony baselines
 
@@ -61,9 +82,15 @@ const { captureLiveBaseline } = await import('/js/evaluation/benchmark.js');
 // Galaxy3DRendererWebGPU: temp1._renderFrame, temp1._canvas.
 // Legacy Galaxy3DRenderer: temp1._animate, temp1.renderer.domElement.
 // Active native colony zoom instance: temp1.render; pass its owning canvas.
+const readState = () => ({
+  scene: temp1.systemMode ? 'dense-system' : 'galaxy',
+  backend: temp1._backend,
+  sceneKey: String(temp1._currentTarget?.id ?? 'galaxy'),
+  ready: !!(temp1._device && temp1._context && temp1._pipeline && temp1._uniformBuf),
+});
 const run = captureLiveBaseline({
   target: temp1, method: '_renderFrame', canvas: temp1._canvas,
-  scene: 'galaxy', backend: 'native-webgpu',
+  scene: readState().scene, backend: readState().backend, readState,
   sceneMetadata: { scenario: 'describe save/seed, counts, quality, camera, active view here' },
   warmup: 60, samples: 240, timeoutMs: 30000,
 });
@@ -72,13 +99,23 @@ copy(JSON.stringify(baseline, null, 2)); // DevTools helper; save as JSON
 ```
 
 For the legacy renderer use `_animate` and its actual backend, not the native
-example's backend label. Navigate to a populated system and repeat with
+example's backend label. Adapt `readState` to the owning runtime's active scene,
+stable scene/save ID, actual backend and completed readiness (legacy:
+`rendererBackend` and initialized `renderer`, not the native device fields).
+The callback is required and checked before and after each observed call;
+scene/backend/readiness/scene-ID or canvas-resolution changes reject the capture.
+A bounded sideband timer checks invariants and method replacement even if the
+renderer stops producing frames; it never contributes timing samples. Optional
+memory/resource APIs that throw are reported as null, not as zero or a hung run.
+Navigate to a populated system and repeat with
 `scene: 'dense-system'`; navigate to colony and wrap the active zoom renderer's
 `render`. Attach only a method called **once per rendered frame**, not an empty
 compatibility `render()` shim. Do not change view/resolution during capture.
 The API preserves receiver/arguments/results and restores the original method
 on completion, cancellation, timeout, hidden-tab invalidation or render failure.
 It rejects async submission boundaries and duplicate attachment.
+`metricSource: 'synchronous-render-call-wrapper'` identifies actual method
+instrumentation. There is no independent RAF observer and no renderer-FPS claim.
 
 All captures discard 60 warmup calls, then sample 240 intervals and synchronous
 CPU call durations (p50/p95 with linear interpolation). CPU values include only

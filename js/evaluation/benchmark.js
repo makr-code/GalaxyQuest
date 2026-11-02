@@ -7,21 +7,29 @@ export function quantile(values, q) {
 }
 
 function memorySnapshot() {
-  const m = performance.memory;
-  return {
-    jsHeapUsedBytes: Number.isFinite(m?.usedJSHeapSize) ? m.usedJSHeapSize : null,
-    jsHeapLimitBytes: Number.isFinite(m?.jsHeapSizeLimit) ? m.jsHeapSizeLimit : null,
-    gpuBytes: null,
-  };
+  try {
+    const m = performance.memory;
+    return {
+      jsHeapUsedBytes: Number.isFinite(m?.usedJSHeapSize) ? m.usedJSHeapSize : null,
+      jsHeapLimitBytes: Number.isFinite(m?.jsHeapSizeLimit) ? m.jsHeapSizeLimit : null,
+      gpuBytes: null,
+    };
+  } catch {
+    return { jsHeapUsedBytes: null, jsHeapLimitBytes: null, gpuBytes: null };
+  }
 }
 
 export function resourceSnapshot(since = 0) {
-  if (!performance.getEntriesByType) return null;
-  return performance.getEntriesByType('resource').filter(r => r.startTime >= since).map(r => ({
-    url: new URL(r.name, location.href).pathname, durationMs: r.duration,
-    transferBytes: r.transferSize > 0 ? r.transferSize : null,
-    encodedBytes: r.encodedBodySize > 0 ? r.encodedBodySize : null,
-  }));
+  try {
+    if (!performance.getEntriesByType) return null;
+    return performance.getEntriesByType('resource').filter(r => r.startTime >= since).map(r => ({
+      url: new URL(r.name, location.href).pathname, durationMs: r.duration,
+      transferBytes: r.transferSize > 0 ? r.transferSize : null,
+      encodedBytes: r.encodedBodySize > 0 ? r.encodedBodySize : null,
+    }));
+  } catch {
+    return null;
+  }
 }
 
 /** Bounded observation of completed synchronous render calls, not GPU timings. */
@@ -70,9 +78,11 @@ export class FrameCapture {
     }
     this.previous = start;
     if (this.frames.length === this.samples) {
-      this.cleanup();
+      const cleanupError = this.cleanup();
+      if (cleanupError) { this.reject(cleanupError); return; }
       this.resolve({
         schema: 'gq-render-evaluation-v1', capturedAt: new Date().toISOString(),
+        metricSource: 'synchronous-render-call-wrapper',
         metadata: this.metadata, valid: true, warmupCalls: this.warmup, samples: this.samples,
         elapsedMs: this.now() - this.started, startupToFirstSubmissionMs: this.startupMs,
         frameIntervalMs: { p50: quantile(this.frames, 0.5), p95: quantile(this.frames, 0.95) },
@@ -88,13 +98,14 @@ export class FrameCapture {
     clearTimeout(this.timer);
     document.removeEventListener('visibilitychange', this.hidden);
     this.signal?.removeEventListener('abort', this.abort);
-    this.onCleanup?.();
+    try { this.onCleanup?.(); } catch (error) { return error; }
+    return null;
   }
 
   cancel(reason = 'Capture cancelled') {
     if (this.done) return;
-    this.cleanup();
-    this.reject(new Error(reason));
+    const cleanupError = this.cleanup();
+    this.reject(cleanupError || new Error(reason));
   }
 }
 
@@ -104,26 +115,47 @@ export class FrameCapture {
  */
 export function captureLiveBaseline({
   target, method = 'render', canvas, scene, backend, sceneMetadata = {},
-  warmup = 60, samples = 240, timeoutMs = 30000, signal,
+  readState, warmup = 60, samples = 240, timeoutMs = 30000, signal,
 }) {
   if (!target || typeof target[method] !== 'function' || !canvas ||
-    !['galaxy', 'dense-system', 'colony'].includes(scene) || typeof backend !== 'string') {
-    throw new TypeError('Provide a live renderer/loop, canvas, scene and actual backend');
+    !['galaxy', 'dense-system', 'colony'].includes(scene) || typeof backend !== 'string' ||
+    typeof readState !== 'function') {
+    throw new TypeError('Provide a live renderer/loop, canvas, scene, actual backend and readState callback');
   }
   if (target[method].evaluationCapture) throw new Error('Already capturing this method');
+  const initial = readState();
+  if (initial?.ready !== true || initial.scene !== scene || initial.backend !== backend) {
+    throw new Error('Finish renderer initialization and provide matching live scene/backend state');
+  }
+  const fingerprint = state => JSON.stringify([
+    state.scene, state.backend, state.sceneKey ?? null, state.ready, canvas.width, canvas.height,
+  ]);
+  const initialFingerprint = fingerprint(initial);
   const original = target[method];
   const own = Object.getOwnPropertyDescriptor(target, method);
+  if ((own && (!('value' in own) || !own.writable)) || (!own && !Object.isExtensible(target))) {
+    throw new TypeError('Render method must be writable and instrumentable');
+  }
   const capture = new FrameCapture({
     warmup, samples, timeoutMs, signal,
     metadata: environmentMetadata(canvas, {
       source: 'live-game', scene, backend, sceneMetadata,
+      sceneKey: initial.sceneKey ?? null,
       measuredMethod: method, startupMeasurement: 'unavailable; renderer already running',
     }),
   });
+  const verifyState = () => {
+    try {
+      if (fingerprint(readState()) === initialFingerprint) return;
+    } catch { /* State inspection must not interrupt the game loop. */ }
+    capture.cancel('Scene, backend, readiness or resolution changed; capture invalid');
+  };
   const wrapper = function (...args) {
+    verifyState();
     const start = performance.now();
     try {
       const result = original.apply(this, args);
+      verifyState();
       if (result?.then) {
         capture.cancel('Async render method unsupported; use a synchronous submission boundary');
       } else {
@@ -137,14 +169,27 @@ export function captureLiveBaseline({
   };
   wrapper.evaluationCapture = true;
   if (!capture.done) {
-    target[method] = wrapper;
+    let monitor;
     capture.onCleanup = () => {
+      clearInterval(monitor);
       // Do not undo another owner's later replacement.
-      if (target[method] === wrapper) {
+      if (Object.getOwnPropertyDescriptor(target, method)?.value === wrapper) {
         if (own) Object.defineProperty(target, method, own);
         else delete target[method];
       }
     };
+    try {
+      target[method] = wrapper;
+      monitor = setInterval(() => {
+        try {
+          if (Object.getOwnPropertyDescriptor(target, method)?.value !== wrapper) {
+            capture.cancel('Render method replaced; capture invalid');
+          } else verifyState();
+        } catch { capture.cancel('Render descriptor unavailable; capture invalid'); }
+      }, 100);
+    } catch (error) {
+      capture.cancel(`Cannot instrument render method: ${error.message}`);
+    }
   }
   return { promise: capture.promise, cancel: () => capture.cancel() };
 }

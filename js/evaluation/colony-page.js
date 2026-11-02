@@ -42,6 +42,13 @@ async function switchRenderer() {
       new BabylonColonyAdapter({
         forceWebGL: $('backend').value === 'webgl',
         onSelect: id => { $('selection').textContent = `Selected ${id}`; },
+        onInvalidated: message => {
+          if (token !== epoch) return;
+          capture?.cancel(message);
+          stop();
+          candidate?.dispose();
+          status(message);
+        },
       });
     if (candidate instanceof BabylonColonyAdapter) await candidate.initialize(canvas);
     if (token !== epoch) { candidate.dispose(); return; }
@@ -54,10 +61,15 @@ async function switchRenderer() {
     renderer.resourceStart = started;
     status(`${renderer.backend}${renderer.fallbackReason ? ` — ${renderer.fallbackReason}` : ''}. Ready.`);
     $('selection').textContent = $('backend').value === 'native'
-      ? 'Native simplified reference: no camera navigation or picking; not visual parity.' : 'Drag to orbit, wheel to zoom, right-drag to pan; click a building.';
+      ? 'Native simplified reference: rows overlap (z ignored); no camera navigation or picking. Not matched visual work.' : 'Drag to orbit, wheel to zoom, right-drag to pan; click a building.';
     $('measure').disabled = document.hidden;
     candidate.lost?.then(info => {
-      if (renderer === candidate) { stop(); status(`Native GPU device lost: ${info.message}`); }
+      if (renderer === candidate) {
+        const message = `Native GPU device lost: ${info.message}. Reload the renderer before measuring.`;
+        capture?.cancel(message);
+        stop();
+        status(message);
+      }
     });
     previous = performance.now();
     const tick = time => {

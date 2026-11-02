@@ -27,9 +27,15 @@ export class BabylonColonyAdapter {
   #load;
   #select;
   #replace;
+  #invalidated;
   #focus = () => this.canvas.focus({ preventScroll: true });
+  #contextLost = () => {
+    if (this.#disposed || this.#failure) return;
+    this.#failure = 'Rendering context lost; reload the renderer before measuring';
+    this.#invalidated(this.#failure);
+  };
 
-  constructor({ load = () => import('./babylon-runtime.js'), onSelect = () => {},
+  constructor({ load = () => import('./babylon-runtime.js'), onSelect = () => {}, onInvalidated = () => {},
     replaceCanvas = (canvas) => {
       const fresh = canvas.cloneNode(false);
       canvas.replaceWith(fresh);
@@ -37,6 +43,7 @@ export class BabylonColonyAdapter {
     }, forceWebGL = false } = {}) {
     this.#load = load;
     this.#select = onSelect;
+    this.#invalidated = onInvalidated;
     this.#replace = replaceCanvas;
     this.forceWebGL = forceWebGL;
     this.canvas = null;
@@ -58,7 +65,9 @@ export class BabylonColonyAdapter {
       this.#runtime = B;
       if (!this.forceWebGL && navigator.gpu) {
         try {
-          const engine = this.#engine = new B.WebGPUEngine(canvas, { antialias: true, adaptToDeviceRatio: false });
+          const engine = this.#engine = new B.WebGPUEngine(canvas, {
+            antialias: true, adaptToDeviceRatio: false, doNotHandleContextLost: true,
+          });
           try { await engine.initAsync(...B.compilerOptions); } finally {
             // Initialization can allocate resources after a concurrent dispose().
             if (this.#disposed) engine.dispose();
@@ -79,11 +88,17 @@ export class BabylonColonyAdapter {
       }
       if (!this.#engine) {
         this.fallbackReason ||= this.forceWebGL ? 'Explicit WebGL comparison' : 'WebGPU unavailable';
-        this.#engine = new B.Engine(canvas, true, { preserveDrawingBuffer: false }, false);
+        this.#engine = new B.Engine(canvas, true, {
+          preserveDrawingBuffer: false, doNotHandleContextLost: true,
+        }, false);
         this.backend = 'babylon-webgl-fallback';
       }
       this.#engine.setSize(width, height);
-      this.#engine.onContextLostObservable?.add(() => { this.#failure = 'Rendering context lost; reload the evaluation'; });
+      this.#engine.onContextLostObservable?.add(this.#contextLost);
+      // Automatic recovery could silently allocate a replacement device mid-capture.
+      // Babylon 9.33.1 exposes no public device accessor; keep this pinned access internal.
+      this.#engine._device?.lost?.then(this.#contextLost);
+      canvas.addEventListener('webglcontextlost', this.#contextLost);
       canvas.addEventListener('pointerdown', this.#focus, true);
       this.#build();
     } catch (error) {
@@ -179,6 +194,7 @@ export class BabylonColonyAdapter {
     this.#disposed = true;
     this.#active = false;
     this.canvas?.removeEventListener('pointerdown', this.#focus, true);
+    this.canvas?.removeEventListener('webglcontextlost', this.#contextLost);
     try {
       this.#camera?.detachControl();
       this.#scene?.dispose();
