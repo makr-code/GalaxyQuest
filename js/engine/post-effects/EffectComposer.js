@@ -10,9 +10,20 @@
  *
  * Pass execution order
  * --------------------
- * Passes are executed in insertion order (first added = first executed).
- * Use addPass() / removePass() to manage the chain at runtime.  Disabled
- * passes (pass.enabled === false) are skipped without affecting the
+ * Passes execute in insertion order unless explicit dependencies require
+ * reordering. Optional metadata on each pass:
+ *   id: unique, nonempty string (only required when referenced by another pass).
+ *   after: array of registered pass IDs; order after enabled providers.
+ *   requires: array of registered pass IDs; providers MUST be enabled.
+ * Both fields add ordering edges, not named texture bindings. Missing IDs,
+ * duplicate IDs, malformed metadata and enabled dependency cycles throw before
+ * any pass executes. Disabled consumers do not enforce their dependencies.
+ * Among ready passes, insertion order breaks ties. Metadata and enabled flags
+ * are re-evaluated every render; the public pass list stays in insertion order.
+ * No implicit IDs, inferred dependencies or default pass changes are applied.
+ *
+ * Use addPass() / removePass() to manage the chain at runtime. As before,
+ * only truthy pass.enabled values participate. Skipped passes do not affect the
  * ping-pong state — the next enabled pass receives the same source texture.
  *
  * Ping-pong framebuffer chain
@@ -31,6 +42,9 @@
 
 'use strict';
 
+// GPUTextureUsage: COPY_SRC | TEXTURE_BINDING | RENDER_ATTACHMENT.
+const COMPOSER_TARGET_USAGE = 0x01 | 0x04 | 0x10;
+
 class EffectComposer {
   /**
    * @param {import('../core/GraphicsContext').IGraphicsRenderer} renderer
@@ -42,10 +56,11 @@ class EffectComposer {
     this._passes   = [];
     this._width    = width;
     this._height   = height;
+    this._disposed = false;
+    this._targets = new Map();
 
     // Two render targets for ping-pong
-    this._rtA = this._acquireRT(width, height);
-    this._rtB = this._acquireRT(width, height);
+    [this._rtA, this._rtB] = this._acquirePair(width, height);
     this._pingIdx = 0;
   }
 
@@ -59,6 +74,7 @@ class EffectComposer {
    * @returns {this}
    */
   addPass(pass) {
+    this._assertActive();
     this._passes.push(pass);
     return this;
   }
@@ -99,47 +115,88 @@ class EffectComposer {
    *   null means the last pass renders to the screen / swap-chain.
    */
   render(inputTexture = null, mainTarget = null) {
+    this._assertActive();
+    const passes = this._orderedPasses();
     const rts = [this._rtA, this._rtB];
     let srcIdx = this._pingIdx;
-
-    // Pre-compute first and last enabled pass indices once.
-    let firstEnabledIdx = -1;
-    let lastEnabledIdx  = -1;
-    for (let i = 0; i < this._passes.length; i++) {
-      if (this._passes[i].enabled) {
-        if (firstEnabledIdx === -1) firstEnabledIdx = i;
-        lastEnabledIdx = i;
+    let src = inputTexture ?? rts[srcIdx];
+    const plan = [];
+    for (let i = 0; i < passes.length; i++) {
+      const isLast = i === passes.length - 1;
+      let dstIdx = srcIdx ^ 1;
+      if (!isLast && this._sameTexture(src, rts[dstIdx])) dstIdx ^= 1;
+      const dst = isLast ? mainTarget : rts[dstIdx];
+      if (this._sameTexture(src, dst)) {
+        throw new Error('EffectComposer: source and destination textures alias');
       }
+      plan.push({ pass: passes[i], src, dst });
+      if (!isLast) srcIdx = dstIdx;
+      src = dst;
     }
 
-    // Track whether we have already consumed the explicit inputTexture.
-    let inputConsumed = false;
-
-    for (let i = 0; i < this._passes.length; i++) {
-      const pass = this._passes[i];
-      if (!pass.enabled) continue;
-
-      const isLast = (i === lastEnabledIdx);
-
-      // Use the caller-supplied inputTexture for the very first enabled pass
-      // (only once); fall back to the current ping-pong source afterwards.
-      let src;
-      if (inputTexture !== null && i === firstEnabledIdx && !inputConsumed) {
-        src           = inputTexture;
-        inputConsumed = true;
-      } else {
-        src = rts[srcIdx];
-      }
-
-      const dstTex = isLast ? mainTarget : rts[srcIdx ^ 1];
-
-      pass.render(src, dstTex, this._renderer);
-
-      // Toggle ping-pong only when we used an intermediate RT as destination.
-      if (!isLast) srcIdx ^= 1;
-    }
-
+    // Validate the entire frame before dispatch; failed frames do not commit
+    // ping-pong state (already-issued GPU work cannot be rolled back).
+    for (const { pass, src, dst } of plan) pass.render(src, dst, this._renderer);
     this._pingIdx = srcIdx;
+  }
+
+  /** @private */
+  _orderedPasses() {
+    const ids = new Map();
+    const nodes = this._passes.map((pass, index) => {
+      if (!pass || typeof pass.render !== 'function') {
+        throw new TypeError(`EffectComposer: pass at index ${index} needs render()`);
+      }
+      if (pass.id !== undefined) {
+        if (typeof pass.id !== 'string' || !pass.id.trim()) {
+          throw new TypeError('EffectComposer: pass.id must be a nonempty string');
+        }
+        if (ids.has(pass.id)) throw new Error(`EffectComposer: duplicate pass ID "${pass.id}"`);
+      }
+      for (const field of ['after', 'requires']) {
+        if (pass[field] !== undefined && (!Array.isArray(pass[field]) ||
+            pass[field].some(id => typeof id !== 'string' || !id.trim()))) {
+          throw new TypeError(`EffectComposer: ${field} must be an array of nonempty pass IDs`);
+        }
+      }
+      const node = { pass, index, pending: new Set(), consumers: [] };
+      if (pass.id !== undefined) ids.set(pass.id, node);
+      return node;
+    });
+    const active = nodes.filter(node => node.pass.enabled);
+    for (const node of active) {
+      for (const field of ['after', 'requires']) {
+        for (const id of node.pass[field] ?? []) {
+          const provider = ids.get(id);
+          if (!provider) throw new Error(`EffectComposer: missing ${field} provider "${id}"`);
+          if (!provider.pass.enabled) {
+            if (field === 'requires') {
+              throw new Error(`EffectComposer: required provider "${id}" is disabled`);
+            }
+            continue;
+          }
+          node.pending.add(provider);
+        }
+      }
+      for (const provider of node.pending) provider.consumers.push(node);
+    }
+    const ready = active.filter(node => node.pending.size === 0);
+    const ordered = [];
+    while (ready.length) {
+      ready.sort((a, b) => a.index - b.index);
+      const node = ready.shift();
+      ordered.push(node.pass);
+      for (const consumer of node.consumers) {
+        consumer.pending.delete(node);
+        if (consumer.pending.size === 0) ready.push(consumer);
+      }
+    }
+    if (ordered.length !== active.length) {
+      const blocked = active.filter(node => node.pending.size)
+        .map(node => node.pass.id ?? `index ${node.index}`);
+      throw new Error(`EffectComposer: dependency cycle involving ${blocked.join(', ')}`);
+    }
+    return ordered;
   }
 
   // =========================================================================
@@ -147,19 +204,31 @@ class EffectComposer {
   // =========================================================================
 
   resize(width, height) {
+    this._assertActive();
+    // Allocate first so a partial allocation failure leaves the old pair usable.
+    const [rtA, rtB] = this._acquirePair(width, height);
+    const old = [this._rtA, this._rtB];
+    this._rtA = rtA;
+    this._rtB = rtB;
     this._width  = width;
     this._height = height;
-    // Release old render targets back to the pool (or just destroy)
-    this._releaseRT(this._rtA, this._width, this._height);
-    this._releaseRT(this._rtB, this._width, this._height);
-    // Acquire new render targets at the updated resolution
-    this._rtA = this._acquireRT(width, height);
-    this._rtB = this._acquireRT(width, height);
+    this._pingIdx = 0;
+    this._releaseAll(old);
   }
 
   dispose() {
-    for (const pass of this._passes) pass.dispose?.();
+    if (this._disposed) return;
+    this._disposed = true;
+    const passes = new Set(this._passes);
+    const targets = [this._rtA, this._rtB];
     this._passes = [];
+    this._rtA = this._rtB = null;
+    const errors = [];
+    for (const pass of passes) {
+      try { pass.dispose?.(); } catch (error) { errors.push(error); }
+    }
+    try { this._releaseAll(targets); } catch (error) { errors.push(error); }
+    if (errors.length) throw new AggregateError(errors, 'EffectComposer: disposal failed');
   }
 
   // =========================================================================
@@ -174,30 +243,69 @@ class EffectComposer {
    */
   _acquireRT(width, height) {
     const pool = this._renderer?.resourcePool;
-    if (pool && typeof pool.acquireTexture === 'function') {
-      return pool.acquireTexture(
-        'rgba8unorm',
-        width,
-        height,
-        /* usage = TEXTURE_BINDING | RENDER_ATTACHMENT | COPY_SRC */ 0x14 | 0x10,
-      );
+    const owner = pool && typeof pool.acquireTexture === 'function' &&
+      typeof pool.releaseTexture === 'function' ? pool : null;
+    const texture = owner
+      ? owner.acquireTexture('rgba8unorm', width, height, COMPOSER_TARGET_USAGE)
+      : this._renderer.createTexture({ width, height, format: 'rgba8unorm', renderTarget: true });
+    if (!texture || this._targets.has(texture)) {
+      throw new Error('EffectComposer: renderer must acquire distinct render targets');
     }
-    return this._renderer.createTexture({ width, height, format: 'rgba8unorm', renderTarget: true });
+    this._targets.set(texture, { pool: owner, width, height });
+    return texture;
   }
 
   /**
-   * Release a render-target texture back to the pool (or let it be GC'd when
-   * no pool is available).
+   * Return to the acquiring pool with the original dimensions, or destroy a
+   * directly-created texture (WebGL render targets use dispose()).
    * @private
    */
-  _releaseRT(texture, width, height) {
-    if (!texture) return;
-    const pool = this._renderer?.resourcePool;
-    if (pool && typeof pool.releaseTexture === 'function') {
-      pool.releaseTexture(texture, 'rgba8unorm', width, height, 0x14 | 0x10);
+  _releaseRT(texture) {
+    const ownership = this._targets.get(texture);
+    if (!ownership) return;
+    this._targets.delete(texture);
+    const { pool, width, height } = ownership;
+    if (pool) {
+      pool.releaseTexture(texture, 'rgba8unorm', width, height, COMPOSER_TARGET_USAGE);
+    } else if (typeof texture.destroy === 'function') {
+      texture.destroy();
+    } else {
+      texture.dispose?.();
     }
-    // Without a pool the old texture is simply orphaned — the WebGPU GC will
-    // clean it up when the renderer is destroyed.
+  }
+
+  /** @private */
+  _releaseAll(textures) {
+    const errors = [];
+    for (const texture of textures) {
+      try { this._releaseRT(texture); } catch (error) { errors.push(error); }
+    }
+    if (errors.length) throw new AggregateError(errors, 'EffectComposer: target release failed');
+  }
+
+  /** @private */
+  _acquirePair(width, height) {
+    let first;
+    try {
+      first = this._acquireRT(width, height);
+      return [first, this._acquireRT(width, height)];
+    } catch (error) {
+      try { this._releaseRT(first); } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], 'EffectComposer: allocation failed');
+      }
+      throw error;
+    }
+  }
+
+  /** @private */
+  _assertActive() {
+    if (this._disposed) throw new Error('EffectComposer: already disposed');
+  }
+
+  /** @private */
+  _sameTexture(a, b) {
+    if (a == null || b == null) return false;
+    return (a.gpuTexture ?? a.texture ?? a) === (b.gpuTexture ?? b.texture ?? b);
   }
 }
 

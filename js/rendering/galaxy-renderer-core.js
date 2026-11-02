@@ -1523,37 +1523,40 @@
     }
 
     _clearGroup(group) {
-      if (!group) return;
-      while (group.children.length) {
-        const child = group.children.pop();
-        group.remove(child);
-        if (child.geometry && !child.geometry.userData?.sharedGeometry) child.geometry.dispose();
-        if (Array.isArray(child.material)) {
-          child.material.forEach((m) => {
-            if (!m) return;
-            if (!m.userData?.sharedTexture) {
-              m.map?.dispose?.();
-              m.bumpMap?.dispose?.();
-              m.emissiveMap?.dispose?.();
-              m.cityMap?.dispose?.();
-              m.normalMap?.dispose?.();
-              m.alphaMap?.dispose?.();
-            }
-            m.dispose?.();
+      if (!group?.children) return;
+      const geometries = new Set();
+      const materials = new Set();
+      const ownedTextures = new Set();
+      const borrowedTextures = new Set();
+      const instances = new Set();
+      const slots = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap', 'alphaMap', 'bumpMap', 'cityMap'];
+      const clearChildren = (parent) => {
+        while (parent.children?.length) {
+          const child = parent.children[parent.children.length - 1];
+          parent.remove(child);
+          clearChildren(child);
+          if (child.isInstancedMesh) instances.add(child);
+          if (child.geometry && !child.geometry.userData?.sharedGeometry) geometries.add(child.geometry);
+          const childMaterials = Array.isArray(child.material) ? child.material : [child.material];
+          childMaterials.forEach((material) => {
+            if (!material || materials.has(material)) return;
+            materials.add(material);
+            slots.forEach((slot) => {
+              const texture = material[slot];
+              if (!texture) return;
+              if (material.userData?.sharedTexture || texture.userData?.sharedTexture) borrowedTextures.add(texture);
+              else ownedTextures.add(texture);
+            });
           });
         }
-        else if (child.material) {
-          if (!child.material.userData?.sharedTexture) {
-            child.material.map?.dispose?.();
-            child.material.bumpMap?.dispose?.();
-            child.material.emissiveMap?.dispose?.();
-            child.material.cityMap?.dispose?.();
-            child.material.normalMap?.dispose?.();
-            child.material.alphaMap?.dispose?.();
-          }
-          child.material.dispose?.();
-        }
-      }
+      };
+      clearChildren(group);
+      instances.forEach(instance => instance.dispose?.());
+      geometries.forEach(geometry => geometry.dispose?.());
+      materials.forEach(material => material.dispose?.());
+      ownedTextures.forEach(texture => {
+        if (!borrowedTextures.has(texture)) texture.dispose?.();
+      });
     }
 
     _planetTextureDescriptor(payload, slot, body, index) {
@@ -1610,6 +1613,145 @@
     _objectTextureBundle(objectType, descriptor, fallbackColor) {
       if (!this.textureManager || !descriptor) return null;
       return this.textureManager.getObjectTextureBundle(objectType, descriptor, fallbackColor);
+    }
+
+    _shipAppearanceColor(vessel, fleet = {}) {
+      return vessel?.appearance?.color ?? vessel?.color ?? fleet?.appearance?.color ?? fleet?.color ?? 0x8fa9bd;
+    }
+
+    _shipMaterialDescriptor(vesselType, seed, color) {
+      const family = this._vesselFamily(vesselType);
+      return {
+        seed: ['light', 'heavy', 'cargo', 'frigate'].indexOf(family) * 12 + (seed >>> 0) % 12,
+        materialFamily: 'painted-metal',
+        color: new THREE.Color(color).getHex(),
+        geometry: { kind: 'mesh' },
+        quality: ['low', 'medium', 'high'].includes(this.qualityProfile?.name) ? this.qualityProfile.name : 'medium',
+      };
+    }
+
+    _shipHullMaterial(color, bundle, seed) {
+      const fallback = bundle || this._fleetHullTexture(color, seed % 12);
+      const material = this.materialFactory
+        ? this.materialFactory.createFleetHullMaterial(color, fallback)
+        : new THREE.MeshStandardMaterial({
+            color: bundle?.map ? 0xffffff : color,
+            map: bundle?.map || fallback || null,
+            normalMap: bundle?.normalMap || null,
+            roughnessMap: bundle?.roughnessMap || null,
+            metalnessMap: bundle?.metalnessMap || null,
+            emissiveMap: bundle?.emissiveMap || null,
+            emissive: 0xffffff,
+            emissiveIntensity: 0.18,
+            roughness: 0.42,
+            metalness: 0.62,
+          });
+      material.userData = Object.assign({}, material.userData, { sharedTexture: true });
+      if (!this.materialFactory && bundle?.retainTextures && material.addEventListener) {
+        const release = bundle.retainTextures();
+        const onDispose = () => {
+          material.removeEventListener('dispose', onDispose);
+          release();
+        };
+        material.addEventListener('dispose', onDispose);
+      }
+      return material;
+    }
+
+    _applyShipAppearance(mesh, vesselType, seed, color) {
+      const descriptor = this._shipMaterialDescriptor(vesselType, seed, color);
+      const manager = this.textureManager;
+      const bundle = manager?.getCoherentMaterialBundle?.(descriptor);
+      mesh.material = this._shipHullMaterial(color, bundle, descriptor.seed);
+      // The factory borrows maps: never access the bundle's lazy caller-owned material.
+      if (!bundle || !manager?.getCoherentMaterialBundleAsync || !mesh.material.addEventListener) return;
+      const initialMaterial = mesh.material;
+      let alive = true;
+      const onDispose = () => { alive = false; };
+      initialMaterial.addEventListener('dispose', onDispose);
+      Promise.resolve().then(() => alive ? manager.getCoherentMaterialBundleAsync(descriptor) : null).then((refreshed) => {
+        if (!alive || !refreshed || mesh.material !== initialMaterial || this.textureManager !== manager) return;
+        const replacement = this._shipHullMaterial(color, refreshed, descriptor.seed);
+        mesh.material = replacement;
+        initialMaterial.removeEventListener('dispose', onDispose);
+        initialMaterial.dispose();
+      }).catch(() => {
+        // Persistence is optional; the synchronous seeded hull is already renderable.
+      }).finally(() => initialMaterial.removeEventListener('dispose', onDispose));
+    }
+
+    _createShipRunningLights(mesh) {
+      const engine = new THREE.Mesh(
+        new THREE.SphereGeometry(0.14, 6, 5),
+        new THREE.MeshStandardMaterial({ color: 0x78bfff, emissive: 0x349cff, emissiveIntensity: 0, roughness: 0.2, metalness: 0.1 })
+      );
+      engine.position.set(-0.7, 0, 0);
+      mesh.add(engine);
+      const navigation = new THREE.Mesh(
+        new THREE.SphereGeometry(0.05, 5, 4),
+        new THREE.MeshBasicMaterial({ color: 0x8effbb })
+      );
+      navigation.position.set(0, 0.2, 0.35);
+      mesh.add(navigation);
+      const trail = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-0.7, 0, 0), new THREE.Vector3(-2, 0, 0)]),
+        new THREE.LineBasicMaterial({ color: 0x5baaff, transparent: true, opacity: 0, depthWrite: false })
+      );
+      mesh.add(trail);
+      return { engine, navigation, trail };
+    }
+
+    _syncShipRunningLights(lights, vessel, fleet = {}) {
+      const state = Object.assign({}, fleet || {}, fleet?.state || {}, vessel || {}, vessel?.state || {});
+      const disabled = vessel?.disabled === true || fleet?.disabled === true || state.disabled === true
+        || state.powered === false || state.active === false
+        || vessel?.powered === false || fleet?.powered === false
+        || vessel?.active === false || fleet?.active === false
+        || ['disabled', 'destroyed', 'docked'].includes(state.status);
+      const hidden = vessel?.hidden === true || fleet?.hidden === true || state.hidden === true;
+      const engineState = [vessel?.state, vessel, fleet?.state, fleet].find(candidate =>
+        candidate && ['engine_power', 'throttle', 'engine_active'].some(key => candidate[key] !== undefined)) || {};
+      const activity = Number(engineState.engine_power ?? engineState.throttle ?? (engineState.engine_active === true ? 1 : 0));
+      const power = disabled || hidden || !Number.isFinite(activity) ? 0 : THREE.MathUtils.clamp(activity, 0, 1);
+      const reduced = this.opts?.reducedMotion === true || window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true;
+      const effects = this.qualityProfile?.features?.shipEffects !== false
+        && this.opts?.vfx_enabled !== false && this.opts?.vfx_quality !== 'off'
+        && state.vfx_enabled !== false && state.vfx_quality !== 'off'
+        && fleet?.vfx_enabled !== false && vessel?.vfx_enabled !== false;
+      lights.engine.visible = effects && power > 0;
+      lights.engine.material.emissiveIntensity = power * 1.8;
+      lights.navigation.visible = effects && !disabled && !hidden && state.navigation_lights === true;
+      lights.trail.visible = effects && !reduced && this.qualityProfile?.name !== 'low' && power > 0 && state.trail === true;
+      lights.trail.material.opacity = power * 0.45;
+      return power;
+    }
+
+    _syncFleetShipVisuals(entry) {
+      const fleet = entry.fleet || {};
+      entry.group.visible = fleet.hidden !== true && fleet.state?.hidden !== true;
+      (entry.ships || []).forEach(({ mesh, vessel, lights }) => {
+        mesh.visible = vessel.hidden !== true && vessel.state?.hidden !== true;
+        this._syncShipRunningLights(lights, vessel, fleet);
+      });
+    }
+
+    _tickAmbientTraffic(dt) {
+      const delta = Number.isFinite(dt) ? THREE.MathUtils.clamp(dt, 0, 0.1) : 0;
+      (this.systemTrafficEntries || []).forEach((entry) => {
+        const power = this._syncShipRunningLights(entry.lights, { state: entry.shipState });
+        entry.mesh.visible = entry.shipState.hidden !== true;
+        const reduced = this.opts?.reducedMotion === true || window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true;
+        const previous = Number.isFinite(entry.orbitAngle) ? entry.orbitAngle : entry.orbitPhase;
+        const speed = Number.isFinite(entry.orbitSpeed) ? entry.orbitSpeed : 0;
+        const angle = (previous + (reduced ? 0 : delta * speed * power)) % (Math.PI * 2);
+        entry.orbitAngle = angle;
+        const center = this._getSystemPlanetWorldPosition(entry.homeEntry, new THREE.Vector3());
+        this.systemTrafficGroup.worldToLocal(center);
+        entry.mesh.position.set(center.x + Math.cos(angle) * entry.orbitRadius,
+          center.y + Math.sin(angle) * entry.orbitRadius * entry.tiltY,
+          center.z + Math.sin(angle) * entry.orbitRadius);
+        entry.mesh.rotation.y = -angle - Math.PI / 2;
+      });
     }
 
     _planetMaterial(payload, slot, body, index) {
@@ -4609,50 +4751,29 @@
         const homeEntry = this.systemPlanetEntries.find((e) => Number(e.slot?.position) === Number(slot.position));
         if (!homeEntry) return;
 
-        const numShuttles = Math.min(3, shipyard.level);
-        const colorHex    = String(pp.owner_color || '#b7d98c');
+        const numShuttles = Number.isFinite(Number(shipyard.level)) ? Math.min(3, Math.floor(Number(shipyard.level))) : 0;
+        const colorHex    = this._shipAppearanceColor(shipyard);
         const color        = new THREE.Color(colorHex);
 
         for (let i = 0; i < numShuttles; i++) {
-          const shuttleSeed = this._hashSeed(`${slot?.position || 0}:${shipyard.level}:${i}:${colorHex}`);
-          const shuttleDescriptor = this._objectTextureDescriptor('ship', { ship_type: 'shuttle', owner: pp?.owner, idx: i }, color.getHex(), shuttleSeed, {
-            variant: 'desert',
-            roughness: 0.42,
-            metalness: 0.58,
-            glow: 0.22,
-            clouds: 0,
-            ice_caps: 0,
-          });
-          const shuttleBundle = this._objectTextureBundle('ship', shuttleDescriptor, color.getHex());
+          const shuttleSeed = this._hashSeed(`shuttle:${slot?.position || 0}:${i}`);
           const shuttle = new THREE.Group();
           const hull = new THREE.Mesh(
             new THREE.CylinderGeometry(0.18, 0.45, 1.1, 7),
-            this.materialFactory
-              ? this.materialFactory.createFleetHullMaterial(color, shuttleBundle)
-              : new THREE.MeshStandardMaterial({
-                  color: shuttleBundle?.map ? 0xffffff : color,
-                  map: shuttleBundle?.map || null,
-                  bumpMap: shuttleBundle?.bumpMap || null,
-                  bumpScale: shuttleBundle?.bumpMap ? 0.05 : 0,
-                  emissive: color,
-                  emissiveMap: shuttleBundle?.emissiveMap || null,
-                  emissiveIntensity: 0.22,
-                  roughness: 0.45,
-                  metalness: 0.55,
-                }),
+            null,
           );
+          this._applyShipAppearance(hull, 'shuttle', shuttleSeed, color);
           hull.rotation.z = Math.PI / 2;
           shuttle.add(hull);
-          const glow = new THREE.Mesh(
-            new THREE.SphereGeometry(0.14, 6, 5),
-            new THREE.MeshStandardMaterial({ color: 0xff9900, emissive: 0xff7700, emissiveIntensity: 1.6, roughness: 0.1, metalness: 0.6 }),
-          );
-          glow.position.set(-0.7, 0, 0);
-          shuttle.add(glow);
+          const lights = this._createShipRunningLights(shuttle);
+          const shipState = pp.traffic_state || {};
+          this._syncShipRunningLights(lights, { state: shipState });
           this.systemTrafficGroup.add(shuttle);
 
           this.systemTrafficEntries.push({
             mesh:      shuttle,
+            lights,
+            shipState,
             homeEntry,
             orbitPhase:  (i / numShuttles) * Math.PI * 2,
             orbitRadius: (homeEntry.mesh.geometry?.parameters?.radius ?? 4) * 2.2 + i * 1.4,
@@ -4663,45 +4784,27 @@
       });
     }
 
-    _buildFleetFormationEntry(fleet, index) {
+    _buildFleetFormationEntry(fleet) {
       const group = new THREE.Group();
       const vessels = Array.isArray(fleet.vessels) ? fleet.vessels : [];
-      const color = this._fleetColor(fleet.mission);
+      const color = this._shipAppearanceColor(null, fleet);
+      const shipEntries = [];
       let cursor = 0;
       vessels.slice(0, 5).forEach((vessel) => {
         const vesselType = String(vessel.ship_type || vessel.type || vessel.name || 'frigate');
-        const sample = Math.max(1, Number(vessel.sample_count || Math.min(4, vessel.count || 1)));
+        const requested = Number(vessel.sample_count ?? Math.min(4, Number(vessel.count ?? 1)));
+        const sample = Math.min(20 - cursor, Number.isFinite(requested) ? Math.max(0, Math.min(20, Math.floor(requested))) : 1);
         for (let i = 0; i < sample; i++) {
-          const seed = this._vesselSeed(fleet, vesselType, index, cursor, i);
+          const seed = this._vesselSeed(fleet, vesselType, vessel, i);
           const geometry = this._proceduralVesselGeometry(vesselType, seed);
-          const descriptor = this._objectTextureDescriptor('ship', vessel, color, seed, {
-            variant: 'desert',
-            roughness: 0.38,
-            metalness: 0.62,
-            glow: 0.16,
-            clouds: 0,
-            ice_caps: 0,
-          });
-          const hullBundle = this._objectTextureBundle('ship', descriptor, color);
-          const hullTex = hullBundle?.map || this._fleetHullTexture(color, seed);
-          const hullMat = this.materialFactory
-            ? this.materialFactory.createFleetHullMaterial(color, hullBundle || hullTex)
-            : new THREE.MeshStandardMaterial({
-                color,
-                map: hullTex,
-                bumpMap: hullBundle?.bumpMap || null,
-                bumpScale: hullBundle?.bumpMap ? 0.06 : 0,
-                emissive: color,
-                emissiveMap: hullBundle?.emissiveMap || hullTex,
-                emissiveIntensity: 0.18,
-                roughness: 0.36,
-                metalness: 0.48,
-              });
           const mesh = new THREE.Mesh(
             geometry,
-            hullMat
+            null
           );
-          mesh.material.userData = Object.assign({}, mesh.material.userData, { sharedTexture: true });
+          this._applyShipAppearance(mesh, vesselType, seed, this._shipAppearanceColor(vessel, fleet));
+          const lights = this._createShipRunningLights(mesh);
+          this._syncShipRunningLights(lights, vessel, fleet);
+          shipEntries.push({ mesh, vessel, lights });
           const row = Math.floor(cursor / 3);
           const col = cursor % 3;
           mesh.rotation.x = Math.PI / 2;
@@ -4714,8 +4817,9 @@
       if (!group.children.length) {
         const fallback = new THREE.Mesh(
           new THREE.SphereGeometry(0.5, 10, 10),
-          new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.25 })
+          null
         );
+        this._applyShipAppearance(fallback, 'frigate', this._vesselSeed(fleet, 'frigate'), color);
         group.add(fallback);
       }
 
@@ -4750,13 +4854,17 @@
       group.add(headingMarker);
 
       this.systemFleetGroup.add(group);
-      return {
+      const entry = {
         group,
         fleet,
-        phase: index * 0.7,
+        mesh: group,
+        ships: shipEntries,
+        phase: (this._hashSeed(fleet.id ?? 'fleet') % 100) * 0.07,
         headingMarker,
         headingLine,
       };
+      this._syncFleetShipVisuals(entry);
+      return entry;
     }
 
     _buildGalaxyFleetEntry(fleet, index) {
@@ -4942,27 +5050,28 @@
       return this.systemOrbitFocusOnly;
     }
 
-    _vesselSeed(fleet, vesselType, fleetIndex, cursor, sampleIndex) {
-      const base = String(fleet?.id || `${fleet?.origin_position || 0}-${fleet?.target_position || 0}`);
-      const key = `${base}|${vesselType}|${fleetIndex}|${cursor}|${sampleIndex}`;
-      let hash = 2166136261;
-      for (let i = 0; i < key.length; i++) {
-        hash ^= key.charCodeAt(i);
-        hash = Math.imul(hash, 16777619);
-      }
-      return hash >>> 0;
+    _vesselSeed(fleet, vesselType, vessel = {}, sampleIndex = 0) {
+      const explicit = vessel?.appearance?.seed ?? vessel?.seed;
+      const base = explicit ?? vessel?.id ?? `${fleet?.id ?? 'anonymous'}:${vesselType}`;
+      return this._hashSeed(`${base}|${vesselType}|${sampleIndex}`);
     }
 
-    _proceduralVesselGeometry(vesselType, seed) {
+    _vesselFamily(vesselType) {
       const familyRaw = String(vesselType || 'frigate').toLowerCase();
-      const family = familyRaw.includes('destroyer') || familyRaw.includes('cruiser')
+      return familyRaw.includes('destroyer') || familyRaw.includes('cruiser')
         ? 'heavy'
         : familyRaw.includes('fighter') || familyRaw.includes('interceptor')
           ? 'light'
           : familyRaw.includes('transport') || familyRaw.includes('cargo')
             ? 'cargo'
             : 'frigate';
+    }
+
+    _proceduralVesselGeometry(vesselType, seed) {
+      const family = this._vesselFamily(vesselType);
       const k = `${family}:${seed % 11}`;
+      // Geometry cache keys and generated shapes must use the same bounded template.
+      seed = this._hashSeed(k);
       const buildGeometry = () => {
         const noseLen = 0.58 + ((seed >>> 3) % 8) * 0.045;
         const midLen = 0.52 + ((seed >>> 7) % 7) * 0.04;
@@ -4972,22 +5081,20 @@
         const width = widthBase + ((seed >>> 17) % 6) * 0.028;
         const height = heightBase + ((seed >>> 21) % 5) * 0.02;
 
-        const points = [];
-        const x0 = 0;
-        const x1 = noseLen;
-        const x2 = noseLen + midLen;
-        const x3 = noseLen + midLen + rearLen;
-        points.push(new THREE.Vector3(x0, 0, 0));
-        points.push(new THREE.Vector3(x1, height * 0.5, width * 0.55));
-        points.push(new THREE.Vector3(x2, height, width));
-        points.push(new THREE.Vector3(x3, height * 0.72, width * 0.78));
-        points.push(new THREE.Vector3(x3 + 0.12, 0, 0));
+        const points = [
+          new THREE.Vector2(0, noseLen),
+          new THREE.Vector2(width * 0.55, midLen * 0.5),
+          new THREE.Vector2(width, -midLen * 0.5),
+          new THREE.Vector2(width * 0.78, -midLen * 0.5 - rearLen),
+          new THREE.Vector2(0, -midLen * 0.5 - rearLen),
+        ];
 
         const hull = new THREE.LatheGeometry(points, 8);
-        hull.rotateZ(Math.PI / 2);
-        hull.scale(0.62, 0.62, 0.62);
+        hull.rotateZ(-Math.PI / 2);
+        hull.scale(0.62, height / width, 0.62);
 
         const geo = hull.toNonIndexed();
+        hull.dispose();
         const pos = geo.getAttribute('position');
         const arr = pos.array;
         const wingAmp = family === 'light' ? 0.18 : family === 'heavy' ? 0.12 : 0.08;
@@ -5033,7 +5140,7 @@
 
     _getProceduralTexture(key, size, drawFn) {
       if (!this.textureManager) return null;
-      return this.textureManager.getProceduralTexture(key, size, drawFn);
+      return this.textureManager.getProceduralTexture?.(key, size, drawFn) || null;
     }
 
     _starSurfaceTexture(spectralClass, seed) {
@@ -5835,6 +5942,9 @@
             ? orbitRadius
             : this._planetSize({ planet_class: bodyDef.planet_class || bodyType }, index, orbitRadius),
           seed: this._hashSeed(String(bodyDef.id || bodyDef.name || index)),
+          textureManager: this.textureManager,
+          materialFactory: this.materialFactory,
+          quality: this.qualityProfile?.name,
         });
 
         const mesh = renderer.buildSpecialBodyMesh(THREE, bodyType, meshParams);
@@ -9637,6 +9747,7 @@ ${shader.vertexShader}`;
         });
         this.systemFleetEntries.forEach((fleetEntry, index) => {
           if (!fleetEntry?.group) return;
+          this._syncFleetShipVisuals(fleetEntry);
           const fleet = fleetEntry.fleet || {};
           const originEntry = this.systemPlanetEntries.find((entry) => Number(entry.slot?.position || 0) === Number(fleet.origin_position || 0)) || null;
           const targetEntry = this.systemPlanetEntries.find((entry) => Number(entry.slot?.position || 0) === Number(fleet.target_position || 0)) || null;
@@ -9671,6 +9782,7 @@ ${shader.vertexShader}`;
             fleetEntry.headingLine.material.opacity = 0.58 + 0.3 * pulse;
           }
         });
+        this._tickAmbientTraffic(dt);
         this._syncInstallationAnimationStates(elapsed);
         this._applyPendingInstallationWeaponFire(elapsed);
         this._syncInstallationWeaponFx(elapsed);
@@ -9808,6 +9920,7 @@ ${shader.vertexShader}`;
       this._clearGroup(this.systemBodyGroup);
       this._clearGroup(this.systemFacilityGroup);
       this._clearGroup(this.systemFleetGroup);
+      this._clearGroup(this.systemTrafficGroup);
       this.textureManager?.dispose?.();
       this.geometryManager?.dispose?.();
       this.materialFactory?.dispose?.();
