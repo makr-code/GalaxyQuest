@@ -109,7 +109,7 @@
   function buildColonySurfaceVfxSlots(colony, buildingPayload) {
     const buildings = Array.isArray(buildingPayload?.buildings) ? buildingPayload.buildings : [];
     const layout = buildingPayload?.layout || colony?.layout || null;
-    const grid = buildColonyGridCells(layout, buildings);
+    const grid = buildColonyGridCells(layout, buildings.filter((building) => Number(building.level) > 0 || building.upgrade_end));
     const cols = Math.max(1, Number(grid?.cols || 6));
     const rows = Math.max(1, Number(grid?.rows || 4));
     const spacing = 3.1;
@@ -132,6 +132,9 @@
         y: 0,
         z: gz * spacing - offsetZ,
         type: String(building.type || ''),
+        level: Math.max(0, Number(building.level || 0)),
+        slot_x: gx,
+        slot_y: gz,
         category: String(building.meta?.cat || ''),
         owner_color: String(colony?.owner_color || colony?.colony_owner_color || colony?.faction_color || ''),
         upgrade_end: building.upgrade_end || null,
@@ -149,7 +152,10 @@
   }
 
   function queueColonySurfaceSceneData(colony, buildingPayload) {
-    const ctx = state.getZoomTransitionContext?.();
+    const ctx = state.getZoomTransitionContext?.() || {
+      orchestrator: globalThis.window?.__GQ_ZOOM_ORCHESTRATOR,
+      ZOOM_LEVEL: globalThis.window?.GQSeamlessZoomOrchestrator?.ZOOM_LEVEL,
+    };
     const colonyLevel = Number(ctx?.ZOOM_LEVEL?.COLONY_SURFACE);
     if (!ctx?.orchestrator || !Number.isFinite(colonyLevel) || typeof ctx.orchestrator.setSceneData !== 'function') {
       return;
@@ -159,6 +165,9 @@
     const settingsState = state.getSettingsState?.();
     const payload = {
       colony: colony || null,
+      economy: buildingPayload?.economy || null,
+      buildings: buildingPayload?.buildings || [],
+      pop_classes: buildingPayload?.pop_classes || null,
       layout: buildingPayload?.layout || colony?.layout || null,
       slots,
       vfx_quality: String(settingsState?.renderQualityProfile === 'webgpu' ? 'high' : 'medium'),

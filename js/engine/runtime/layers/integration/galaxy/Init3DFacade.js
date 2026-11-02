@@ -394,8 +394,8 @@
             state.focusPlanetDetailsInOverlay?.(root, star, true, true);
             state.updateGalaxyHoverCard?.(root, star, pos, true);
             const currentOrchestrator = state.getZoomOrchestrator?.();
-            if (currentOrchestrator && SPATIAL_DEPTH) {
-              currentOrchestrator.zoomToTarget(Object.assign({ spatialDepth: SPATIAL_DEPTH.STELLAR_VICINITY }, star)).catch(() => {});
+            if (currentOrchestrator && ZOOM_LEVEL) {
+              currentOrchestrator.zoomTo(ZOOM_LEVEL.PLANET_APPROACH, star, { flyDuration: 1000 }).catch(() => {});
             }
             return;
           }

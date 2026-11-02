@@ -12,6 +12,9 @@
  *  • Cubic Bezier spline from current camera position to a point above the
  *    planet, with control points that produce a sweeping arc ("pull back,
  *    then dive in").
+ *  • A live target object/provider controls camera orientation independently
+ *    from its flight destination.
+ *  • Swept camera clearance against spherical and axis-aligned box colliders.
  *  • Cubic Hermite ease-in-out speed curve (fast in the middle, slow at ends).
  *  • Correlated roll (±8°) derived from the tangent angle of the Bezier.
  *  • Atmosphere scale modulation: 0.95 → 1.2 during approach.
@@ -86,6 +89,101 @@ function arrToObj(a) {
   return { x: a[0], y: a[1], z: a[2] };
 }
 
+function vectorToArr(value, label) {
+  const vector = Array.isArray(value) ? value : value?.position || value;
+  const result = Array.isArray(vector)
+    ? vector.slice(0, 3).map(Number)
+    : [Number(vector?.x), Number(vector?.y), Number(vector?.z)];
+  if (result.length !== 3 || !result.every(Number.isFinite)) {
+    throw new TypeError(`CameraFlightPath: ${label} must resolve to finite x/y/z coordinates`);
+  }
+  return result;
+}
+
+function normalizeColliders(colliders) {
+  if (colliders == null) return [];
+  if (!Array.isArray(colliders)) {
+    throw new TypeError('CameraFlightPath: colliders must be an array');
+  }
+  return colliders.map((collider, index) => {
+    if (collider?.type === 'sphere') {
+      const center = vectorToArr(collider.center, `colliders[${index}].center`);
+      const radius = Number(collider.radius);
+      if (!Number.isFinite(radius) || radius <= 0) {
+        throw new TypeError(`CameraFlightPath: colliders[${index}].radius must be positive`);
+      }
+      return { type: 'sphere', center, radius };
+    }
+    if (collider?.type === 'box') {
+      const min = vectorToArr(collider.min, `colliders[${index}].min`);
+      const max = vectorToArr(collider.max, `colliders[${index}].max`);
+      if (min.some((value, axis) => value >= max[axis])) {
+        throw new TypeError(`CameraFlightPath: colliders[${index}] must have increasing box bounds`);
+      }
+      return { type: 'box', min, max };
+    }
+    throw new TypeError(`CameraFlightPath: colliders[${index}] must be a sphere or box`);
+  });
+}
+
+function segmentSphereHit(start, end, center, radius) {
+  const direction = end.map((value, axis) => value - start[axis]);
+  const lengthSquared = direction.reduce((sum, value) => sum + value * value, 0);
+  if (lengthSquared < 1e-12) return null;
+  const offset = start.map((value, axis) => value - center[axis]);
+  const radialMotion = offset.reduce((sum, value, axis) => sum + value * direction[axis], 0);
+  const distanceSquared = offset.reduce((sum, value) => sum + value * value, 0);
+  if (distanceSquared < radius * radius) {
+    // An initially overlapping camera may escape, but not cross the body.
+    return radialMotion >= 0 ? null : start;
+  }
+  if (radialMotion >= 0) return null;
+  const discriminant = radialMotion * radialMotion - lengthSquared * (distanceSquared - radius * radius);
+  if (discriminant <= 0) return null;
+  const entry = (-radialMotion - Math.sqrt(discriminant)) / lengthSquared;
+  if (entry < 0 || entry > 1) return null;
+  const hit = Math.max(0, entry - 0.002 / Math.sqrt(lengthSquared));
+  return start.map((value, axis) => value + direction[axis] * hit);
+}
+
+function segmentBoxHit(start, end, min, max, radius) {
+  const direction = end.map((value, axis) => value - start[axis]);
+  const lower = min.map((value) => value - radius);
+  const upper = max.map((value) => value + radius);
+  const inside = start.every((value, axis) => value >= lower[axis] && value <= upper[axis]);
+  if (inside) {
+    const depths = start.flatMap((value, axis) => [value - lower[axis], upper[axis] - value]);
+    const nearestFace = Math.min(...depths);
+    const escaping = direction.some((value, axis) =>
+      (value < 0 && depths[axis * 2] <= nearestFace + 1e-12)
+      || (value > 0 && depths[axis * 2 + 1] <= nearestFace + 1e-12));
+    return escaping ? null : start;
+  }
+  let enter = 0;
+  let leave = 1;
+  for (let axis = 0; axis < 3; axis += 1) {
+    if (Math.abs(direction[axis]) < 1e-12) {
+      if (start[axis] < lower[axis] || start[axis] > upper[axis]) return null;
+      continue;
+    }
+    const first = (lower[axis] - start[axis]) / direction[axis];
+    const second = (upper[axis] - start[axis]) / direction[axis];
+    enter = Math.max(enter, Math.min(first, second));
+    leave = Math.min(leave, Math.max(first, second));
+    if (enter > leave) return null;
+  }
+  if (enter < 0 || enter > 1) return null;
+  const length = Math.hypot(...direction);
+  const safeT = Math.max(0, enter - 0.002 / Math.max(length, 0.002));
+  return start.map((value, axis) => value + direction[axis] * safeT);
+}
+
+function resolveTarget(target, fallback) {
+  if (target == null) return fallback;
+  const value = typeof target === 'function' ? target() : target;
+  return vectorToArr(value, 'target');
+}
+
 // ---------------------------------------------------------------------------
 // CameraFlightPath
 // ---------------------------------------------------------------------------
@@ -108,6 +206,9 @@ class CameraFlightPath {
 
     // Options stored at flyTo() call
     this._opts = {};
+    this._targetRef = null;
+    this._colliders = [];
+    this._collisionRadius = 0.25;
 
     /** Resolve / reject for the promise returned by flyTo() */
     this._resolve = null;
@@ -137,10 +238,19 @@ class CameraFlightPath {
    * @param {number}                [opts.starBlur=0.4]    max star blur
    * @param {Function}              [opts.onAtmosphereScale]
    * @param {Function}              [opts.onStarBlur]
+   * @param {object|Function}       [opts.target] live target point/provider
+   * @param {Array<object>}         [opts.colliders] sphere/box obstacles
+   * @param {number}                 [opts.collisionRadius=0.25] camera clearance
    * @returns {Promise<void>}        Resolves when flight completes (t === 1)
    */
   flyTo(from, to, durationMs, opts = {}) {
     this._opts     = opts || {};
+    this._targetRef = opts.target ?? opts.targetObject ?? { x: 0, y: 0, z: 0 };
+    this._colliders = normalizeColliders(opts.colliders);
+    this._collisionRadius = Number(opts.collisionRadius ?? 0.25);
+    if (!Number.isFinite(this._collisionRadius) || this._collisionRadius < 0) {
+      throw new TypeError('CameraFlightPath: collisionRadius must be a non-negative number');
+    }
     this._duration = Number(durationMs) > 0 ? Number(durationMs) : 2500;
     this._elapsed  = 0;
     this._t        = 0;
@@ -155,6 +265,7 @@ class CameraFlightPath {
 
     const p0 = toArr(from);
     const p3 = toArr(to);
+    resolveTarget(this._targetRef, p3);
 
     // Control points: camera first "pulls back" (away from target) then arcs.
     // Offset p1 behind the start direction, p2 in front of target with a
@@ -232,7 +343,9 @@ class CameraFlightPath {
       }
     }
 
-    const pos    = cubicBezier(this._p0, this._p1, this._p2, this._p3, this._t);
+    const desiredPosition = cubicBezier(this._p0, this._p1, this._p2, this._p3, this._t);
+    const pos = this._resolveCameraPosition(desiredPosition);
+    const target = resolveTarget(this._targetRef, this._p3);
     const tangent = cubicBezierTangent(this._p0, this._p1, this._p2, this._p3, Math.max(0.001, Math.min(0.999, this._t)));
 
     // Roll correlates with the horizontal (XZ) curvature angle of the tangent.
@@ -240,7 +353,7 @@ class CameraFlightPath {
     const roll = Math.sin(tangentAngle) * MAX_ROLL_RAD * Math.sin(Math.PI * this._t);
 
     this._lastPos    = pos;
-    this._lastTarget = this._p3.slice();
+    this._lastTarget = target;
     this._lastRoll   = roll;
 
     // Side effects: atmosphere scale and star blur
@@ -256,7 +369,7 @@ class CameraFlightPath {
 
     return {
       position: arrToObj(pos),
-      target:   arrToObj(this._p3),
+      target:   arrToObj(target),
       roll,
       t: this._t,
     };
@@ -274,10 +387,19 @@ class CameraFlightPath {
    * @param {number}                [durationMs=900]
    * @param {object}                [opts]
    * @param {number}                [opts.roll=3]  max roll degrees (small for buildings)
+   * @param {object|Function}       [opts.target] live target point/provider
+   * @param {Array<object>}         [opts.colliders] sphere/box obstacles
+   * @param {number}                 [opts.collisionRadius=0.25] camera clearance
    * @returns {Promise<void>}        Resolves when flight completes (t === 1)
    */
   flyToBuilding(from, to, durationMs, opts = {}) {
     this._opts     = opts || {};
+    this._targetRef = opts.target ?? opts.targetObject ?? null;
+    this._colliders = normalizeColliders(opts.colliders);
+    this._collisionRadius = Number(opts.collisionRadius ?? 0.25);
+    if (!Number.isFinite(this._collisionRadius) || this._collisionRadius < 0) {
+      throw new TypeError('CameraFlightPath: collisionRadius must be a non-negative number');
+    }
     this._duration = Number(durationMs) > 0 ? Number(durationMs) : 900;
     this._elapsed  = 0;
     this._t        = 0;
@@ -289,6 +411,7 @@ class CameraFlightPath {
 
     const p0 = toArr(from);
     const p3 = toArr(to);
+    resolveTarget(this._targetRef, p3);
 
     const dist = Math.sqrt(
       (p3[0] - p0[0]) ** 2 + (p3[1] - p0[1]) ** 2 + (p3[2] - p0[2]) ** 2,
@@ -367,6 +490,28 @@ class CameraFlightPath {
       cam.position.y = state.position.y;
       cam.position.z = state.position.z;
     }
+    if (ctx.controls?.target && typeof ctx.controls.target.set === 'function') {
+      ctx.controls.target.set(state.target.x, state.target.y, state.target.z);
+      ctx.controls.update?.();
+    } else if (typeof cam?.lookAt === 'function') {
+      cam.lookAt(state.target.x, state.target.y, state.target.z);
+    }
+  }
+
+  _resolveCameraPosition(position) {
+    let resolved = position;
+    const start = this._lastPos;
+    const radius = this._collisionRadius;
+    for (const collider of this._colliders) {
+      const hit = collider.type === 'sphere'
+        ? segmentSphereHit(start, resolved, collider.center, collider.radius + radius)
+        : segmentBoxHit(start, resolved, collider.min, collider.max, radius);
+      if (!hit) continue;
+      const hitDistance = Math.hypot(...hit.map((value, axis) => value - start[axis]));
+      const resolvedDistance = Math.hypot(...resolved.map((value, axis) => value - start[axis]));
+      if (hitDistance < resolvedDistance) resolved = hit;
+    }
+    return resolved;
   }
 }
 

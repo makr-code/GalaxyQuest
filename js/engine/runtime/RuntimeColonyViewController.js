@@ -78,6 +78,7 @@
           <div class="colony-view-actions">
             <button class="btn btn-secondary btn-sm" id="colony-open-buildings-btn">Buildings</button>
             <button class="btn btn-secondary btn-sm" id="colony-open-shipyard-btn">Shipyard</button>
+            <button class="btn btn-secondary btn-sm" id="colony-open-surface-btn">3D city</button>
           </div>
         </div>
         ${buildingFocus ? `<div class="build-focus-banner">Rasterfokus: ${esc(fmtName(buildingFocus))}${uiState.colonyViewFocus?.source ? ` ┬À Quelle: ${esc(uiState.colonyViewFocus.source)}` : ''}</div>` : ''}
@@ -131,6 +132,36 @@
         const currentColony = getCurrentColony();
         root.querySelector('#colony-open-buildings-btn')?.addEventListener('click', () => wm.open('buildings'));
         root.querySelector('#colony-open-shipyard-btn')?.addEventListener('click', () => wm.open('shipyard'));
+        root.querySelector('#colony-open-surface-btn')?.addEventListener('click', async () => {
+          const orchestrator = window.__GQ_ZOOM_ORCHESTRATOR;
+          const level = window.GQSeamlessZoomOrchestrator?.ZOOM_LEVEL?.COLONY_SURFACE;
+          const mapper = window.GQRuntimeColonySurfaceSlotMapping;
+          if (!orchestrator || level == null || !mapper) {
+            showToast('Open the galaxy view to initialize the shared WebGPU renderer first.', 'info');
+            wm.open('galaxy');
+            return;
+          }
+          if (orchestrator._backend?.backendType !== 'webgpu') {
+            showToast('The 3D city requires the native shared WebGPU renderer.', 'info');
+            return;
+          }
+          try {
+            const data = await api.buildings(currentColony.id);
+            if (!data.success) throw new Error('Building snapshot unavailable');
+            const mapped = mapper.buildColonySurfaceVfxSlots(currentColony, data);
+            wm.open('galaxy');
+            await orchestrator.zoomTo(level, {
+              colony: currentColony, layout: data.layout, slots: mapped.slots,
+              onOpenBuildings: () => {
+                selectColonyById(currentColony.id, { openWindows: false });
+                wm.open('buildings');
+              },
+            });
+          } catch (error) {
+            gameLog('warn', 'Colony surface failed', error);
+            showToast('Could not open the colony surface.', 'error');
+          }
+        });
 
         const overlay = typeof window?.GQNeighborWaypointOverlay?.getOverlay === 'function'
           ? window.GQNeighborWaypointOverlay.getOverlay() : null;

@@ -189,8 +189,13 @@ describe('bounded benchmark validity', () => {
 
   describe('actual native reference bridge', () => {
     function nativeDevice(error = null) {
+      vi.stubGlobal('GPUBufferUsage', { UNIFORM: 1, COPY_DST: 2, VERTEX: 4 });
+      vi.stubGlobal('GPUTextureUsage', { RENDER_ATTACHMENT: 1 });
       const device = Object.assign(new EventTarget(), {
-        createShaderModule: vi.fn(() => ({})), createRenderPipeline: vi.fn(() => ({})),
+        createShaderModule: vi.fn(() => ({})),
+        createRenderPipeline: vi.fn(() => ({ getBindGroupLayout: () => ({}) })),
+        createBuffer: vi.fn(({ size }) => ({ size, destroy: vi.fn() })),
+        createBindGroup: vi.fn(() => ({})),
         pushErrorScope: vi.fn(), popErrorScope: vi.fn(async () => error),
         destroy: vi.fn(), lost: new Promise(() => {}),
       });
@@ -208,7 +213,7 @@ describe('bounded benchmark validity', () => {
       const { canvas, context, device } = nativeDevice();
       const native = await createNativeColony(canvas);
       expect(native.backend).toBe('native-colony-webgpu');
-      expect(device.createRenderPipeline).toHaveBeenCalledTimes(3);
+      expect(device.createRenderPipeline).toHaveBeenCalledTimes(6);
       expect(context.configure).toHaveBeenCalledOnce();
       const event = new Event('uncapturederror');
       event.error = { message: 'bad submission' };

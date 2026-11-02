@@ -7,7 +7,11 @@ const runtimeModules = new Map([
   ['js/runtime/model_registry.js', () => import('./model_registry.js')],
   ['js/vendor/three.min.js', () => import('../three-runtime.js')],
   ['js/rendering/starfield-webgpu.js', () => import('../rendering/starfield-webgpu.js')],
-  ['js/rendering/Galaxy3DRendererWebGPU.js', () => import('../rendering/Galaxy3DRendererWebGPU.js')],
+  ['js/rendering/body-material.js', () => import('../rendering/body-material.js')],
+  ['js/rendering/Galaxy3DRendererWebGPU.js', async () => {
+    await import('../rendering/body-material.js');
+    await import('../rendering/Galaxy3DRendererWebGPU.js');
+  }],
   ['js/legacy/galaxy3d-webgpu.js', () => import('../legacy/galaxy3d-webgpu.js')],
   ['js/rendering/galaxy-camera-controller.js', () => import('../rendering/galaxy-camera-controller.js')],
   ['js/engine/assets/WorldAssetDescriptor.js', () => import('../engine/assets/WorldAssetDescriptor.js')],

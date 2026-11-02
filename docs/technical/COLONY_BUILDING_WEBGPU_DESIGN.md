@@ -3,10 +3,404 @@
 ## Technisches Implementierungs-Dokument
 
 **Version:** 1.0  
-**Status:** Implementation Blueprint  
+**Status:** Implemented native WebGPU core; extended blueprint below remains backlog
 **Stand:** 2026-04-01  
 **Bezug:** [COLONY_BUILDING_SYSTEM_DESIGN.md](COLONY_BUILDING_SYSTEM_DESIGN.md) · [ARCHITECTURE.md](ARCHITECTURE.md)  
 **Kontext:** Dieses Dokument beschreibt die **technische WebGPU-Umsetzung** des in `COLONY_BUILDING_SYSTEM_DESIGN.md` definierten Bausystems. Es behandelt 3D-Gebäudemodelle (JSON), den isometrischen Raster-Renderer (Stellaris-Stil) und die Integration in die bestehende WebGPU-Infrastruktur.
+
+---
+
+## Implementierter Kern (2. November 2026)
+
+### Gemeinsames prozedurales Materialmodell
+
+`js/rendering/body-material.js` definiert einen gemeinsamen PBR-Kern fuer
+Kolonieoberflaeche, Planet-Anflug und planetare Systemobjekte. Default sind
+prozedurale Materialien ohne Bildtextur-Downloads. Der versionierte
+Laufzeitdeskriptor enthaelt lineare Grund-/Akzentfarbe, Rauheit, Metallanteil,
+Emissionsfarbe, Normalstaerke, physischen Radius und einen koerperstabilen Seed.
+Sieben Biompresets werden aus dem persistierten Manifest abgeleitet; ohne
+Manifest dienen Koerper-ID und Metadaten als ausdrueckliche Vorschau.
+Besitz-/Fraktionsfarben veraendern das Oberflaechenmaterial nicht.
+
+- **PBR:** GGX-Normalverteilung, Schlick-Fresnel und geometrische Abschattung
+  ergeben diffuse und spiegelnde direkte Beleuchtung; die nichtmetallischen
+  Naturmaterialien haben standardmaessig Metallanteil null. Rauheit und
+  Normalen variieren mit den prozeduralen Oberflaechenstrukturen.
+- **Koordinaten:** Makrofarben verwenden kanonische koerperfeste 3D-Koordinaten,
+  nicht Bildschirmkoordinaten oder verzerrte Kugel-UVs. Triplanare
+  Mikrostrukturen mischen drei Projektionen anhand der Oberflaechennormale.
+  Ihre charakteristischen Groessen 16 m, 2 m und 0,25 m bleiben physisch
+  skaliert. Gehashtes Gitterrauschen mit quintischer Interpolation und
+  analytischen Gradienten ersetzt regelmaessige Sinus-/Schachbrettmuster;
+  diese Groessen sind keine Wiederholungsperioden.
+  In der Kolonie werden lokale Koordinaten, ein CPU-seitig modulo 128 m
+  reduzierter Anker und dessen ganzzahliger Zellursprung kombiniert.
+  Der Ursprung geht in den Rauschhash ein, statt alle 128 m dieselbe
+  Textur zu wiederholen. Dies erhaelt dieselben Detailphasen auch bei
+  grossen Radien und einem anderen lokalen Koloniebezug ohne Float32-Abzug
+  zweier nahezu gleicher planetenweiter Positionen. Anker sind auf
+  +/-4.000.000 Zellen je Achse begrenzt (512.000 km); groessere Werte
+  werden explizit abgewiesen, um Integerueberlaeufe zu verhindern.
+- **Material-LOD:** Der projizierte Referenzdurchmesser in Renderpixeln
+  steuert kontinuierliche Gewichte: Makrofarben 2-12 px, grobe
+  Materialstrukturen 24-120 px, Mikrodetails 160-800 px. Zusaetzlich filtern
+  Fragmentableitungen jede physische Frequenz nach ihrem echten Pixelfootprint.
+  Nicht aufloesbare Detailauswertungen werden uebersprungen. Die
+  Geometrie-LOD bleibt unabhaengig; Materialwechsel erzeugen keine neuen
+  Terrainmeshes, Requests, Renderer oder Hintergrundprozesse.
+- **Punktdarstellung:** Bei maximal 2 px zeichnet die Systemansicht ein
+  einzelnes Quad mit analytischer Punktabdeckung statt des Koerpermeshes.
+  Unterhalb der Pixelgroesse sinkt dessen Abdeckung mit der projizierten
+  Flaeche. Die uebrigen Shader konvergieren vor dem Wechsel bereits zur selben
+  repraesentativen Farbe: arithmetischer Mittelwert der linearen
+  Grund-/Akzentfarbe mit einem festen Darstellungshelligkeitsfaktor.
+  Dies ist eine deterministische Farbreduktion, keine integrierte
+  Phasen-/Reflexionsphotometrie des gesamten Koerpers.
+- **Farbraum:** Presetfarben sind sRGB-Eingaben. Farbmischung und Beleuchtung
+  erfolgen linear, danach einmalige sRGB-Kodierung fuer das unorm-Canvas.
+  Geometrie- und Normaldaten sind keine sRGB-Farbdaten.
+- **Lebenszyklus:** Ein 112-Byte-Materialuniform pro aktiver Ansicht bzw.
+  Systemkoerper wird aktualisiert statt neu alloziert; Systemkoerper erhalten
+  zudem eigene Transformuniforms, damit mehrere Materialien nicht durch
+  denselben zuletzt beschriebenen Buffer ueberschrieben werden. Austritt
+  aus dem System und Dispose geben die zugehoerigen Ressourcen frei.
+
+Dies ist ein PBR-/Material-LOD-Kern, kein Blender-/Unreal-Nodeeditor.
+Externe Materialassets, Image-Based Lighting, Materialkachel-Caches und
+materialbedingtes Displacement sind nicht implementiert. Figuren und Gebaeude
+behalten ihren bisherigen stilisierten Materialpfad.
+
+### Persistierte GeoJSON-Terrainregionen
+
+Ein Koerper kann in `payload_json.terrain_regions` eine optionale RFC-7946-
+`FeatureCollection` bereitstellen. `Polygon` und `MultiPolygon` inklusive
+geschlossener Aussenringe, Loecher und Datumsgrenzen werden unter einem
+festen Budget validiert (maximal 8 Features, 8 Polygone/Ringe je Feature,
+256 Positionen insgesamt). Unbekannte Geometrietypen, nicht endliche oder
+ausserhalb [-180,180]/[-90,90] liegende Koordinaten und offene Ringe werden
+explizit abgewiesen.
+
+Unterstuetzte Feature-Eigenschaften: `height_offset_km` (-100 bis 100,
+Standard 0; die Summe der Absolutwerte ist zusaetzlich auf 5 % des
+Koerperradius bzw. 100 km begrenzt), `transition_km` (0 bis 2000, Standard 0,25), `material`
+(`water`, `ice`, `rock`, `lava`) und optional `color` als `#RRGGBB`.
+Fehlende Hoehen-/Materialeigenschaften veraendern diese Kanaele nicht.
+Materialfarben werden entlang desselben vorzeichenbehafteten geodaetischen
+Grenzabstands weich ueberblendet, den die Hoehenkorrektur verwendet.
+Polygonloecher bleiben ausserhalb der Region; Datumsgrenzen werden sphärisch
+ausgewertet und nicht als lange lineare Laengengradkante fehlinterpretiert.
+Hoehenoffsets ueberlagern sich additiv; bei konkurrierenden Farbregionen
+gewinnt die lokal staerkste Maske, bei Gleichstand die fruehere Feature-Reihenfolge.
+
+Das Backend normalisiert und speichert nichtleere Regionen im vorhandenen
+Terrainmanifest; es ist keine Tabellenerweiterung oder Hintergrundsimulation
+noetig. Die begrenzten Hoehenoffsets werden in den Hoehenbereich aufgenommen,
+bevor Cube-Sphere-Kacheln quantisiert und persistent gespeichert werden.
+Die Clientberechnungen fuer Kamera-/Solidkollisionen verwenden dieselbe
+Maske. Die Kolonie kodiert den geglaetteten Regionsanteil pro Terrainvertex;
+die Anflugansicht rendert bei Regionen dieselbe persistierte Hoehen-/Material-
+maske auf einem kugelfesten Oberflaechenmesh. Alte Manifeste ohne Regionen
+bleiben unveraendert. Gasriesen koennen keine Terrainregionen besitzen.
+
+`ColonySurfaceLevelWebGPU` zeichnet eine echte, tiefengeprüfte 3D-Stadt:
+instanzierte Quader mit 36 Vertices, Straßenraster, Farmbeete, Wohnhäuser mit
+Fenstern, Fabrikschornsteine, Reaktoren und Forschungstürme. Gespeicherte Level
+bestimmen die Gebäudehöhe. Maximal 256 Gebäude, 8.192 statische Teile, 96
+deterministische kosmetische Fußgänger und 900 VFX-Partikel begrenzen die Arbeit.
+Bevölkerung und Bevölkerungsklassen stammen aus dem Serverzustand; ihre
+Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
+
+- **Ein Rendering-Pfad:** Gerät, Canvas-Kontext und Frame-Hook des vorhandenen
+  `Galaxy3DRendererWebGPU` werden geliehen. Während der Nahansicht pausiert dessen
+  Galaxie-Zeichenpass; es gibt keinen weiteren Device-Request oder RAF-Loop.
+- **Navigation:** Planet doppelklicken → Anflug → „Land on colony“ bzw.
+  doppelklicken/hineinscrollen. Alternativ öffnet „3D city“ im Koloniefenster
+  direkt die Oberfläche, sobald der native Galaxy-Renderer initialisiert ist.
+  Die Kamera interpoliert in 1,2 Sekunden vom ganzen Himmelskörper zur
+  perspektivischen Stadtansicht. Die Projektion bleibt auch nach der Landung
+  perspektivisch (keine Überblendung mehr zur Orthographie); entfernte Gebäude
+  erscheinen entsprechend kleiner. Die Stadt, Straßen, Figuren, Effekte und das
+  Picking werden über dieselbe geodätische Abbildung auf die Körperoberfläche
+  projiziert; der sichtbare Planetenkörper wird im selben WebGPU-Pass gerendert.
+  Scrollen führt vom Körper in die Kolonie und beim Herauszoomen wieder zum
+  jeweiligen Eltern-Level zurück. Flugkameras richten sich auf ein eigenes,
+  optional dynamisches Target aus; ihre Bewegung prüft eine Kamerakugel gegen
+  Körper-Sphären und AABB-Hindernisse, auch wenn ein einzelner Frame innerhalb
+  eines Hindernisses enden würde. Bereits überlappende Startpositionen dürfen
+  nur nach außen entkommen, nicht durch das Hindernis hindurchfliegen.
+  Die Kolonie-Kamera hält zusätzlich Mindestabstand zu den höchsten Gebäuden.
+- **Unregelmäßige Körper:** Das persistierte Manifest enthält zusätzlich
+  `shape: { version: 1, axes: [x,y,z], deformation: d }`.
+  Die Achsen sind dimensionslose Radienfaktoren (0,5–2), `d` liegt zwischen
+  0 und 0,35. Ein Ellipsoid mit glatter richtungsabhängiger Deformation bildet
+  gestreckte und unregelmäßige, sternförmige Körper. Der Legacy-Pfad für
+  Kometen/Asteroiden verwendet `[1.45,0.8,0.95]` und `d=0.22`; Planeten bleiben
+  ohne explizite Vorgabe kugelförmig. Eigene Formen können vor dem ersten
+  Manifestzugriff über `celestial_bodies.payload_json.shape` festgelegt werden.
+  Bereits persistierte Manifeste ohne Form werden einmalig um die Kugelform
+  ergänzt: bestehende Welten und Höhenkacheln verändern sich nicht rückwirkend.
+  Die Form ist unabhängig von Seed, Relief und LOD eingefroren.
+  CPU und Stadtshader verwenden dieselbe Radialfunktion; Gebäudehöhen werden
+  entlang der aus der Körperform abgeleiteten lokalen Oberflächennormale
+  aufgetragen. Kamera-Target, Picking und VFX folgen derselben Abbildung.
+  Die Koloniekamera prüft außerdem den Bewegungsweg gegen ein konservatives
+  Form-/Relief-Hüllfeld; ein Sprung auf die andere Körperseite darf nicht
+  durch den Körper führen. Bei Annäherung an die Hülle bleibt sie davor stehen.
+  Der Planet-Anflug lädt nur das Manifest und verwendet dieselbe Form im
+  vorhandenen Shader, ohne Detailkacheln herunterzuladen.
+  Auch der vereinfachte Planetenrenderer in der Sternensystemansicht liest
+  persistierte Körperformen oder dieselben deterministischen Kleinkörper-
+  Defaults und berücksichtigt sie bei Geometrie und Beleuchtungsnormalen.
+  Der Anflug-Flugkorridor verwendet eine konservative Kollisionshülle aus
+  maximalem Achsenradius und Deformationsfaktor.
+  Eine gegebenenfalls explizit aktivierte Wolkenschale umfasst die Form;
+  Kometen und Asteroiden bleiben standardmäßig atmosphärenlos.
+  **Grenzen:** ein radial eindeutiges Modell, keine Höhlen, Überhänge oder
+  beliebig konkaven/mehrschaligen Meshes. Die Systemansicht bleibt ein
+  vereinfachter Bildschirmraum-Renderer und erzeugt keine Terrainkacheln.
+- **Geologie und zusammengesetzte Körper:** Neue Manifeste speichern zusätzlich
+  `geology: { version: 1, erosion, tectonics, craters }`. 32 seedstabile
+  Einschläge besitzen Richtung, Winkelradius und Tiefe in Kilometern.
+  Kraterschüsseln und erhöhte Ränder verändern die Geometrie, nicht nur deren
+  Farbe; Erosion schwächt Krater und feine Rauheit, tektonische Bänder ergänzen
+  das Relief geeigneter Planeten. Die Materialshader unterstützen das echte
+  Höhenprofil durch Körnung, Schichten und geometrische Beleuchtungsnormalen.
+  Dies sind stilisierte, deterministische geologische Parameter, keine
+  kontinuierlich laufende Erosions- oder Plattentektoniksimulation.
+  Neue Kometen verwenden standardmäßig einen verbundenen Zweilapper mit einer
+  subtrahierten Mulde. Eigene Definitionen werden vor der Manifestanlage über
+  `celestial_bodies.payload_json.solid` vorgegeben:
+  `solid: { version: 1, blend, lobes: [{ center: [x,y,z], axes: [a,b,c] }],
+  cuts: [{ center: [x,y,z], radius }] }`. Die normierten Koordinaten beziehen
+  sich auf `radius_km`; maximal vier Ellipsoide werden glatt vereinigt und
+  maximal acht Kugeln subtrahiert. Es handelt sich um ein gemeinsames
+  implizites Volumen, nicht um sich sichtbar überschneidende Kugelmeshes.
+  Marching Tetrahedra extrahiert dessen Oberfläche einschließlich konkaver
+  Hälse und Aushöhlungen. Ein gemeinsames, bei Nahsicht zum Koloniefokus
+  verdichtetes Gitter (24/32 Zellen je Achse, 48 im detaillierten Anflug) und gecachte, bisektierte
+  Kantenschnitte vermeiden adaptive T-Verbindungen. Neuvernetzung erfolgt
+  nur bei einem Detail-/Fokuswechsel; das Kolonie-Geometriebudget bleibt 8 MiB.
+  Solids benötigen keine Höhenkachel-Requests: persistiert werden Seed,
+  Geologie und Volumendefinition, die Dreiecke entstehen bedarfsgerecht
+  clientseitig. Annähernd kugelige Körper behalten den Cube-Sphere-Pfad.
+  Anflug und Kolonie nutzen dieselbe Definition und echte Tiefenprüfung.
+  Der Anflug gibt geladene Manifeste an den gemeinsamen Systemrenderer weiter;
+  dessen Cache hält höchstens 64 Definitionen und zeichnet bekannte Solids
+  ebenfalls als tiefengeprüfte Meshes. Vor dem autorisierten Manifestzugriff
+  bleibt dort die bisherige vereinfachte Form sichtbar. Bestehende Manifeste
+  und Höhenkacheln werden nicht auf die neue Geologie oder Solidform migriert.
+  **Grenzen:** Gebäudekoordinaten und Talanker verwenden weiterhin den
+  äußersten radialen Schnitt; freies Bauen an Überhängen/innerhalb von Höhlen
+  ist nicht unterstützt. Sehr kleine entfernte Merkmale können unter dem
+  begrenzten Samplebudget liegen; dies garantiert kein globales Submeter-LOD.
+  Die Druckkuppel-Regel ist weiterhin eine Kometen-Talbasis-Vorgabe, noch kein
+  Spezies-/Atmosphärenverträglichkeitsmodell.
+- **Kometen-Talbasis mit Druckkuppel:** Neue Kometenmanifeste speichern einen
+  bevorzugten Siedlungsanker als `settlement: { version: 1, kind: "valley-dome",
+  direction: [x,y,z], floor_height_km, dome_height_ratio: 0.55 }`. Eine begrenzte
+  Suche über 486 Kandidaten gewichtet niedrige Reliefhöhe, umgebendes höheres
+  Gelände und geringe Hangneigung einschließlich der unregelmäßigen Körperform.
+  Sie läuft ausschließlich bei der erstmaligen Manifestanlage; Standort und
+  Kuppelprofil bleiben danach unverändert. Bestehende Manifeste erhalten keine
+  automatische Umsiedlung oder Kuppel.
+  Die Stadtansicht dreht die kanonischen Terrainkacheln in das lokale
+  Koordinatensystem des Ankers; CPU-Picking, Gebäudeshader, Kamera und Streaming
+  verwenden dieselbe Transformation. Ein kreisförmiger Baugrund auf der
+  gespeicherten Talhöhe geht weich in das unveränderte Höhenfeld über.
+  Die transparente, verstrebte Kuppel sitzt mit einem umlaufenden Sockel auf
+  diesem Baugrund, wird nach Gebäuden mit Tiefenprüfung ohne Tiefenschreiben
+  gerendert und umfasst auch die äußeren Ecken der höchsten Gebäude.
+  Durchmesser und notwendige Dachhöhe folgen dem gespeicherten Gebäuderaster,
+  ohne Bauplätze, Levels oder Wirtschaftsdaten zu verändern.
+  **Grenzen:** Der Anker ist zunächst körperweit, nicht eine unabhängige
+  geografische Position je Kolonie. Alle vorhandenen Gebäude bleiben unter
+  derselben Kuppel; Außenanlagen/Schleusen, echte unterirdische Habitate,
+  Druck-/Sauerstoffwirtschaft und Strahlungsschutz sind noch nicht simuliert.
+- **Physischer Oberflächenmaßstab:** Eine Architektureinheit entspricht
+  `1.8 / 0.41` Metern: Figuren sind etwa 1,8 m hoch, ein Bauplatz etwa 13,6 m
+  breit. Der Körperradius ist ausschließlich `diameter_km * 500` Meter, nicht
+  mehr abhängig von der Stadtgröße und weder künstlich verkleinert noch
+  vergrößert. Das persistierte Manifest hat Vorrang vor Szenenmetadaten.
+  Fehlen beide, wird ein fester geschätzter Durchmesser mit sichtbarem Hinweis
+  verwendet, nicht ein von den Gebäuden abgeleiteter Radius.
+  CPU-Berechnungen bleiben doppelt genau; Terrainvertices werden im lokalen
+  Koloniebezug vor der Float32-Konvertierung gespeichert. Talanker werden
+  auf einen lokalen Nullpunkt verschoben. Der Gebäudeshader berechnet die
+  kleine Kugelsenkung über `-2*sin(angle/2)^2`, statt große Radien nahezu
+  voneinander abzuziehen. Die Baugrundhöhe folgt der natürlichen lokalen
+  Reliefhöhe statt sie auf null zu erzwingen und künstliche Kilometerwände
+  am Siedlungsrand zu erzeugen. Kamerakollisionen verwenden dort das lokale
+  Höhenfeld statt des höchsten Berges des gesamten Planeten.
+  Neue Manifeste erlauben LOD bis zu einer nominalen Sampleweite von 0,5 m,
+  gedeckelt auf LOD 16; bei erdgroßen Körpern liegt diese Grenze gröber.
+  Die bestehenden Streaming-/Geometriebudgets bleiben bestehen.
+  System- und Galaxieübersichten bleiben bewusst schematisch; dortige
+  Auswahlgrößen sind keine physische Oberflächenskalierung.
+- **Wolken und Himmel:** Eine analytisch geschnittene, transparente Kugelschale
+  um denselben Körper bildet außen Wolken und innen die Himmelskuppel ab.
+  Sie wird nach der Stadt im selben Renderpass mit Tiefenprüfung, aber ohne
+  Tiefenschreiben gezeichnet; Vordergrundgebäude bleiben sichtbar.
+  Beim Durchqueren der Wolkenhöhe nimmt ein prozeduraler Nebelschleier kurz zu
+  und gibt darunter die Kolonie wieder frei. Die Dichte hängt von der realen
+  Kamerahöhe über der Kugel ab, nicht von einem separaten Timer – daher gilt
+  der Effekt auch beim manuellen Heraus- und Hineinzoomen.
+  Logarithmische Zoominterpolation macht den Durchflug auch auf großen Planeten
+  sichtbar. `atmosphere_type`, `has_atmosphere` und optional `cloud_coverage`
+  steuern die Darstellung; explizit atmosphärenlose Körper sowie standardmäßig
+  Monde, Kometen und Asteroiden erhalten weder Wolken noch Himmel.
+  Ein explizit atmosphärischer Mond kann dennoch eine Kuppel zeigen.
+- **Persistierte Höhenkacheln:** Die Kolonie lädt ihr körperweites Cube-Sphere-
+  Manifest über `api/terrain.php?action=manifest&colony_id=N`. Seed, physischer
+  Radius, Biom, Höhenbereich und Generatorversion werden beim ersten Zugriff
+  in `body_terrain_manifests` eingefroren; spätere Kolonie-/Layoutänderungen
+  verändern diese Grunddaten nicht. Adressen sind
+  `body_id/generator_version/face/lod/x/y`. Sechs Quadtree-Flächen vermeiden
+  Polsingularitäten, sind aber **nicht exakt flächengleich**; Isometrie ist
+  weiterhin eine Kameraeigenschaft, keine Kachelprojektion.
+  Jede Kachel enthält 17 × 17 inklusive Rand geteilte, auf 16 Bit quantisierte
+  Höhenwerte als kompaktes JSON, keine Dreiecke oder PNG-Textur. Fehlende
+  Kacheln werden im Request deterministisch erzeugt und in `body_terrain_tiles`
+  gespeichert; vorhandene Samples werden gelesen, nicht neu berechnet.
+  Keine planetenweite Vorberechnung und kein Hintergrund-Tick.
+  Der Client verfeinert nach projizierter Kachelgröße (> 384 Renderpixel)
+  und Nähe zum Kameratarget, mit 15 % Zoomhysterese und Schwenktoleranz.
+  Höchstens 96 Blattkacheln und eine laufende Anfrage mit maximal 16 Adressen
+  begrenzen die Arbeit. Eltern bleiben sichtbar, bis alle vier Kinder vorliegen;
+  radiale Randschürzen decken Übergänge unterschiedlicher LOD ab.
+  Maximal 256 CPU-Höhenfelder und ein Terrainbuffer mit höchstens 184.320
+  Vertices / ca. 4,92 MiB bleiben unter dem 8-MiB-GPU-Budget.
+  Stillstehende Ansichten erzeugen nach dem Laden keine weiteren Requests.
+  Requests beginnen erst im aktiven sichtbaren Frame; Austritt und Koloniewechsel
+  brechen offene Anfragen ab und verwerfen verspätete Ergebnisse.
+  Kamera und Picking verwenden die bestätigten Höhenfelder der dargestellten
+  Kacheln; physische Kilometer werden in den Darstellungsradius umgerechnet.
+  Die lokale trockene Planierung wird erst beim Meshbau überlagert, nicht in
+  das gemeinsame Höhenfeld geschrieben. Die API verlangt Anmeldung und eine
+  eigene Kolonie; der gesamte Batch wird vor der Kachelerzeugung validiert.
+  **Deployment:** `php scripts/migrate.php up` wendet die im kanonischen Manifest
+  registrierte `migrate_body_terrain_v1.sql` an; Neuinstallationen enthalten
+  dieselben Tabellen in `sql/schema.sql`. Ein Rollback löscht die Terrain-Caches
+  und Manifeste. Migrationen werden nicht aus einem Render-Request ausgeführt.
+  Bei fehlender Migration/Netzfehler meldet das HUD den Fehler ausdrücklich:
+  bisher bestätigte Kacheln bleiben erhalten, ohne bestätigte Wurzelkacheln
+  bleibt eine als solche gekennzeichnete prozedurale Vorschau sichtbar.
+  Fehler lösen keine Wiederholungsanfrage pro Frame aus; erneuter Eintritt
+  startet einen neuen Ladeversuch.
+- **Prozedurale Vorschau und Oberflächenmaterialien:** Ein körperstabiler Seed erzeugt echtes verdrängtes
+  Kugelgelände statt bloßer Farbflecken. Die lokale Verdichtung folgt dem
+  Kameratarget; gröbere Ringe schließen die restliche Kugel.
+  Vier bedarfsgesteuerte Stufen verwenden 6.144, 23.040, 79.872 oder 161.280
+  Vertices (höchstens ca. 4,31 MiB pro Mesh). Auswahlkriterium ist die
+  projizierte Größe einer Terrain-Skalenlänge in tatsächlichen Renderpixeln,
+  einschließlich Seitenverhältnis und Renderauflösung. Schwellwerte sind
+  120/400/1.400 Pixel mit 15 % Hysterese; die Höhenfunktion selbst bleibt
+  unabhängig von der Detailstufe.
+  Ein LRU-Cache begrenzt die Summe aller Terrainbuffer auf 8 MiB und verwendet
+  zuvor erzeugte Stufen beim Zurückzoomen erneut. Auch die lokale Verdichtung
+  hat eine Schwenk-Hysterese statt Neubau bei jeder kleinen Zielbewegung.
+  Das Gelände rotiert nicht unter der Stadt.
+  Szenendaten-Vorbereitung erzeugt noch kein Terrainmesh; erst der Frame einer
+  aktiven, sichtbaren Oberfläche generiert und lädt die tatsächlich benötigte
+  Stufe. Verborgene Dokumente, unsichtbare/außerhalb des Viewports liegende
+  Canvas-Flächen und inaktive Szenen erzeugen keine neuen Terrainbuffer.
+  Körper-/Layoutwechsel invalidieren den Cache, Austritt gibt ihn frei.
+  Erdähnliche Welten zeigen grüne Niederungen, Wasser, Felsrücken und Schnee
+  auf hohen Gipfeln; Ozeanwelten mehr Wasser, Eiswelten Eisgebirge,
+  Wüsten Sand-/Gesteinsfarben, Vulkanwelten dunkles Gestein und Lava.
+  Monde/Asteroiden bleiben felsig, Kometen eisig. Gas-/Eisriesen behalten eine
+  gebänderte Ersatzoberfläche ohne erfundene feste Berge oder Seen.
+  Im Fragmentshader entstehen zusätzliche Gesteinskörnung, Schichten,
+  Eisfarben und zeitabhängige Wasserrippel. Ableitungsbasierte Filterung
+  (`fwidth`) blendet nicht mehr auflösbare Frequenzen aus; nahe Ansichten zeigen
+  die Details automatisch, ohne zusätzliche Texturdownloads.
+  Die Beleuchtung nutzt die wirkliche
+  Dreiecksgeometrie statt ausschließlich der Kugelnormale.
+  Die bestehende Koloniefläche wird trocken und eben entlang der Kugel
+  gradiert und weich ins Relief eingebettet. Gebäude und Figuren stehen damit
+  auf derselben Oberfläche; die bisherige große Bodenplatte entfällt.
+  Straßen werden abhängig vom Körperradius unterteilt, damit ihre geraden
+  Teilstücke nicht in der Krümmung versinken. Außerhalb der gradierten Fläche
+  folgen Kameratarget, Picking und Effekte derselben CPU-Höhenfunktion;
+  die Kamera erhält zusätzlichen Abstand zum maximalen Relief.
+- **Interaktion:** Ziehen verschiebt die Kamera, Mausrad oder +/- zoomt,
+  Doppelklick bzw. „Focus building“ fährt Target und Zoom weich in mindestens
+  650 ms zum Gebäude; der vorhandene Frame-Hook steuert diese Bewegung ohne
+  zusätzlichen RAF. Direkte Kameraeingaben brechen den Fokusflug ab.
+  Neue Szenendaten (auch aus Snapshot-Refresh) und Austritt verwerfen
+  ausstehende Fokusziele.
+  Ein Refresh erhält die aktuelle Kamerapose und respektiert neue Höhenlimits.
+  Gebäude-Nahansicht (`COLONY_BUILDING`, Tiefe 5) innerhalb der Kolonie verwendet
+  dieselbe laufende Oberflächenszene einschließlich Planet, Nachbargebäuden,
+  Figuren, Buffern und Eingabehandlern. Doppelklick, „Focus building“ oder
+  Hineinzoomen auf das ausgewählte Gebäude aktiviert dieses logische Level;
+  kein zusätzlicher Renderer, Snapshot-Request oder Anflug vom Weltraum entsteht.
+  „Back to colony“, Escape oder Herauszoomen führt zuerst weich zur gespeicherten
+  Koloniekamera zurück, bevor der nächste Rückschritt den Planeten öffnet.
+  Ein Gebäudwechsel behält die ursprüngliche Rückkehrpose. Snapshot-Refresh
+  aktualisiert die Auswahl anhand ihres Slot-Schlüssels; verschwindet das
+  Gebäude oder wechselt die Kolonie, endet die Nahansicht.
+  CPU-Picking projizierter Gebäude-Bounds
+  berücksichtigt Tiefe und Viewportgröße. Auswahl zeigt Typ/Level/Bauzustand.
+  „Back to orbit“/Escape beendet die Oberfläche. Der Weg über das Koloniefenster
+  kann die bestehende Gebäudeverwaltung für genau diese Kolonie öffnen.
+- **Wirtschaft:** Ein abbrechbarer, nicht gecachter Request bei Eintritt und
+  auf „Refresh snapshot“ liest
+  `api/colony_economy.php?action=snapshot&colony_id=N`. Er benötigt das separate
+  On-demand-Economy-Backend, dessen Migration und
+  `ON_DEMAND_ECONOMY_ENABLED=1` (Default aus). Fehlende Freischaltung/Fehler werden
+  sichtbar gemeldet; bestehende `API.buildings()`-Daten bleiben unabhängig
+  nutzbar. Es gibt weder Polling noch Requests bei verborgenem Dokument.
+  Produktions-/Verbrauchswerte werden nur angezeigt, nicht fortgeschrieben.
+  Rote Sockel signalisieren **kolonieweite** servergemeldete Knappheit, nicht
+  berechnete Einzelgebäude-Auslastung. Kein Macro-/Market-Endpoint wird benötigt.
+- **Persistenz:** Gespeicherte `slot_x`/`slot_y` und Slot-Level haben Vorrang.
+  Ohne gespeicherte Platzierungen wird die bestehende Gebäudeliste lediglich
+  deterministisch visualisiert; dieser Ersatzraster wird nicht gespeichert.
+  Veraltete Antworten nach Koloniewechsel/Austritt werden verworfen. Austritt
+  entfernt Eingabehandler/HUD, stoppt Agenten/VFX und zerstört Szenenbuffer sowie
+  Tiefentextur; gecachte Pipelines werden beim Orchestrator-Dispose freigegeben.
+
+**Bewusste Grenzen:** stilisierte prozedurale Gebäude statt JSON-/GLTF-Modellen,
+diskrete Cube-Sphere-LOD ohne Geomorphing zwischen Stufen;
+der separate Planet-Anflug teilt die Körperform, aber noch nicht die
+Detailhöhenfelder; die vereinfachte Systemansicht nutzt die Körperform,
+erzeugt dort jedoch keine Terrainkacheln,
+keine Erosion, unterirdische Geometrie oder hydrologische Simulation, kein GPU-Picking,
+keine Wegfindungs-/Haushalts-/Arbeitsmarkt-Simulation einzelner Personen, keine
+neuen Bau-Mutationen im 3D-Viewport. Fußgänger laufen kosmetische Straßenzyklen.
+Die Legacy-Three.js-Familie und der separate alte Gebäude-Close-up bei direktem
+Einstieg ohne aktive Kolonie bleiben unverändert. Die folgenden
+Blueprint-Kapitel sind **keine** Zusage, dass
+PiP, SSAO, Modell-LOD oder Compute-Bauanimationen bereits integriert sind.
+
+**Nachweise:**
+
+```sh
+php tools/phpunit.phar tests/Unit/BodyTerrainTest.php tests/Unit/MigrationRunnerTest.php tests/Unit/MigrationCliTest.php
+npx vitest run tests/js/persistent-terrain.test.js tests/js/colony-city-simulation.test.js tests/js/seamless-zoom.test.js tests/js/zoom-level-renderers-shared-init.test.js
+GQ_WEBGPU_SHADER_CI=1 npx playwright test tests/e2e/persistent-terrain-webgpu.spec.js tests/e2e/colony-city-webgpu.spec.js tests/e2e/webgpu-shader-validation.spec.js --grep 'persistent colony terrain|colony city|Colony surface|Planet approach'
+npm run vite:build
+```
+
+Der Browser-Test verwendet echte WebGPU-Pipelines auf dem Galaxy-Renderer
+(Software-Vulkan/SwiftShader ist möglich), durchläuft Anflug/Landung/Auswahl/
+Rückkehr und prüft gemeinsame Ressourcen, fehlende Validierungsfehler sowie
+genau einen Snapshot-Request. Ein lokal vorhandener Chromium kann über
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` gewählt werden.
+Zusätzlich vergleicht er echte Canvas-Pixel mit und ohne Wolkenschleier an
+derselben Kamerapose und legt `colony-view.png` als Screenshot-Artefakt ab.
+Weitere Pixelvergleiche und Screenshots prüfen Ozean-, Eis-, Wüsten- und
+Vulkangelände. Unit-Tests messen Höhenvariation, Materialverteilung, trockene
+Fundamente, Straßenabstand, Geometriebudget, Kameraabstand und Buffer-Lebensdauer.
+LOD-Tests prüfen Nah-/Fernzoom, Auflösungswechsel, Hysterese, Zielverschiebung,
+verzögertes Laden und das Cachebudget; der echte GPU-Test bestätigt den
+Stufenwechsel und Wiederverwendung desselben Buffers beim Zurückzoomen.
+
+Die Systemansicht bleibt beim bestehenden vereinfachten Planetenrenderer:
+Sie zeigt Körperformen, erzeugt aber keine Kolonie-Terrainmeshes für die
+übrigen Körper. Der separate Planet-Anflug ist weiterhin kein geometrisch
+durchgängiges Terrain-LOD-System.
 
 ---
 

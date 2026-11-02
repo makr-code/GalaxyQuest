@@ -4,8 +4,13 @@
 ARG CUDA_VERSION=12.1.1
 ARG CUDNN_VERSION=8
 ARG BASE_OS=ubuntu22.04
+ARG APP_UID=1001
+ARG APP_GID=1001
 
 FROM nvidia/cuda:12.1.1-cudnn${CUDNN_VERSION}-runtime-${BASE_OS}
+
+ARG APP_UID
+ARG APP_GID
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
@@ -19,6 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git wget curl ca-certificates \
     libgomp1 libgl1-mesa-glx libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --gid "$APP_GID" trellis \
+    && useradd --uid "$APP_UID" --gid "$APP_GID" --create-home trellis
 
 # Set Python 3.11 as default
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 && \
@@ -40,10 +48,13 @@ RUN python3.11 -m pip install --no-cache-dir --retries 10 --timeout 120 \
 
 # Step 3: Create workspace directories
 RUN mkdir -p /workspace/{models/torch,models/huggingface,generated}
+RUN chown -R trellis:trellis /workspace /home/trellis
 
 # Step 4: Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python -c "import torch; assert torch.cuda.is_available()" || exit 1
 
 EXPOSE 7862 7863
+ENV HOME=/home/trellis
+USER trellis
 CMD ["/bin/bash"]

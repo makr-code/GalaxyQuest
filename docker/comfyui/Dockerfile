@@ -3,7 +3,16 @@
 
 FROM python:3.12-bookworm
 
-RUN apt-get update && apt-get install -y git curl wget build-essential libffi-dev libssl-dev libsm6 libxext6 libxrender-dev libgomp1 libgl1-mesa-glx libglib2.0-0 && rm -rf /var/lib/apt/lists/*
+ARG APP_UID=1001
+ARG APP_GID=1001
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        git curl wget build-essential libffi-dev libssl-dev libsm6 libxext6 \
+        libxrender-dev libgomp1 libgl1-mesa-glx libglib2.0-0 \
+    && groupadd --gid "$APP_GID" comfyui \
+    && useradd --uid "$APP_UID" --gid "$APP_GID" --create-home comfyui \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV PIP_DEFAULT_TIMEOUT=120 \
 	PIP_RETRIES=10
@@ -24,10 +33,16 @@ RUN pip install --no-cache-dir nvidia-cuda-runtime-cu12
 
 RUN pip install --no-cache-dir trimesh opencv-python pymeshlab requests plyfile scikit-image spconv-cu121==2.3.8
 
-RUN mkdir -p /init && echo '#!/bin/bash\nset -e\nCUDA_RT_LIB="/usr/local/lib/python3.12/site-packages/nvidia/cuda_runtime/lib"\nif [ -d "$CUDA_RT_LIB" ]; then\n  export LD_LIBRARY_PATH="$CUDA_RT_LIB:${LD_LIBRARY_PATH}"\nfi\necho "[STARTUP] Installing TRELLIS2 wheels (no-deps)"\nif [ -d /workspace/custom_nodes/ComfyUI-Trellis2/wheels/Linux/Torch291 ]; then\n  pip install --no-cache-dir --no-deps /workspace/custom_nodes/ComfyUI-Trellis2/wheels/Linux/Torch291/*.whl\nfi\necho "[STARTUP] Launching ComfyUI"\nexec python -m main --listen 0.0.0.0 --port 8188' > /init/entrypoint.sh && chmod +x /init/entrypoint.sh
+RUN mkdir -p /init /workspace/models/huggingface /workspace/input /workspace/output \
+    && echo '#!/bin/bash\nset -e\nCUDA_RT_LIB="/usr/local/lib/python3.12/site-packages/nvidia/cuda_runtime/lib"\nif [ -d "$CUDA_RT_LIB" ]; then\n  export LD_LIBRARY_PATH="$CUDA_RT_LIB:${LD_LIBRARY_PATH}"\nfi\necho "[STARTUP] Installing TRELLIS2 wheels (no-deps)"\nif [ -d /workspace/custom_nodes/ComfyUI-Trellis2/wheels/Linux/Torch291 ]; then\n  pip install --user --no-cache-dir --no-deps /workspace/custom_nodes/ComfyUI-Trellis2/wheels/Linux/Torch291/*.whl\nfi\necho "[STARTUP] Launching ComfyUI"\nexec python -m main --listen 0.0.0.0 --port 8188' > /init/entrypoint.sh \
+    && chmod +x /init/entrypoint.sh \
+    && chown -R comfyui:comfyui /workspace /home/comfyui /init
 
 HEALTHCHECK --interval=15s --timeout=5s --retries=10 --start-period=30s CMD curl -f http://localhost:8188/system_stats || exit 1
 
 EXPOSE 8188
 
 ENTRYPOINT ["/init/entrypoint.sh"]
+
+ENV HOME=/home/comfyui
+USER comfyui

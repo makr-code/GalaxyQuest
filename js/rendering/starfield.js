@@ -357,6 +357,7 @@ window.GQPerspectiveBloom = PerspectiveBloom;
     }
     await loadScript(withAssetVersion('js/runtime/galaxy-chunk-utils.js', 'galaxyChunkUtils', '20260831p1'));
     await loadScript(withAssetVersion('js/rendering/starfield-webgpu.js', 'starfieldWebGpu', '20261029perspective1'));
+    await loadScript(withAssetVersion('js/rendering/body-material.js', 'bodyMaterial', '20261102pbr1'));
     await loadScript(withAssetVersion('js/rendering/Galaxy3DRendererWebGPU.js', 'galaxyRendererWebGpu', '20260404p4'));
     await loadScript(withAssetVersion('js/legacy/galaxy3d-webgpu.js', 'legacyWebGpu', '20261029perspective1'));
   }

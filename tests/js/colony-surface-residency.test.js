@@ -19,7 +19,12 @@ function sceneData(x = 3, upgrade = null) {
 
 function gpuBackend() {
   vi.stubGlobal('GPUBufferUsage', { STORAGE: 1, COPY_DST: 2, VERTEX: 4 });
+  vi.stubGlobal('GPUTextureUsage', { RENDER_ATTACHMENT: 4 });
   const buffers = [];
+  const pass = {
+    setPipeline: vi.fn(), setBindGroup: vi.fn(), setVertexBuffer: vi.fn(), draw: vi.fn(), end: vi.fn(),
+  };
+  const encoder = { beginRenderPass: vi.fn(() => pass), finish: vi.fn(() => ({})) };
   const device = {
     createShaderModule: vi.fn(() => ({})),
     createRenderPipeline: vi.fn(() => ({ getBindGroupLayout: () => ({}) })),
@@ -29,12 +34,17 @@ function gpuBackend() {
       buffers.push(buffer);
       return buffer;
     }),
-    createCommandEncoder: vi.fn(),
+    createTexture: vi.fn(({ size }) => ({
+      width: size[0], height: size[1], createView: () => ({}), destroy: vi.fn(),
+    })),
+    createCommandEncoder: vi.fn(() => encoder),
     queue: { writeBuffer: vi.fn(), submit: vi.fn() },
     destroy: vi.fn(),
   };
   return {
-    device, context: { unconfigure: vi.fn() }, buffers,
+    device, context: {
+      getCurrentTexture: () => ({ createView: () => ({}) }), unconfigure: vi.fn(),
+    }, buffers,
     getCapabilities: () => ({ webgpu: true }), dispose: vi.fn(),
   };
 }
@@ -71,13 +81,19 @@ describe('Colony surface GPU residency', () => {
   it('WebGPU evicts owned buffers, defers late updates, and reconstructs latest state across cycles', async () => {
     const backend = gpuBackend();
     const level = new ColonySurfaceLevelWebGPU();
-    await level.initialize(document.createElement('canvas'), backend);
+    const canvas = document.createElement('canvas');
+    canvas.width = 800;
+    canvas.height = 600;
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600, bottom: 600, right: 800 });
+    await level.initialize(canvas, backend);
     const initial = sceneData();
     level.setSceneData(initial);
-    expect(level._slotCount).toBe(1);
-    expect(level._buildingVfxStats.profileCounts.industry).toBe(1);
+    expect(level._slots).toHaveLength(1);
+    expect(level._slotCount).toBe(0);
     await level.enter(2);
-    const pipelines = [level._gridPipeline, level._meshPipeline, level._vfxPipeline];
+    expect(level._buildingVfxStats.profileCounts.industry).toBe(1);
+    const pipelines = [level._meshPipeline, level._bodyPipeline, level._vfxPipeline];
+    const sharedBuffers = [level._cameraBuffer, level._materialBuffer];
 
     for (let cycle = 0; cycle < 3; cycle++) {
       level.setSceneData(sceneData(10 + cycle, cycle % 2 ? 'pending' : null));
@@ -89,7 +105,8 @@ describe('Colony surface GPU residency', () => {
       expect(level._buildingVfxParticles).toEqual([]);
       expect(level._slotCount).toBe(0);
       expect(level._buildingVfxStats.particles).toBe(0);
-      backend.buffers.forEach((buffer) => expect(buffer.destroy).toHaveBeenCalledOnce());
+      backend.buffers.filter((buffer) => !sharedBuffers.includes(buffer))
+        .forEach((buffer) => expect(buffer.destroy).toHaveBeenCalledOnce());
       const allocated = backend.device.createBuffer.mock.calls.length;
       const latest = sceneData(10 + cycle, cycle % 2 ? null : 'pending');
       level.setSceneData(latest);
@@ -97,17 +114,18 @@ describe('Colony surface GPU residency', () => {
       expect(backend.device.createBuffer).toHaveBeenCalledTimes(allocated);
       expect(backend.device.createCommandEncoder).not.toHaveBeenCalled();
       expect(level._sceneData).toBe(latest);
+      expect(level._slots).toHaveLength(1);
 
       await level.enter(0, { colony: latest.colony });
       expect(level._sceneData.layout).toBe(latest.layout);
       expect(level._sceneData.selectedSlot).toBe(2);
-      expect(level._slotCount).toBe(1);
+      expect(level._slotCount).toBeGreaterThan(0);
       expect(level._buildingVfxStats.particles).toBeGreaterThan(0);
       expect(level._buildingVfxStats.quality).toBe('low');
       expect(level._buildingVfxStats.burstActive).toBe(true);
       const upload = backend.device.queue.writeBuffer.mock.calls.at(-1);
-      expect(new Float32Array(upload[2])[12]).toBe(10 + cycle);
-      expect([level._gridPipeline, level._meshPipeline, level._vfxPipeline]).toEqual(pipelines);
+      expect(new Float32Array(upload[2])[4]).toBeCloseTo(level._city.parts[0].x);
+      expect([level._meshPipeline, level._bodyPipeline, level._vfxPipeline]).toEqual(pipelines);
       level.render(0.1);
       expect(backend.device.createCommandEncoder).toHaveBeenCalledOnce();
       backend.device.createCommandEncoder.mockClear();
@@ -126,15 +144,18 @@ describe('Colony surface GPU residency', () => {
     const level = new ColonySurfaceLevelWebGPU();
     await level.initialize(document.createElement('canvas'), backend);
     await level.enter(2, sceneData());
-    expect(level._slotCount).toBe(1);
+    expect(level._slotCount).toBeGreaterThan(0);
     const slots = level._instanceBuffer;
     const vfx = level._buildingVfxBuffer;
+    const populatedCount = level._slotCount;
     level.setSceneData({ slots: [] });
     expect(slots.destroy).toHaveBeenCalledOnce();
     expect(vfx.destroy).toHaveBeenCalledOnce();
-    expect(level._instanceBuffer).toBeNull();
-    expect(level._instanceBindGroup).toBeNull();
-    expect(level._slotCount).toBe(0);
+    expect(level._instanceBuffer).not.toBeNull();
+    expect(level._instanceBindGroup).not.toBeNull();
+    expect(level._slotCount).toBe(level._city.parts.length);
+    expect(level._slotCount).toBeLessThan(populatedCount);
+    expect(level._buildingVfxBuffer).toBeNull();
     expect(level._buildingVfxStats.particles).toBe(0);
     level.dispose();
   });
@@ -244,9 +265,9 @@ describe('Colony surface GPU residency', () => {
     expect(backend.device.createBuffer).toHaveBeenCalledTimes(allocated);
     await orchestrator.zoomTo(3);
     expect(orchestrator._active).toBe(colony);
-    expect(colony._slotCount).toBe(1);
+    expect(colony._slotCount).toBeGreaterThan(0);
     const upload = backend.device.queue.writeBuffer.mock.calls.at(-1);
-    expect(new Float32Array(upload[2])[12]).toBe(25);
+    expect(new Float32Array(upload[2])[4]).toBeCloseTo(colony._city.parts[0].x);
     colony.dispose();
   });
 });

@@ -38,6 +38,7 @@ module.exports = {
         browserName: 'chromium',
         launchOptions: {
           args: webgpuArgs,
+          executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
         },
       },
     },

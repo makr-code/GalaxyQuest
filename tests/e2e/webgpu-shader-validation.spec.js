@@ -44,7 +44,9 @@ function extractWgslFromModule(relPath, exportedKey) {
   // require() evaluates the template literal, so ${WORKGROUP_SIZE} etc. are
   // already resolved in the returned string.
   const mod = require(path.join(ROOT, relPath));
-  return mod[exportedKey];
+  return ['COLONY_BODY_WGSL', 'PLANET_APPROACH_WGSL'].includes(exportedKey)
+    ? require(path.join(ROOT, 'js/rendering/body-material.js')).shader(mod[exportedKey])
+    : mod[exportedKey];
 }
 
 function extractWgslConstant(relPath, constantName) {
@@ -52,7 +54,8 @@ function extractWgslConstant(relPath, constantName) {
   const escapedName = constantName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = source.match(new RegExp(`const\\s+${escapedName}\\s*=\\s*(?:/\\*\\s*wgsl\\s*\\*/\\s*)?\`([\\s\\S]*?)\`;`));
   if (!match) throw new Error(`WGSL constant ${constantName} not found in ${relPath}`);
-  return match[1];
+  return constantName === 'PLANET_SHADER_WGSL'
+    ? require(path.join(ROOT, 'js/rendering/body-material.js')).shader(match[1]) : match[1];
 }
 
 /** Build the catalogue of all shaders to validate. */
@@ -62,6 +65,41 @@ function buildShaderCatalogue() {
       label: 'Galaxy3DRendererWebGPU — stable-index instanced stars',
       type: 'render',
       source: extractWgslConstant('js/rendering/Galaxy3DRendererWebGPU.js', 'STAR_SHADER_WGSL'),
+    },
+    {
+      label: 'Planet approach — flight-projected sphere',
+      type: 'render',
+      source: extractWgslFromModule(
+        'js/engine/zoom/levels/PlanetApproachLevelWebGPU.js', 'PLANET_APPROACH_WGSL',
+      ),
+    },
+    {
+      label: 'Colony surface — depth-tested instanced city',
+      type: 'render',
+      source: extractWgslFromModule(
+        'js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js', 'COLONY_CITY_WGSL',
+      ),
+    },
+    {
+      label: 'Colony surface — geodesic body shell',
+      type: 'render',
+      source: extractWgslFromModule(
+        'js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js', 'COLONY_BODY_WGSL',
+      ),
+    },
+    {
+      label: 'Colony surface — cloud shell and interior sky dome',
+      type: 'render',
+      source: extractWgslFromModule(
+        'js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js', 'COLONY_SKY_WGSL',
+      ),
+    },
+    {
+      label: 'Colony surface — projected activity particles',
+      type: 'render',
+      source: extractWgslFromModule(
+        'js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js', 'COLONY_VFX_WGSL',
+      ),
     },
     {
       label: 'StarfieldWebGPU — instanced galaxy stars',
@@ -101,6 +139,14 @@ function buildShaderCatalogue() {
       source: extractWgslConstant(
         'js/rendering/Galaxy3DRendererWebGPU.js',
         'OBJECT_MESH_SHADER_WGSL',
+      ),
+    },
+    {
+      label: 'Galaxy3DRendererWebGPU — radial and volumetric system bodies',
+      type: 'render',
+      source: extractWgslConstant(
+        'js/rendering/Galaxy3DRendererWebGPU.js',
+        'PLANET_SHADER_WGSL',
       ),
     },
     // ── Compute shaders (inline WGSL in JS) ────────────────────────────────
@@ -223,6 +269,13 @@ async function acquireWebGPUDevice(page) {
 test.describe('WebGPU WGSL Shader Validation (Hardware-in-Loop)', () => {
 
   let shaders;
+
+  test.beforeEach(async ({ page }) => {
+    // A localhost origin is a secure context; about:blank can hide navigator.gpu.
+    await page.route('http://localhost/webgpu-shader-test', (route) =>
+      route.fulfill({ contentType: 'text/html', body: '<html><body></body></html>' }));
+    await page.goto('http://localhost/webgpu-shader-test');
+  });
 
   test.beforeAll(() => {
     shaders = buildShaderCatalogue();

@@ -8,7 +8,7 @@
 var { IZoomLevelRenderer: ZoomLevelRendererBase } = typeof require !== 'undefined'
   ? require('../IZoomLevelRenderer.js') : window.GQIZoomLevelRenderer;
 
-class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
+class PlanetLivingWorldApproachRenderer extends ZoomLevelRendererBase {
   constructor() {
     super();
     this._canvas = this._backend = this._sceneData = null;
@@ -43,6 +43,7 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
 
   async _loadWorld() {
     if (typeof require !== 'undefined') return require('./PlanetLivingWorld.js');
+    if (window.GQPlanetLivingWorld) return window.GQPlanetLivingWorld;
     await import('../../../rendering/planet-textures.js');
     await import('./PlanetLivingWorld.js');
     return window.GQPlanetLivingWorld;
@@ -290,5 +291,98 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
   }
 }
 
-if (typeof module !== 'undefined' && module.exports) module.exports = { PlanetApproachLevelWebGPU };
-else window.GQPlanetApproachLevelWebGPU = { PlanetApproachLevelWebGPU };
+function hasPersistentBodyData(data) {
+  const source = data?.focusPlanet || data?.planet || data?.colony || data?.target || data || {};
+  const manifest = data?.bodyTerrainManifest || data?.body_terrain_manifest
+    || data?.terrainManifest || data?.terrain_manifest
+    || source?.bodyTerrainManifest || source?.body_terrain_manifest || source?.terrain_manifest;
+  const shape = manifest?.shape || source?.shape;
+  const nonSpherical = shape && (
+    Number(shape.deformation) > 0
+    || (Array.isArray(shape.axes) && shape.axes.some((axis) => Math.abs(Number(axis) - 1) > 1e-6))
+  );
+  const regions = manifest?.regions || source?.regions;
+  const colonyId = Number(data?.colony?.id || source?.colony_id
+    || source?.__slot?.player_planet?.colony_id || 0);
+  return !!(manifest || source?.solid || regions?.features?.length || nonSpherical
+    || (Number.isSafeInteger(colonyId) && colonyId > 0));
+}
+
+class PlanetApproachLevelWebGPU extends PlanetLivingWorldApproachRenderer {
+  constructor() {
+    super();
+    this._persistentRenderer = null;
+    this._persistentActive = false;
+    this._navigation = null;
+  }
+
+  setNavigationHandlers(handlers) {
+    this._navigation = handlers;
+    this._persistentRenderer?.setNavigationHandlers(handlers);
+  }
+
+  setSceneData(data) {
+    super.setSceneData(data);
+    this._persistentActive = hasPersistentBodyData(this._sceneData);
+    this._persistentRenderer?.setSceneData(this._sceneData);
+  }
+
+  async _ensurePersistentRenderer() {
+    if (!this._persistentRenderer) {
+      const persistent = typeof require !== 'undefined'
+        ? require('./PersistentBodyPlanetApproachRenderer.js')
+        : window.GQPersistentBodyPlanetApproach || await import('./PersistentBodyPlanetApproachRenderer.js');
+      const PersistentRenderer = persistent.PersistentBodyPlanetApproachRenderer
+        || window.GQPersistentBodyPlanetApproach?.PersistentBodyPlanetApproachRenderer;
+      if (!PersistentRenderer) throw new Error('Persistent body approach renderer is unavailable');
+      this._persistentRenderer = new PersistentRenderer();
+      await this._persistentRenderer.initialize(this._canvas, this._backend);
+      this._persistentRenderer.setNavigationHandlers(this._navigation);
+      this._persistentRenderer.setSceneData(this._sceneData);
+    }
+  }
+
+  async enter(prevLevel, transitionPayload) {
+    await super.enter(prevLevel, transitionPayload);
+    this.setSceneData(transitionPayload || this._sceneData);
+    if (!this._persistentActive) return;
+    await this._ensurePersistentRenderer();
+    await this._persistentRenderer.enter(prevLevel, transitionPayload);
+  }
+
+  render(dt, cameraState) {
+    if (this._persistentActive && this._persistentRenderer) {
+      this._persistentRenderer.render(dt, cameraState);
+      return;
+    }
+    super.render(dt, cameraState);
+  }
+
+  renderBackdrop(dt, cameraState, opacity) {
+    if (!this._persistentActive || !this._persistentRenderer) return false;
+    return this._persistentRenderer.renderBackdrop(dt, cameraState, opacity);
+  }
+
+  async exit(nextLevel) {
+    this._persistentActive = false;
+    await this._persistentRenderer?.exit(nextLevel);
+    await super.exit(nextLevel);
+  }
+
+  dispose() {
+    this._persistentRenderer?.dispose();
+    this._persistentRenderer = null;
+    super.dispose();
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  const persistent = require('./PersistentBodyPlanetApproachRenderer.js');
+  module.exports = {
+    PlanetApproachLevelWebGPU,
+    PLANET_APPROACH_WGSL: persistent.PLANET_APPROACH_WGSL,
+    planetViewProjection: persistent.planetViewProjection,
+  };
+} else {
+  window.GQPlanetApproachLevelWebGPU = { PlanetApproachLevelWebGPU };
+}

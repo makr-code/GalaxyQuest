@@ -13,6 +13,11 @@ import path from 'node:path';
 // ---------------------------------------------------------------------------
 
 function loadRenderer() {
+  const materialSrc = fs.readFileSync(
+    path.resolve(process.cwd(), 'js/rendering/body-material.js'), 'utf8',
+  );
+  // eslint-disable-next-line no-eval
+  window.eval(materialSrc);
   for (const file of ['js/telemetry/performance-budget.js', 'js/engine/utils/WebGPUProfiler.js']) {
     // eslint-disable-next-line no-eval
     window.eval(fs.readFileSync(path.resolve(process.cwd(), file), 'utf8'));
