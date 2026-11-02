@@ -182,7 +182,9 @@ struct DomeOut {
 const COLONY_BODY_WGSL = `
 struct Camera {
   viewProjection: mat4x4<f32>, transition: vec4<f32>, surface: vec4<f32>,
-  padding: array<vec4<f32>,27>, solidParams: vec4<f32>,
+  eye: vec4<f32>, padding: array<vec4<f32>,5>, shape: vec4<f32>,
+  east: vec4<f32>, pole: vec4<f32>, north: vec4<f32>,
+  solidPadding: array<vec4<f32>,17>, solidParams: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> camera: Camera;
 struct Out {
@@ -205,22 +207,15 @@ struct Out {
   let geometric = face / max(length(face),0.00001);
   let radialNormal = select(-geometric,geometric,dot(geometric,radial) >= 0.0);
   let normal = select(radialNormal,select(geometric,-geometric,front),camera.solidParams.x > 0.5);
-  let grainPhase = vec2<f32>(in.world.x * 8.7 + sin(in.world.z * 11.3),in.world.z * 7.1 + in.world.y * 3.0);
-  let grainFilter = 1.0 - smoothstep(0.3,1.5,max(fwidth(grainPhase.x),fwidth(grainPhase.y)));
-  let grain = sin(grainPhase.x) * cos(grainPhase.y) * grainFilter;
-  let strataPhase = in.world.y * 12.0 + sin(in.world.x * 0.8);
-  let strata = sin(strataPhase) * (1.0 - smoothstep(0.3,1.5,fwidth(strataPhase)));
-  let ripplePhase = vec2<f32>(in.world.x * 2.4 + camera.transition.w * 0.6,in.world.z * 2.1 - camera.transition.w * 0.4);
-  let rippleFilter = 1.0 - smoothstep(0.3,1.5,max(fwidth(ripplePhase.x),fwidth(ripplePhase.y)));
+  let frame = mat3x3<f32>(camera.east.xyz,camera.pole.xyz,camera.north.xyz);
+  let bodyPoint = frame * (in.world + vec3<f32>(0,camera.surface.w,0)) / camera.transition.y;
+  let meters = frame * in.world * (gqMaterial.scale.y / camera.transition.y);
+  let canonicalNormal = frame * normal;
+  let surface = gqSurface(bodyPoint,meters,canonicalNormal,in.material);
   let lightDirection = normalize(vec3<f32>(-0.7,0.8,1.0));
-  let light = 0.35 + 0.65 * max(0.0,dot(normal,lightDirection));
-  var color = in.color * (0.92 + grain * 0.08 + strata * 0.035) * light;
-  if (in.material > 0.5 && in.material < 1.5) {
-    let ripple = sin(ripplePhase.x) * cos(ripplePhase.y) * rippleFilter;
-    color = in.color * (0.85 + ripple * 0.08) + vec3<f32>(0.12,0.19,0.23) * pow(max(0.0,dot(radial,lightDirection)),12.0);
-  }
-  if (in.material > 2.5) { color = in.color * (0.85 + grain * 0.15); }
-  return vec4<f32>(color,camera.transition.x);
+  let color = surface.albedo * 0.3 + surface.emission
+    + gqDirect(surface,frame * (camera.eye.xyz - in.world),frame * lightDirection,vec3<f32>(2.8));
+  return vec4<f32>(gqFinish(color),camera.transition.x);
 }
 `;
 
@@ -1551,6 +1546,18 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       uniforms.set([shape.solid.lobes.length, shape.solid.cuts.length, shape.solid.blend, bodySolidBound(shape.solid)], 132);
     }
     this._device.queue.writeBuffer(this._cameraBuffer, 0, uniforms);
+    const materialModel = typeof require !== 'undefined'
+      ? require('../../../rendering/body-material.js') : window.GQBodyMaterial;
+    const source = this._sceneData?.focusPlanet || this._sceneData?.planet || this._sceneData?.colony || this._sceneData || {};
+    const material = materialModel.resolveBodyMaterial(
+      { ...source, biome: this._bodySurface.terrain.biome,
+        diameter_km: this._bodySurface.radius * COLONY_METERS_PER_UNIT / 500 },
+      this._terrainStream?.manifest
+    );
+    const anchor = frame[1].map((n) => n * bodyCenterRadius(this._bodySurface.radius, shape) * COLONY_METERS_PER_UNIT);
+    this._materialState = material;
+    this._materialPixels = this._bodySurface.radius * this._canvas.height * 1.73 / Math.max(pose.distance, 0.001);
+    this._device.queue.writeBuffer(this._materialBuffer, 0, materialModel.materialUniforms(material, this._materialPixels, anchor));
     this._uploadPeople();
     this._updateBuildingVfxBuffer(seconds);
     this._drawFrame();
@@ -1613,6 +1620,8 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this.exit();
     this._cameraBuffer?.destroy();
     this._cameraBuffer = null;
+    this._materialBuffer?.destroy();
+    this._materialBuffer = null;
     if (this._instanceBuffer) {
       try { this._instanceBuffer.destroy(); } catch (_) {}
       this._instanceBuffer = null;
@@ -1673,7 +1682,13 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       primitive: { topology: 'triangle-list' },
       depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     });
-    const bodyShader = this._device.createShaderModule({ label: 'colony_body_surface', code: COLONY_BODY_WGSL });
+    const materialModel = typeof require !== 'undefined'
+      ? require('../../../rendering/body-material.js') : window.GQBodyMaterial;
+    if (!materialModel) throw new Error('Shared body material module is required');
+    const bodyShader = this._device.createShaderModule({ label: 'colony_body_surface', code: materialModel.shader(COLONY_BODY_WGSL) });
+    this._materialBuffer = this._device.createBuffer({
+      label: 'colony_body_material', size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
     this._bodyPipeline = this._device.createRenderPipeline({
       label: 'colony_body_surface',
       layout: 'auto',
@@ -1782,6 +1797,10 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     if (stream && !stream.manifest && !stream.request && !stream.failed) stream.load();
     if (stream?.manifest) {
       applyTerrainSettlement(terrain, stream.manifest);
+      if (this._publishedTerrainManifest !== stream.manifest) {
+        this._backend?.setBodyTerrainManifest?.(stream.manifest);
+        this._publishedTerrainManifest = stream.manifest;
+      }
       this._bodySurface.radius = terrain.radius;
       this._bodySurface.estimatedRadius = false;
       this._entrySpan = Math.max(this._citySpan * 4, terrain.radius * 3);
@@ -1908,7 +1927,10 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     });
     this._bodyBindGroup = this._device.createBindGroup({
       layout: this._bodyPipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this._cameraBuffer } }],
+      entries: [
+        { binding: 0, resource: { buffer: this._cameraBuffer } },
+        { binding: 2, resource: { buffer: this._materialBuffer } },
+      ],
     });
     this._slotCount = count;
   }

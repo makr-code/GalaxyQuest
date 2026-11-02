@@ -375,6 +375,7 @@
       @location(0) normal : vec3<f32>,
       @location(1) uv     : vec2<f32>,
       @location(2) worldPos : vec3<f32>,
+      @location(3) bodyPoint : vec3<f32>,
     };
 
     fn rotateY(v : vec3<f32>, angle : f32) -> vec3<f32> {
@@ -390,14 +391,15 @@
       let direction = rotateY(in.pos, spin);
       let sphereNormal = normalize(rotateY(in.normal, spin));
       let axes = max(uPlanet.shape.xyz,vec3<f32>(0.5));
-      let wave = 0.6 * (direction.x * direction.x - direction.y * direction.y) + 0.4 * direction.x * direction.z;
-      let ellipsoidDistance = length(direction / axes);
+      let canonical = normalize(in.pos);
+      let wave = 0.6 * (canonical.x * canonical.x - canonical.y * canonical.y) + 0.4 * canonical.x * canonical.z;
+      let ellipsoidDistance = length(canonical / axes);
       let radialFactor = (1.0 + uPlanet.shape.w * wave) / ellipsoidDistance;
       let pos = select(direction * radialFactor,direction,uPlanet.pad0 > 0.5);
-      let waveGradient = vec3<f32>(1.2 * direction.x + 0.4 * direction.z, -1.2 * direction.y, 0.4 * direction.x);
-      let tangentWaveGradient = waveGradient - direction * dot(direction, waveGradient);
-      let ellipsoidNormal = sphereNormal / (axes * axes * ellipsoidDistance * ellipsoidDistance);
-      let normal = normalize(ellipsoidNormal - uPlanet.shape.w * tangentWaveGradient / (1.0 + uPlanet.shape.w * wave));
+      let waveGradient = vec3<f32>(1.2 * canonical.x + 0.4 * canonical.z, -1.2 * canonical.y, 0.4 * canonical.x);
+      let tangentWaveGradient = waveGradient - canonical * dot(canonical, waveGradient);
+      let ellipsoidNormal = canonical / (axes * axes * ellipsoidDistance * ellipsoidDistance);
+      let normal = select(rotateY(normalize(ellipsoidNormal - uPlanet.shape.w * tangentWaveGradient / (1.0 + uPlanet.shape.w * wave)),spin),sphereNormal,uPlanet.pad0 > 0.5);
       out.clipPos = vec4<f32>(
         uPlanet.centerX + (pos.x * uPlanet.radius) / max(uPlanet.aspect, 0.0001),
         uPlanet.centerY + pos.y * uPlanet.radius,
@@ -405,6 +407,7 @@
         1.0
       );
       out.normal = normal;
+      out.bodyPoint = in.pos * select(radialFactor,1.0,uPlanet.pad0 > 0.5);
       out.uv = in.uv;
       out.worldPos = vec3<f32>(
         uPlanet.centerX + (pos.x * uPlanet.radius) / max(uPlanet.aspect, 0.0001),
@@ -419,6 +422,9 @@
       let face = cross(dpdx(in.worldPos),dpdy(in.worldPos));
       let candidate = face / max(length(face),0.000001);
       let surfaceNormal = select(normalize(in.normal),select(candidate,-candidate,front),uPlanet.pad0 > 0.5);
+      let spin = uPlanet.time * (0.12 + uPlanet.seed * 0.04);
+      let surface = gqSurface(in.bodyPoint,in.bodyPoint * gqMaterial.scale.y,rotateY(surfaceNormal,-spin),-1.0);
+      let view = rotateY(vec3<f32>(0,0,1),-spin);
       var ambient = vec3<f32>(0.12, 0.14, 0.18);
       var direct = vec3<f32>(0.0, 0.0, 0.0);
       let lightCount = min(i32(uLights.header.x), 8);
@@ -433,8 +439,7 @@
           ambient = ambient + color * intensity;
         } else if (lightType == 1) {
           let lightDir = normalize(light.dirAndDistance.xyz);
-          let ndlContribution = max(dot(surfaceNormal, lightDir), 0.0);
-          direct = direct + color * intensity * ndlContribution;
+          direct += gqDirect(surface,view,rotateY(lightDir,-spin),color * intensity);
         } else if (lightType == 2) {
           let lightPos = light.intensityAndPos.yzw;
           let toLight = lightPos - in.worldPos;
@@ -447,25 +452,33 @@
             distanceAtten = pow(distNorm, decay);
           }
           let pointDir = normalize(toLight);
-          let ndlPoint = max(dot(surfaceNormal, pointDir), 0.0);
-          direct = direct + color * intensity * ndlPoint * distanceAtten;
+          direct += gqDirect(surface,view,rotateY(pointDir,-spin),color * intensity * distanceAtten);
         }
       }
-      let ndl = max(max(direct.x, direct.y), direct.z);
-      let latBands = 0.5 + 0.5 * sin((in.uv.y * 18.0 + uPlanet.seed * 5.3) + uPlanet.time * 0.18);
-      let terrain = 0.5 + 0.5 * sin((in.uv.x * 15.0) + (in.uv.y * 11.0) + uPlanet.seed * 9.0);
-      let waterMask = step(terrain, uPlanet.water);
-      let base = vec3<f32>(uPlanet.baseR, uPlanet.baseG, uPlanet.baseB);
-      let accent = vec3<f32>(uPlanet.accentR, uPlanet.accentG, uPlanet.accentB);
-      let land = mix(base, accent, latBands * 0.5 + terrain * 0.5);
-      let ocean = mix(vec3<f32>(0.05, 0.12, 0.2), base, 0.78);
-      var surface = mix(land, ocean, waterMask * 0.82);
+      var color = surface.albedo * (ambient * 0.22 + vec3<f32>(0.18)) + direct + surface.emission;
       let cloudMask = smoothstep(0.58, 0.88, 0.5 + 0.5 * sin((in.uv.x * 24.0) - (in.uv.y * 13.0) + uPlanet.time * 0.26 + uPlanet.seed * 3.0));
-      surface = mix(surface, vec3<f32>(1.0, 1.0, 1.0), cloudMask * uPlanet.cloudiness * 0.45);
-      let rim = pow(1.0 - max(in.normal.z, 0.0), 3.0);
-      let color = surface * (ambient * 0.22 + vec3<f32>(0.18, 0.18, 0.2) + direct * 0.92)
-                + accent * (rim * 0.18 + uPlanet.emissive * 0.12);
-      return vec4<f32>(color, 1.0);
+      color = mix(color, vec3<f32>(0.8), cloudMask * uPlanet.cloudiness * 0.25);
+      return vec4<f32>(gqFinish(color), 1.0);
+    }
+    struct PointOut {
+      @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>,
+    };
+    @vertex fn vs_point(@builtin(vertex_index) vertex: u32) -> PointOut {
+      let corners = array<vec2<f32>,6>(
+        vec2<f32>(-1,-1),vec2<f32>(1,-1),vec2<f32>(-1,1),
+        vec2<f32>(-1,1),vec2<f32>(1,-1),vec2<f32>(1,1));
+      let pixelRadius = max(0.75,gqMaterial.scale.z * 0.5);
+      let halfHeight = uPlanet.radius * pixelRadius / max(gqMaterial.scale.z * 0.5,0.00001);
+      var out: PointOut;
+      out.position = vec4<f32>(vec2<f32>(uPlanet.centerX,uPlanet.centerY)
+        + corners[vertex] * vec2<f32>(halfHeight / uPlanet.aspect,halfHeight),0.5,1);
+      out.uv = corners[vertex];
+      return out;
+    }
+    @fragment fn fs_point(in: PointOut) -> @location(0) vec4<f32> {
+      let coverage = min(1.0,pow(gqMaterial.scale.z / 1.5,2.0));
+      let alpha = (1.0 - smoothstep(0.65,1.0,length(in.uv))) * coverage;
+      return vec4<f32>(gqSrgb(gqPointLinear()),alpha);
     }
   `;
 
@@ -2047,7 +2060,8 @@
         primitive: { topology: 'triangle-list', cullMode: 'front' },
       });
 
-      const planetShader = this._device.createShaderModule({ code: PLANET_SHADER_WGSL });
+      if (!window.GQBodyMaterial) throw new Error('Shared body material module is required');
+      const planetShader = this._device.createShaderModule({ code: window.GQBodyMaterial.shader(PLANET_SHADER_WGSL) });
       this._planetUniformBuf = this._device.createBuffer({
         size: 80,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -2063,14 +2077,23 @@
             binding: 1,
             visibility: GPUShaderStage.FRAGMENT,
             buffer: { type: 'uniform' },
-          }
+          },
+          {
+            binding: 2,
+            visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+            buffer: { type: 'uniform' },
+          },
         ],
+      });
+      this._planetMaterialBuffer = this._device.createBuffer({
+        label: 'system_body_material', size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
       this._planetBindGroup = this._device.createBindGroup({
         layout: planetBgl,
         entries: [
           { binding: 0, resource: { buffer: this._planetUniformBuf } },
           { binding: 1, resource: { buffer: this._lightUniformBuf } },
+          { binding: 2, resource: { buffer: this._planetMaterialBuffer } },
         ],
       });
       const planetPipelineDescriptor = {
@@ -2095,6 +2118,12 @@
         depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
       });
       this._planetBindGroupLayout = planetBgl;
+      this._planetPointPipeline = this._device.createRenderPipeline({
+        layout: planetPipelineDescriptor.layout,
+        vertex: { module: planetShader, entryPoint: 'vs_point' },
+        fragment: { ...planetPipelineDescriptor.fragment, entryPoint: 'fs_point' },
+        primitive: { topology: 'triangle-list' },
+      });
 
       const orbitShader = this._device.createShaderModule({ code: ORBIT_SHADER_WGSL });
       this._orbitUniformBuf = this._device.createBuffer({
@@ -2392,6 +2421,9 @@
           profile: _planetVisualProfile(body, index),
         };
       });
+      if (this._device && this._planetBindGroupLayout) {
+        for (const entry of this._systemPlanetEntries) this._createBodyMaterialBindings(entry);
+      }
       for (const manifest of this._bodyTerrainManifests.values()) this.setBodyTerrainManifest(manifest);
     }
 
@@ -2437,13 +2469,38 @@
       uni.setFloat32(68, entry.shape.axes[1], true);
       uni.setFloat32(72, entry.shape.axes[2], true);
       uni.setFloat32(76, entry.shape.deformation, true);
-      this._device.queue.writeBuffer(entry.solidUniformBuffer || this._planetUniformBuf, 0, uni.buffer);
+      this._device.queue.writeBuffer(entry.bodyUniformBuffer || this._planetUniformBuf, 0, uni.buffer);
+      if (entry.materialBuffer) {
+        entry.materialPixels = entry.radius * this._canvas.height;
+        this._device.queue.writeBuffer(entry.materialBuffer, 0,
+          window.GQBodyMaterial.materialUniforms(entry.material, entry.materialPixels));
+      }
+    }
+
+    _createBodyMaterialBindings(entry) {
+      entry.bodyUniformBuffer = this._device.createBuffer({
+        label: 'system_body_uniforms', size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+      entry.materialBuffer = this._device.createBuffer({
+        label: 'system_body_material', size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+      entry.material = window.GQBodyMaterial.resolveBodyMaterial(entry.body,
+        this._bodyTerrainManifests.get(Number(entry.body.body_id || entry.body.id)));
+      entry.bodyBindGroup = this._device.createBindGroup({
+        layout: this._planetBindGroupLayout,
+        entries: [
+          { binding: 0, resource: { buffer: entry.bodyUniformBuffer } },
+          { binding: 1, resource: { buffer: this._lightUniformBuf } },
+          { binding: 2, resource: { buffer: entry.materialBuffer } },
+        ],
+      });
     }
 
     _releaseSystemBodyMeshes() {
       for (const entry of this._systemPlanetEntries) {
         entry.solidBuffer?.destroy();
-        entry.solidUniformBuffer?.destroy();
+        entry.bodyUniformBuffer?.destroy();
+        entry.materialBuffer?.destroy();
       }
       this._systemSolidDepth?.destroy();
       this._systemSolidDepth = null;
@@ -2451,11 +2508,13 @@
 
     setBodyTerrainManifest(manifest) {
       const geometry = window.GQColonySurfaceLevelWebGPU;
-      if (!manifest?.solid || !geometry || !this._device) return;
+      if (!manifest || !geometry || !this._device) return;
       this._bodyTerrainManifests.set(manifest.body_id, manifest);
       if (this._bodyTerrainManifests.size > 64) this._bodyTerrainManifests.delete(this._bodyTerrainManifests.keys().next().value);
       for (const entry of this._systemPlanetEntries) {
         if (Number(entry.body.body_id || entry.body.id) !== manifest.body_id) continue;
+        entry.material = window.GQBodyMaterial.resolveBodyMaterial(entry.body, manifest);
+        if (!manifest.solid) continue;
         const key = JSON.stringify(manifest);
         if (entry.solidKey === key) continue;
         const mesh = geometry.buildCompositeBodyMesh(manifest, 40);
@@ -2470,23 +2529,11 @@
           ], index * 8);
         }
         entry.solidBuffer?.destroy();
-        entry.solidUniformBuffer?.destroy();
         entry.solidBuffer = this._device.createBuffer({
           label: 'system_composite_solid', size: vertices.byteLength,
           usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
         });
         this._device.queue.writeBuffer(entry.solidBuffer, 0, vertices);
-        entry.solidUniformBuffer = this._device.createBuffer({
-          label: 'system_composite_uniforms', size: 80,
-          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        });
-        entry.solidBindGroup = this._device.createBindGroup({
-          layout: this._planetBindGroupLayout,
-          entries: [
-            { binding: 0, resource: { buffer: entry.solidUniformBuffer } },
-            { binding: 1, resource: { buffer: this._lightUniformBuf } },
-          ],
-        });
         entry.solidVertexCount = mesh.vertexCount;
         entry.solidKey = key;
       }
@@ -2507,13 +2554,19 @@
         pass.setVertexBuffer(0, this._orbitVertexBuf);
         pass.draw(this._orbitVertexCount, 1, 0, 0);
 
-        if (entry.solidBuffer) continue;
         const angle = entry.angle + now * entry.speed;
         const px = heroState.clipX + (Math.cos(angle) * entry.orbitRadius) / Math.max(this._aspect, 0.0001);
         const py = heroState.clipY + Math.sin(angle) * entry.orbitMinor;
         this._writePlanetUniforms(entry, px, py);
+        if (entry.materialPixels <= 2 && entry.bodyBindGroup) {
+          pass.setPipeline(this._planetPointPipeline);
+          pass.setBindGroup(0, entry.bodyBindGroup);
+          pass.draw(6);
+          continue;
+        }
+        if (entry.solidBuffer) continue;
         pass.setPipeline(this._planetPipeline);
-        pass.setBindGroup(0, this._planetBindGroup);
+        pass.setBindGroup(0, entry.bodyBindGroup || this._planetBindGroup);
         pass.setVertexBuffer(0, this._heroVertexBuf);
         pass.setIndexBuffer(this._heroIndexBuf, this._heroIndexFormat);
         pass.drawIndexed(this._heroIndexCount, 1, 0, 0, 0);
@@ -2522,7 +2575,7 @@
 
     _drawSystemSolids(encoder, view) {
       if (!this.systemMode || !this._planetSolidPipeline) return;
-      const entries = this._systemPlanetEntries.filter((entry) => entry.solidBuffer);
+      const entries = this._systemPlanetEntries.filter((entry) => entry.solidBuffer && entry.materialPixels > 2);
       const hero = this._getHeroStarState();
       if (!entries.length || !hero) return;
       if (!this._systemSolidDepth || this._systemSolidDepth.width !== this._canvas.width || this._systemSolidDepth.height !== this._canvas.height) {
@@ -2544,7 +2597,7 @@
         const angle = entry.angle + now * entry.speed;
         this._writePlanetUniforms(entry, hero.clipX + Math.cos(angle) * entry.orbitRadius / Math.max(this._aspect, 0.0001),
           hero.clipY + Math.sin(angle) * entry.orbitMinor);
-        pass.setBindGroup(0, entry.solidBindGroup);
+        pass.setBindGroup(0, entry.bodyBindGroup);
         pass.setVertexBuffer(0, entry.solidBuffer);
         pass.draw(entry.solidVertexCount);
       }
@@ -3811,6 +3864,7 @@
       try { this._uniformBuf?.destroy(); } catch (_) {}
       try { this._heroUniformBuf?.destroy(); } catch (_) {}
       try { this._planetUniformBuf?.destroy(); } catch (_) {}
+      this._planetMaterialBuffer?.destroy();
       try { this._orbitUniformBuf?.destroy(); } catch (_) {}
       this._starBuf    = null;
       this._indexBuf   = null;
@@ -3820,12 +3874,14 @@
       this._uniformBuf = null;
       this._heroUniformBuf = null;
       this._planetUniformBuf = null;
+      this._planetMaterialBuffer = null;
       this._orbitUniformBuf = null;
       this._pipeline   = null;
       this._heroPipeline = null;
       this._heroCoronaPipeline = null;
       this._planetPipeline = null;
       this._planetSolidPipeline = null;
+      this._planetPointPipeline = null;
       this._planetBindGroupLayout = null;
       this._orbitPipeline = null;
       this._objectMeshPipeline = null;

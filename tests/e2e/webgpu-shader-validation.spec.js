@@ -44,7 +44,9 @@ function extractWgslFromModule(relPath, exportedKey) {
   // require() evaluates the template literal, so ${WORKGROUP_SIZE} etc. are
   // already resolved in the returned string.
   const mod = require(path.join(ROOT, relPath));
-  return mod[exportedKey];
+  return ['COLONY_BODY_WGSL', 'PLANET_APPROACH_WGSL'].includes(exportedKey)
+    ? require(path.join(ROOT, 'js/rendering/body-material.js')).shader(mod[exportedKey])
+    : mod[exportedKey];
 }
 
 function extractWgslConstant(relPath, constantName) {
@@ -52,7 +54,8 @@ function extractWgslConstant(relPath, constantName) {
   const escapedName = constantName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = source.match(new RegExp(`const\\s+${escapedName}\\s*=\\s*(?:/\\*\\s*wgsl\\s*\\*/\\s*)?\`([\\s\\S]*?)\`;`));
   if (!match) throw new Error(`WGSL constant ${constantName} not found in ${relPath}`);
-  return match[1];
+  return constantName === 'PLANET_SHADER_WGSL'
+    ? require(path.join(ROOT, 'js/rendering/body-material.js')).shader(match[1]) : match[1];
 }
 
 /** Build the catalogue of all shaders to validate. */

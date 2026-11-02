@@ -397,10 +397,11 @@ describe('Demand-driven terrain detail', () => {
     buffers.forEach((buffer) => expect(buffer.destroy).toHaveBeenCalledOnce());
   });
 
-  it('filters procedural grain, strata and waves using their actual pixel footprint', () => {
-    expect(COLONY_BODY_WGSL).toContain('fwidth(grainPhase.x)');
-    expect(COLONY_BODY_WGSL).toContain('fwidth(strataPhase)');
-    expect(COLONY_BODY_WGSL).toContain('fwidth(ripplePhase.x)');
+  it('uses shared footprint-filtered physical material details', () => {
+    const { WGSL } = require('../../js/rendering/body-material.js');
+    expect(COLONY_BODY_WGSL).toContain('gqSurface(bodyPoint,meters,canonicalNormal,in.material)');
+    expect(WGSL).toContain('length(dpdx(meters))');
+    expect(WGSL).toContain('footprint / period');
   });
 });
 

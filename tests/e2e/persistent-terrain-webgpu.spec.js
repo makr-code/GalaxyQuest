@@ -83,7 +83,7 @@ test(`persistent colony terrain ${scenario.kind}${scenario.sheltered ? ' valley 
   const available = await page.evaluate(async () => !!navigator.gpu && !!await navigator.gpu.requestAdapter());
   test.skip(!available, 'No WebGPU adapter available');
   for (const file of [
-    'js/runtime/galaxy-chunk-utils.js', 'js/rendering/Galaxy3DRendererWebGPU.js',
+    'js/runtime/galaxy-chunk-utils.js', 'js/rendering/body-material.js', 'js/rendering/Galaxy3DRendererWebGPU.js',
     'js/engine/zoom/IZoomLevelRenderer.js', 'js/engine/zoom/RendererRegistry.js',
     'js/engine/zoom/CameraFlightPath.js', 'js/engine/zoom/SeamlessZoomOrchestrator.js',
     'js/engine/zoom/levels/PlanetApproachLevelWebGPU.js',
@@ -127,6 +127,9 @@ test(`persistent colony terrain ${scenario.kind}${scenario.sheltered ? ' valley 
     await orchestrator.zoomTo(2, scene, { skipCameraFlight: true });
   }, scenario);
   await expect.poll(() => page.evaluate(() => window.terrainTest.orchestrator._active._terrainManifest?.shape)).toEqual(scenario.shape);
+  const expectedMaterial = require('../../js/rendering/body-material.js').resolveBodyMaterial({}, manifest);
+  await expect.poll(() => page.evaluate(() => window.terrainTest.orchestrator._active._materialState)).toEqual(expectedMaterial);
+  const approachMaterial = await page.evaluate(() => window.terrainTest.orchestrator._active._materialState);
   if (scenario.composite) {
     await expect.poll(() => page.evaluate(() => window.terrainTest.orchestrator._active._solidBuffer?.label)).toBe('approach_composite_solid');
     const systemSolid = await page.evaluate(async () => {
@@ -146,6 +149,10 @@ test(`persistent colony terrain ${scenario.kind}${scenario.sheltered ? ' valley 
       let destroyed = false;
       systemBuffer.destroy = () => { destroyed = true; systemDestroy(); };
       const count = entry.solidVertexCount;
+      const material = entry.material;
+      const materialDestroy = entry.materialBuffer.destroy.bind(entry.materialBuffer);
+      let materialDestroyed = false;
+      entry.materialBuffer.destroy = () => { materialDestroyed = true; materialDestroy(); };
       renderer.setBodyTerrainManifest(manifest);
       const reused = entry.solidBuffer === systemBuffer;
       const encoder = renderer.device.createCommandEncoder();
@@ -158,10 +165,26 @@ test(`persistent colony terrain ${scenario.kind}${scenario.sheltered ? ' valley 
       renderer._drawSystemSolids(encoder, view);
       renderer.device.queue.submit([encoder.finish()]);
       await renderer.device.queue.onSubmittedWorkDone();
+      const pointEncoder = renderer.device.createCommandEncoder();
+      const pointPass = pointEncoder.beginRenderPass({
+        colorAttachments: [{ view: renderer.context.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store' }],
+      });
+      entry.radius = 1 / renderer.renderer.domElement.height;
+      let pointDrawn = false;
+      const setPipeline = pointPass.setPipeline.bind(pointPass);
+      pointPass.setPipeline = (pipeline) => {
+        if (pipeline === renderer._planetPointPipeline) pointDrawn = true;
+        setPipeline(pipeline);
+      };
+      renderer._drawSystemPlanets(pointPass);
+      pointPass.end();
+      renderer.device.queue.submit([pointEncoder.finish()]);
+      await renderer.device.queue.onSubmittedWorkDone();
       renderer.exitSystemView();
-      return { count, reused, destroyed };
+      return { count, reused, destroyed, material, materialDestroyed, pointDrawn };
     });
-    expect(systemSolid).toMatchObject({ reused: true, destroyed: true });
+    expect(systemSolid).toMatchObject({ reused: true, destroyed: true, materialDestroyed: true, pointDrawn: true });
+    expect(systemSolid.material).toEqual(approachMaterial);
     expect(systemSolid.count).toBeGreaterThan(1000);
   }
   expect(batches).toBe(0);
@@ -204,6 +227,8 @@ test(`persistent colony terrain ${scenario.kind}${scenario.sheltered ? ' valley 
       shelter: city._bodySurface.terrain.shelter,
       frame: city._bodySurface.terrain.shape?.frame,
       dome: !!city._domePipeline,
+      material: city._materialState,
+      materialPixels: city._materialPixels,
       solidGap: city._bodySurface.terrain.shape?.solid ? (() => {
         const terrain = city._bodySurface.terrain;
         const point = [city._cameraEye[0], city._cameraEye[1] + window.GQColonySurfaceLevelWebGPU.bodyCenterRadius(terrain.radius, terrain.shape), city._cameraEye[2]]
@@ -219,6 +244,8 @@ test(`persistent colony terrain ${scenario.kind}${scenario.sheltered ? ' valley 
   expect(result.bytes).toBeLessThanOrEqual(8 * 1024 * 1024);
   expect(result.shape).toMatchObject(scenario.shape);
   expect(result.radiusMeters).toBeCloseTo(scenario.diameter * 500, 6);
+  expect(result.material).toEqual(approachMaterial);
+  expect(result.materialPixels).toBeGreaterThan(800);
   if (scenario.sheltered) {
     expect(result.shelter.floor).toBeLessThan(0);
     expect(result.shelter.radius).toBeGreaterThan(0);

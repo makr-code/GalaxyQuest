@@ -13,6 +13,11 @@ import path from 'node:path';
 // ---------------------------------------------------------------------------
 
 function loadRenderer() {
+  const materialSrc = fs.readFileSync(
+    path.resolve(process.cwd(), 'js/rendering/body-material.js'), 'utf8',
+  );
+  // eslint-disable-next-line no-eval
+  window.eval(materialSrc);
   const chunkUtilsSrc = fs.readFileSync(
     path.resolve(process.cwd(), 'js/runtime/galaxy-chunk-utils.js'),
     'utf8',

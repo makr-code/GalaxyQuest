@@ -16,6 +16,7 @@ struct Uniforms {
   atmosphere: vec4<f32>,
   animation: vec4<f32>,
   shape: vec4<f32>,
+  eye: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
 struct Out {
@@ -23,6 +24,7 @@ struct Out {
   @location(0) normal: vec3<f32>,
   @location(1) uv: vec2<f32>,
   @location(2) world: vec3<f32>,
+  @location(3) bodyPoint: vec3<f32>,
 };
 fn noise(p: vec2<f32>) -> f32 {
   return sin(p.x * 2.7 + sin(p.y * 3.8)) * cos(p.y * 2.1 + sin(p.x * 1.7)) * 0.5 + 0.5;
@@ -37,9 +39,11 @@ fn noise(p: vec2<f32>) -> f32 {
   let longitude = uv.y * 6.2831853 + u.animation.x;
   let normal = vec3<f32>(cos(latitude) * cos(longitude), sin(latitude), cos(latitude) * sin(longitude));
   var out: Out;
-  let wave = 0.6 * (normal.x * normal.x - normal.y * normal.y) + 0.4 * normal.x * normal.z;
-  let factor = (1.0 + u.shape.w * wave) / length(normal / max(u.shape.xyz,vec3<f32>(0.5)));
+  let canonical = vec3<f32>(cos(latitude) * cos(uv.y * 6.2831853),sin(latitude),cos(latitude) * sin(uv.y * 6.2831853));
+  let wave = 0.6 * (canonical.x * canonical.x - canonical.y * canonical.y) + 0.4 * canonical.x * canonical.z;
+  let factor = (1.0 + u.shape.w * wave) / length(canonical / max(u.shape.xyz,vec3<f32>(0.5)));
   out.world = normal * factor;
+  out.bodyPoint = canonical * factor;
   out.position = u.viewProjection * vec4<f32>(out.world,1);
   out.normal = normal;
   out.uv = uv;
@@ -50,12 +54,19 @@ fn noise(p: vec2<f32>) -> f32 {
   let geometric = face / max(length(face),0.00001);
   let radialNormal = select(-geometric,geometric,dot(geometric,in.normal) >= 0.0);
   let normal = select(radialNormal,select(geometric,-geometric,front),u.animation.w > 0.5);
-  let terrain = noise(in.uv * vec2<f32>(9,17));
+  let c = cos(u.animation.x);
+  let s = sin(u.animation.x);
+  let canonicalNormal = vec3<f32>(normal.x * c + normal.z * s,normal.y,-normal.x * s + normal.z * c);
+  let worldView = normalize(u.eye.xyz - in.world);
+  let view = vec3<f32>(worldView.x * c + worldView.z * s,worldView.y,-worldView.x * s + worldView.z * c);
+  let surface = gqSurface(in.bodyPoint,in.bodyPoint * gqMaterial.scale.y,canonicalNormal,-1.0);
   let cloud = smoothstep(0.65,0.9,noise(in.uv * vec2<f32>(15,23) + vec2<f32>(u.animation.y * 0.02,0))) * (1.0 - u.animation.w);
-  let light = 0.24 + 0.76 * max(0.0,dot(normal,normalize(vec3<f32>(-0.7,0.8,1))));
-  let surface = mix(u.base.rgb * 0.55,u.base.rgb * 1.3,terrain) + cloud * 0.17;
+  let light = normalize(vec3<f32>(-0.7,0.8,1));
+  let canonicalLight = vec3<f32>(light.x * c + light.z * s,light.y,-light.x * s + light.z * c);
+  var color = surface.albedo * 0.3 + surface.emission + gqDirect(surface,view,canonicalLight,vec3<f32>(2.8));
+  color = mix(color,vec3<f32>(0.8),cloud * 0.17);
   let rim = pow(1.0 - abs(normal.z),3.0);
-  return vec4<f32>(mix(surface * light,u.atmosphere.rgb,rim * 0.7 * (1.0 - u.animation.w)) * u.animation.z,1);
+  return vec4<f32>(gqFinish(mix(color,gqLinear(u.atmosphere.rgb),rim * 0.3 * (1.0 - u.animation.w))) * u.animation.z,1);
 }
 @vertex fn vs_mesh(@location(0) point: vec3<f32>) -> Out {
   let c = cos(u.animation.x);
@@ -63,6 +74,7 @@ fn noise(p: vec2<f32>) -> f32 {
   let world = vec3<f32>(point.x * c - point.z * s,point.y,point.x * s + point.z * c);
   var out: Out;
   out.world = world;
+  out.bodyPoint = point;
   out.position = u.viewProjection * vec4<f32>(world,1);
   out.normal = normalize(world);
   out.uv = vec2<f32>(atan2(point.z,point.x) / 6.2831853,asin(clamp(normalize(point).y,-1.0,1.0)) / 3.14159265);
@@ -263,7 +275,10 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
   }
 
   async _buildPipeline() {
-    const module = this._device.createShaderModule({ label: 'planet_approach', code: PLANET_APPROACH_WGSL });
+    const materialModel = typeof require !== 'undefined'
+      ? require('../../../rendering/body-material.js') : window.GQBodyMaterial;
+    if (!materialModel) throw new Error('Shared body material module is required');
+    const module = this._device.createShaderModule({ label: 'planet_approach', code: materialModel.shader(PLANET_APPROACH_WGSL) });
     const format = globalThis.navigator?.gpu?.getPreferredCanvasFormat?.() || 'bgra8unorm';
     this._pipeline = this._device.createRenderPipeline({
       layout: 'auto',
@@ -281,14 +296,23 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
       primitive: { topology: 'triangle-list', cullMode: 'none' },
       depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     });
-    this._uniformBuffer = this._device.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this._uniformBuffer = this._device.createBuffer({ size: 144, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this._materialBuffer = this._device.createBuffer({
+      label: 'approach_body_material', size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
     this._bindGroup = this._device.createBindGroup({
       layout: this._pipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this._uniformBuffer } }],
+      entries: [
+        { binding: 0, resource: { buffer: this._uniformBuffer } },
+        { binding: 2, resource: { buffer: this._materialBuffer } },
+      ],
     });
     this._solidBindGroup = this._device.createBindGroup({
       layout: this._solidPipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this._uniformBuffer } }],
+      entries: [
+        { binding: 0, resource: { buffer: this._uniformBuffer } },
+        { binding: 2, resource: { buffer: this._materialBuffer } },
+      ],
     });
   }
 
@@ -310,13 +334,26 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
     const distance = (2.8 + Math.min(2, cameraDistance / 50)) * extent;
     const near = 0.1;
     const far = Math.max(20, distance + extent * 2);
-    const uniforms = new Float32Array(32);
+    const uniforms = new Float32Array(36);
     uniforms.set(planetViewProjection(cameraState, aspect, distance, near, far));
     uniforms.set([...this._visualPalette.base,1],16);
     uniforms.set([...this._visualPalette.atmo,1],20);
     uniforms.set([this._rotation,this._time,opacity,solid ? 1 : 0],24);
     uniforms.set([...(shape?.axes || [1, 1, 1]),shape?.deformation || 0],28);
+    const back = normalizeVector([position.x - target.x, position.y - target.y, position.z - target.z], [0, 0, 1]);
+    uniforms.set([back[0] * distance + target.x, back[1] * distance + target.y, back[2] * distance + target.z, 0],32);
     this._device.queue.writeBuffer(this._uniformBuffer,0,uniforms);
+    const materialModel = typeof require !== 'undefined'
+      ? require('../../../rendering/body-material.js') : window.GQBodyMaterial;
+    const source = this._sceneData?.focusPlanet || this._sceneData?.planet || this._sceneData?.colony || this._sceneData || {};
+    this._materialState = materialModel.resolveBodyMaterial(source, this._terrainManifest);
+    this._materialPixels = this._canvas.height * 1.73 / distance;
+    this._device.queue.writeBuffer(this._materialBuffer, 0,
+      materialModel.materialUniforms(this._materialState, this._materialPixels));
+    if (this._terrainManifest && this._publishedTerrainManifest !== this._terrainManifest) {
+      this._backend?.setBodyTerrainManifest?.(this._terrainManifest);
+      this._publishedTerrainManifest = this._terrainManifest;
+    }
     if (solid) {
       const key = JSON.stringify(this._terrainManifest);
       if (key !== this._solidMeshKey) {
@@ -329,7 +366,6 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
         this._device.queue.writeBuffer(this._solidBuffer, 0, mesh.vertices);
         this._solidVertexCount = mesh.vertexCount;
         this._solidMeshKey = key;
-        this._backend?.setBodyTerrainManifest?.(this._terrainManifest);
       }
     }
     if (!this._depthTexture || this._depthTexture.width !== this._canvas.width || this._depthTexture.height !== this._canvas.height) {
@@ -372,6 +408,8 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
     this.exit();
     this._uniformBuffer?.destroy();
     this._uniformBuffer = null;
+    this._materialBuffer?.destroy();
+    this._materialBuffer = null;
     this._pipeline = null;
     this._solidPipeline = null;
     this._solidBindGroup = null;

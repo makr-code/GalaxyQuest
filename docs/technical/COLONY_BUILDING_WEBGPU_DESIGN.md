@@ -12,6 +12,61 @@
 
 ## Implementierter Kern (2. November 2026)
 
+### Gemeinsames prozedurales Materialmodell
+
+`js/rendering/body-material.js` definiert einen gemeinsamen PBR-Kern fuer
+Kolonieoberflaeche, Planet-Anflug und planetare Systemobjekte. Default sind
+prozedurale Materialien ohne Bildtextur-Downloads. Der versionierte
+Laufzeitdeskriptor enthaelt lineare Grund-/Akzentfarbe, Rauheit, Metallanteil,
+Emissionsfarbe, Normalstaerke, physischen Radius und einen koerperstabilen Seed.
+Sieben Biompresets werden aus dem persistierten Manifest abgeleitet; ohne
+Manifest dienen Koerper-ID und Metadaten als ausdrueckliche Vorschau.
+Besitz-/Fraktionsfarben veraendern das Oberflaechenmaterial nicht.
+
+- **PBR:** GGX-Normalverteilung, Schlick-Fresnel und geometrische Abschattung
+  ergeben diffuse und spiegelnde direkte Beleuchtung; die nichtmetallischen
+  Naturmaterialien haben standardmaessig Metallanteil null. Rauheit und
+  Normalen variieren mit den prozeduralen Oberflaechenstrukturen.
+- **Koordinaten:** Makrofarben verwenden kanonische koerperfeste 3D-Koordinaten,
+  nicht Bildschirmkoordinaten oder verzerrte Kugel-UVs. Triplanare
+  Mikrostrukturen mischen drei Projektionen anhand der Oberflaechennormale.
+  Ihre Perioden 16 m, 2 m und 0,25 m bleiben physisch skaliert.
+  In der Kolonie werden lokale Koordinaten und ein CPU-seitig modulo 128 m
+  reduzierter Anker kombiniert. Dies erhaelt dieselben Detailphasen auch bei
+  grossen Radien und einem anderen lokalen Koloniebezug ohne Float32-Abzug
+  zweier nahezu gleicher planetenweiter Positionen.
+- **Material-LOD:** Der projizierte Referenzdurchmesser in Renderpixeln
+  steuert kontinuierliche Gewichte: Makrofarben 2-12 px, grobe
+  Materialstrukturen 24-120 px, Mikrodetails 160-800 px. Zusaetzlich filtern
+  Fragmentableitungen jede physische Frequenz nach ihrem echten Pixelfootprint.
+  Nicht aufloesbare Detailauswertungen werden uebersprungen. Die
+  Geometrie-LOD bleibt unabhaengig; Materialwechsel erzeugen keine neuen
+  Terrainmeshes, Requests, Renderer oder Hintergrundprozesse.
+- **Punktdarstellung:** Bei maximal 2 px zeichnet die Systemansicht ein
+  einzelnes Quad mit analytischer Punktabdeckung statt des Koerpermeshes.
+  Unterhalb der Pixelgroesse sinkt dessen Abdeckung mit der projizierten
+  Flaeche. Die uebrigen Shader konvergieren vor dem Wechsel bereits zur selben
+  repraesentativen Farbe: arithmetischer Mittelwert der linearen
+  Grund-/Akzentfarbe mit einem festen Darstellungshelligkeitsfaktor.
+  Dies ist eine deterministische Farbreduktion, keine integrierte
+  Phasen-/Reflexionsphotometrie des gesamten Koerpers.
+- **Farbraum:** Presetfarben sind sRGB-Eingaben. Farbmischung und Beleuchtung
+  erfolgen linear, danach einmalige sRGB-Kodierung fuer das unorm-Canvas.
+  Geometrie- und Normaldaten sind keine sRGB-Farbdaten.
+- **Lebenszyklus:** Ein 96-Byte-Materialuniform pro aktiver Ansicht bzw.
+  Systemkoerper wird aktualisiert statt neu alloziert; Systemkoerper erhalten
+  zudem eigene Transformuniforms, damit mehrere Materialien nicht durch
+  denselben zuletzt beschriebenen Buffer ueberschrieben werden. Austritt
+  aus dem System und Dispose geben die zugehoerigen Ressourcen frei.
+
+Dies ist ein PBR-/Material-LOD-Kern, kein Blender-/Unreal-Nodeeditor.
+GeoJSON-Masken, externe Materialassets, Image-Based Lighting, Materialkachel-
+Caches und materialbedingtes Displacement sind nicht implementiert.
+Kuesten und lokale Wasser-/Eis-/Lavamasken stammen weiter aus dem vorhandenen
+Terrainpfad; das gemeinsame Materialmodell ersetzt kein durchgaengiges
+geologisches Terrain-LOD zwischen System und Kolonie. Figuren und Gebaeude
+behalten ihren bisherigen stilisierten Materialpfad.
+
 `ColonySurfaceLevelWebGPU` zeichnet eine echte, tiefengeprüfte 3D-Stadt:
 instanzierte Quader mit 36 Vertices, Straßenraster, Farmbeete, Wohnhäuser mit
 Fenstern, Fabrikschornsteine, Reaktoren und Forschungstürme. Gespeicherte Level
