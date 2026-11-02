@@ -18,6 +18,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The existing `1.0.0` version is historical metadata, not a production-readiness
   claim. No released `1.0.0` changelog or tag has been invented.
 
+### Retired — Destructive ship-designer initializers
+
+- The legacy PHP initializer and standalone SQL reset no longer drop/recreate
+  ship-design, generation-queue or asset tables. Both fail explicitly without
+  accessing/changing the database.
+- Existing MySQL tables/definitions/rows are preserved in regression coverage.
+  Ship-designer persistence remains unsupported until a canonical schema
+  migration and API/worker acceptance resolve conflicting legacy definitions.
+
 ### Changed — Image publication gates
 
 - Main-branch image publication now waits for all main CI lint, test and E2E

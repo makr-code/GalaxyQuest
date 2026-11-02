@@ -1000,6 +1000,22 @@ gameplay mutations and enqueue/outbox atomicity are not covered. No expiring
 lease, exactly-once guarantee or connection-loss-at-commit/process-crash/restore
 acceptance is implied. No new full-manifest/image/browser run for this block.
 
+### Retired destructive ship-designer initializer
+
+`api/_init_tables.php` and `sql/init_ship_designer.sql` are not migration paths.
+Their former `DROP TABLE` behavior could destroy user designs/jobs, while the
+legacy MyISAM/column definitions conflict with the current API and unmanifested
+TRELLIS2 SQL. Both entry points now fail explicitly before DB access or schema
+mutation. Do not revive them or claim the feature is initialized. Ship-designer
+persistence remains unsupported until a reviewed canonical migration matches
+the API/worker contract and preserves existing custom installations.
+
+The actual CLI subprocess proves the PHP path makes no DB connection; a MySQL
+regression invokes the standalone SQL against populated design, queue and asset
+tables and confirms all definitions and rows survive the explicit SQL error.
+No migration was added because the conflicting storage contract has not been
+resolved.
+
 ## Writing a New Migration
 
 1. Create `sql/migrate_<feature>_v<N>.sql` with the forward SQL.

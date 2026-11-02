@@ -2,7 +2,12 @@
 
 **Last Updated**: 2026-08-02  
 **Version**: 1.0  
-**Status**: ✅ Database schema & PHP integration complete
+**Status**: Legacy design notes; database/API integration is not production-ready
+
+> The previous standalone initializer dropped existing tables and disagreed
+> with active API columns. Both initializer entry points now fail closed.
+> Do not enable persistence until the schema is defined by a reviewed canonical
+> migration and accepted against actual API/worker paths.
 
 ---
 

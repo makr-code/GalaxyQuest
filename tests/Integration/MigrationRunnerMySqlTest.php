@@ -1194,6 +1194,37 @@ final class MigrationRunnerMySqlTest extends TestCase
         }
     }
 
+    public function testRetiredShipDesignerSqlInitializerDoesNotDropExistingData(): void
+    {
+        $this->db->exec("CREATE TABLE vessel_designs (design_id VARCHAR(16) PRIMARY KEY) ENGINE=InnoDB;
+            CREATE TABLE generation_queue (queue_id VARCHAR(16) PRIMARY KEY) ENGINE=InnoDB;
+            CREATE TABLE asset_generations (generation_id VARCHAR(16) PRIMARY KEY) ENGINE=InnoDB;
+            INSERT INTO vessel_designs VALUES ('design-1');
+            INSERT INTO generation_queue VALUES ('queue-1');
+            INSERT INTO asset_generations VALUES ('generation-1')");
+        $tablesBefore = [];
+        foreach (['vessel_designs', 'generation_queue', 'asset_generations'] as $table) {
+            $tablesBefore[$table] = [
+                'definition' => $this->db->query('SHOW CREATE TABLE ' . $table)->fetch(PDO::FETCH_NUM),
+                'rows' => $this->db->query('SELECT * FROM ' . $table)->fetchAll(PDO::FETCH_ASSOC),
+            ];
+        }
+
+        try {
+            $this->db->exec($this->readSqlForTestDatabase('init_ship_designer.sql'));
+            $this->fail('Retired initializer must fail closed.');
+        } catch (PDOException $e) {
+            $this->assertStringContainsString('retired', strtolower($e->getMessage()));
+        }
+
+        foreach ($tablesBefore as $table => $before) {
+            $this->assertSame($before['definition'],
+                $this->db->query('SHOW CREATE TABLE ' . $table)->fetch(PDO::FETCH_NUM));
+            $this->assertSame($before['rows'],
+                $this->db->query('SELECT * FROM ' . $table)->fetchAll(PDO::FETCH_ASSOC));
+        }
+    }
+
     public function testProjectionTokenMigrationPreservesPopulatedLegacyQueue(): void
     {
         $this->db->exec($this->readSqlForTestDatabase('migrate_projection_user_overview_v1.sql'));

@@ -3548,15 +3548,6 @@
             "lineHash": "6eaff87a20b8f2f16d5d702e151c249a7b4bf5cf09763db5c80f29d0f1efacf9",
             "count": 1
         },
-        "13d9b3cf26185bf00330c913bb7b22179735fa5a84d80f9ef27acab2328a4876": {
-            "path": "api/_init_tables.php",
-            "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
-            "type": "ERROR",
-            "message": "Whitespace found at end of line",
-            "column": 1,
-            "lineHash": "1a0f564ddc6039457b2fb26b3d6a316c15eba20a886449847c3210c35821a693",
-            "count": 6
-        },
         "13e2333291d49aaa26432f6c39f2b165a4c7129e23995b0a85cf0ea04743ddf9": {
             "path": "api/generation_queue_v2.php",
             "source": "PSR1.Files.SideEffects.FoundWithSymbols",
@@ -10919,15 +10910,6 @@
             "lineHash": "2eee9d7c4f259a727f89935c1f1d80bdefcda88f9a8aac51ce86a6537f6d5289",
             "count": 1
         },
-        "3cabbed1891eef52aa9f46db12e86a10fea2f888e010f3722a7b09ae1187caf6": {
-            "path": "api/_init_tables.php",
-            "source": "PSR2.Files.ClosingTag.NotAllowed",
-            "type": "ERROR",
-            "message": "A closing tag is not permitted at the end of a PHP file",
-            "column": 1,
-            "lineHash": "e4d80e521456ad4fb6c34ef4f11673116217852a151dca76fe9c33675e82a375",
-            "count": 1
-        },
         "3caee38d82bbc6964ec9685f61fa60c840804c6eb1591bb4f882ef2beb1b68dd": {
             "path": "api/trade.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -14328,15 +14310,6 @@
             "message": "Each PHP statement must be on a line by itself",
             "column": 29,
             "lineHash": "cb7670b6fe1b5e35f9ce3627ddb2cf1de247f4321af8492ce51fde38c151210e",
-            "count": 1
-        },
-        "50c8914cc318e319280dc89ccf96725cd482a90a39c9f2535418c20e55393032": {
-            "path": "api/_init_tables.php",
-            "source": "Squiz.WhiteSpace.ControlStructureSpacing.SpacingBeforeClose",
-            "type": "ERROR",
-            "message": "Blank line found at end of control structure",
-            "column": 1,
-            "lineHash": "1a0f564ddc6039457b2fb26b3d6a316c15eba20a886449847c3210c35821a693",
             "count": 1
         },
         "50dc2163ce3bfd5b0fafdb3f26a3b717a0a7d7fc45ccdc655a40f9294899edb6": {
@@ -21161,15 +21134,6 @@
             "lineHash": "daed40111ebe12c8c4dbf2c166df99563c89f809490cc086c1a5c945d96da239",
             "count": 1
         },
-        "77d4cb9b67defa69b342ab719e7ffd618753647fb3f05c37951726ad1bf1ddb7": {
-            "path": "api/_init_tables.php",
-            "source": "PSR12.Files.FileHeader.SpacingAfterDocblockBlock",
-            "type": "ERROR",
-            "message": "Header blocks must be separated by a single blank line",
-            "column": 2,
-            "lineHash": "533a9f1155720e5ec0eeca021f8c261af4cac8d334f12b856f2c8f3941a2c611",
-            "count": 1
-        },
         "77dbbd5a8a60972a7ce747ba32291b37ee7ee0772aa5d25240d0a640cd66c9d1": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceBefore",
@@ -25020,15 +24984,6 @@
             "message": "Opening brace of a class must be on the line after the definition",
             "column": 42,
             "lineHash": "87deac9fcbeb335fae66b31f480bc8fb8bd6836bce7d486eb6515a7dc2f5efce",
-            "count": 1
-        },
-        "8ec617b6000d9844ae1d95210090c7a833e70518568227c5c4c1db38abf9767a": {
-            "path": "api/_init_tables.php",
-            "source": "PSR12.Files.FileHeader.SpacingAfterTagBlock",
-            "type": "ERROR",
-            "message": "Header blocks must be separated by a single blank line",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "8ed241c73d992b6b15d07e38caf7ea34f05765227fb870a3d222a3253e724e75": {
