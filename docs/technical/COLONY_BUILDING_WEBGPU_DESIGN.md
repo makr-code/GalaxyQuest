@@ -30,11 +30,18 @@ Besitz-/Fraktionsfarben veraendern das Oberflaechenmaterial nicht.
 - **Koordinaten:** Makrofarben verwenden kanonische koerperfeste 3D-Koordinaten,
   nicht Bildschirmkoordinaten oder verzerrte Kugel-UVs. Triplanare
   Mikrostrukturen mischen drei Projektionen anhand der Oberflaechennormale.
-  Ihre Perioden 16 m, 2 m und 0,25 m bleiben physisch skaliert.
-  In der Kolonie werden lokale Koordinaten und ein CPU-seitig modulo 128 m
-  reduzierter Anker kombiniert. Dies erhaelt dieselben Detailphasen auch bei
+  Ihre charakteristischen Groessen 16 m, 2 m und 0,25 m bleiben physisch
+  skaliert. Gehashtes Gitterrauschen mit quintischer Interpolation und
+  analytischen Gradienten ersetzt regelmaessige Sinus-/Schachbrettmuster;
+  diese Groessen sind keine Wiederholungsperioden.
+  In der Kolonie werden lokale Koordinaten, ein CPU-seitig modulo 128 m
+  reduzierter Anker und dessen ganzzahliger Zellursprung kombiniert.
+  Der Ursprung geht in den Rauschhash ein, statt alle 128 m dieselbe
+  Textur zu wiederholen. Dies erhaelt dieselben Detailphasen auch bei
   grossen Radien und einem anderen lokalen Koloniebezug ohne Float32-Abzug
-  zweier nahezu gleicher planetenweiter Positionen.
+  zweier nahezu gleicher planetenweiter Positionen. Anker sind auf
+  +/-4.000.000 Zellen je Achse begrenzt (512.000 km); groessere Werte
+  werden explizit abgewiesen, um Integerueberlaeufe zu verhindern.
 - **Material-LOD:** Der projizierte Referenzdurchmesser in Renderpixeln
   steuert kontinuierliche Gewichte: Makrofarben 2-12 px, grobe
   Materialstrukturen 24-120 px, Mikrodetails 160-800 px. Zusaetzlich filtern
@@ -53,7 +60,7 @@ Besitz-/Fraktionsfarben veraendern das Oberflaechenmaterial nicht.
 - **Farbraum:** Presetfarben sind sRGB-Eingaben. Farbmischung und Beleuchtung
   erfolgen linear, danach einmalige sRGB-Kodierung fuer das unorm-Canvas.
   Geometrie- und Normaldaten sind keine sRGB-Farbdaten.
-- **Lebenszyklus:** Ein 96-Byte-Materialuniform pro aktiver Ansicht bzw.
+- **Lebenszyklus:** Ein 112-Byte-Materialuniform pro aktiver Ansicht bzw.
   Systemkoerper wird aktualisiert statt neu alloziert; Systemkoerper erhalten
   zudem eigene Transformuniforms, damit mehrere Materialien nicht durch
   denselben zuletzt beschriebenen Buffer ueberschrieben werden. Austritt

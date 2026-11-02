@@ -40,7 +40,7 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
       fragment: { module, entryPoint: 'fs_main', targets: [{ format: 'rgba8unorm' }] },
       primitive: { topology: 'triangle-list' },
     });
-    const materialBuffer = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const materialBuffer = device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     const parameters = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     const bindings = device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0), entries: [
@@ -51,10 +51,11 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
       size: [64, 64], format: 'rgba8unorm', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
     });
     const readback = device.createBuffer({ size: 64 * 256, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-    const render = async (pixels, span = 2, diagnostic = 0, offset = 0, normals = material.normalStrength) => {
+    const render = async (pixels, span = 2, diagnostic = 0, offset = 0, normals = material.normalStrength, origin = 0) => {
       const data = new Float32Array(uniforms);
       data[14] = pixels;
       data[15] = normals;
+      new Int32Array(data.buffer).set([origin, origin, 0], 24);
       device.queue.writeBuffer(materialBuffer, 0, data);
       device.queue.writeBuffer(parameters, 0, new Float32Array([offset, offset, span, diagnostic]));
       const encoder = device.createCommandEncoder();
@@ -73,13 +74,17 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
       return Array.from(bytes);
     };
     const point = await render(1), pointBoundary = await render(2), transition = await render(2.01);
-    const near = await render(1000), repeat = await render(1000), periodic = await render(1000, 2, 0, 128);
+    const near = await render(1000), repeat = await render(1000), distant = await render(1000, 2, 0, 128);
+    const rebased = await render(1000, 2, 0, 128, material.normalStrength, -1);
+    const positiveRebase = await render(1000, 2, 0, -128, material.normalStrength, 1);
+    const planetaryOrigin = await render(1000, 2, 0, 0, material.normalStrength, -49774);
+    const planetaryRebase = await render(1000, 2, 0, 128, material.normalStrength, -49775);
     const normals = await render(1000, 2, 1), flat = await render(1000, 2, 1, 0, 0);
     const minified = await render(1000, 4096, 1), minifiedFlat = await render(1000, 4096, 1, 0, 0);
     const scoped = await device.popErrorScope();
     for (const resource of [materialBuffer, parameters, readback, target]) resource.destroy();
     device.destroy();
-    return { point, pointBoundary, transition, near, repeat, periodic, normals, flat, minified, minifiedFlat, errors, scoped: scoped?.message || null };
+    return { point, pointBoundary, transition, near, repeat, distant, rebased, positiveRebase, planetaryOrigin, planetaryRebase, normals, flat, minified, minifiedFlat, errors, scoped: scoped?.message || null };
   }, { source, material, uniforms: Array.from(materialUniforms(material, 1)) });
   expect(result.errors).toEqual([]);
   expect(result.scoped).toBeNull();
@@ -91,7 +96,10 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
   expect(result.pointBoundary).toEqual(result.point);
   expect(maxDifference(result.transition, result.point)).toBeLessThanOrEqual(1);
   expect(result.repeat).toEqual(result.near);
-  expect(maxDifference(result.periodic, result.near)).toBeLessThanOrEqual(2);
+  expect(maxDifference(result.distant, result.near)).toBeGreaterThan(10);
+  expect(maxDifference(result.rebased, result.near)).toBeLessThanOrEqual(2);
+  expect(maxDifference(result.positiveRebase, result.near)).toBeLessThanOrEqual(2);
+  expect(maxDifference(result.planetaryRebase, result.planetaryOrigin)).toBeLessThanOrEqual(2);
   expect(maxDifference(result.near, result.point)).toBeGreaterThan(10);
   expect(maxDifference(result.normals, result.flat)).toBeGreaterThan(10);
   expect(result.minified).toEqual(result.minifiedFlat);

@@ -298,7 +298,7 @@ class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
     });
     this._uniformBuffer = this._device.createBuffer({ size: 144, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this._materialBuffer = this._device.createBuffer({
-      label: 'approach_body_material', size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      label: 'approach_body_material', size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this._bindGroup = this._device.createBindGroup({
       layout: this._pipeline.getBindGroupLayout(0),

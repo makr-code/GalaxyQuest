@@ -58,20 +58,23 @@
     if (!Array.isArray(anchorMeters) || anchorMeters.length !== 3 || !anchorMeters.every(Number.isFinite)) {
       throw new TypeError('Invalid body material anchor');
     }
-    const data = new Float32Array(24);
+    const data = new Float32Array(28);
     data.set([...material.base, material.roughness], 0);
     data.set([...material.accent, material.metallic], 4);
     data.set([...material.emission, 1], 8);
     data.set([material.seed, material.radiusMeters, projectedDiameter, material.normalStrength], 12);
     data.set([...material.mean, BIOMES.indexOf(material.biome)], 16);
-    data.set(anchorMeters.map((n) => ((n % 128) + 128) % 128), 20);
+    const cells = anchorMeters.map((n) => Math.floor(n / 128));
+    if (cells.some((n) => Math.abs(n) > 4000000)) throw new RangeError('Body material anchor exceeds supported coordinate range');
+    data.set(anchorMeters.map((n, axis) => n - cells[axis] * 128), 20);
+    new Int32Array(data.buffer).set(cells, 24);
     return data;
   }
 
   const WGSL = `
 struct GQMaterialUniforms {
   base: vec4<f32>, accent: vec4<f32>, emission: vec4<f32>,
-  scale: vec4<f32>, mean: vec4<f32>, anchor: vec4<f32>,
+  scale: vec4<f32>, mean: vec4<f32>, anchor: vec4<f32>, origin: vec4<i32>,
 };
 @group(0) @binding(2) var<uniform> gqMaterial: GQMaterialUniforms;
 struct GQSurface {
@@ -91,6 +94,28 @@ fn gqLod(pixels: f32) -> vec3<f32> {
 fn gqMacro(point: vec3<f32>) -> f32 {
   let p = point * 6.0 + gqMaterial.scale.x;
   return sin(p.x + sin(p.z)) * cos(p.y * 1.3 - p.z * 0.7);
+}
+fn gqHash(cell: vec2<i32>, salt: u32) -> f32 {
+  let coordinates = bitcast<vec2<u32>>(cell);
+  var h = (coordinates.x * 1597334677u) ^ (coordinates.y * 3812015801u) ^ salt;
+  h = (h ^ (h >> 16u)) * 2246822519u;
+  h = (h ^ (h >> 13u)) * 3266489917u;
+  return f32((h ^ (h >> 16u)) & 16777215u) / 8388607.5 - 1.0;
+}
+// Value and analytic gradient of quintic lattice noise, with no small tile period.
+fn gqNoise(point: vec2<f32>, origin: vec2<i32>, salt: u32) -> vec3<f32> {
+  let cell = vec2<i32>(floor(point)) + origin;
+  let f = fract(point);
+  let blend = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  let derivative = 30.0 * f * f * (f - 1.0) * (f - 1.0);
+  let a = gqHash(cell,salt);
+  let b = gqHash(cell + vec2<i32>(1,0),salt);
+  let c = gqHash(cell + vec2<i32>(0,1),salt);
+  let d = gqHash(cell + vec2<i32>(1,1),salt);
+  let value = mix(mix(a,b,blend.x),mix(c,d,blend.x),blend.y);
+  return vec3<f32>(value,
+    mix(b - a,d - c,blend.y) * derivative.x,
+    mix(c - a,d - b,blend.x) * derivative.y);
 }
 fn gqSurface(bodyPoint: vec3<f32>, meters: vec3<f32>, normal: vec3<f32>, materialId: f32) -> GQSurface {
   let lod = gqLod(gqMaterial.scale.z);
@@ -116,19 +141,22 @@ fn gqSurface(bodyPoint: vec3<f32>, meters: vec3<f32>, normal: vec3<f32>, materia
   let weights = abs(normal) / max(dot(abs(normal),vec3<f32>(1)),0.00001);
   var perturbation = vec3<f32>(0);
   var grain = 0.0;
-  // All physical periods divide 128 m, keeping the anchor phase stable in Float32.
+  // Integer origin preserves the noise identity without planet-scale Float32 positions.
   for (var octave = 0u; octave < 3u; octave++) {
     let period = array<f32,3>(16.0,2.0,0.25)[octave];
     let detailWeight = select(lod.y,lod.z,octave > 0u) * (1.0 - smoothstep(0.2,0.65,footprint / period));
     if (detailWeight > 0.001) {
-      let phase = (meters + gqMaterial.anchor.xyz) * (6.283185307 / period) + gqMaterial.scale.x;
-      let waves = sin(phase);
-      let triplanar = vec3<f32>(waves.y * waves.z,waves.z * waves.x,waves.x * waves.y);
-      grain += dot(weights,triplanar) * detailWeight / f32(octave + 1u);
-      let gradient = cos(phase) * vec3<f32>(
-        weights.y * waves.z + weights.z * waves.y,
-        weights.x * waves.z + weights.z * waves.x,
-        weights.x * waves.y + weights.y * waves.x);
+      let point = (meters + gqMaterial.anchor.xyz) / period;
+      let origin = gqMaterial.origin.xyz * i32(128.0 / period);
+      let salt = u32(gqMaterial.scale.x * 65536.0) + octave * 92821u;
+      let x = gqNoise(point.yz,origin.yz,salt);
+      let y = gqNoise(point.zx,origin.zx,salt + 719u);
+      let z = gqNoise(point.xy,origin.xy,salt + 1877u);
+      grain += dot(weights,vec3<f32>(x.x,y.x,z.x)) * detailWeight / f32(octave + 1u);
+      let gradient = vec3<f32>(
+        weights.y * y.z + weights.z * z.y,
+        weights.x * x.y + weights.z * z.z,
+        weights.x * x.z + weights.y * y.y);
       perturbation += (gradient - normal * dot(gradient,normal)) * detailWeight / f32(octave + 1u);
     }
   }

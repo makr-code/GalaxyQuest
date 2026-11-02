@@ -2086,7 +2086,7 @@
         ],
       });
       this._planetMaterialBuffer = this._device.createBuffer({
-        label: 'system_body_material', size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        label: 'system_body_material', size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
       this._planetBindGroup = this._device.createBindGroup({
         layout: planetBgl,
@@ -2482,7 +2482,7 @@
         label: 'system_body_uniforms', size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
       entry.materialBuffer = this._device.createBuffer({
-        label: 'system_body_material', size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        label: 'system_body_material', size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
       entry.material = window.GQBodyMaterial.resolveBodyMaterial(entry.body,
         this._bodyTerrainManifests.get(Number(entry.body.body_id || entry.body.id)));

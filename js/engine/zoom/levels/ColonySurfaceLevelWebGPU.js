@@ -1687,7 +1687,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     if (!materialModel) throw new Error('Shared body material module is required');
     const bodyShader = this._device.createShaderModule({ label: 'colony_body_surface', code: materialModel.shader(COLONY_BODY_WGSL) });
     this._materialBuffer = this._device.createBuffer({
-      label: 'colony_body_material', size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      label: 'colony_body_material', size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this._bodyPipeline = this._device.createRenderPipeline({
       label: 'colony_body_surface',

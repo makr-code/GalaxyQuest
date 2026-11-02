@@ -61,10 +61,16 @@ describe('Shared body material contract', () => {
     const material = resolveBodyMaterial({}, { biome: 'rock', seed: 35, radius_km: 6371 });
     const first = materialUniforms(material, 1, [6371000.125, -6371000.5, 0]);
     const shifted = materialUniforms(material, 1000, [6371128.125, -6370872.5, 128]);
-    expect(first.byteLength).toBe(96);
-    expect(first.slice(20)).toEqual(shifted.slice(20));
+    expect(first.byteLength).toBe(112);
+    expect(first.slice(20, 24)).toEqual(shifted.slice(20, 24));
+    const cells = new Int32Array(first.buffer).slice(24, 27);
+    expect(Array.from(new Int32Array(shifted.buffer).slice(24, 27))).toEqual(Array.from(cells, (n) => n + 1));
+    for (const [axis, anchor] of [6371000.125, -6371000.5, 0].entries()) {
+      expect(cells[axis] * 128 + first[20 + axis]).toBe(anchor);
+    }
     expect(first.slice(16, 20)).toEqual(shifted.slice(16, 20));
-    expect([...first].every(Number.isFinite)).toBe(true);
+    expect([...first.slice(0, 24)].every(Number.isFinite)).toBe(true);
     expect(() => materialUniforms(material, 1, [NaN, 0, 0])).toThrow();
+    expect(() => materialUniforms(material, 1, [1e15, 0, 0])).toThrow('coordinate range');
   });
 });
