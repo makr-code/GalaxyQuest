@@ -11,6 +11,28 @@ companion `_down.sql` files.
 
 ## Quick Start
 
+### On-demand colony economy rollout
+
+Keep `ON_DEMAND_ECONOMY_ENABLED=0` while applying and verifying the canonical
+manifest. Its final `migrate_economy_on_demand_v1.sql` migration adds the durable
+settlement cursor, spatial construction mappings and indexed system/galaxy
+market projections. It also adds `users.credits` only if absent (1,000 initial
+credits); existing credit balances are preserved.
+
+After `up` and `verify` succeed, enable the flag in the PHP runtime environment.
+The first visit initializes each colony without granting historical economic
+output; existing primary stocks, class counts and spatial building levels are
+retained/reconciled. More than one offline day requires additional snapshot
+requests; HTTP 409 on mutations means catch-up is still needed. Macro reads expose
+projection age and coverage and never settle every colony.
+
+There is deliberately no destructive down migration. To stop the new path,
+disable the flag; do not delete settlement state or reset cursors. This pauses
+the new model but is not a semantic rollback of accrued production or spent
+credits. Back up before activation and restore that backup if economic effects
+must be reversed. Re-enabling after a legacy-mode interval requires an operator
+decision about the retained cursor; it is not an automatic model conversion.
+
 ```bash
 # Show which migrations are applied / pending
 php scripts/migrate.php status

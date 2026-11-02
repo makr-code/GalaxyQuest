@@ -137,4 +137,5 @@ return [
     'migrate_glossary_cache_v1.sql',
     'migrate_alliance_wars_v1.sql',
     'migrate_projection_claim_token_v1.sql',
+    'migrate_economy_on_demand_v1.sql',
 ];

@@ -7,6 +7,64 @@
 
 ---
 
+## Implementierter On-Demand-Pfad
+
+Mit `ON_DEMAND_ECONOMY_ENABLED=1` ist der PHP-Server die Wirtschaftsautoritaet.
+Vor Aktivierung `php scripts/migrate.php up` und `php scripts/migrate.php verify`
+ausfuehren. Der Standard bleibt `0`, damit bestehende Installationen nicht ohne
+Schema-Upgrade umgestellt werden.
+
+- Kolonien rechnen nur bei Zugriff nach: persistenter Cursor, feste 300-Sekunden-Schritte,
+  maximal ein Spieltag je Request. `pending_seconds` zeigt verbleibende Offline-Zeit;
+  weitere Snapshot-Requests arbeiten diese ab. Mutationen mit Rueckstand liefern HTTP 409.
+  Wiederholtes Lesen bei gleichem Cursor produziert weder Ressourcen noch Zufriedenheit.
+- Primaerrohstoffe und 18 industrielle Rezepte verwenden denselben Bestand. Verarbeitung
+  verbraucht tatsaechliche Vorprodukte, Arbeitskraft und Energie; Nahrung aus dem Lager
+  hat Vorrang. Volle Lager stoppen Produktion, ohne endliche Vorkommen zu vernichten.
+- Fuenf Bevoelkerungsklassen konsumieren eigene Warenkoerbe. Wachstum wird mit Bruchteilen
+  fortgeschrieben; Versorgung, Beschaeftigung und Dienstleistungen steuern Zufriedenheit.
+  Zehn versorgte Stunden erlauben Aufstieg, fuenf Mangelstunden Abstieg. Die
+  Ueberlebensuntergrenze ist eine Person. Figuren im Renderer sind ausschliesslich Darstellung.
+- Gebaeudelevel sind wirtschaftlich wirksam; Oberflaechen-Slots und klassische Bauauftraege
+  teilen eine kostenpflichtige Queue. Level 0 bezeichnet noch nicht fertiggestellte Slots.
+  Auftraege wechseln die Produktionsrate erst am Fertigstellungszeitpunkt.
+  Bereits vorhandene Slotlevel werden beim ersten Zugriff mit Aggregatleveln abgeglichen.
+- Einkommensteuer erzeugt Credits aus Klasseneinkommen. Produktionssteuer fuehrt einen
+  Teil des Outputs zum festen Basiswert an die Staatskasse ab; Handelssteuer wirkt beim
+  Kauf/Verkauf. Produktionsmethoden, bestehende Subventionsboni und Wirtschaftspolitik
+  wirken erst nach Abrechnung mit den bisherigen Einstellungen.
+- Marktorders, Bau, Forschung und Werft sowie Ressourcen-/Schiffsreservierung fuer
+  Frachter verwenden transaktionale Abbuchung. Handelsrouten benoetigen vorhandene
+  `large_cargo`-Schiffe mit ausreichender Kapazitaet; sie erzeugen keine Gratisfrachter.
+  Lieferungen werden vor Gutschrift abgerechnet; Ueberlaeufe bleiben erhalten, statt
+  Fracht still zu vernichten. Ankuenfte werden in begrenzten, exklusiv gesperrten Batches verarbeitet.
+
+### Kolonie bis Galaxie
+
+`GET api/colony_economy.php?action=snapshot&colony_id=N` liefert `colony`, `economy`,
+`buildings`, `slots`, `pop_classes`, `catalog` und `layout`. Die ersten Zugriffe legen
+eine neue Ausgangsbasis an; historische Ertraege vor Aktivierung werden nicht nachgerechnet.
+Fehlende Credit-Spalten werden mit 1.000 Startcredits angelegt; vorhandene Guthaben
+bleiben unveraendert. Tier 2/3/4/5 benoetigt jeweils `energy_tech`, `computer_tech`,
+`quantum_computing` bzw. `dark_energy_tap`; Premium-Methoden benoetigen Quantenforschung.
+
+`GET api/colony_economy.php?action=macro[&galaxy=N&system=N]` aggregiert ausschliesslich
+bereits abgerechnete Marktprojektionen. `represented_colonies`, `oldest_settled_at` und
+`newest_settled_at` legen Abdeckung und Alter offen. Nicht besuchte Kolonien werden dabei
+**nicht** simuliert. Angebot ist Lagerbestand/24 plus stuendlicher Output, Nachfrage
+der Warenbedarf pro Stunde (auch ungedeckte industrielle Nachfrage). Preise verwenden
+`Basispreis * clamp((Nachfrage/Angebot)^0.4, 0.3, 3.5)`. Es gibt keinen neuen
+Wirtschaftsdaemon und keinen weltweiten Produktionsscan.
+
+Authentifizierte POST-Aktionen `build`, `buy`, `sell` und `set_method` verlangen CSRF.
+Bestehende Bau-, Kolonie-, Markt- und Wirtschafts-APIs delegieren bei aktiver Flag auf
+denselben Pfad. Der galaktische Sofortmarkt bleibt ein externer Market-Maker, kein
+Orderbuch mit endlichem NPC-Inventar. Regionale Alt-Quotes und Tick-Events sind nicht
+Bestandteil dieser neuen Preisautoritaet. Militaerische/NPC-Weltsimulation und andere
+Legacy-Ticks werden dadurch nicht zu einer vollstaendig ereignisbasierten Simulation.
+
+---
+
 ## Inhaltsverzeichnis
 
 1. [Executive Summary & Design-Ziele](#1-executive-summary--design-ziele)
