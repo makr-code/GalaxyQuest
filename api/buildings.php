@@ -5,6 +5,8 @@
  * POST /api/buildings.php?action=upgrade  body: {colony_id, type}
  * POST /api/buildings.php?action=finish   body: {colony_id}
  */
+use GalaxyQuest\Economy\OnDemandEconomy;
+
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/cache.php';
 require_once __DIR__ . '/game_engine.php';
@@ -21,7 +23,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             $db  = get_db();
             verify_colony_ownership($db, $cid, $uid);
             $cacheKeyParams = ['uid' => $uid, 'cid' => $cid];
-            $cached = gq_cache_get('buildings_list', $cacheKeyParams);
+            $cached = ON_DEMAND_ECONOMY_ENABLED ? null : gq_cache_get('buildings_list', $cacheKeyParams);
             if (is_array($cached) && isset($cached['buildings'])) {
                 json_ok($cached);
             }
@@ -135,6 +137,15 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             $cid  = (int)($body['colony_id'] ?? 0);
             $type = (string)($body['type'] ?? '');
             $db   = get_db();
+            if (ON_DEMAND_ECONOMY_ENABLED) {
+                try {
+                    $queued = (new OnDemandEconomy($db))->queue($cid, $uid, $type);
+                    gq_cache_delete('buildings_list', ['uid' => $uid, 'cid' => $cid]);
+                    json_ok($queued);
+                } catch (DomainException $error) {
+                    json_error($error->getMessage(), $error->getCode() ?: 400);
+                }
+            }
             verify_colony_ownership($db, $cid, $uid);
             ensure_building_upgrade_queue_table($db);
             complete_upgrades($db, $cid);
@@ -352,6 +363,10 @@ function start_next_building_upgrade(PDO $db, int $colonyId): ?array {
 }
 
 function complete_upgrades(PDO $db, int $colonyId): void {
+    if (ON_DEMAND_ECONOMY_ENABLED) {
+        (new OnDemandEconomy($db))->settle($colonyId);
+        return;
+    }
     ensure_building_upgrade_queue_table($db);
 
     $due = $db->prepare(

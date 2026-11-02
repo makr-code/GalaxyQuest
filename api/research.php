@@ -5,6 +5,8 @@
  * POST /api/research.php?action=research  body: {colony_id, type}
  * POST /api/research.php?action=finish
  */
+use GalaxyQuest\Economy\OnDemandEconomy;
+
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/cache.php';
 require_once __DIR__ . '/game_engine.php';
@@ -132,13 +134,29 @@ switch ($action) {
         } catch (Throwable $e) { /* ignore pre-migration */ }
         $end      = date('Y-m-d H:i:s', time() + $secs);
 
-        $db->prepare(
-            'UPDATE colonies SET metal=metal-?, crystal=crystal-?, deuterium=deuterium-? WHERE id=?'
-        )->execute([$cost['metal'], $cost['crystal'], $cost['deuterium'], $cid]);
-
-        $db->prepare(
-            'UPDATE research SET research_start=NOW(), research_end=? WHERE user_id=? AND type=?'
-        )->execute([$end, $uid, $type]);
+        if (ON_DEMAND_ECONOMY_ENABLED) {
+            try {
+                (new OnDemandEconomy($db))->spend($cid, $uid, $cost, function () use ($db, $uid, $type, $end): void {
+                    $busy = $db->prepare('SELECT id FROM research WHERE user_id=? AND research_end IS NOT NULL');
+                    $busy->execute([$uid]);
+                    if ($busy->fetch()) {
+                        throw new DomainException('Another research is already in progress.', 409);
+                    }
+                    $db->prepare(
+                        'UPDATE research SET research_start=NOW(), research_end=? WHERE user_id=? AND type=?'
+                    )->execute([$end, $uid, $type]);
+                });
+            } catch (DomainException $error) {
+                json_error($error->getMessage(), $error->getCode() ?: 400);
+            }
+        } else {
+            $db->prepare(
+                'UPDATE colonies SET metal=metal-?, crystal=crystal-?, deuterium=deuterium-? WHERE id=?'
+            )->execute([$cost['metal'], $cost['crystal'], $cost['deuterium'], $cid]);
+            $db->prepare(
+                'UPDATE research SET research_start=NOW(), research_end=? WHERE user_id=? AND type=?'
+            )->execute([$end, $uid, $type]);
+        }
 
         gq_cache_flush('research_list');
 
@@ -149,17 +167,27 @@ switch ($action) {
         only_method('POST');
         verify_csrf();
         $db = get_db();
-        $completed = [];
-        $due = $db->prepare(
-            'SELECT type FROM research
-             WHERE user_id=? AND research_end IS NOT NULL AND research_end <= NOW()'
-        );
-        $due->execute([$uid]);
-        foreach ($due->fetchAll() as $r) {
-            $completed[] = (string)$r['type'];
-            $db->prepare(
-                'UPDATE research SET level=level+1, research_end=NULL WHERE user_id=? AND type=?'
-            )->execute([$uid, $r['type']]);
+        $finish = function () use ($db, $uid): array {
+            $completed = [];
+            $due = $db->prepare(
+                'SELECT type FROM research
+                 WHERE user_id=? AND research_end IS NOT NULL AND research_end <= NOW()'
+            );
+            $due->execute([$uid]);
+            foreach ($due->fetchAll() as $r) {
+                $completed[] = (string)$r['type'];
+                $db->prepare(
+                    'UPDATE research SET level=level+1, research_end=NULL WHERE user_id=? AND type=?'
+                )->execute([$uid, $r['type']]);
+            }
+            return $completed;
+        };
+        try {
+            $completed = ON_DEMAND_ECONOMY_ENABLED
+                ? (new OnDemandEconomy($db))->empireMutation($uid, $finish)
+                : $finish();
+        } catch (DomainException $error) {
+            json_error($error->getMessage(), $error->getCode() ?: 400);
         }
         gq_cache_flush('research_list');
         check_and_update_achievements($db, $uid);

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GalaxyQuest — opt-in colony renderer evaluation</title>
+  <style>
+    body { font: 16px system-ui; color: #e4edff; background: #101724; max-width: 1000px; margin: 2rem auto; padding: 1rem; }
+    canvas { display: block; width: 100%; aspect-ratio: 8/5; touch-action: none; background: #050b12; }
+    button, select { font: inherit; margin: .4rem; padding: .5rem; }
+    :focus-visible { outline: 3px solid #ffc766; }
+    pre { max-height: 22rem; overflow: auto; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Colony renderer evaluation (opt-in)</h1>
+  <p>No production renderer changes. Fixed 960 × 600 drawing buffer; 64 deterministic buildings.
+    Same input data does not imply visual parity: the native reference uses simplified shaders.</p>
+  <label for="backend">Renderer</label>
+  <select id="backend">
+    <option value="babylon">Babylon WebGPU first / labeled WebGL fallback</option>
+    <option value="webgl">Babylon WebGL fallback (explicit)</option>
+    <option value="native">Existing native colony WebGPU</option>
+  </select>
+  <button id="start">Load / switch renderer</button>
+  <button id="measure" disabled>Capture benchmark</button>
+  <button id="cancel" disabled>Cancel capture</button>
+  <button id="export" disabled>Export JSON</button>
+  <p id="status" role="status" aria-live="polite">Choose a renderer and load. No GPU work before opt-in.</p>
+  <p id="selection" aria-live="polite">Babylon: mouse orbit, wheel zoom, right-drag pan and click selection.</p>
+  <canvas id="view" width="960" height="600" tabindex="0" aria-label="Interactive colony evaluation"></canvas>
+  <h2>Measurements</h2>
+  <p>Frame intervals and synchronous JS render/submission time only; not GPU execution time.
+    Hidden tabs invalidate captures. Keep the camera and window unchanged while sampling.</p>
+  <pre id="results" tabindex="0" aria-label="Benchmark JSON results">No measurements yet.</pre>
+  <script type="module" src="/js/evaluation/colony-page.js"></script>
+</body>
+</html>

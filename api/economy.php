@@ -11,6 +11,8 @@
 //   set_subsidy            — toggle a subsidy (POST)
 //   get_pop_classes        — pop class distribution across all colonies
 
+use GalaxyQuest\Economy\OnDemandEconomy;
+
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/economy_flush.php';
@@ -27,6 +29,42 @@ const VALID_POLICIES = ['free_market', 'subsidies', 'mercantilism', 'autarky', '
 const TAX_MAX = ['income' => 0.40, 'production' => 0.30, 'trade' => 0.25];
 const VALID_SUBSIDIES = ['agriculture', 'research', 'military'];
 const VALID_POP_CLASSES = ['colonist', 'citizen', 'specialist', 'elite', 'transcendent'];
+
+if (ON_DEMAND_ECONOMY_ENABLED) {
+    $economy = new OnDemandEconomy($db);
+    try {
+        if (in_array($action, ['set_production_method', 'set_policy', 'set_tax', 'set_subsidy'], true)) {
+            only_method('POST');
+            verify_csrf();
+            $body = get_json_body();
+            if ($action === 'set_production_method') {
+                $economy->method(
+                    (int)($body['colony_id'] ?? 0),
+                    $uid,
+                    (string)($body['building_type'] ?? ''),
+                    (string)($body['method'] ?? '')
+                );
+            } elseif ($action === 'set_policy') {
+                $economy->configure($uid, 'global_policy', (string)($body['policy'] ?? ''));
+            } elseif ($action === 'set_tax') {
+                $economy->configure($uid, 'tax_' . ($body['type'] ?? ''), (float)($body['rate'] ?? 0));
+            } else {
+                $economy->configure($uid, 'subsidy_' . ($body['sector'] ?? ''), (bool)($body['enabled'] ?? false));
+            }
+            json_ok($body);
+        }
+        if ($action === 'get_pop_classes') {
+            $stmt = $db->prepare('SELECT id FROM colonies WHERE user_id=? AND (? IS NULL OR id=?) ORDER BY id');
+            $cid = isset($_GET['colony_id']) ? (int)$_GET['colony_id'] : null;
+            $stmt->execute([$uid, $cid, $cid]);
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $owned) {
+                $economy->settle((int)$owned, $uid);
+            }
+        }
+    } catch (DomainException $error) {
+        json_error($error->getMessage(), $error->getCode() ?: 400);
+    }
+}
 
 function ensure_policy_row(PDO $db, int $uid): void {
     $db->prepare('INSERT IGNORE INTO economy_policies (user_id) VALUES (?)')->execute([$uid]);
@@ -201,6 +239,24 @@ function fetch_pop_classes(PDO $db, int $colonyId): array {
     return $out;
 }
 
+function settled_economy_runtime(PDO $db, int $cid, array $runtime): array
+{
+    if (!ON_DEMAND_ECONOMY_ENABLED) {
+        return $runtime;
+    }
+    $snapshot = (new OnDemandEconomy($db))->settle($cid);
+    $state = $snapshot['economy'];
+    foreach (['metal', 'crystal', 'deuterium', 'rare_earth', 'food'] as $good) {
+        $runtime['production'][$good . '_per_hour'] = $state['production'][$good] ?? 0;
+    }
+    $runtime['consumption']['food_per_hour'] = $state['consumption']['food'] ?? 0;
+    $runtime['consumption']['processed_goods_per_hour'] = $state['consumption'] ?? [];
+    $runtime['welfare']['happiness'] = $state['satisfaction'];
+    $runtime['welfare']['population_growth_per_hour'] = $state['population_growth_per_hour'] ?? 0;
+    $runtime['economy'] = $state;
+    return $runtime;
+}
+
 // ---------------------------------------------------------------------------
 // Action handlers
 // ---------------------------------------------------------------------------
@@ -230,7 +286,11 @@ function action_get_overview(PDO $db, int $uid): never {
         update_colony_resources($db, $cid);
         flush_colony_production($db, $cid);
         $runtimeRow = fetch_colony_runtime_row($db, $cid);
-        $runtime = $runtimeRow ? build_colony_consumption_snapshot($db, $runtimeRow) : [];
+        $runtime = settled_economy_runtime(
+            $db,
+            $cid,
+            $runtimeRow ? build_colony_consumption_snapshot($db, $runtimeRow) : []
+        );
         $result[] = [
             'id'         => $cid,
             'name'       => $runtimeRow['name'] ?? $c['name'],
@@ -250,6 +310,7 @@ function action_get_overview(PDO $db, int $uid): never {
             'consumption' => $runtime['consumption'] ?? [],
             'welfare'     => $runtime['welfare'] ?? [],
             'building_levels' => $runtime['building_levels'] ?? [],
+            'economy' => $runtime['economy'] ?? null,
         ];
     }
 
@@ -280,11 +341,15 @@ function action_get_production(PDO $db, int $uid): never {
     $methods = fetch_production_methods($db, $colonyId);
     $goods   = fetch_colony_goods($db, $colonyId);
     $runtimeRow = fetch_colony_runtime_row($db, $colonyId);
-    $runtime = $runtimeRow ? build_colony_consumption_snapshot($db, $runtimeRow) : [];
+    $runtime = settled_economy_runtime(
+        $db,
+        $colonyId,
+        $runtimeRow ? build_colony_consumption_snapshot($db, $runtimeRow) : []
+    );
 
     // Fetch colony's processing buildings from buildings table
     $stmt = $db->prepare(<<<SQL
-        SELECT type, COUNT(*) AS cnt
+        SELECT type, SUM(level) AS cnt
         FROM buildings
         WHERE colony_id = ? AND type IN (
             'metallurgy','crystal_grinder','refinery','bioreactor','electronics_fab',

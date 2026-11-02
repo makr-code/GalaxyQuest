@@ -15,6 +15,8 @@
 
 declare(strict_types=1);
 
+use GalaxyQuest\Economy\OnDemandEconomy;
+
 // ---------------------------------------------------------------------------
 // Constants — building → good mapping + base output at level 1 per hour
 // ---------------------------------------------------------------------------
@@ -270,6 +272,11 @@ function update_pop_satisfaction_from_goods(PDO $db, int $colony_id, array $good
  * @param int $colony_id
  */
 function flush_colony_production(PDO $db, int $colony_id): void {
+    if (ON_DEMAND_ECONOMY_ENABLED) {
+        require_once __DIR__ . '/game_engine.php';
+        (new OnDemandEconomy($db))->settle($colony_id);
+        return;
+    }
     // 1. Colony population
     $stmt = $db->prepare('SELECT population FROM colonies WHERE id = ?');
     $stmt->execute([$colony_id]);

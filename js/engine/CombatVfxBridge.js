@@ -45,6 +45,9 @@ const ALERT_PULSES        = 3;
 
 /** Delay between alert pulses in ms. */
 const ALERT_PULSE_DELAY   = 260;
+const MAX_ACTIVE_BATTLES = 32;
+const MAX_SEEN_EVENTS = 1024;
+const EVENT_RETENTION_MS = 10 * 60 * 1000;
 
 /**
  * Mission-aware battle pulse profiles used by _battlePulseProfile().
@@ -113,6 +116,16 @@ class CombatVfxBridge {
      * @type {Map<string, { interval: number, timeout: number }>}
      */
     this._activeBattles = new Map();
+    this._alertTimers = new Set();
+    this._seenEvents = new Map();
+    this._seenPayloads = new WeakMap();
+    this._destroyed = false;
+    this._effectEpoch = 0;
+    this._visualOptions = { reducedMotion: false, reducedFlashes: false };
+    this._onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') this.stopAll();
+    };
+    document.addEventListener('visibilitychange', this._onVisibilityChange);
 
     this._onFleetArrived        = this._onFleetArrived.bind(this);
     this._onIncomingAttack      = this._onIncomingAttack.bind(this);
@@ -174,6 +187,7 @@ class CombatVfxBridge {
       getBattlePulseProfiles: ()                       => this._cloneBattlePulseProfiles(this._battlePulseProfiles),
       applyBattlePulsePreset: (presetName)             => this.applyBattlePulsePreset(presetName),
       listBattlePulsePresets: ()                       => this.getBattlePulsePresetNames(),
+      setVisualOptions: (options)                      => this.setVisualOptions(options),
     });
   }
 
@@ -215,12 +229,14 @@ class CombatVfxBridge {
     const data    = ev?.detail ?? {};
     const mission = String(data.mission || '').toLowerCase();
     if (mission !== 'attack' && mission !== 'spy') return;
+    if (!this._acceptEvent('fleet_arrived', data)) return;
 
     const attacker = String(data.attacker || data.owner || '');
     const target   = String(data.target   || '');
     const sourcePosition = this._deriveSourcePosition(data, ['targetPosition', 'target_position', 'position']);
 
     if (mission === 'attack') {
+      const epoch = this._effectEpoch;
       // Immediate opening salvo then sustained fire window
       // Installations ($target system) fire defensively
       this._dispatchWeaponFire({
@@ -230,10 +246,12 @@ class CombatVfxBridge {
         weaponKind: null,
         ts: Date.now(),
       });
+      if (epoch !== this._effectEpoch || this._reducedEffects()) return;
       this._startBattleFx(attacker, target, BATTLE_DURATION_MS, sourcePosition, {
         mission,
         attacker,
         target,
+        fleetId: data.fleet_id,
       });
     } else {
       // Spy: one silent pulse (no visible weapon FX needed, but emit for any interest)
@@ -252,11 +270,15 @@ class CombatVfxBridge {
     const mission = String(data.mission || '').toLowerCase();
     // Raise alert-level weapon FX on defender installations (pre-battle warning)
     if (mission === 'spy') return;   // spy → no visible weapons
+    if (!this._acceptEvent('incoming_attack', data)) return;
+    this._alertTimers ||= new Set();
+    if (this._alertTimers.size >= MAX_ACTIVE_BATTLES) return;
     const sourcePosition = this._deriveSourcePosition(data, ['targetPosition', 'target_position', 'position']);
 
     let sent = 0;
+    const epoch = this._effectEpoch;
     const dispatchPulse = () => {
-      if (sent >= ALERT_PULSES) return;
+      if (this._destroyed || epoch !== this._effectEpoch || sent >= ALERT_PULSES) return;
       this._dispatchWeaponFire({
         sourceOwner: null,
         sourceType: 'installation',
@@ -265,7 +287,13 @@ class CombatVfxBridge {
         ts: Date.now(),
       });
       sent += 1;
-      window.setTimeout(dispatchPulse, ALERT_PULSE_DELAY);
+      if (!this._destroyed && epoch === this._effectEpoch && sent < ALERT_PULSES && !this._reducedEffects()) {
+        const timer = window.setTimeout(() => {
+          this._alertTimers.delete(timer);
+          dispatchPulse();
+        }, ALERT_PULSE_DELAY);
+        this._alertTimers.add(timer);
+      }
     };
     dispatchPulse();
   }
@@ -274,9 +302,16 @@ class CombatVfxBridge {
     const data    = ev?.detail ?? {};
     const mission = String(data.mission || '').toLowerCase();
     if (mission !== 'attack') return;
+    if (!this._acceptEvent('fleet_returning', data)) return;
+    if (data.fleet_id != null) {
+      for (const [battleKey, battle] of this._activeBattles) {
+        if (battle.fleetId === String(data.fleet_id)) this._stopBattleFx(battleKey);
+      }
+    }
 
     // End any active battle in the system the fleet just left
     const target = String(data.target || data.origin || '');
+    if (!target) return;
     const key    = this._battleKey('', target);
     this._stopBattleFx(key);
 
@@ -302,7 +337,14 @@ class CombatVfxBridge {
    */
   _startBattleFx(attacker, target, durationMs = BATTLE_DURATION_MS, sourcePosition = null, context = null) {
     const key = this._battleKey(attacker, target);
+    if (this._destroyed || document.visibilityState === 'hidden' || this._reducedEffects()) return key;
     this._stopBattleFx(key); // clear any prior battle for the same key
+    if (this._activeBattles.size >= MAX_ACTIVE_BATTLES) {
+      this._stopBattleFx(this._activeBattles.keys().next().value);
+    }
+    const duration = Number.isFinite(durationMs)
+      ? Math.max(0, Math.min(BATTLE_DURATION_MS, durationMs)) : BATTLE_DURATION_MS;
+    if (!duration) return key;
 
     const profile = this._battlePulseProfile(context);
     const sourcePattern = Array.isArray(profile?.sourcePattern) && profile.sourcePattern.length
@@ -330,9 +372,12 @@ class CombatVfxBridge {
 
     const timeoutId = window.setTimeout(() => {
       this._stopBattleFx(key);
-    }, durationMs);
+    }, duration);
 
-    this._activeBattles.set(key, { interval: intervalId, timeout: timeoutId });
+    this._activeBattles.set(key, {
+      interval: intervalId, timeout: timeoutId,
+      fleetId: context?.fleetId == null ? null : String(context.fleetId),
+    });
     return key;
   }
 
@@ -350,7 +395,10 @@ class CombatVfxBridge {
 
   /** Stop all active battle FX loops. */
   stopAll() {
+    this._effectEpoch = (this._effectEpoch || 0) + 1;
     for (const key of this._activeBattles.keys()) this._stopBattleFx(key);
+    for (const timer of this._alertTimers || []) window.clearTimeout(timer);
+    this._alertTimers?.clear();
   }
 
   // ---------------------------------------------------------------------------
@@ -369,6 +417,7 @@ class CombatVfxBridge {
    * @param {number}       [payload.ts]           - Timestamp (defaults to Date.now())
    */
   _dispatchWeaponFire(payload = {}) {
+    if (this._destroyed || document.visibilityState === 'hidden') return;
     const detail = {
       sourceOwner:  payload.sourceOwner  ?? null,
       sourceType:   payload.sourceType   ?? null,
@@ -385,6 +434,49 @@ class CombatVfxBridge {
 
   _battleKey(attacker, target) {
     return `${attacker}→${target}`;
+  }
+
+  setVisualOptions(options = {}) {
+    this._visualOptions = {
+      reducedMotion: options.reducedMotion === true,
+      reducedFlashes: options.reducedFlashes === true,
+    };
+    if (this._reducedEffects()) this.stopAll();
+  }
+
+  _reducedEffects() {
+    return this._visualOptions?.reducedMotion || this._visualOptions?.reducedFlashes
+      || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+  }
+
+  _acceptEvent(type, data) {
+    if (this._destroyed) return false;
+    this._seenEvents ||= new Map();
+    this._seenPayloads ||= new WeakMap();
+    const now = Date.now();
+    for (const [key, expires] of this._seenEvents) {
+      if (expires <= now) this._seenEvents.delete(key);
+    }
+    const explicit = data.event_id ?? data.eventId;
+    const fleet = data.fleet_id;
+    const id = explicit ?? fleet;
+    if ((typeof id === 'string' && id.length > 0 && id.length <= 256)
+      || (typeof id === 'number' && Number.isSafeInteger(id) && id >= 0)) {
+      const key = JSON.stringify([type, explicit != null ? 'event' : 'fleet', String(id)]);
+      if (this._seenEvents.has(key)) return false;
+      if (this._seenEvents.size >= MAX_SEEN_EVENTS) {
+        this._seenEvents.delete(this._seenEvents.keys().next().value);
+      }
+      this._seenEvents.set(key, now + EVENT_RETENTION_MS);
+    } else if (data && typeof data === 'object') {
+      // Both runtime transports forward the same object; do not guess an identity
+      // from owner/target and accidentally suppress distinct id-less battles.
+      let stages = this._seenPayloads.get(data);
+      if (stages?.has(type)) return false;
+      if (!stages) this._seenPayloads.set(data, stages = new Set());
+      stages.add(type);
+    }
+    return document.visibilityState !== 'hidden';
   }
 
   _normalizeSourcePosition(value) {
@@ -501,7 +593,12 @@ class CombatVfxBridge {
   // ---------------------------------------------------------------------------
 
   destroy() {
+    if (this._destroyed) return;
+    this._destroyed = true;
     this.stopAll();
+    document.removeEventListener('visibilitychange', this._onVisibilityChange);
+    this._seenEvents?.clear();
+    this._seenPayloads = new WeakMap();
     window.removeEventListener('gq:fleet-arrived',         this._onFleetArrived);
     window.removeEventListener('gq:fleet-incoming-attack', this._onIncomingAttack);
     window.removeEventListener('gq:fleet-returning',       this._onFleetReturning);
