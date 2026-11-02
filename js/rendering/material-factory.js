@@ -11,7 +11,7 @@
       this.envMapIntensity = Number.isFinite(opts.envMapIntensity) && opts.envMapIntensity >= 0
         ? opts.envMapIntensity : null;
       this._textureRoles = new WeakMap();
-      this._ownedTextures = new Set();
+      this._ownedTextures = new Map();
       this.profiles = Object.assign({
         planetFallback: { roughness: 0.82, metalness: 0.04, emissiveIntensity: 0.0 },
         fleetHull: { roughness: 0.36, metalness: 0.48, emissiveIntensity: 0.18 },
@@ -174,6 +174,7 @@
 
     _createMaterial(parameters, bundle = null) {
       const dataMaps = ['bumpMap', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'alphaMap'];
+      const ownedTextures = new Set();
       for (const slot of dataMaps) {
         if (bundle?.[slot]) parameters[slot] = bundle[slot];
       }
@@ -189,9 +190,13 @@
           this._textureRoles.set(texture, roles);
         }
         if (!roles.has(colorSpace)) {
-          // A color texture may also be reused as bump data; do not retag both uses.
-          const typedTexture = roles.size ? texture.clone() : texture;
-          if (typedTexture !== texture) this._ownedTextures.add(typedTexture);
+          // Inputs are borrowed and may still be used by another factory or renderer.
+          const typedTexture = texture.colorSpace === colorSpace ? texture : texture.clone();
+          if (typedTexture !== texture) {
+            this._ownedTextures.set(typedTexture, {
+              texture: typedTexture, source: texture, colorSpace, roles, references: 0,
+            });
+          }
           if (typedTexture.colorSpace !== colorSpace) {
             typedTexture.colorSpace = colorSpace;
             typedTexture.needsUpdate = true;
@@ -199,14 +204,39 @@
           roles.set(colorSpace, typedTexture);
         }
         parameters[slot] = roles.get(colorSpace);
+        const owned = this._ownedTextures.get(parameters[slot]);
+        if (owned) ownedTextures.add(owned);
       }
       if (this.envMapIntensity !== null) parameters.envMapIntensity = this.envMapIntensity;
-      return new this.THREE.MeshStandardMaterial(parameters);
+      const material = new this.THREE.MeshStandardMaterial(parameters);
+      if (['map', 'emissiveMap', ...dataMaps].some((slot) => parameters[slot])) {
+        material.userData.sharedTexture = true;
+      }
+      if (ownedTextures.size) {
+        for (const owned of ownedTextures) owned.references += 1;
+        const release = () => {
+          material.removeEventListener('dispose', release);
+          for (const owned of ownedTextures) {
+            if (this._ownedTextures.get(owned.texture) !== owned) continue;
+            owned.references -= 1;
+            if (owned.references === 0) this._disposeOwnedTexture(owned);
+          }
+          ownedTextures.clear();
+        };
+        material.addEventListener('dispose', release);
+      }
+      return material;
+    }
+
+    _disposeOwnedTexture(owned) {
+      this._ownedTextures.delete(owned.texture);
+      if (owned.roles.get(owned.colorSpace) === owned.texture) owned.roles.delete(owned.colorSpace);
+      if (!owned.roles.size) this._textureRoles.delete(owned.source);
+      owned.texture.dispose();
     }
 
     dispose() {
-      for (const texture of this._ownedTextures) texture.dispose();
-      this._ownedTextures.clear();
+      for (const owned of this._ownedTextures.values()) this._disposeOwnedTexture(owned);
       this._textureRoles = new WeakMap();
     }
   }

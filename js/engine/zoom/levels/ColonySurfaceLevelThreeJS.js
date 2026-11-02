@@ -38,6 +38,7 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
     this._canvas    = null;
     this._backend   = null;
     this._sceneData = null;
+    this._unloaded = false;
     this._scene     = null;
     this._camera    = null;
     this._renderer  = null;
@@ -72,8 +73,10 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
   }
 
   async initialize(canvas, backend) {
+    this._unloaded = false;
     this._canvas  = canvas;
     this._backend = backend;
+    if (this._renderer) return;
 
     const T = getThree();
     if (!T) return;
@@ -93,13 +96,12 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
   setSceneData(data) {
     this._sceneData = data || null;
     this._applySceneDataVisuals(data);
-    if (data && Array.isArray(data.slots)) {
-      this._updateInstances(data.slots);
-    }
+    if (this._unloaded) return;
+    this._updateInstances(Array.isArray(data?.slots) ? data.slots : []);
   }
 
   render(dt, cameraState) { // eslint-disable-line no-unused-vars
-    if (!this._renderer || !this._scene || !this._camera) return;
+    if (this._unloaded || !this._renderer || !this._scene || !this._camera) return;
     this._tickBuildingVfx(Number(dt) || 0.016);
     if (cameraState && cameraState.position) {
       this._camera.position.set(
@@ -112,30 +114,44 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
   }
 
   async enter(prevLevel, transitionPayload) { // eslint-disable-line no-unused-vars
-    this._applySceneDataVisuals(transitionPayload || this._sceneData || null);
-    if (transitionPayload && Array.isArray(transitionPayload.slots)) {
-      this._updateInstances(transitionPayload.slots);
+    const T = getThree();
+    if (!this._scene && T && this._renderer) {
+      this._scene = new T.Scene();
+      this._buildScene(T);
     }
+    this._unloaded = false;
+    this.setSceneData({ ...this._sceneData, ...transitionPayload });
   }
 
   async exit(nextLevel) { // eslint-disable-line no-unused-vars
-    // Nothing to do.
+    this._unloaded = true;
+    // Retain CPU game-state data and the renderer/camera, never recreate the
+    // canvas context on re-entry. All owned scene GPU resources are evicted.
+    this._releaseScene();
   }
 
-  dispose() {
-    this._clearBuildingVfx(true);
-    if (this._renderer) {
-      try { this._renderer.dispose(); } catch (_) {}
-      this._renderer = null;
-    }
+  _releaseScene() {
+    const geometries = new Set();
+    const materials = new Set();
+    this._scene?.traverse((object) => {
+      if (object.geometry) geometries.add(object.geometry);
+      const objectMaterials = Array.isArray(object.material) ? object.material : [object.material];
+      objectMaterials.forEach((material) => { if (material) materials.add(material); });
+      // InstancedMesh owns instance-matrix/color GPU buffers beyond geometry.
+      if (object.isInstancedMesh) object.dispose?.();
+    });
+    geometries.forEach((geometry) => geometry.dispose?.());
+    materials.forEach((material) => material.dispose?.());
+    this._scene?.clear();
+    this._scene = null;
     this._instanced = null;
     this._instancedLo = null;
     this._lod       = null;
     this._ground    = null;
     this._ownershipRing = null;
     this._buildingVfxGroup = null;
-    this._buildingVfxBurstUntil = 0;
-    this._slotUpgradeState = new Map();
+    this._buildingVfxEmitters = [];
+    this._slotCount = 0;
     this._buildingVfxStats = {
       backend: 'threejs',
       quality: 'medium',
@@ -144,7 +160,19 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
       profileCounts: {},
       burstActive: false,
     };
-    this._scene     = null;
+  }
+
+  dispose() {
+    this._unloaded = true;
+    this._releaseScene();
+    if (this._renderer) {
+      try { this._renderer.dispose(); } catch (_) {}
+      this._renderer = null;
+    }
+    this._buildingVfxTime = 0;
+    this._buildingVfxBurstUntil = 0;
+    this._slotUpgradeState = new Map();
+    this._sceneData = null;
     this._camera    = null;
     this._canvas    = null;
     this._backend   = null;
@@ -388,7 +416,7 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
     const T = getThree();
     if (!this._buildingVfxGroup || !T) return;
     while (this._buildingVfxGroup.children.length) {
-      const child = this._buildingVfxGroup.children.pop();
+      const child = this._buildingVfxGroup.children[0];
       this._buildingVfxGroup.remove(child);
       if (!disposeMaterials) continue;
       child.geometry?.dispose?.();
@@ -430,7 +458,13 @@ class ColonySurfaceLevelThreeJS extends ZoomLevelRendererBase {
     this._clearBuildingVfx(true);
     const source = Array.isArray(slots) ? slots : [];
     this._ingestUpgradeTransitions(source);
-    if (!source.length) return;
+    if (!source.length) {
+      this._buildingVfxStats = {
+        backend: 'threejs', quality: this._resolveBuildingVfxQuality(0),
+        emitters: 0, particles: 0, profileCounts: {}, burstActive: false,
+      };
+      return;
+    }
 
     const quality = this._resolveBuildingVfxQuality(source.length);
     const qualityMap = {

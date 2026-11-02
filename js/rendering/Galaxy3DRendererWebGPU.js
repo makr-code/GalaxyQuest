@@ -2730,14 +2730,14 @@
         this._orbitUniformBuf, this._orbitVertexBuf, this._indexBuf,
       ].filter(Boolean));
       const sizes = [...ownedBuffers].map(buffer => buffer.size);
-      this._performanceMonitor?.update({
+      const sampleAccepted = this._performanceMonitor?.update({
         timestampMs: now, frameMs, cpuSubmissionMs: performance.now() - cpuStart,
         gpuMs: this._pendingGpuMs, drawCalls: this._passDrawCalls, triangles: this._passTriangles,
         ownedBufferBytes: sizes.every(Number.isFinite) ? sizes.reduce((sum, size) => sum + size, 0) : null,
         // Owned buffers are a partial allocation count, not total VRAM.
         memoryBytes: null,
       });
-      this._pendingGpuMs = null;
+      if (sampleAccepted) this._pendingGpuMs = null;
       this._renderGalaxyOverlay2D();
 
       this._frameTick++;

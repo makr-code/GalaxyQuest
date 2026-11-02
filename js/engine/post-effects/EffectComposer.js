@@ -42,6 +42,9 @@
 
 'use strict';
 
+// GPUTextureUsage: COPY_SRC | TEXTURE_BINDING | RENDER_ATTACHMENT.
+const COMPOSER_TARGET_USAGE = 0x01 | 0x04 | 0x10;
+
 class EffectComposer {
   /**
    * @param {import('../core/GraphicsContext').IGraphicsRenderer} renderer
@@ -243,7 +246,7 @@ class EffectComposer {
     const owner = pool && typeof pool.acquireTexture === 'function' &&
       typeof pool.releaseTexture === 'function' ? pool : null;
     const texture = owner
-      ? owner.acquireTexture('rgba8unorm', width, height, 0x1c)
+      ? owner.acquireTexture('rgba8unorm', width, height, COMPOSER_TARGET_USAGE)
       : this._renderer.createTexture({ width, height, format: 'rgba8unorm', renderTarget: true });
     if (!texture || this._targets.has(texture)) {
       throw new Error('EffectComposer: renderer must acquire distinct render targets');
@@ -263,8 +266,7 @@ class EffectComposer {
     this._targets.delete(texture);
     const { pool, width, height } = ownership;
     if (pool) {
-      // TEXTURE_BINDING | RENDER_ATTACHMENT | COPY_SRC, matching acquisition.
-      pool.releaseTexture(texture, 'rgba8unorm', width, height, 0x1c);
+      pool.releaseTexture(texture, 'rgba8unorm', width, height, COMPOSER_TARGET_USAGE);
     } else if (typeof texture.destroy === 'function') {
       texture.destroy();
     } else {

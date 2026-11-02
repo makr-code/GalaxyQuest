@@ -45,6 +45,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._canvas         = null;
     this._backend        = null;
     this._sceneData      = null;
+    this._unloaded       = false;
     this._device         = null;
     this._context        = null;
     this._gridPipeline   = null;
@@ -74,6 +75,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   }
 
   async initialize(canvas, backend) {
+    this._unloaded = false;
     this._canvas  = canvas;
     this._backend = backend;
 
@@ -88,28 +90,30 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   setSceneData(data) {
     this._sceneData = data || null;
     this._applySceneDataVisuals(data);
-    if (data && Array.isArray(data.slots)) {
-      this._uploadSlots(data.slots);
-      this._rebuildBuildingVfx(data.slots);
-    }
+    if (this._unloaded) return;
+    const slots = Array.isArray(data?.slots) ? data.slots : [];
+    this._uploadSlots(slots);
+    this._rebuildBuildingVfx(slots);
   }
 
   render(dt, cameraState) { // eslint-disable-line no-unused-vars
-    if (!this._device || !this._context) return;
+    if (this._unloaded || !this._device || !this._context) return;
     this._updateBuildingVfxBuffer(Number(dt) || 0.016);
     this._drawFrame();
   }
 
   async enter(prevLevel, transitionPayload) { // eslint-disable-line no-unused-vars
-    this._applySceneDataVisuals(transitionPayload || this._sceneData || null);
-    // Colony data injected via setSceneData prior to enter().
+    this._unloaded = false;
+    this.setSceneData({ ...this._sceneData, ...transitionPayload });
   }
 
   async exit(nextLevel) { // eslint-disable-line no-unused-vars
-    // Resources kept alive for re-entry.
+    this._unloaded = true;
+    // Keep only the CPU game-state catalog and cheap pipelines for re-entry.
+    this._releaseSceneBuffers();
   }
 
-  dispose() {
+  _releaseSceneBuffers() {
     if (this._instanceBuffer) {
       try { this._instanceBuffer.destroy(); } catch (_) {}
       this._instanceBuffer = null;
@@ -118,15 +122,10 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       try { this._buildingVfxBuffer.destroy(); } catch (_) {}
       this._buildingVfxBuffer = null;
     }
-    this._gridPipeline = null;
-    this._meshPipeline = null;
-    this._vfxPipeline = null;
     this._instanceBindGroup = null;
+    this._slotCount = 0;
     this._buildingVfxVertexCount = 0;
     this._buildingVfxParticles = [];
-    this._buildingVfxTime = 0;
-    this._buildingVfxBurstUntil = 0;
-    this._slotUpgradeState = new Map();
     this._buildingVfxStats = {
       backend: 'webgpu',
       quality: 'medium',
@@ -135,6 +134,18 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       profileCounts: {},
       burstActive: false,
     };
+  }
+
+  dispose() {
+    this._unloaded = true;
+    this._releaseSceneBuffers();
+    this._gridPipeline = null;
+    this._meshPipeline = null;
+    this._vfxPipeline = null;
+    this._buildingVfxTime = 0;
+    this._buildingVfxBurstUntil = 0;
+    this._slotUpgradeState = new Map();
+    this._sceneData = null;
     this._device = null;
     this._context = null;
     this._canvas  = null;
@@ -280,11 +291,14 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     if (!this._device) return;
     const count  = slots.length;
     const size   = count * BYTES_PER_SLOT;
-    if (size === 0) return;
 
     if (this._instanceBuffer) {
       try { this._instanceBuffer.destroy(); } catch (_) {}
+      this._instanceBuffer = null;
     }
+    this._instanceBindGroup = null;
+    this._slotCount = 0;
+    if (size === 0) return;
     this._instanceBuffer = this._device.createBuffer({
       size,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -416,7 +430,17 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._ingestUpgradeTransitions(source);
     this._buildingVfxParticles = [];
     this._buildingVfxVertexCount = 0;
-    if (!source.length) return;
+    if (!source.length) {
+      if (this._buildingVfxBuffer) {
+        try { this._buildingVfxBuffer.destroy(); } catch (_) {}
+        this._buildingVfxBuffer = null;
+      }
+      this._buildingVfxStats = {
+        backend: 'webgpu', quality: this._resolveBuildingVfxQuality(0),
+        emitters: 0, particles: 0, profileCounts: {}, burstActive: false,
+      };
+      return;
+    }
 
     const quality = this._resolveBuildingVfxQuality(source.length);
     const qualityMap = {

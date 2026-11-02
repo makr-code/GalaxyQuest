@@ -6,6 +6,8 @@ const { EffectComposer } = require('../../js/engine/post-effects/EffectComposer.
 const { BloomPass } = require('../../js/engine/post-effects/passes/BloomPass.js');
 const { VignettePass } = require('../../js/engine/post-effects/passes/VignettePass.js');
 const { WebGPUResourcePool } = require('../../js/engine/webgpu/WebGPUResourcePool.js');
+const targetUsage = GPUTextureUsage.COPY_SRC |
+  GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT;
 
 function renderer() {
   return { createTexture: vi.fn(() => ({ destroy: vi.fn() })) };
@@ -219,13 +221,19 @@ describe('EffectComposer target ownership and failures', () => {
     const old = [composer._rtA, composer._rtB];
     composer.resize(320, 240);
     const current = [composer._rtA, composer._rtB];
-    old.forEach(t => expect(pool.releaseTexture).toHaveBeenCalledWith(t, 'rgba8unorm', 800, 600, 0x1c));
-    expect(pool.acquireTexture).toHaveBeenCalledWith('rgba8unorm', 320, 240, 0x1c);
+    old.forEach(t => expect(pool.releaseTexture).toHaveBeenCalledWith(t, 'rgba8unorm', 800, 600, targetUsage));
+    expect(pool.acquireTexture).toHaveBeenCalledWith('rgba8unorm', 320, 240, targetUsage);
+    for (const [, , , usage] of pool.acquireTexture.mock.calls) {
+      expect(usage & GPUTextureUsage.COPY_SRC).toBe(GPUTextureUsage.COPY_SRC);
+      expect(usage & GPUTextureUsage.TEXTURE_BINDING).toBe(GPUTextureUsage.TEXTURE_BINDING);
+      expect(usage & GPUTextureUsage.RENDER_ATTACHMENT).toBe(GPUTextureUsage.RENDER_ATTACHMENT);
+      expect(usage & GPUTextureUsage.STORAGE_BINDING).toBe(0);
+    }
     // Changing the renderer's pool must not transfer ownership of existing RTs.
     r.resourcePool = { releaseTexture: vi.fn() };
     composer.dispose();
     composer.dispose();
-    current.forEach(t => expect(pool.releaseTexture).toHaveBeenCalledWith(t, 'rgba8unorm', 320, 240, 0x1c));
+    current.forEach(t => expect(pool.releaseTexture).toHaveBeenCalledWith(t, 'rgba8unorm', 320, 240, targetUsage));
     expect(pool.releaseTexture).toHaveBeenCalledTimes(4);
     expect(r.resourcePool.releaseTexture).not.toHaveBeenCalled();
     [...old, ...current].forEach(t => expect(t.destroy).not.toHaveBeenCalled());
@@ -237,8 +245,8 @@ describe('EffectComposer target ownership and failures', () => {
     const composer = new EffectComposer({ resourcePool: pool }, 800, 600);
     const old = [composer._rtA, composer._rtB];
     composer.resize(320, 240);
-    expect(pool.acquireTexture('rgba8unorm', 800, 600, 0x1c)).toBe(old[1]);
-    pool.releaseTexture(old[1], 'rgba8unorm', 800, 600, 0x1c);
+    expect(pool.acquireTexture('rgba8unorm', 800, 600, targetUsage)).toBe(old[1]);
+    pool.releaseTexture(old[1], 'rgba8unorm', 800, 600, targetUsage);
     const current = [composer._rtA, composer._rtB];
     composer.dispose();
     composer.dispose();
@@ -297,7 +305,7 @@ describe('EffectComposer target ownership and failures', () => {
     const partial = {};
     pool.acquireTexture.mockReturnValueOnce(partial).mockImplementationOnce(() => { throw new Error('pool allocation'); });
     expect(() => composer.resize(320, 240)).toThrow('pool allocation');
-    expect(pool.releaseTexture).toHaveBeenCalledExactlyOnceWith(partial, 'rgba8unorm', 320, 240, 0x1c);
+    expect(pool.releaseTexture).toHaveBeenCalledExactlyOnceWith(partial, 'rgba8unorm', 320, 240, targetUsage);
     composer.dispose();
     expect(pool.releaseTexture).toHaveBeenCalledTimes(3);
   });

@@ -350,6 +350,34 @@ describe('Galaxy3DRendererWebGPU — native WebGPU path (mocked GPU)', () => {
     r.dispose();
   });
 
+  it('continues native rendering when optional telemetry modules cannot be loaded', async () => {
+    delete window.GQPerformanceBudget;
+    delete window.GQWebGPUProfiler;
+    const r = new Ctor(container, {});
+    await r.init();
+    expect(r._backend).toBe('webgpu');
+    r.setStars(SAMPLE_STARS);
+    expect(() => r._renderFrame(1000)).not.toThrow();
+    expect(r.getRenderStats().performance).toBeNull();
+    r.dispose();
+  });
+
+  it('retains asynchronous GPU results until a throttled budget sample accepts them', async () => {
+    vi.stubGlobal('requestAnimationFrame', vi.fn(() => 0));
+    const r = new Ctor(container, { performanceBudget: { sampleIntervalMs: 96 } });
+    await r.init();
+    r.setStars(SAMPLE_STARS);
+    for (let frame = 0; frame <= 126; frame++) {
+      // Timestamp frames 0,60,120 finish asynchronously on frames 1,61,121.
+      if (frame % 60 === 1) r._pendingGpuMs = 1 + Math.floor(frame / 60);
+      r._renderFrame(frame * 16);
+      if (frame % 60 === 1) expect(r._pendingGpuMs).not.toBeNull();
+      if ([6, 66, 126].includes(frame)) expect(r._pendingGpuMs).toBeNull();
+    }
+    expect(r.getRenderStats().performance).toMatchObject({ gpuTimeAvgMs: 2, sampleCount: 22 });
+    r.dispose();
+  });
+
   it('requests optional timestamp-query and connects standard pass timestamps to render telemetry', async () => {
     vi.stubGlobal('requestAnimationFrame', vi.fn(() => 0));
     mockAdapter.features = new Set(['timestamp-query']);

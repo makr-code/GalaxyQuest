@@ -60,9 +60,23 @@ from the retained CPU catalog. Packed sprites still use one instanced draw, carr
 their original selection indices and retain source blending order.
 
 This is **GPU partition residency**, not complete server-side World Partition:
-the CPU star catalog remains resident, network loading is unchanged, and system/
-colony asset streaming is not claimed to be solved by culling galaxy stars.
-Prepared model LODs and existing view lifecycles remain separate concerns.
+the CPU star catalog remains resident and network loading is unchanged.
+Prepared model LODs and system asset streaming remain separate concerns.
+
+### Colony view residency
+
+Both colony renderers release owned scene resources on `exit()` and reconstruct
+them on `enter()` from the latest retained game data. Native WebGPU releases slot
+and VFX buffers while retaining its pipelines and borrowed device/context.
+Three.js releases scene geometries, materials and instanced-mesh buffers, retaining
+the renderer/camera rather than creating another canvas context.
+
+Updates arriving after exit retain CPU data without reallocating scene resources.
+Re-entry preserves layout, ownership, selection metadata and upgrade transitions.
+Empty updates clear old geometry/buffers and VFX statistics; repeated exit/disposal
+does not release resources twice. Initial eager loading remains compatible.
+This lifecycle does not implement network partitioning, unload the entire CPU
+catalog or measure physical GPU memory.
 
 ### Postprocessing dependency contract
 
@@ -95,7 +109,17 @@ no transcoder CDN, GPU format guess or runtime texture compression is introduced
 Without that configuration, use ordinary glTF-supported textures. Color and
 emissive textures use sRGB; normal, roughness, metalness and other data maps use
 no color-space conversion. Role-specific texture sharing must not change another
-consumer's color interpretation.
+consumer's color interpretation: mismatched borrowed textures are cloned, and the
+material factory releases only those owned clones. Clones are shared per role
+and released when their last factory-created material is disposed; factory
+shutdown also releases any remaining clones.
+
+The optional Three.js runtime registers the shared model registry before core
+initialization, but catalog preloading runs in the background. Network requests
+must not block renderer startup or its existing procedural fallback meshes.
+Prepared LOD imports wait for all loads before cleaning up a failed group.
+Injected GLTF loader results are borrowed by default; `ownsGltfResources: true`
+explicitly transfers failure-cleanup responsibility to the registry.
 
 Material profiles preserve their existing roughness/metalness defaults.
 Descriptor `rendering.envMapIntensity` and mesh `castShadow`/`receiveShadow`
