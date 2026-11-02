@@ -131,4 +131,13 @@ return [
     'migrate_registration_portraits_v1.sql',
     'migrate_body_resources_v1.sql',
     'migrate_colony_economy_precision_v1.sql',
+    'migrate_star_spectral_wd_v1.sql',
+    'migrate_planet_science_v1.sql',
+    'migrate_app_state_v1.sql',
+    'migrate_faction_government_v1.sql',
+    'migrate_ship_build_queue_v1.sql',
+    'migrate_glossary_cache_v1.sql',
+    'migrate_alliance_wars_v1.sql',
+    'migrate_projection_claim_token_v1.sql',
+    'migrate_economy_on_demand_v1.sql',
 ];

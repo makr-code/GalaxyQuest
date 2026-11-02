@@ -2,14 +2,21 @@
  * GQTextureManager
  * Zentraler Einstieg fuer planetare/prozedurale Texturen inkl. LRU-Cache.
  */
-(function () {
+(function (root) {
   'use strict';
+
+  const Descriptor = typeof module !== 'undefined' && module.exports
+    ? require('../engine/assets/WorldAssetDescriptor.js') : null;
+  const Generator = typeof module !== 'undefined' && module.exports
+    ? require('../engine/assets/CoherentMaterialGenerator.js') : null;
+  const bounded = (value, fallback, min, max) => Number.isFinite(value)
+    ? Math.max(min, Math.min(max, Math.floor(value))) : fallback;
 
   class GQTextureManager {
     constructor(opts = {}) {
-      this.THREE = opts.three || window.THREE;
-      this.planetPipeline = window.GQPlanetTexturePipeline
-        ? new window.GQPlanetTexturePipeline({
+      this.THREE = opts.three || root.THREE;
+      this.planetPipeline = root.GQPlanetTexturePipeline
+        ? new root.GQPlanetTexturePipeline({
             size: Math.max(128, Number(opts.planetTextureSize || 256)),
             maxEntries: Math.max(24, Number(opts.planetMaxEntries || 128)),
             serverTexturesEnabled: opts.serverTexturesEnabled !== false,
@@ -19,6 +26,117 @@
         : null;
       this.proceduralMaxEntries = Math.max(24, Number(opts.proceduralMaxEntries || 128));
       this.proceduralTextureCache = new Map();
+      this.coherentMaxEntries = bounded(opts.coherentMaxEntries, 24, 1, 64);
+      this.coherentTextureCache = new Map();
+      this._coherentGeneration = 0;
+    }
+
+    async getCoherentMaterialBundleAsync(input = {}, options = {}) {
+      const Engine = Generator || root.CoherentMaterialGenerator;
+      const Contract = Descriptor || root.WorldAssetDescriptor;
+      if (!Engine || !Contract) return null;
+      const descriptor = Contract.normalize(input);
+      const size = Engine.resolveSize(descriptor, options);
+      const key = `${JSON.stringify(Contract.publicParameters(descriptor))}|${size}`;
+      const entry = this.coherentTextureCache.get(key);
+      const generation = this._coherentGeneration;
+      const generated = await Engine.generateCached(descriptor, { ...options, size, fallback: entry?.generated });
+      if (generation !== this._coherentGeneration) return null;
+      const current = this.coherentTextureCache.get(key);
+      if (current) {
+        current.generated = generated;
+        for (const [name, texture] of Object.entries(current.textures)) {
+          texture.image.data = generated.maps[name].data;
+          texture.needsUpdate = true;
+        }
+      }
+      return this._createCoherentMaterialBundle(descriptor, { size }, generated);
+    }
+
+    /**
+     * Maps are borrowed; the material is created lazily on first access and is
+     * caller-owned. Factories retain maps without allocating an unused material.
+     * Access material or retain maps before another request can evict the bundle.
+     * Dispose accessed materials to release their references.
+     */
+    getCoherentMaterialBundle(input = {}, options = {}) {
+      return this._createCoherentMaterialBundle(input, options);
+    }
+
+    _createCoherentMaterialBundle(input, options, prepared = null) {
+      const Contract = Descriptor || root.WorldAssetDescriptor;
+      const Engine = Generator || root.CoherentMaterialGenerator;
+      const THREE = this.THREE;
+      if (!Contract || !Engine || !THREE?.DataTexture || !THREE?.MeshStandardMaterial) return null;
+      const descriptor = Contract.normalize(input);
+      const size = Engine.resolveSize(descriptor, options);
+      const key = `${JSON.stringify(Contract.publicParameters(descriptor))}|${size}`;
+      let entry = this.coherentTextureCache.get(key);
+      if (!entry) {
+        const generated = prepared || Engine.generate(descriptor, { size });
+        const textures = {};
+        for (const [name, map] of Object.entries(generated.maps)) {
+          const texture = new THREE.DataTexture(map.data, size, size, THREE.RGBAFormat, THREE.UnsignedByteType);
+          texture.colorSpace = map.colorSpace === 'srgb' ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+          texture.wrapS = THREE.RepeatWrapping;
+          texture.wrapT = THREE.RepeatWrapping;
+          texture.needsUpdate = true;
+          texture.userData = Object.assign({}, texture.userData, { sharedTexture: true, assetId: descriptor.id });
+          textures[name] = texture;
+        }
+        entry = { generated, textures, references: 0, cached: true, disposed: false };
+      }
+      this.coherentTextureCache.delete(key);
+      this.coherentTextureCache.set(key, entry);
+      const textures = entry.textures;
+      const slots = { map: textures.albedo, normalMap: textures.normal, roughnessMap: textures.roughness,
+        metalnessMap: textures.metalness, emissiveMap: textures.emissive };
+      const coherentMaterial = { ...entry.generated.material, emissiveIntensity: Engine.emissiveIntensity(descriptor) };
+      let material = null;
+      const getMaterial = () => {
+        if (material) return material;
+        if (entry.disposed) throw new Error('Cannot create a material from an evicted coherent texture bundle');
+        material = new THREE.MeshStandardMaterial({
+          ...coherentMaterial, ...slots, color: 0xffffff, emissive: 0xffffff,
+        });
+        material.userData = Object.assign({}, material.userData, { sharedTexture: true, assetId: descriptor.id });
+        entry.references++;
+        const release = () => {
+          material.removeEventListener('dispose', release);
+          entry.references--;
+          this._releaseCoherentEntry(entry);
+        };
+        material.addEventListener('dispose', release);
+        return material;
+      };
+      while (this.coherentTextureCache.size > this.coherentMaxEntries) {
+        const oldestKey = this.coherentTextureCache.keys().next().value;
+        const oldest = this.coherentTextureCache.get(oldestKey);
+        this.coherentTextureCache.delete(oldestKey);
+        oldest.cached = false;
+        this._releaseCoherentEntry(oldest);
+      }
+      return { descriptor, get material() { return getMaterial(); },
+        maps: entry.generated.maps, textures,
+        ...slots, coherentMaterial,
+        retainTextures: () => {
+          if (entry.disposed) throw new Error('Cannot retain a disposed coherent texture bundle');
+          entry.references++;
+          let released = false;
+          return () => {
+            if (released) return;
+            released = true;
+            entry.references--;
+            this._releaseCoherentEntry(entry);
+          };
+        } };
+    }
+
+    _releaseCoherentEntry(entry) {
+      if (!entry.cached && entry.references === 0 && !entry.disposed) {
+        entry.disposed = true;
+        Object.values(entry.textures).forEach(texture => texture.dispose());
+      }
     }
 
     getPlanetMaterial(body, descriptor, fallbackColor = 0x9aa7b8) {
@@ -42,15 +160,22 @@
     }
 
     getObjectMaterial(descriptor, fallbackColor = 0x9aa7b8, objectType = 'generic') {
+      if (descriptor?.materialFamily) {
+        const coherent = this.getCoherentMaterialBundle(descriptor);
+        if (coherent) return coherent.material;
+      }
       const bundle = this.getObjectTextureBundle(objectType, descriptor, fallbackColor);
       if (!bundle) return null;
       const material = new this.THREE.MeshStandardMaterial({
         color: 0xffffff,
         map: bundle.map,
-        bumpMap: bundle.bumpMap,
-        bumpScale: Math.max(0.01, Math.min(0.16, Number(descriptor?.variant === 'gas' ? 0.02 : 0.075))),
+        bumpMap: bundle.normalMap ? null : bundle.bumpMap,
+        bumpScale: bundle.normalMap ? 0 : Math.max(0.01, Math.min(0.16, Number(descriptor?.variant === 'gas' ? 0.02 : 0.075))),
         normalMap: bundle.normalMap || null,
         normalScale: new this.THREE.Vector2(0.5, 0.5),
+        roughnessMap: bundle.roughnessMap || null,
+        metalnessMap: bundle.metalnessMap || null,
+        aoMap: bundle.aoMap || null,
         emissiveMap: bundle.emissiveMap,
         emissive: new this.THREE.Color(Number(descriptor?.variant === 'lava' ? 0xff7d4d : fallbackColor)),
         emissiveIntensity: Math.max(0, Math.min(0.9, Number(descriptor?.glow || 0) * 0.75 + 0.16)),
@@ -348,6 +473,12 @@
     }
 
     dispose() {
+      this._coherentGeneration++;
+      for (const entry of this.coherentTextureCache.values()) {
+        entry.cached = false;
+        this._releaseCoherentEntry(entry);
+      }
+      this.coherentTextureCache.clear();
       this.planetPipeline?.dispose?.();
       for (const texture of this.proceduralTextureCache.values()) {
         texture?.dispose?.();
@@ -356,5 +487,6 @@
     }
   }
 
-  window.GQTextureManager = GQTextureManager;
-})();
+  if (typeof module !== 'undefined' && module.exports) module.exports = GQTextureManager;
+  root.GQTextureManager = GQTextureManager;
+})(typeof window !== 'undefined' ? window : globalThis);

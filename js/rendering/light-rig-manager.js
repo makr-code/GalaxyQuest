@@ -12,6 +12,10 @@
       this.activeProfile = null;
       this.activeLights = [];
       this.activeOptions = null;
+      this.environmentMap = opts.environmentMap || null;
+      this.environmentIntensity = opts.environmentIntensity;
+      this._environmentState = null;
+      this._activeOptionsSignature = null;
       this.profiles = Object.assign({
         auth: [
           { type: 'ambient', color: 0x8ea8d8, intensity: 0.56 },
@@ -41,15 +45,17 @@
       if (!scene) return null;
 
       const normalized = this._normalizeProfileName(profileName);
-      const optionsSignature = this._optionsSignature(opts);
-      if (this.activeProfile === normalized && this.activeLights.length && optionsSignature === this._optionsSignature(this.activeOptions)) {
-        this.scene = scene;
+      const environment = this._resolveEnvironment(opts);
+      const optionsSignature = this._optionsSignature(opts, environment);
+      if (this.scene === scene && this.activeProfile === normalized
+        && this.activeLights.length && optionsSignature === this._activeOptionsSignature) {
         return this.activeProfile;
       }
 
       this._clearActiveRig();
       this.scene = scene;
       this.activeOptions = opts || null;
+      this._activeOptionsSignature = optionsSignature;
 
       const profileDefs = this._resolveProfileDefs(normalized, opts);
       this.activeLights = profileDefs
@@ -57,6 +63,7 @@
         .filter(Boolean);
 
       this.activeLights.forEach((light) => scene.add(light));
+      this._applyEnvironment(scene, environment);
       this.activeProfile = normalized;
       return this.activeProfile;
     }
@@ -74,6 +81,7 @@
         const light = new this.THREE.DirectionalLight(def.color, Number(def.intensity || 0));
         const pos = Array.isArray(def.position) ? def.position : [120, 160, 100];
         light.position.set(Number(pos[0] || 0), Number(pos[1] || 0), Number(pos[2] || 0));
+        if (typeof def.castShadow === 'boolean') light.castShadow = def.castShadow;
         return light;
       }
       if (type === 'point') {
@@ -109,15 +117,37 @@
       });
     }
 
-    _optionsSignature(opts = null) {
-      if (!opts || typeof opts !== 'object') return '';
+    _optionsSignature(opts = null, environment = null) {
       return JSON.stringify({
-        starColor: Number(opts.starColor || 0),
-        starIntensity: Number(opts.starIntensity || 0),
-        starPosition: Array.isArray(opts.starPosition)
+        starColor: Number(opts?.starColor || 0),
+        starIntensity: Number(opts?.starIntensity || 0),
+        starPosition: Array.isArray(opts?.starPosition)
           ? opts.starPosition.slice(0, 3).map((value) => Number(Number(value || 0).toFixed(3)))
           : null,
+        environmentMap: environment?.map.uuid || null,
+        environmentIntensity: environment?.intensity ?? null,
       });
+    }
+
+    _resolveEnvironment(opts) {
+      const map = opts && Object.prototype.hasOwnProperty.call(opts, 'environmentMap')
+        ? opts.environmentMap : this.environmentMap;
+      if (!map) return null;
+      if (!map.isTexture || map.mapping !== this.THREE.CubeUVReflectionMapping) {
+        throw new TypeError('Environment map must be a supplied prefiltered PMREM texture');
+      }
+      const intensity = opts?.environmentIntensity ?? this.environmentIntensity;
+      return { map, intensity: Number.isFinite(intensity) && intensity >= 0 ? intensity : null };
+    }
+
+    _applyEnvironment(scene, environment) {
+      if (!environment) return;
+      this._environmentState = {
+        scene, map: environment.map, previousMap: scene.environment,
+        previousIntensity: scene.environmentIntensity, intensity: environment.intensity,
+      };
+      scene.environment = environment.map;
+      if (environment.intensity !== null) scene.environmentIntensity = environment.intensity;
     }
 
     _normalizeProfileName(profileName) {
@@ -126,16 +156,20 @@
     }
 
     _clearActiveRig() {
-      if (!this.scene || !Array.isArray(this.activeLights) || !this.activeLights.length) {
-        this.activeLights = [];
-        return;
-      }
       this.activeLights.forEach((light) => {
-        if (light?.parent === this.scene) {
-          this.scene.remove(light);
-        }
+        light?.parent?.remove(light);
+        if (typeof light?.dispose === 'function') light.dispose();
+        else light?.shadow?.dispose?.();
       });
       this.activeLights = [];
+      const state = this._environmentState;
+      if (state && state.scene.environment === state.map) {
+        state.scene.environment = state.previousMap;
+        if (state.intensity !== null && state.scene.environmentIntensity === state.intensity) {
+          state.scene.environmentIntensity = state.previousIntensity;
+        }
+      }
+      this._environmentState = null;
     }
 
     getActiveProfile() {
@@ -147,6 +181,7 @@
       this.scene = null;
       this.activeProfile = null;
       this.activeOptions = null;
+      this._activeOptionsSignature = null;
     }
   }
 

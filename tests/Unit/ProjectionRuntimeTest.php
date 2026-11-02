@@ -59,6 +59,11 @@ final class ProjectionRuntimeTest extends TestCase
             {
                 return false;
             }
+
+            public function rowCount(): int
+            {
+                return 1;
+            }
         };
 
         $pdoStub = new class ($log, $stmtStub) extends PDO {
@@ -182,6 +187,7 @@ final class ProjectionRuntimeTest extends TestCase
         $result = claim_batch($db, 'user', 10);
 
         $this->assertCount(1, $result);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $result[0]['claim_token']);
 
         // Find the UPDATE statement that sets status to processing.
         $updateFound = false;
@@ -217,12 +223,14 @@ final class ProjectionRuntimeTest extends TestCase
         $log = [];
         $db  = $this->makePdoStub($log);
 
-        mark_done($db, 123);
+        mark_done($db, 123, str_repeat('a', 64));
 
         $this->assertCount(1, $log);
         $this->assertStringContainsStringIgnoringCase('DELETE', $log[0]['sql']);
         $this->assertStringContainsString("'processing'", $log[0]['sql']);
         $this->assertSame(123, $log[0]['params'][0]);
+        $this->assertSame(str_repeat('a', 64), $log[0]['params'][1]);
+        $this->assertStringContainsString('claim_token = ?', $log[0]['sql']);
     }
 
     // ── mark_failed ───────────────────────────────────────────────────────────
@@ -232,11 +240,12 @@ final class ProjectionRuntimeTest extends TestCase
         $log = [];
         $db  = $this->makePdoStub($log);
 
-        mark_failed($db, 50, 1, 'timeout', 30);
+        mark_failed($db, 50, 1, 'timeout', 30, str_repeat('a', 64));
 
         $this->assertCount(1, $log);
         $this->assertStringContainsStringIgnoringCase('UPDATE', $log[0]['sql']);
         $this->assertStringContainsString("'queued'", $log[0]['sql']);
+        $this->assertStringContainsString("AND status = 'processing'", $log[0]['sql']);
         // params: [attempt, errMsg, nextAttempt, queueId]
         $this->assertSame(1, $log[0]['params'][0]);
         $this->assertSame('timeout', $log[0]['params'][1]);
@@ -251,10 +260,11 @@ final class ProjectionRuntimeTest extends TestCase
         // Set max attempts to 3 for this test via constant if possible, else use default.
         $maxAttempts = defined('PROJECTION_MAX_ATTEMPTS') ? (int)PROJECTION_MAX_ATTEMPTS : 10;
 
-        mark_failed($db, 77, $maxAttempts, 'persistent error', 30);
+        mark_failed($db, 77, $maxAttempts, 'persistent error', 30, str_repeat('a', 64));
 
         $this->assertCount(1, $log);
         $this->assertStringContainsString("'failed'", $log[0]['sql'], 'Dead-letter entries must have status=failed.');
+        $this->assertStringContainsString("AND status = 'processing'", $log[0]['sql']);
         $this->assertSame($maxAttempts, $log[0]['params'][0]);
         $this->assertSame('persistent error', $log[0]['params'][1]);
         $this->assertSame(77, $log[0]['params'][2]);
@@ -333,16 +343,15 @@ final class ProjectionRuntimeTest extends TestCase
         $this->assertTrue($opts['dry-run']);
     }
 
-    public function testParseArgsIgnoresUnknownFlags(): void
+    public function testParseArgsRejectsUnknownFlags(): void
     {
-        // Unknown args must not cause errors.
-        $opts = parse_worker_args(['script.php', '--unknown=foo', '--batch=5']);
-        $this->assertSame(5, $opts['batch']);
+        $this->expectException(InvalidArgumentException::class);
+        parse_worker_args(['script.php', '--unknown=foo', '--batch=5']);
     }
 
     public function testParseArgsBatchMinimumIsOne(): void
     {
-        $opts = parse_worker_args(['script.php', '--batch=0']);
-        $this->assertSame(1, $opts['batch'], '--batch=0 must be clamped to 1');
+        $this->expectException(InvalidArgumentException::class);
+        parse_worker_args(['script.php', '--batch=0']);
     }
 }

@@ -17,6 +17,7 @@ composer.phar
 
 # Build, test and coverage artifacts
 dist/
+dist-evaluation/
 build/
 coverage/
 .nyc_output/

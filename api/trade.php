@@ -1,5 +1,7 @@
 <?php
 // api/trade.php — Trade routes: automated recurring transport
+use GalaxyQuest\Economy\OnDemandEconomy;
+
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/economy_flush.php';
@@ -888,6 +890,19 @@ function dispatch_trade_fleet(PDO $db, array $route): void {
 
     $db->beginTransaction();
     try {
+        if (ON_DEMAND_ECONOMY_ENABLED) {
+            $db->prepare('SELECT id FROM users WHERE id=? FOR UPDATE')->execute([$uid]);
+            $due = $db->prepare(
+                'SELECT id FROM trade_routes WHERE id=? AND is_active=1 '
+                    . 'AND (last_dispatch IS NULL OR DATE_ADD(last_dispatch, INTERVAL interval_hours HOUR)<=NOW()) '
+                    . 'FOR UPDATE'
+            );
+            $due->execute([$routeId]);
+            if (!$due->fetch()) {
+                $db->commit();
+                return;
+            }
+        }
         launch_trade_transport_fleet(
             $db,
             $uid,
@@ -1011,11 +1026,34 @@ function launch_trade_transport_fleet(PDO $db, int $userId, array $origin, array
     $profile = estimate_trade_transport_profile($origin, $target, $cargo);
     $fuelCost = (float)$profile['fuel_cost_deuterium'];
 
-    reserve_trade_payload_from_origin($db, (int)$origin['id'], $payload, $fuelCost);
-
     $depTime = date('Y-m-d H:i:s');
     $arrTime = date('Y-m-d H:i:s', time() + (int)$profile['travel_seconds']);
     $shipsJson = json_encode(['cargo_freighter' => 1], JSON_UNESCAPED_SLASHES);
+    if (ON_DEMAND_ECONOMY_ENABLED) {
+        if (!$db->inTransaction()) {
+            throw new RuntimeException('Trade dispatch requires an active transaction.');
+        }
+        $cost = $payload;
+        $cost['deuterium'] = ($cost['deuterium'] ?? 0) + $fuelCost;
+        $freighters = max(1, (int)ceil(total_trade_cargo_units($payload) / ship_cargo('large_cargo')));
+        (new OnDemandEconomy($db))->spend(
+            (int)$origin['id'],
+            $userId,
+            $cost,
+            function () use ($db, $origin, $freighters): void {
+                $ships = $db->prepare(
+                    "UPDATE ships SET count=count-? WHERE colony_id=? AND type='large_cargo' AND count>=?"
+                );
+                $ships->execute([$freighters, $origin['id'], $freighters]);
+                if ($ships->rowCount() !== 1) {
+                    throw new DomainException('Not enough large cargo ships for this transport.', 409);
+                }
+            }
+        );
+        $shipsJson = json_encode(['large_cargo' => $freighters], JSON_UNESCAPED_SLASHES);
+    } else {
+        reserve_trade_payload_from_origin($db, (int)$origin['id'], $payload, $fuelCost);
+    }
 
     $originPolar = galactic_polar_from_cartesian((float)$origin['x_ly'], (float)$origin['y_ly'], (float)$origin['z_ly']);
     $targetPolar = galactic_polar_from_cartesian((float)$target['x_ly'], (float)$target['y_ly'], (float)$target['z_ly']);
@@ -1290,6 +1328,13 @@ function action_accept(PDO $db, int $uid): never {
         }
 
         $initId      = (int)$p['initiator_id'];
+        if (ON_DEMAND_ECONOMY_ENABLED) {
+            $participants = [$uid, $initId];
+            sort($participants, SORT_NUMERIC);
+            foreach (array_unique($participants) as $participant) {
+                $db->prepare('SELECT id FROM users WHERE id=? FOR UPDATE')->execute([$participant]);
+            }
+        }
         $offerMetal  = (float)$p['offer_metal'];
         $offerCrys   = (float)$p['offer_crystal'];
         $offerDeut   = (float)$p['offer_deuterium'];

@@ -2,12 +2,16 @@
  * GQMaterialFactory
  * Konsistente Materialerstellung fuer PBR-Profile und Emissive/Bloom-Look.
  */
-(function () {
+(function (root) {
   'use strict';
 
   class GQMaterialFactory {
     constructor(opts = {}) {
-      this.THREE = opts.three || window.THREE;
+      this.THREE = opts.three || root.THREE;
+      this.envMapIntensity = Number.isFinite(opts.envMapIntensity) && opts.envMapIntensity >= 0
+        ? opts.envMapIntensity : null;
+      this._textureRoles = new WeakMap();
+      this._ownedTextures = new Map();
       this.profiles = Object.assign({
         planetFallback: { roughness: 0.82, metalness: 0.04, emissiveIntensity: 0.0 },
         fleetHull: { roughness: 0.36, metalness: 0.48, emissiveIntensity: 0.18 },
@@ -18,7 +22,7 @@
     }
 
     createPlanetFallbackMaterial(colorHex) {
-      return new this.THREE.MeshStandardMaterial({
+      return this._createMaterial({
         color: colorHex,
         roughness: this.profiles.planetFallback.roughness,
         metalness: this.profiles.planetFallback.metalness,
@@ -27,11 +31,11 @@
     }
 
     createFleetHullMaterial(color, hullTexOrBundle) {
-      const bundle = hullTexOrBundle && typeof hullTexOrBundle === 'object' && ('map' in hullTexOrBundle || 'bumpMap' in hullTexOrBundle || 'emissiveMap' in hullTexOrBundle)
+      const bundle = this._isTextureBundle(hullTexOrBundle)
         ? hullTexOrBundle
         : null;
-      const hullTex = bundle?.map || hullTexOrBundle || null;
-      const material = new this.THREE.MeshStandardMaterial({
+      const hullTex = bundle ? bundle.map || null : hullTexOrBundle || null;
+      const material = this._createMaterial({
         color,
         map: hullTex,
         bumpMap: bundle?.bumpMap || null,
@@ -41,13 +45,13 @@
         emissiveIntensity: this.profiles.fleetHull.emissiveIntensity,
         roughness: this.profiles.fleetHull.roughness,
         metalness: this.profiles.fleetHull.metalness,
-      });
+      }, bundle);
       material.userData = Object.assign({}, material.userData, { sharedTexture: true });
       return material;
     }
 
     createStationBodyMaterial(color, textureBundle = null) {
-      return new this.THREE.MeshStandardMaterial({
+      return this._createMaterial({
         color: textureBundle?.map ? 0xffffff : color,
         map: textureBundle?.map || null,
         bumpMap: textureBundle?.bumpMap || null,
@@ -57,7 +61,7 @@
         emissiveIntensity: this.profiles.stationBody.emissiveIntensity,
         roughness: this.profiles.stationBody.roughness,
         metalness: this.profiles.stationBody.metalness,
-      });
+      }, textureBundle);
     }
 
     createStationPanelMaterial(color, opacity = 0.88, textureBundle = null) {
@@ -67,7 +71,7 @@
         bundle = opacity;
         panelOpacity = 0.88;
       }
-      return new this.THREE.MeshStandardMaterial({
+      return this._createMaterial({
         color: bundle?.map ? 0xffffff : color,
         map: bundle?.map || null,
         bumpMap: bundle?.bumpMap || null,
@@ -79,17 +83,17 @@
         metalness: this.profiles.stationPanel.metalness,
         transparent: true,
         opacity: panelOpacity,
-      });
+      }, bundle);
     }
 
     createHotGlowMaterial(color, emissiveColor = color, textureBundle = null) {
       let emissive = emissiveColor;
       let bundle = textureBundle;
-      if (emissiveColor && typeof emissiveColor === 'object' && ('map' in emissiveColor || 'bumpMap' in emissiveColor || 'emissiveMap' in emissiveColor)) {
+      if (this._isTextureBundle(emissiveColor)) {
         bundle = emissiveColor;
         emissive = color;
       }
-      return new this.THREE.MeshStandardMaterial({
+      return this._createMaterial({
         color: bundle?.map ? 0xffffff : color,
         map: bundle?.map || null,
         bumpMap: bundle?.bumpMap || null,
@@ -99,11 +103,11 @@
         emissiveIntensity: this.profiles.glowHot.emissiveIntensity,
         roughness: this.profiles.glowHot.roughness,
         metalness: this.profiles.glowHot.metalness,
-      });
+      }, bundle);
     }
 
     createStarMaterial(color, textureBundle = null) {
-      const material = new this.THREE.MeshStandardMaterial({
+      const material = this._createMaterial({
         color: textureBundle?.map ? 0xffffff : color,
         map: textureBundle?.map || null,
         bumpMap: textureBundle?.bumpMap || null,
@@ -113,7 +117,7 @@
         emissiveIntensity: 0.85,
         roughness: 0.4,
         metalness: 0.02,
-      });
+      }, textureBundle);
       material.userData = Object.assign({}, material.userData, { sharedTexture: true });
       return material;
     }
@@ -127,7 +131,7 @@
      * @returns {THREE.MeshStandardMaterial}
      */
     createAnimatedSunMaterial(color, textureBundle = null) {
-      const material = new this.THREE.MeshStandardMaterial({
+      const material = this._createMaterial({
         color: textureBundle?.map ? 0xffffff : color,
         map: textureBundle?.map || null,
         bumpMap: textureBundle?.bumpMap || null,
@@ -138,7 +142,7 @@
         roughness: 0.4,
         metalness: 0.02,
         toneMapped: true,
-      });
+      }, textureBundle);
       material.userData = Object.assign({}, material.userData, { 
         sharedTexture: true,
         animatedSun: true,  // Flag for SunAnimator
@@ -147,7 +151,7 @@
     }
 
     createMoonMaterial(color, textureBundle = null) {
-      const material = new this.THREE.MeshStandardMaterial({
+      const material = this._createMaterial({
         color: textureBundle?.map ? 0xffffff : color,
         map: textureBundle?.map || null,
         bumpMap: textureBundle?.bumpMap || null,
@@ -157,15 +161,106 @@
         emissiveIntensity: textureBundle?.emissiveMap ? 0.2 : 0,
         roughness: 0.88,
         metalness: 0.03,
-      });
+      }, textureBundle);
       material.userData = Object.assign({}, material.userData, { sharedTexture: true });
       return material;
     }
 
+    _isTextureBundle(value) {
+      return value && typeof value === 'object'
+        && ['map', 'emissiveMap', 'bumpMap', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'alphaMap']
+          .some((slot) => slot in value);
+    }
+
+    _createMaterial(parameters, bundle = null) {
+      const dataMaps = ['bumpMap', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'alphaMap'];
+      const ownedTextures = new Set();
+      if (bundle?.coherentMaterial) {
+        Object.assign(parameters, bundle.coherentMaterial, {
+          color: 0xffffff,
+          emissive: 0xffffff,
+          map: bundle.map,
+          emissiveMap: bundle.emissiveMap,
+        });
+      }
+      for (const slot of dataMaps) {
+        if (bundle?.[slot]) parameters[slot] = bundle[slot];
+      }
+      if (parameters.normalMap) {
+        parameters.bumpMap = null;
+        parameters.bumpScale = 0;
+      }
+      for (const slot of ['map', 'emissiveMap', ...dataMaps]) {
+        const texture = parameters[slot];
+        if (!texture) continue;
+        const colorSpace = slot === 'map' || slot === 'emissiveMap'
+          ? this.THREE.SRGBColorSpace : this.THREE.NoColorSpace;
+        if (colorSpace === undefined) continue;
+        let roles = this._textureRoles.get(texture);
+        if (!roles) {
+          roles = new Map();
+          this._textureRoles.set(texture, roles);
+        }
+        if (!roles.has(colorSpace)) {
+          // Inputs are borrowed and may still be used by another factory or renderer.
+          const typedTexture = texture.colorSpace === colorSpace ? texture : texture.clone();
+          if (typedTexture !== texture) {
+            this._ownedTextures.set(typedTexture, {
+              texture: typedTexture, source: texture, colorSpace, roles, references: 0,
+            });
+          }
+          if (typedTexture.colorSpace !== colorSpace) {
+            typedTexture.colorSpace = colorSpace;
+            typedTexture.needsUpdate = true;
+          }
+          roles.set(colorSpace, typedTexture);
+        }
+        parameters[slot] = roles.get(colorSpace);
+        const owned = this._ownedTextures.get(parameters[slot]);
+        if (owned) ownedTextures.add(owned);
+      }
+      if (this.envMapIntensity !== null) parameters.envMapIntensity = this.envMapIntensity;
+      const material = new this.THREE.MeshStandardMaterial(parameters);
+      if (typeof bundle?.retainTextures === 'function') {
+        const releaseTextures = bundle.retainTextures();
+        const release = () => {
+          material.removeEventListener('dispose', release);
+          releaseTextures();
+        };
+        material.addEventListener('dispose', release);
+      }
+      if (['map', 'emissiveMap', ...dataMaps].some((slot) => parameters[slot])) {
+        material.userData.sharedTexture = true;
+      }
+      if (ownedTextures.size) {
+        for (const owned of ownedTextures) owned.references += 1;
+        const release = () => {
+          material.removeEventListener('dispose', release);
+          for (const owned of ownedTextures) {
+            if (this._ownedTextures.get(owned.texture) !== owned) continue;
+            owned.references -= 1;
+            if (owned.references === 0) this._disposeOwnedTexture(owned);
+          }
+          ownedTextures.clear();
+        };
+        material.addEventListener('dispose', release);
+      }
+      return material;
+    }
+
+    _disposeOwnedTexture(owned) {
+      this._ownedTextures.delete(owned.texture);
+      if (owned.roles.get(owned.colorSpace) === owned.texture) owned.roles.delete(owned.colorSpace);
+      if (!owned.roles.size) this._textureRoles.delete(owned.source);
+      owned.texture.dispose();
+    }
+
     dispose() {
-      // Stateless factory, no pooled resources yet.
+      for (const owned of this._ownedTextures.values()) this._disposeOwnedTexture(owned);
+      this._textureRoles = new WeakMap();
     }
   }
 
-  window.GQMaterialFactory = GQMaterialFactory;
-})();
+  if (typeof module !== 'undefined' && module.exports) module.exports = GQMaterialFactory;
+  root.GQMaterialFactory = GQMaterialFactory;
+})(typeof window !== 'undefined' ? window : globalThis);

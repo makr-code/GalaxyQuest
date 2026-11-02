@@ -6,10 +6,13 @@
   "scripts": {
     "vite:dev": "vite serve --host 127.0.0.1 --port 8080",
     "vite:build": "vite build",
+    "vite:build:evaluation": "vite build --config vite.evaluation.config.mjs",
+    "vite:preview:evaluation": "vite preview --config vite.evaluation.config.mjs --host 127.0.0.1 --port 4174",
     "vite:preview": "vite preview --host 127.0.0.1 --port 4173",
     "check:bundle-budget": "node scripts/check_bundle_budget.mjs",
     "check:repository-artifacts": "node scripts/check_repository_artifacts.mjs",
     "check:release-metadata": "node scripts/check_release_metadata.mjs",
+    "check:migration-history": "node scripts/check_migration_history.mjs",
     "check:docker-context": "node scripts/check_docker_context.mjs",
     "lint:js": "eslint js/ --config .eslintrc.galaxy.js --suppressions-location eslint-suppressions.json --report-unused-disable-directives-severity off --max-warnings 0",
     "export:herald-base": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/export_mpfb_herald_base.ps1",
@@ -43,6 +46,7 @@
     "vitest": "^5.0.5"
   },
   "dependencies": {
+    "@babylonjs/core": "9.33.1",
     "@microsoft/fetch-event-source": "^2.0.1",
     "dexie": "^4.0.8",
     "mustache": "^4.2.0",

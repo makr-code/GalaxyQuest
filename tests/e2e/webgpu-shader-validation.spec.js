@@ -50,7 +50,7 @@ function extractWgslFromModule(relPath, exportedKey) {
 function extractWgslConstant(relPath, constantName) {
   const source = fs.readFileSync(path.join(ROOT, relPath), 'utf8');
   const escapedName = constantName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = source.match(new RegExp(`const\\s+${escapedName}\\s*=\\s*\`([\\s\\S]*?)\`;`));
+  const match = source.match(new RegExp(`const\\s+${escapedName}\\s*=\\s*(?:/\\*\\s*wgsl\\s*\\*/\\s*)?\`([\\s\\S]*?)\`;`));
   if (!match) throw new Error(`WGSL constant ${constantName} not found in ${relPath}`);
   return match[1];
 }
@@ -58,6 +58,11 @@ function extractWgslConstant(relPath, constantName) {
 /** Build the catalogue of all shaders to validate. */
 function buildShaderCatalogue() {
   return [
+    {
+      label: 'Galaxy3DRendererWebGPU — stable-index instanced stars',
+      type: 'render',
+      source: extractWgslConstant('js/rendering/Galaxy3DRendererWebGPU.js', 'STAR_SHADER_WGSL'),
+    },
     {
       label: 'StarfieldWebGPU — instanced galaxy stars',
       type: 'render',

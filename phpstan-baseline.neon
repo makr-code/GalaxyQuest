@@ -415,12 +415,6 @@ parameters:
 			path: api/game_engine.php
 
 		-
-			message: '#^Inner named functions are not supported by PHPStan\. Consider refactoring to an anonymous function, class method, or a top\-level\-defined function\. See issue \#165 \(https\://github\.com/phpstan/phpstan/issues/165\) for more details\.$#'
-			identifier: function.inner
-			count: 1
-			path: api/game_engine.php
-
-		-
 			message: '#^Offset ''att'' on array\{att\: int, def\: int\} on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
 			count: 1
@@ -949,12 +943,6 @@ parameters:
 			path: api/projection.php
 
 		-
-			message: '#^Function process_war_attrition_tick not found\.$#'
-			identifier: function.notFound
-			count: 1
-			path: api/projection.php
-
-		-
 			message: '#^Offset ''welfare'' on array\{colony_id\: int, colony_name\: string, status\: ''strain''\|''watch'', risk_score\: 1\|2\|3\|4\|5\|6\|7\|8\|9\|10\|12, risk_flags\: array\{\}\|array\{''low_welfare''\}\|array\{0\: ''energy_deficit'', 1\?\: ''low_welfare''\}\|list\{0\: ''food_decline'', 1\?\: ''energy_deficit''\|''low_food_buffer''\|''low_welfare'', 2\?\: ''energy_deficit''\|''low_welfare'', 3\?\: ''low_welfare''\}\|list\{0\: ''low_food_buffer'', 1\?\: ''energy_deficit''\|''low_welfare'', 2\?\: ''low_welfare''\}, welfare\: float, food_per_capita\: float, energy\: float, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
 			count: 2
@@ -1053,12 +1041,6 @@ parameters:
 		-
 			message: '#^Call to function is_array\(\) with array\{ok\: false, error\: string\}\|array\{ok\: true\} will always evaluate to true\.$#'
 			identifier: function.alreadyNarrowedType
-			count: 1
-			path: api/simulation_runtime.php
-
-		-
-			message: '#^Function process_war_attrition_tick not found\.$#'
-			identifier: function.notFound
 			count: 1
 			path: api/simulation_runtime.php
 

@@ -8,6 +8,8 @@
  * POST /api/fleet.php?action=simulate_battle body: {attacker_fleet_id, target_colony_id?, deterministic_seed?, iterations?}
  * POST /api/fleet.php?action=matchup_scan body: {attacker_fleet_id, target_colony_ids?, target_colony_id?, deterministic_seed?, iterations?}
  */
+use GalaxyQuest\Economy\OnDemandEconomy;
+
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/buildings.php';
@@ -417,83 +419,97 @@ function send_fleet(PDO $db, int $uid, array $body): never {
         $stealthUntil = date('Y-m-d H:i:s', $now + $travel + 60);
     }
 
-    foreach ($shipsToSend as $type => $cnt) {
-        $db->prepare('UPDATE ships SET count=count-? WHERE colony_id=? AND type=?')
-           ->execute([$cnt, $originCid, $type]);
+    $dispatch = function () use (
+        $db,
+        $uid,
+        $originCid,
+        $tg,
+        $ts,
+        $tp,
+        $mission,
+        $shipsToSend,
+        $cMetal,
+        $cCrys,
+        $cDeut,
+        $ox,
+        $oy,
+        $oz,
+        $tx,
+        $ty,
+        $tz,
+        $speedLyH,
+        $distLy,
+        $departure,
+        $arrival,
+        $returnT,
+        $stealthUntil,
+        $hullDamagePct
+    ): int {
+        foreach ($shipsToSend as $type => $cnt) {
+            $sql = 'UPDATE ships SET count=count-? WHERE colony_id=? AND type=?';
+            $params = [$cnt, $originCid, $type];
+            if (ON_DEMAND_ECONOMY_ENABLED) {
+                $sql .= ' AND count>=?';
+                $params[] = $cnt;
+            }
+            $reservation = $db->prepare($sql);
+            $reservation->execute($params);
+            if (ON_DEMAND_ECONOMY_ENABLED && $reservation->rowCount() !== 1) {
+                throw new DomainException('Ships are no longer available.', 409);
+            }
+        }
+        if (!ON_DEMAND_ECONOMY_ENABLED) {
+            $db->prepare('UPDATE colonies SET metal=metal-?, crystal=crystal-?, deuterium=deuterium-? WHERE id=?')
+               ->execute([$cMetal, $cCrys, $cDeut, $originCid]);
+        }
+
+        $originPolar = galactic_polar_from_cartesian($ox, $oy, $oz);
+        $targetPolar = galactic_polar_from_cartesian($tx, $ty, $tz);
+
+        $db->prepare(
+            'INSERT INTO fleets (user_id, origin_colony_id, target_galaxy, target_system,
+                                 target_position, mission, ships_json,
+                                 cargo_metal, cargo_crystal, cargo_deuterium,
+                                 origin_x_ly, origin_y_ly, origin_z_ly,
+                                 origin_radius_ly, origin_theta_rad, origin_height_ly,
+                                 target_x_ly, target_y_ly, target_z_ly,
+                                 target_radius_ly, target_theta_rad, target_height_ly,
+                                 speed_ly_h, distance_ly,
+                                 departure_time, arrival_time, return_time,
+                                 stealth_until, hull_damage_pct)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([$uid, $originCid, $tg, $ts, $tp, $mission,
+                    json_encode($shipsToSend), $cMetal, $cCrys, $cDeut,
+                    $ox, $oy, $oz,
+                    $originPolar['radius_ly'], $originPolar['theta_rad'], $originPolar['height_ly'],
+                    $tx, $ty, $tz,
+                    $targetPolar['radius_ly'], $targetPolar['theta_rad'], $targetPolar['height_ly'],
+                    $speedLyH, $distLy,
+                    $departure, $arrival, $returnT,
+                    $stealthUntil, $hullDamagePct]);
+
+        return (int)$db->lastInsertId();
+    };
+    try {
+        $fleetId = ON_DEMAND_ECONOMY_ENABLED
+            ? (new OnDemandEconomy($db))->spend(
+                $originCid,
+                $uid,
+                ['metal' => $cMetal, 'crystal' => $cCrys, 'deuterium' => $cDeut],
+                $dispatch
+            )
+            : $dispatch();
+    } catch (DomainException $error) {
+        json_error($error->getMessage(), $error->getCode() ?: 400);
     }
-    $db->prepare('UPDATE colonies SET metal=metal-?, crystal=crystal-?, deuterium=deuterium-? WHERE id=?')
-       ->execute([$cMetal, $cCrys, $cDeut, $originCid]);
-
-    $originPolar = galactic_polar_from_cartesian($ox, $oy, $oz);
-    $targetPolar = galactic_polar_from_cartesian($tx, $ty, $tz);
-
-    $db->prepare(
-        'INSERT INTO fleets (user_id, origin_colony_id, target_galaxy, target_system,
-                             target_position, mission, ships_json,
-                             cargo_metal, cargo_crystal, cargo_deuterium,
-                             origin_x_ly, origin_y_ly, origin_z_ly,
-                             origin_radius_ly, origin_theta_rad, origin_height_ly,
-                             target_x_ly, target_y_ly, target_z_ly,
-                             target_radius_ly, target_theta_rad, target_height_ly,
-                             speed_ly_h, distance_ly,
-                             departure_time, arrival_time, return_time,
-                             stealth_until, hull_damage_pct)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    )->execute([$uid, $originCid, $tg, $ts, $tp, $mission,
-                json_encode($shipsToSend), $cMetal, $cCrys, $cDeut,
-                $ox, $oy, $oz,
-                $originPolar['radius_ly'], $originPolar['theta_rad'], $originPolar['height_ly'],
-                $tx, $ty, $tz,
-                $targetPolar['radius_ly'], $targetPolar['theta_rad'], $targetPolar['height_ly'],
-                $speedLyH, $distLy,
-                $departure, $arrival, $returnT,
-                $stealthUntil, $hullDamagePct]);
-
     enqueue_dirty_user($db, $uid, 'fleet_sent');
-    json_ok(['fleet_id' => (int)$db->lastInsertId(), 'arrival_time' => $arrival]);
+    json_ok(['fleet_id' => $fleetId, 'arrival_time' => $arrival]);
 }
 
 function list_wormholes(PDO $db, int $uid, int $originColonyId): never {
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS wormholes (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            endpoint_a_galaxy INT NOT NULL,
-            endpoint_a_system INT NOT NULL,
-            endpoint_b_galaxy INT NOT NULL,
-            endpoint_b_system INT NOT NULL,
-            stability INT NOT NULL DEFAULT 100,
-            cooldown_until DATETIME DEFAULT NULL,
-            is_active TINYINT(1) NOT NULL DEFAULT 1,
-            is_permanent TINYINT(1) NOT NULL DEFAULT 0,
-            label VARCHAR(80) DEFAULT NULL,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_wormholes_a (endpoint_a_galaxy, endpoint_a_system),
-            INDEX idx_wormholes_b (endpoint_b_galaxy, endpoint_b_system)
-        ) ENGINE=InnoDB'
-    );
-    try {
-        $colCheck = $db->query(
-            "SELECT COUNT(*) FROM information_schema.COLUMNS
-             WHERE TABLE_SCHEMA = DATABASE()
-               AND TABLE_NAME = 'wormholes'
-               AND COLUMN_NAME = 'is_permanent'"
-        );
-        $hasPermanentCol = (int)($colCheck ? $colCheck->fetchColumn() : 0) > 0;
-        if (!$hasPermanentCol) {
-            $db->exec('ALTER TABLE wormholes ADD COLUMN is_permanent TINYINT(1) NOT NULL DEFAULT 0 AFTER is_active');
-        }
-    } catch (Throwable $e) {
-        // ignore on restricted/legacy setups; query path will still work on modern MySQL
-    }
-
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS user_wormhole_unlocks (
-            user_id INT NOT NULL PRIMARY KEY,
-            source_quest_code VARCHAR(64) DEFAULT NULL,
-            unlocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB'
-    );
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertWormholes($db);
+    \GalaxyQuest\Schema\GalaxySchema::assertWormholeUnlocks($db);
 
     $origin = null;
     if ($originColonyId > 0) {
@@ -702,45 +718,9 @@ function list_ftl_map(PDO $db, int $uid): never {
 }
 
 function resolve_wormhole_route(PDO $db, int $uid, int $originGalaxy, int $originSystem, int $targetGalaxy, int $targetSystem): ?array {
-    try {
-        $db->exec(
-            'CREATE TABLE IF NOT EXISTS wormholes (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                endpoint_a_galaxy INT NOT NULL,
-                endpoint_a_system INT NOT NULL,
-                endpoint_b_galaxy INT NOT NULL,
-                endpoint_b_system INT NOT NULL,
-                stability INT NOT NULL DEFAULT 100,
-                cooldown_until DATETIME DEFAULT NULL,
-                is_active TINYINT(1) NOT NULL DEFAULT 1,
-                is_permanent TINYINT(1) NOT NULL DEFAULT 0,
-                label VARCHAR(80) DEFAULT NULL,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_wormholes_a (endpoint_a_galaxy, endpoint_a_system),
-                INDEX idx_wormholes_b (endpoint_b_galaxy, endpoint_b_system)
-            ) ENGINE=InnoDB'
-        );
-        $colCheck = $db->query(
-            "SELECT COUNT(*) FROM information_schema.COLUMNS
-             WHERE TABLE_SCHEMA = DATABASE()
-               AND TABLE_NAME = 'wormholes'
-               AND COLUMN_NAME = 'is_permanent'"
-        );
-        $hasPermanentCol = (int)($colCheck ? $colCheck->fetchColumn() : 0) > 0;
-        if (!$hasPermanentCol) {
-            $db->exec('ALTER TABLE wormholes ADD COLUMN is_permanent TINYINT(1) NOT NULL DEFAULT 0 AFTER is_active');
-        }
-        $db->exec(
-            'CREATE TABLE IF NOT EXISTS user_wormhole_unlocks (
-                user_id INT NOT NULL PRIMARY KEY,
-                source_quest_code VARCHAR(64) DEFAULT NULL,
-                unlocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            ) ENGINE=InnoDB'
-        );
-    } catch (Throwable $e) {
-        return null;
-    }
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertWormholes($db);
+    \GalaxyQuest\Schema\GalaxySchema::assertWormholeUnlocks($db);
 
     $theoryStmt = $db->prepare('SELECT level FROM research WHERE user_id = ? AND type = "wormhole_theory" LIMIT 1');
     $theoryStmt->execute([$uid]);
@@ -804,9 +784,40 @@ function recall_fleet(PDO $db, int $uid, int $fleetId): never {
 // ─── Arrival processing ───────────────────────────────────────────────────────
 
 function process_fleet_arrivals(PDO $db): void {
-    $due = $db->prepare('SELECT * FROM fleets WHERE arrival_time <= NOW() ORDER BY arrival_time ASC');
+    $sql = 'SELECT * FROM fleets WHERE arrival_time <= NOW() ORDER BY arrival_time ASC';
+    if (ON_DEMAND_ECONOMY_ENABLED) {
+        $sql .= ' LIMIT 100';
+    }
+    $due = $db->prepare($sql);
     $due->execute();
-    foreach ($due->fetchAll() as $fleet) { handle_fleet_arrival($db, $fleet); }
+    foreach ($due->fetchAll() as $fleet) {
+        if (ON_DEMAND_ECONOMY_ENABLED) {
+            $economy = new OnDemandEconomy($db);
+            $recipient = (int)$fleet['origin_colony_id'];
+            if (!$fleet['returning'] && $fleet['mission'] === 'transport') {
+                $target = $db->prepare(
+                    'SELECT c.id FROM colonies c JOIN celestial_bodies cb ON cb.id=c.body_id '
+                        . 'WHERE cb.galaxy_index=? AND cb.system_index=? AND cb.position=?'
+                );
+                $target->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
+                $recipient = (int)($target->fetchColumn() ?: $recipient);
+            }
+            // Catch-up must survive a deferred delivery instead of rolling back with it.
+            if ($economy->settle($recipient)['economy']['pending_seconds'] >= 300) {
+                continue;
+            }
+            $economy->transaction(function () use ($db, $fleet): void {
+                $claim = $db->prepare('SELECT * FROM fleets WHERE id=? AND arrival_time<=NOW() FOR UPDATE');
+                $claim->execute([$fleet['id']]);
+                $current = $claim->fetch();
+                if ($current) {
+                    handle_fleet_arrival($db, $current);
+                }
+            });
+        } else {
+            handle_fleet_arrival($db, $fleet);
+        }
+    }
 }
 
 function handle_fleet_arrival(PDO $db, array $fleet): void {
@@ -843,7 +854,11 @@ function return_fleet_to_origin(PDO $db, array $fleet, array $ships): void {
     }
 
     $payload = decode_fleet_cargo_payload($fleet);
-    if ($payload) {
+    if ($payload || ON_DEMAND_ECONOMY_ENABLED) {
+        if (!$payload) {
+            $payload = ['metal' => $fleet['cargo_metal'], 'crystal' => $fleet['cargo_crystal'],
+                'deuterium' => $fleet['cargo_deuterium']];
+        }
         apply_fleet_payload_to_colony($db, $cid, $payload);
     } else {
         $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
@@ -861,7 +876,11 @@ function deliver_resources(PDO $db, array $fleet, array $ships): void {
     $payload = decode_fleet_cargo_payload($fleet);
 
     if ($target) {
-        if ($payload) {
+        if ($payload || ON_DEMAND_ECONOMY_ENABLED) {
+            if (!$payload) {
+                $payload = ['metal' => $fleet['cargo_metal'], 'crystal' => $fleet['cargo_crystal'],
+                    'deuterium' => $fleet['cargo_deuterium']];
+            }
             apply_fleet_payload_to_colony($db, (int)$target['id'], $payload);
         } else {
             $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
@@ -904,6 +923,10 @@ function decode_fleet_cargo_payload(array $fleet): array {
 }
 
 function apply_fleet_payload_to_colony(PDO $db, int $colonyId, array $payload): void {
+    if (ON_DEMAND_ECONOMY_ENABLED) {
+        (new OnDemandEconomy($db))->receive($colonyId, $payload);
+        return;
+    }
     $metal = (float)($payload['metal'] ?? 0.0);
     $crystal = (float)($payload['crystal'] ?? 0.0);
     $deuterium = (float)($payload['deuterium'] ?? 0.0);

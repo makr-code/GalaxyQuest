@@ -162,6 +162,7 @@ class SeamlessZoomOrchestrator {
     this._flight     = new CameraFlightPathCtor();
     this._active     = null;   // currently active IZoomLevelRenderer
     this._activeLevel = null;
+    this._planetCameraState = null;
     this._transition = false;  // guard flag
     this._rafId      = 0;
     this._removeFrameHook = null;
@@ -289,6 +290,7 @@ class SeamlessZoomOrchestrator {
 
     try {
       const next = this._registry.resolve(level, this._backend);
+      let planetCameraState = null;
 
       // Initialise the renderer on first use if it hasn't been already.
       if (!next._initialised) {
@@ -313,6 +315,13 @@ class SeamlessZoomOrchestrator {
           onAtmosphereScale: opts.onAtmosphereScale || null,
           onStarBlur:        opts.onStarBlur        || null,
         });
+        if (level === ZOOM_LEVEL.PLANET_APPROACH) {
+          const valid = [to.x, to.y, to.z].every(value => Number.isFinite(value));
+          planetCameraState = {
+            position: valid ? { x: to.x, y: to.y, z: to.z } : { x: 0, y: 0, z: 15 },
+            target: { x: 0, y: 0, z: 0 }, roll: 0, t: 1,
+          };
+        }
       }
 
       // Enter new level.
@@ -320,6 +329,7 @@ class SeamlessZoomOrchestrator {
 
       this._active      = next;
       this._activeLevel = level;
+      this._planetCameraState = planetCameraState;
       this._emit('enterLevel', level, payload);
     } finally {
       this._transition = false;
@@ -404,6 +414,7 @@ class SeamlessZoomOrchestrator {
       this._active = null;
     }
     this._registry.clear();
+    this._planetCameraState = null;
     this._listeners.clear();
   }
 
@@ -419,6 +430,11 @@ class SeamlessZoomOrchestrator {
 
   /** Minimal fallback camera state when no flight is active. */
   _getFallbackCameraState() {
+    if (this._activeLevel === ZOOM_LEVEL.PLANET_APPROACH) {
+      const state = this._planetCameraState;
+      return state ? { ...state, position: { ...state.position }, target: { ...state.target } }
+        : { position: { x: 0, y: 0, z: 15 }, target: { x: 0, y: 0, z: 0 }, roll: 0, t: 1 };
+    }
     return { position: { x: 0, y: 0, z: 500 }, target: { x: 0, y: 0, z: 0 }, roll: 0, t: 0 };
   }
 

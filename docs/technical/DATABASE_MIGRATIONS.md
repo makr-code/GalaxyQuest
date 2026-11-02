@@ -11,6 +11,28 @@ companion `_down.sql` files.
 
 ## Quick Start
 
+### On-demand colony economy rollout
+
+Keep `ON_DEMAND_ECONOMY_ENABLED=0` while applying and verifying the canonical
+manifest. Its final `migrate_economy_on_demand_v1.sql` migration adds the durable
+settlement cursor, spatial construction mappings and indexed system/galaxy
+market projections. It also adds `users.credits` only if absent (1,000 initial
+credits); existing credit balances are preserved.
+
+After `up` and `verify` succeed, enable the flag in the PHP runtime environment.
+The first visit initializes each colony without granting historical economic
+output; existing primary stocks, class counts and spatial building levels are
+retained/reconciled. More than one offline day requires additional snapshot
+requests; HTTP 409 on mutations means catch-up is still needed. Macro reads expose
+projection age and coverage and never settle every colony.
+
+There is deliberately no destructive down migration. To stop the new path,
+disable the flag; do not delete settlement state or reset cursors. This pauses
+the new model but is not a semantic rollback of accrued production or spent
+credits. Back up before activation and restore that backup if economic effects
+must be reversed. Re-enabling after a legacy-mode interval requires an operator
+decision about the retained cursor; it is not an automatic model conversion.
+
 ```bash
 # Show which migrations are applied / pending
 php scripts/migrate.php status
@@ -164,6 +186,63 @@ collisions), paths, non-SQL filenames and `_down.sql` entries at construction.
 Only plain forward filenames composed of letters, numbers, `_` and `-` are
 accepted; companion rollback files are discovered separately.
 
+### Append-only Git history gate
+
+`npm run check:migration-history -- --base <ancestor-commit>` rejects changes
+to established forward migration history before database deployment:
+
+- The old manifest must remain an exact ordered prefix of the candidate:
+  deletion, renaming, case changes, insertion between old entries and reordering
+  fail. New entries may only be appended.
+- Every candidate forward file must exist as a readable regular file; symlinks
+  and directories are not migration inputs.
+- Existing forward SQL must have the same **Git-clean blob identity** as in the
+  baseline. Both staged and unstaged edits are checked; a committed rewrite
+  also fails when compared with the original baseline.
+- Missing/invalid baseline revisions, unrelated histories, unavailable baseline
+  files and invalid manifests fail closed. The checker never repairs files,
+  updates the index, creates commits or connects to a database.
+
+The checker parses a restricted declarative PHP manifest without executing it:
+`<?php`, optional `declare(strict_types=1);`, `return [...]`, plain quoted
+forward filenames, commas, whitespace and `//`/`/* ... */` comments.
+Executable expressions, keyed arrays, interpolation, duplicate/case-colliding
+names and trailing PHP code fail. Changing this manifest format requires a
+reviewed parser change rather than running untrusted PHP inside the gate.
+
+The main CI `lint-js` job fetches full history. Pull requests compare with the
+event's base SHA; normal pushes compare with the event's `before` SHA, **not**
+the candidate's HEAD. New-branch push events have a zero `before` SHA, so they
+compare with the merge base of HEAD and the repository's remote default branch.
+Absent remote history fails; non-ancestor force pushes require reviewed history
+recovery and are not silently accepted. The gate is already a prerequisite of
+the main image publication through `lint-js`. Branch protection and remote CI
+execution must still be verified separately.
+
+Local read-only check against the current committed baseline:
+
+```powershell
+npm run check:migration-history -- --base HEAD
+npx vitest run tests\js\migration-history.test.js --testTimeout=30000
+```
+
+`HEAD` is useful for checking local uncommitted work but **not** for detecting
+a rewrite already committed in that same HEAD; supply its real prior baseline.
+Git-clean comparison deliberately respects checkout line-ending policy
+(`core.autocrlf`/attributes). A Windows CRLF checkout of an LF Git blob is not
+a historical SQL change. Without Git normalization, an EOL-only edit fails.
+This does not replace deployment `migrate.php verify`, whose stored MD5 compares
+the exact SQL bytes executed in the image; keep deployment checkout/build
+line endings consistent. Custom Git clean filters are trusted Git configuration,
+not a release authenticity mechanism.
+
+Local evidence: 47 parser, actual-Git and real-CLI/workflow tests pass, and the
+real repository reports 64 immutable forward files with no additions.
+Down companions, base `schema.sql`, SQL outside the canonical forward manifest,
+semantic schema diffs and live upgrades remain separate review/gates.
+Historical SQL errors must be corrected through reviewed **new** migrations,
+not by making an old file pass through a new baseline or deleting tracking rows.
+
 ### All Migrations (current manifest)
 
 | # | File | Category |
@@ -226,12 +305,738 @@ accepted; companion rollback files are discovered separately.
 | 56 | `migrate_tts_v1.sql` | Text-to-Speech |
 | 57 | `migrate_prolog_quests_v1.sql` | Prolog / onboarding quests |
 | 58 | `migrate_world_scenarios_v1.sql` | World scenarios |
+| 59 | `migrate_updates_system_v1.sql` | Update metadata |
+| 60 | `migrate_server_announcements_v1.sql` | Server announcements |
+| 61 | `migrate_faction_homeworlds_v1.sql` | Faction homeworlds |
+| 62 | `migrate_registration_drafts_v1.sql` | Registration drafts |
+| 63 | `migrate_registration_mentor_drafts_v2.sql` | Mentor drafts |
+| 64 | `migrate_registration_portraits_v1.sql` | Registration portraits |
+| 65 | `migrate_star_spectral_wd_v1.sql` | White-dwarf spectral schema |
+| 66 | `migrate_planet_science_v1.sql` | Legacy planet-science columns |
+| 67 | `migrate_app_state_v1.sql` | Legacy seed/tick coordination storage |
+| 68 | `migrate_faction_government_v1.sql` | Government, alliance and standing storage |
+| 69 | `migrate_ship_build_queue_v1.sql` | Paid ship-construction queue storage |
+| 70 | `migrate_glossary_cache_v1.sql` | Generated glossary cache storage |
+| 71 | `migrate_alliance_wars_v1.sql` | Multi-party war, side and peace-offer storage |
+| 72 | `migrate_projection_claim_token_v1.sql` | Nullable binary-comparison claim token for projector queue fencing |
 
 > **Note:** `migrate_regen_spiral.sql` is a special maintenance migration that
 > is only applied on demand via `setup.php --regen-galaxy`.  It is intentionally
 > excluded from the regular manifest.
 
+### Star and binary runtime schema boundary
+
+`migrate_star_spectral_wd_v1.sql` is an append-only widening of
+`star_systems.spectral_class` to include generated `WD` white dwarfs. The
+canonical historical base/v2 already provides the remaining star companion
+columns and `binary_systems`, but did not include `WD`. No historical SQL or
+stored checksums were rewritten. Existing canonical spectral values, star IDs
+and data are preserved. Custom noncanonical spectral enums/data require review
+before applying this canonical enum definition.
+
+`ensure_star_system_columns()` and `ensure_binary_systems_table()` now delegate
+to [`GalaxySchema`](../../lib/GalaxySchema.php), which only reads the selected
+database's metadata. Missing required columns/table or a spectral enum without
+WD fails with an explicit migration instruction; PDO metadata errors propagate.
+There is no runtime `ALTER TABLE` or `CREATE TABLE` in these two helpers,
+no global "done" cache that incorrectly approves a second database, and no
+automatic repair. Required column names and WD membership are checked, not a
+complete type/index/foreign-key schema diff.
+
+**Rollout order:** apply the canonical migrations, run `migrate.php verify`,
+then admit gameplay/seed traffic. Local dev Compose's old init SQL list alone
+does not establish this new migration: run the canonical CLI before using the
+galaxy. The legacy setup list and isolated registration/homeworld fixture lists
+include the new migration explicitly; the legacy setup is still not a replacement
+for canonical tracking/deployment verification.
+
+**Recovery:** this widening intentionally has no down companion. Removing `WD`
+could truncate already generated white dwarfs and must not be an automatic
+rollback. Use a reviewed compatible image rollback or a restore/recovery plan;
+selected migration rollback is blocked by the existing missing-down barrier.
+Snapshot/backup before production DDL; ALTER may implicitly commit and may
+lock/rebuild a populated table. This block does not certify large-table downtime.
+
+Local tests: six unit schema-guard tests, real MySQL preservation/WD insert,
+SELECT-only calls to the actual legacy helpers, missing binary table and
+unchanged unmigrated enum, plus full 65-entry migration/verify/no-op-second-up.
+The real image also applies 65 migrations / 1,040 statements, verifies all 65,
+seeds the user start region and passes nine HTTP-health tests.
+Chromium remains two passing smoke tests / one skipped, main flow using an
+existing fallback; GPU/native/remote production readiness is not implied.
+Other application runtime DDL still prevents a claim that the whole
+application now runs without DDL privileges.
+
+### Planet-science runtime schema boundary
+
+`migrate_planet_science_v1.sql` appends eleven conditional column additions for
+legacy `planets` tables. The base schema already supplies them. Existing columns,
+types, defaults and science values are never rewritten; absent columns receive
+the original runtime defaults for composition/material, pressure, liquid states,
+radiation, habitability, life friendliness and nullable species-affinity JSON.
+Custom existing types still require review: this is not schema normalization.
+
+`ensure_planet_science_columns()` delegates to the read-only
+[`GalaxySchema::assertPlanets()`](../../lib/GalaxySchema.php).
+Missing columns explicitly require canonical migrations, metadata errors
+propagate and there is no cross-database success cache or automatic ALTER.
+The guard checks column names, not complete types, indexes or constraints.
+The legacy setup list includes the upgrade, but canonical tracking remains
+necessary for deployment verification.
+
+**Rollout:** back up the target database, apply canonical migrations with the
+deployment account, run `migrate.php verify` from the candidate image, then
+admit gameplay/seed traffic. Review populated-table lock/rebuild costs; MySQL
+DDL may implicitly commit and the eleven additions are not an atomic operation.
+If interrupted, inspect partial changes before retrying; conditional additions
+preserve already existing columns. Never rewrite tracking checksums to pass.
+
+**Recovery:** no down companion is supplied because dropping these columns
+would destroy generated science data. The rollback barrier blocks automatic
+removal. Use a reviewed compatible image rollback or restore/recovery plan,
+not column deletion. Production backup/restore rehearsal remains open.
+
+Local validation: nine combined schema-guard unit tests / 54 assertions;
+two real MySQL legacy-upgrade cases plus the full 66-entry fresh install /
+verify / no-op second run (three tests / 326 assertions). Partial populated
+schemas retain values and defaults, direct SQL replay is idempotent, all eleven
+absent fields are added, and the actual runtime helper works with SELECT-only
+rights and refuses missing storage without repairing it.
+The full PHP unit suite passes 1,050 tests / 5,061 assertions.
+The actual built image applies **66 migrations / 1,084 statements**, verifies
+all 66, seeds the start region and passes nine HTTP-health tests.
+Chromium was not rerun for this block; the earlier star/binary smoke evidence
+does not certify the new image's browser or native/GPU paths.
+
 ---
+
+### App-state runtime schema boundary
+
+`migrate_app_state_v1.sql` creates missing legacy coordination storage using
+the existing base/runtime definition: `state_key` primary key, non-null
+`state_value` and automatically maintained `updated_at`. Existing tables,
+custom definitions, seed markers, cooldowns and state values are untouched.
+It does not repair an incomplete existing table or normalize custom types.
+
+`ensure_app_state_table()` now delegates to
+[`GalaxySchema::assertAppState()`](../../lib/GalaxySchema.php) instead of
+executing CREATE on every access. Missing required columns explicitly require
+migrations; no table is created and no default is returned for missing storage.
+Metadata/rights failures propagate without a DDL fallback. Existing
+`app_state_get_int()` defaults for absent keys and nonnumeric values, signed
+integer conversion and `app_state_set_int()` upserts/timestamps are retained.
+Metadata checks are connection-local and do not implicitly commit transactions.
+
+**Rollout/recovery:** back up the database, apply canonical migrations with
+the deployment account, verify from the candidate image, then admit gameplay.
+Legacy setup includes the new migration but is not canonical tracking.
+Incomplete existing storage requires a reviewed append-only repair; replaying
+CREATE does not fix it. No down companion is provided because dropping state
+would lose seed/tick coordination and could trigger repeated work.
+Use reviewed compatible-image rollback or restore/recovery; never delete state
+or tracking to make deployment verification pass.
+
+Three added unit tests cover read-only metadata, incomplete storage and
+cross-database isolation. Two actual MySQL cases plus the full fresh-install
+regression pass three tests / 297 assertions: existing data and custom
+definitions survive migration/replay; SELECT-only can read, denied writes
+propagate, and INSERT/UPDATE suffice for upserts without DDL rights.
+The real accessors preserve an active transaction and rolled-back state,
+and missing storage before/after migration never recreates itself.
+The complete PHP unit suite passes 1,053 tests / 5,082 assertions; PHPStan and
+the counted PHPCS gate pass (6,831 existing violations / 4,983 fingerprints).
+The actual image applies 67 migrations / 1,085 statements, has an empty second
+Up, verifies all 67, seeds the start region and passes nine HTTP-health tests.
+Chromium smoke passes two tests / skips one; the main flow still uses system
+fallback and reports WebGPU/runtime warnings. This is not native/GPU readiness.
+Full application least privilege, tick-on-read removal and schema diff remain
+separate work; removing the galaxy seed helper's DDL does not certify every API.
+
+### Faction and diplomacy runtime schema boundary
+
+`ensure_pve_faction_tables()` and `ensure_government_tables()` now delegate to
+read-only [`GalaxySchema`](../../lib/GalaxySchema.php) guards, removing the
+remaining five CREATE paths from `api/galaxy_seed.php`. Canonical base/v2
+already supplies `npc_factions` and `faction_quests`, including the broader
+canonical faction enum. No historical SQL or enum definition is rewritten.
+The new `migrate_faction_government_v1.sql` supplies the previously runtime-only
+`faction_government`, `faction_alliances` and `faction_standing_adjustments`
+tables with the original defaults, primary keys and faction CASCADE references.
+Existing tables, custom definitions and populated diplomacy data are preserved.
+
+Guards check required column names, not complete types/indexes/foreign keys.
+Missing tables/columns require migrations; metadata errors propagate, with no
+automatic CREATE or cross-database success cache. Seed functions remain DML:
+government/alliance initialization and state markers are not moved into schema
+migrations, and existing seed configuration, INSERT IGNORE and done-key behavior
+are retained. Repeated initialization must preserve player-modified values.
+
+**Rollout:** back up the target database, apply canonical migrations (base/v2
+must precede these foreign-key-dependent tables), verify from the candidate,
+then admit gameplay or seed traffic. Legacy setup includes the new upgrade but
+is not canonical tracking. MySQL DDL implicitly commits; partially applied
+table creation requires inspection before retry. Existing incomplete/custom
+tables require a reviewed append-only repair, not automatic normalization.
+
+**Recovery:** there is no destructive down companion. Dropping these tables
+would erase governments, alliances and standing history; the rollback barrier
+blocks that path. Use reviewed compatible-image rollback or restore/recovery.
+This is not a production restore rehearsal or full schema-diff certification.
+
+Five added unit cases reject each missing table without DDL. Real MySQL
+legacy-upgrade and seed/rights cases pass two tests / 32 assertions, alongside
+the complete 68-entry fresh install/verify/no-op regression.
+Tests preserve custom definitions and populated data across replay, exercise
+SELECT-only guards and SELECT/INSERT/UPDATE seed access without DDL, preserve
+an active transaction and rollback, retain modified stability/alliance values
+on repeated seed, and verify all three new tables' faction CASCADE behavior.
+The full PHP unit gate passes 1,058 tests / 5,125 assertions; PHPStan passes.
+Only two resolved PHPCS fingerprints were removed (6,829 existing violations /
+4,981 fingerprints), without new exceptions. All 47 Git history tests pass
+with a 15-second local test timeout after one five-second fixture timeout under
+parallel build load; the repository gate retains 64 immutable files and four
+append-only additions.
+Actual candidate-image acceptance applies 68 migrations / 1,088 statements,
+has a no-op second Up, verifies all 68, seeds the start region and passes nine
+HTTP-health tests. Chromium passes two / skips one; main flow still uses a
+system fallback and reports existing WebGPU/runtime warnings.
+
+### Building and shipyard runtime schema boundary
+
+`ensure_building_upgrade_queue_table()`, `ensure_ship_build_queue_table()` and
+`ensure_built_vessels_table()` delegate to read-only
+[`GalaxySchema`](../../lib/GalaxySchema.php) column guards. The three runtime
+CREATE statements and global ready flags are removed. Historical base SQL
+already supplies `building_upgrade_queue`; canonical blueprint v5 supplies
+`built_vessels`. Neither historical file is rewritten.
+`migrate_ship_build_queue_v1.sql` creates the previously runtime-only queue with
+the original defaults, colony CASCADE reference and colony/status and ETA
+indexes. Existing custom definitions, paid costs, quantities, running status
+and timestamps are preserved across migration and direct replay.
+
+Missing columns/tables fail explicitly, metadata errors propagate and success
+on one connection does not bypass checks against another. Guards check names,
+not full types/indexes/constraints. Vessel storage creation no longer suppresses
+PDO failures, and ship completion no longer catches every vessel-spawn error.
+If due work contains a blueprint and has a colony owner, completion checks
+vessel storage before any aggregated ship-count or queue-status mutation.
+This deliberately blocks such a batch on missing schema rather than reporting
+completed work without individual vessels. Later spawn errors propagate;
+this preflight does not make the entire completion algorithm atomic or safe
+against concurrent completion/schema changes. Resource-ledger transactions,
+claiming/locking and tick-on-read removal remain separate roadmap work.
+
+**Rollout:** back up the DB, apply all canonical migrations, verify from the
+candidate image, then admit building/shipyard requests. The queue requires
+existing colonies; blueprint v5 requires its canonical predecessors.
+Legacy setup includes the new queue migration but does not replace the full
+canonical blueprint sequence or tracking verification. Incomplete existing
+tables need reviewed append-only repairs, not runtime recreation.
+
+**Recovery:** no down companion is supplied because dropping the queue loses
+paid pending/running ship builds. The rollback barrier prevents that destructive
+path. Use reviewed compatible-image rollback or restore/recovery; do not
+delete queue rows or alter tracking to pass verification. No production
+backup/restore or large-table DDL downtime certification is implied.
+
+Nine added unit cases cover valid metadata-only guards, missing columns and
+cross-database cache isolation for all three stores. The full PHP unit suite
+passes 1,067 tests / 5,186 assertions. Three real MySQL cases initially pass
+314 assertions (complete 69-entry fresh install/verify/no-op, custom paid queue
+preservation and actual runtime helpers). The expanded runtime case passes
+30 assertions, including SELECT-only guards, DML-only vessel spawning,
+transaction rollback, JSON/HP snapshots, real completion and repeat completion
+without double counting, fail-before-count/status changes on missing vessel
+storage, missing queue detection after earlier success and colony CASCADE.
+PHPStan passes; only four resolved PHPCS fingerprints are removed (6,825
+existing violations / 4,977 fingerprints). All 47 history tests pass with a
+15-second local test timeout; the gate preserves 64 original migrations and
+five append-only additions.
+Actual candidate-image acceptance applies 69 migrations / 1,089 statements,
+has a no-op second Up, verifies all 69, seeds the start region and passes nine
+HTTP-health tests. Chromium passes two / skips one; main flow still uses system
+fallback and reports existing WebGPU/runtime warnings, not native readiness.
+
+### Account and homeworld runtime schema boundary
+
+`ensure_homeworld_support_tables()` in `api/auth.php` and
+`ensure_character_profile_tables()` now use read-only
+[`GalaxySchema`](../../lib/GalaxySchema.php) guards for `ships`, `messages`
+and `user_character_profiles`. The three runtime CREATE statements are removed.
+Canonical base SQL already supplies all three stores (v2 also supplies profiles),
+so this block adds no migration and does not rewrite historical definitions.
+
+Missing tables/columns explicitly require migrations; metadata errors
+propagate rather than triggering automatic repair. Checks have no global
+success cache and validate names, not full types/indexes/foreign keys.
+An existing character profile with stored JSON/YAML references still returns
+unchanged, without regeneration or write privileges. Missing/incomplete profile
+storage fails before generation, filesystem writes or the generator's existing
+fallback handling. Asset-reference existence is not verified by this guard;
+the generator's other fallback/transport behavior is unchanged.
+
+**Rollout/recovery:** apply canonical migrations and verify from the candidate
+before account/homeworld traffic. Do not rely on login or profile access to
+create missing tables in partial development installations. A manually missing
+table despite complete tracking requires a reviewed append-only repair or
+restore, not checksum rewrites, state deletion or automatic replay of all
+historical SQL. No new rollback boundary or destructive down is introduced.
+Full registration/email-verification, asset regeneration and production
+backup/restore gates remain separate work.
+
+Five added unit cases cover missing homeworld stores and profile guards,
+including cross-database cache isolation. The full PHP unit suite passes
+1,072 tests / 5,221 assertions. Two actual MySQL cases / 301 assertions cover
+the full unchanged 69-entry fresh-install/verify/no-op and SELECT-only runtime
+access to populated storage: ship counts, read messages and stored profile
+values remain unchanged, active transactions remain active, and missing
+tables or an absent profile column never recreate storage or return a
+success-shaped generated profile.
+Because importing the legacy auth endpoint dispatches and exits, the test
+loads its actual helper source only; profile helpers are imported normally.
+PHPStan passes; only two resolved PHPCS fingerprints are removed (6,823
+existing violations / 4,975 fingerprints). The history gate preserves the
+same 64 original files and five append-only additions.
+Actual candidate-image acceptance applies/verifies 69 migrations / 1,089
+statements, seeds the start region and passes nine HTTP-health tests. Chromium
+passes two / skips one; main flow still uses system fallback and reports
+existing WebGPU/runtime warnings. This does not certify full registration or
+native/GPU/production readiness.
+
+### Situation runtime schema boundary
+
+`ensure_situations_tables()` in `api/situations.php` now delegates to
+[`GalaxySchema::assertSituations()`](../../lib/GalaxySchema.php).
+The two runtime CREATE statements and process-global ready flag are removed.
+Canonical `migrate_gameplay_model_v1.sql` already supplies both situation states
+and stage history, including the additional situation-type index absent from
+the old runtime definition. No migration, enum, default, index or historical
+SQL is changed.
+
+The guard reads metadata for the selected database on each call. Missing tables
+or required columns explicitly require canonical migrations, and metadata
+errors propagate without automatic CREATE. Checks validate names, not complete
+types/indexes/constraints. Existing read, tick, resolve and stage-transition
+behavior remains unchanged; schema preflight does not implicitly commit a
+caller's transaction.
+
+**Rollout/recovery:** apply the canonical gameplay migration and verify from
+the candidate before situation requests. A partial development database must
+not rely on the endpoint to bootstrap storage. Missing storage despite complete
+tracking needs a reviewed append-only repair or restore; do not delete tracking
+or rewrite checksums to replay old SQL. No new destructive down or rollback
+boundary is introduced. Tick claiming/locking, atomic state/history updates and
+production restore rehearsal remain separate work.
+
+Two added unit cases reject missing states/history without DDL.
+The full PHP unit suite passes 1,074 tests / 5,236 assertions. The complete
+unchanged 69-entry fresh-install/verify/no-op test passes, and the focused
+actual MySQL situation case passes 25 assertions: SELECT-only guards and
+owner-filtered reads preserve populated state, DML-only ticks update progress
+and stage history, active transactions survive preflight, rollback restores
+state/history, colony deletion sets the colony link NULL and user deletion
+cascades both tables. Missing tables after previous success are never recreated.
+The test loads actual endpoint helpers without executing its HTTP dispatch,
+and uses the application's associative PDO fetch mode.
+PHPStan passes; one resolved PHPCS fingerprint is removed (6,822 existing
+violations / 4,974 fingerprints), without new exceptions. No image/browser or
+remote production acceptance was rerun for this targeted block.
+
+### World-scenario runtime schema boundary
+
+`ScenarioEngine::ensureTables()` now delegates to
+[`GalaxySchema::assertWorldScenarios()`](../../lib/GalaxySchema.php).
+Three runtime CREATE statements and the broad catch/log-and-continue fallback
+are removed. The existing canonical `migrate_world_scenarios_v1.sql` already
+owns galactic events, scenario definitions and active events, including foreign
+keys absent from the old runtime definitions. No migration or historical SQL
+is rewritten.
+
+A due tick checks metadata **before** writing `scenario_engine:last_tick`.
+Missing tables/required columns or metadata errors propagate without storage
+creation and without consuming the cooldown. A tick that is not due retains
+its existing early return and does not perform this schema check.
+The outer optional NPC tick dispatcher still logs scenario failures and
+continues other subsystems; this does not make the whole gameplay request
+fail closed. Column-name checks are not full type/index/constraint validation.
+Failures later in event resolution/seed processing and cooldown claiming/
+concurrency remain separate work; the ordering change only protects schema
+preflight failures, not all failed ticks.
+
+**Rollout/recovery:** apply canonical world-scenario migrations and verify from
+the candidate before enabling scenario ticks. Missing storage despite complete
+tracking requires reviewed append-only repair or restore; do not rely on the
+engine to create partial definitions or rewrite tracking checksums.
+No new destructive down/rollback boundary is introduced. Production restoration,
+worker leases and atomic event effects remain separate gates.
+
+Three added unit cases reject each missing table without DDL. The complete
+PHP unit suite passes 1,077 tests / 5,263 assertions. Two actual MySQL cases /
+299 assertions cover unchanged 69-entry fresh-install/verify/no-op and the
+real engine: missing schema leaves the original marker unchanged; SELECT-only
+can run schema preflight; a due DML-only tick retains existing definitions/
+active events and updates its marker; an active transaction remains active
+and rollback restores the marker; a not-due SELECT-only tick writes nothing.
+Missing active storage after earlier success is not recreated and does not
+consume the next cooldown. PHPStan and PHPCS pass with unchanged baselines
+(6,822 existing style violations / 4,974 fingerprints).
+No image/browser or remote production acceptance was rerun for this block.
+
+### Glossary cache runtime schema boundary
+
+`migrate_glossary_cache_v1.sql` supplies the previously runtime-only glossary
+cache with its original columns, defaults, unique term key, indexes and
+utf8mb4 Unicode collation. Existing custom table definitions, cached content
+and timestamps remain unchanged. The old runtime CREATE was called after
+unconditional endpoint exits and therefore never established storage.
+It is replaced by a read-only
+[`GalaxySchema::assertGlossaryCache()`](../../lib/GalaxySchema.php) guard.
+
+Generation checks storage before cache lookup or any RAG/network work.
+Cache reader/writer helpers also check independently. Missing schema is an
+explicit migration error, not a cache miss or automatic repair; PDO read/write
+errors are logged and rethrown rather than hidden. The generation pipeline's
+existing outer error handler remains unchanged. Static definition guidance
+does not need cache access. Valid five-day cache hits, missing/expired-key
+misses, definition upserts and timestamps retain their existing behavior.
+This guard validates column names, not complete types/indexes/collation.
+
+**Rollout/recovery:** back up the database, apply canonical migrations and
+verify from the candidate before using generated definitions. Legacy setup
+includes the new migration but is not a tracking/verification replacement.
+Partial existing schemas need reviewed append-only repair. No down companion
+is provided because dropping storage discards generated definitions and may
+trigger regeneration work. Use reviewed compatible-image rollback or restore;
+do not rewrite historical checksums or delete tracking to pass verification.
+RAG transport limits, cache-content validation and external-provider readiness
+remain separate work.
+
+Three added unit cases cover valid metadata-only storage, missing columns and
+cross-database isolation. The full PHP unit suite passes 1,080 tests / 5,284
+assertions. Two actual MySQL cases / 307 assertions cover complete 70-entry
+fresh-install/verify/no-op, absent-storage failure before RAG, data/custom
+definition retention across replay, SELECT-only hits/misses, denied writes,
+DML-only upserts, active transaction/rollback and six-day expiry.
+Missing storage after earlier success is not recreated or treated as a miss.
+PHPStan and PHPCS pass; one resolved style fingerprint is removed (6,821
+existing violations / 4,973 fingerprints). All 47 history tests pass with a
+15-second local timeout; 64 original migrations remain unchanged and six are
+appended. No image/browser or real external RAG acceptance was run this block.
+
+### Player-alliance runtime schema boundary
+
+`ensure_alliance_schema()` delegates to
+[`GalaxySchema::assertAlliances()`](../../lib/GalaxySchema.php), removing four
+runtime CREATE statements for alliances, members, relations and messages.
+Canonical base/v2 already supplies these stores; no migration or historical
+SQL changes. Required column names are checked with read-only metadata,
+without automatic repair or process-global success caching. This is not a
+complete type/index/foreign-key comparison.
+
+**Rollout/recovery:** apply canonical migrations and verify before alliance
+requests. Partial development installations must not rely on API reads to
+create storage. Missing tables/columns despite complete tracking need reviewed
+append-only repair or restore, not historical checksum rewrites or tracking
+deletion. No new rollback boundary is introduced.
+Multi-party alliance-war storage is covered by the following migration boundary;
+neither block certifies the application's full least privilege.
+Alliance action authorization/resource-transaction behavior is unchanged.
+
+Four added unit cases reject each missing table without DDL. The full unit
+suite, including existing alliance action tests, passes 1,084 tests / 5,326
+assertions. Two actual MySQL tests / 308 assertions cover full unchanged
+70-entry fresh-install/verify/no-op and the actual runtime helper: SELECT-only
+preflight retains an active transaction, populated DECIMAL treasury values,
+membership roles/contributions, relations and messages; other-alliance deletion
+sets the relation target NULL, and leader-user deletion cascades owned storage.
+Missing messages or treasury columns after prior success fail explicitly.
+PHPStan passes; one resolved PHPCS fingerprint is removed (6,820 existing
+violations / 4,972 fingerprints), without new exceptions. No new image/browser
+or production acceptance was run for this targeted block.
+
+### Multi-party alliance-war runtime schema boundary
+
+`migrate_alliance_wars_v1.sql` creates the three previously runtime-only war,
+side and peace-offer tables. The original defaults, unique war/alliance
+membership key and user/alliance/war CASCADE references are retained.
+The peace-offer TEXT default uses MySQL's required expression syntax `('[]')`
+instead of the old invalid plain TEXT default; its value is unchanged.
+Existing custom definitions, war scores, exhaustion, sides and offers are
+not rewritten. `aw_ensure_schema()` now reads required column metadata via
+[`GalaxySchema::assertAllianceWars()`](../../lib/GalaxySchema.php) rather than
+executing three CREATE statements on API requests. Missing tables/columns fail
+explicitly; there is no automatic repair or global success cache.
+Column names are checked, not complete constraints/types.
+
+**Rollout/recovery:** back up the database, apply canonical migrations (users
+and alliance base storage must precede this upgrade), verify from the candidate,
+then admit war requests. Legacy setup includes the upgrade but is not canonical
+tracking. MySQL DDL implicitly commits and partial existing tables need reviewed
+append-only repair. There is no destructive down companion: dropping storage
+loses wars, side assignments and peace terms. Use reviewed compatible-image
+rollback or restore; never rewrite historical checksums/delete tracking.
+War-action authorization and resource/concurrency behavior remain unchanged.
+
+Three added unit cases reject each missing table without DDL. The full unit
+suite passes 1,087 tests / 5,354 assertions. Two real MySQL cases / 312 assertions
+cover complete 71-entry fresh-install/verify/no-op and the actual runtime helper:
+fresh creation, default peace terms `[]`, retained populated war data and
+custom definitions across replay, SELECT-only preflight with transaction
+retention, alliance deletion cascading sides/offers and declarer deletion
+cascading wars/sides. Missing offers after earlier success fail without repair.
+PHPStan and PHPCS pass; one resolved fingerprint is removed (6,819 existing
+style violations / 4,971 fingerprints). No new image/browser, full war-action
+or production restore acceptance was run this block.
+
+### Leader marketplace runtime schema boundary
+
+[`ensure_leader_marketplace_schema()`](../../api/leaders.php) and
+[`ensure_leaders_marketplace_profile_schema()`](../../api/leaders.php) use
+[`GalaxySchema`](../../lib/GalaxySchema.php) metadata guards instead of one
+CREATE and fourteen conditional ALTER statements. The canonical base schema
+supplies six leader skills; the existing
+[`migrate_marketplace_advisor.sql`](../../sql/migrate_marketplace_advisor.sql)
+supplies marketplace storage and the additional profile fields. No migration
+is added and historical SQL/checksums remain unchanged.
+
+Guards check required column names, not full types/constraints. There is no
+global success cache or request-time repair. Existing profile widths/defaults
+and candidate prices, hired status and timestamps are not normalized.
+
+**Rollout/recovery:** back up the database, apply the canonical manifest and
+verify from the candidate before admitting marketplace requests. A partially
+migrated profile needs a reviewed append-only repair, not application DDL.
+Do not rerun historical SQL directly to repair missing base skills: its
+unconditional role ALTER can implicitly commit. Preserve tracking/checksums.
+Use a reviewed compatible-image rollback or restore if needed; never drop
+profiles/candidates as a recovery shortcut.
+
+Six added unit cases cover complete, missing-column and database-specific
+metadata. Full unit suite: 1,093 tests / 5,394 assertions. Three real MySQL
+cases / 318 assertions cover complete 71-entry fresh-install/verify/no-op,
+the existing partial-profile upgrade and actual runtime helpers with
+SELECT-only privileges. Active transactions and populated data/custom
+definitions are retained; a missing skill or marketplace after earlier success
+fails without ALTER/CREATE. PHPStan and PHPCS pass; only three resolved style
+fingerprints are removed (6,816 violations / 4,968 fingerprints).
+No new image/browser or actual hiring-action acceptance was run. Marketplace
+resource atomicity, complete schema diff and full production least privilege
+remain separate gates.
+
+### Wormhole runtime schema boundary
+
+Fleet listing/routing in [`fleet.php`](../../api/fleet.php), beacon quest rewards
+in [`factions.php`](../../api/factions.php) and NPC maintenance in
+[`npc_ai.php`](../../api/npc_ai.php) no longer execute six duplicate CREATEs or
+two conditional ALTERs. Shared [`GalaxySchema`](../../lib/GalaxySchema.php)
+guards check required columns without DDL or success caches. Existing
+[`v8`](../../sql/migrate_vessel_blueprints_v8_wormholes.sql) and
+[`v9`](../../sql/migrate_vessel_blueprints_v9_wormhole_beacons.sql) migrations
+already own routes, permanence and user unlocks; no new migration is added.
+Guards check names, not complete types/indexes/foreign-key definitions.
+
+Missing schema or metadata failures propagate instead of returning no route.
+Legitimate unavailable-route results (research, unlock, stability, cooldown,
+inactive or unmatched endpoints) are unchanged. A due regeneration tick checks
+wormholes before writing its ten-minute marker. Not-due early return remains;
+the outer optional NPC dispatcher still logs subsystem failures and continues.
+Beacon reward preflight precedes resource, standing and claimed-status writes;
+ordinary quests do not require unlock storage.
+
+**Rollout/recovery:** back up the database, apply canonical migrations in order
+(users/faction quests and v8 must precede v9), verify from the candidate, then
+admit wormhole requests and maintenance. Preserve existing routes, labels,
+stability, cooldowns and unlock history. Partial legacy tables require reviewed
+append-only repair; request-time DDL is not a fallback. MySQL DDL implicitly
+commits, and direct historical replay is not a production recovery procedure.
+Use a reviewed compatible-image rollback or restore; do not drop routes/unlocks
+or edit applied checksums/tracking.
+
+Six added unit cases cover valid, missing and database-specific metadata.
+Full unit gate: 1,099 tests / 5,434 assertions. Three real MySQL cases /
+390 assertions cover the unchanged complete 71-entry fresh-install/verify/no-op,
+populated v8/v9 replay with retained custom labels/definitions, SELECT-only
+route/list bodies and DML-only jump/regeneration/reward bodies. Tests exercise
+research 4/5, stability 9/10, permanent unlocks, both directions, inactive and
+cooling routes, +2 regeneration/clamp 100, expired cooldown clear, unchanged
+future cooldowns/inactive stability, active transaction/rollback and unlock
+CASCADE. Missing columns/tables after earlier success cannot consume a due
+marker or repair storage; missing unlocks fail before reward/status mutations.
+The actual listing payload is returned in a test closure rather than serialized
+over HTTP; the reward body is tested without authentication/endpoint dispatch.
+
+PHPStan and PHPCS pass (6,801 existing violations / 4,955 fingerprints).
+Resolved findings are removed; the existing faction side-effect fingerprint
+is rekeyed only after comparing every field except diagnostic line positions.
+Touched reward blocks are indented to repository rules rather than adding
+style exemptions. No new image/browser or complete HTTP claim acceptance was
+run. Later tick failure/claim races, exactly-once quest rewards, full fleet
+resource atomicity and production least privilege remain separate gates.
+
+### Projection worker runtime schema boundary
+
+[`project_user_overview.php`](../../scripts/project_user_overview.php) and
+[`project_system_snapshots.php`](../../scripts/project_system_snapshots.php)
+use shared metadata guards for the queue and their respective read model before
+claiming. Four worker CREATE statements are removed; missing storage fails on
+stderr with exit 1 rather than continuing after a bootstrap warning.
+Canonical projection v1/system v1/runtime v2 migrations remain unchanged.
+The system worker now uses the existing `(galaxy, system_index)` helpers;
+its conflicting `system_id` schema and syntactically invalid merged code are
+removed. No new migration is needed for a canonical deployment.
+
+**Rollout/recovery:** back up and apply the full manifest before starting workers,
+then verify from the candidate. A legacy system-ID-only table is incompatible:
+the metadata guard rejects it. Review an append-only, data-preserving conversion
+using real system-to-galaxy mappings; never recreate it or rewrite historical
+SQL/checksums. Validate migration performance with populated queues/read models.
+Use reviewed compatible-image rollback or restore if necessary.
+
+Both dry runs are genuinely read-only and can use SELECT-only credentials.
+`--max-items` bounds the claim; the soft `--max-seconds` deadline is checked
+before claiming, and a claimed batch is finished rather than stranded by normal
+limit exits. Workers enable strict projection failures before acknowledgement;
+request-side best-effort defaults remain unchanged. See the
+[runbook](PROJECTION_RUNBOOK.md) for exact operating limits.
+
+Fifteen additional unit cases cover schema guards, strict database/JSON failures
+and explicit batch overrides; full unit gate: 1,114 tests / 5,503 assertions.
+Three real MySQL cases / 400 assertions include complete 71-entry
+fresh-install/verify/no-op and actual
+worker CLI subprocesses. Tests cover retained data/definitions, SELECT-only
+dry-run with item cap, active metadata-guard transactions, missing schema before
+claim, limited user failures, canonical system/owner/population data, versioning,
+stale flags, absent stars, denied persistence with retained/retried queue rows,
+successful retry and source-query failures not acknowledged as missing stars.
+The original system-worker parse error is reproduced; both repaired scripts
+pass PHP syntax checks. PHPStan/PHPCS pass with unchanged baselines.
+
+No complete user live-overview, image/browser, production restore or worker
+crash/concurrency acceptance is claimed. Snapshot and acknowledgement are
+separate commits; claim fencing, leases, CLI validation and full application
+least privilege remain separate work.
+
+### Projection CLI preflight follow-up
+
+Both worker commands reject malformed, unknown, positional or duplicate options
+before configuration/database access. Numeric options use `--name=value`, fit
+`PHP_INT_MAX`, and reject signed/fractional/whitespace input. Batch must be
+positive; zero time/item limits still mean unlimited. Standalone `--help` works
+without configuration; mixed help is invalid. Nonpositive configured batch
+defaults fail explicitly rather than producing invalid SQL.
+
+**Rollout:** review cron/supervisor flags before deploying; formerly ignored
+typos and `--batch=0` now exit 1. Valid configured defaults and explicit overrides
+are retained. No SQL migration or checksum change is involved.
+Full unit suite passes 1,215 tests / 6,240 assertions, with 101 new parser/actual
+CLI subprocess cases proving pre-configuration failure and exact integer
+boundaries. Two focused real MySQL worker tests / 121 assertions pass, including
+strict typo rejection, retained read-only dry runs and system retry lifecycle.
+PHPStan/PHPCS pass without baseline changes; release metadata and append-only
+history remain valid. Full fresh-install/image/browser acceptance was not
+repeated for this CLI block; hard deadlines, crash leases and atomic queue/
+snapshot commits remain open.
+
+### Projection retry/enqueue ordering follow-up
+
+Shared failure handling now updates only `processing` rows and checks affected
+row counts before logging retry/dead-letter success. A new enqueue or completed
+transition wins: already queued, failed or deleted rows are unchanged by an
+older failure. The actual overwrite of reset attempts/error/schedule was
+reproduced on MySQL before the fix. No migration or checksum changes are needed.
+
+Three focused real MySQL tests / 152 assertions cover distinct producer/worker
+connections and retained new events for both retry and dead-letter paths,
+ordinary failure handling, caller transaction rollback, duplicate failures and
+new-event revival of dead letters. Full unit gate: 1,218 tests / 6,249 assertions;
+PHPStan/PHPCS and release/history gates pass without baseline changes.
+See the [runbook](PROJECTION_RUNBOOK.md) for diagnostics and recovery.
+This guard is not a claim token: a later claim can restore `processing` while an
+old worker remains alive. Leases/fencing, atomic snapshot/queue commits and
+parallel crash/reclaim/production acceptance remain open; full manifest/image/
+browser acceptance was not repeated for this runtime-only change.
+
+### Projection claim-token fencing follow-up
+
+Migration 72 conditionally adds nullable `claim_token VARCHAR(64)` with ASCII
+binary comparison to the existing queue. Existing rows, definitions and tokens
+survive replay; historical SQL/checksums are unchanged. Claims generate a fresh
+256-bit random token per batch and return it to both workers. Completion, retry
+and dead-letter transitions require the row id, processing status and exact
+token. Enqueue and failure transitions clear tokens. The separate system
+producer also resets status to queued, so newly dirtied processing/dead-letter
+systems are actually retried.
+
+Stop all old workers and pause producers before migration/deployment. Apply the
+complete canonical manifest and run `verify`; deploy matching producers and
+workers together. Review legacy processing rows with null tokens while all
+workers are stopped, then selectively requeue them using the runbook. Do not
+mix old workers with token-aware workers: old binaries do not enforce fencing.
+No automatic recovery or destructive down migration is supplied. Keep the
+additive column on application rollback; recovery of interrupted DDL and custom
+column types/collations needs operator review.
+
+Tests cover preserved populated legacy queues, SQL replay, complete 72-entry
+fresh-install/verify/no-op, actual worker subprocesses, user/system producer
+interleavings and stale acknowledgements/retry/dead-letter after replacement
+claims. The previous status-only DELETE is reproduced inside a rolled-back
+transaction. Queue ownership fencing does **not** fence snapshot writes or
+make snapshot/ack atomic; expiring leases, parallel crash recovery and production
+acceptance remain open. No new image/browser acceptance is implied.
+
+Local gates: 1,221 unit tests / 6,261 assertions; five MySQL cases / 477
+assertions, plus the final expanded user/system ownership and dead-letter
+revival case rerun (one test / 52 assertions). All 47 history tests, append-only
+64 immutable + eight appended migrations, PHPStan and release checks pass.
+PHPCS remains at 6,801 existing violations / 4,955 fingerprints, with no new
+baseline exceptions.
+
+### Atomic fenced projection publication follow-up
+
+No additional SQL migration is needed beyond migration 72. Both workers now
+publish through a shared transactional completion helper: lock matching
+processing row/token, run the strict snapshot writer, delete the owned queue row,
+commit. A superseded claim never invokes its writer. Write/ack failure rolls
+back the projection and queue together, then ordinary token-aware retry applies.
+Caller-owned transactions are rejected; an unrecovered transaction aborts the
+worker instead of attempting a retry on that connection.
+
+Worker preflight additionally requires InnoDB queue/read-model tables. Missing
+or nontransactional engines fail before claim without runtime conversion.
+Use reviewed migrations for custom storage; stop token-only older workers as
+well, since those can still publish unfenced snapshots. Low-level write/done
+logs are not commit evidence; use `completion_committed` and processed/skipped
+worker counters.
+
+Local gates: 1,234 unit tests / 6,321 assertions; four focused real MySQL cases /
+254 assertions cover both writers, rollback/visibility, lost and repeated claims,
+queue lock contention, no-write completion, actual system CLI ack denial/retry/
+recovery and actual MyISAM preflight. Unit tests include original-error
+preservation on rollback failure and commit/ack failures.
+Final focused unit rerun: 214 tests / 1,363 assertions. PHPStan/PHPCS, release
+metadata and append-only history gates pass; PHPCS baseline remains unchanged
+at 6,801 existing violations / 4,955 fingerprints. Owned MySQL fixtures were
+removed after verifying zero residual test databases/accounts.
+Source reads remain outside the completion transaction; request-side writers,
+gameplay mutations and enqueue/outbox atomicity are not covered. No expiring
+lease, exactly-once guarantee or connection-loss-at-commit/process-crash/restore
+acceptance is implied. No new full-manifest/image/browser run for this block.
+
+### Retired destructive ship-designer initializer
+
+`api/_init_tables.php` and `sql/init_ship_designer.sql` are not migration paths.
+Their former `DROP TABLE` behavior could destroy user designs/jobs, while the
+legacy MyISAM/column definitions conflict with the current API and unmanifested
+TRELLIS2 SQL. Both entry points now fail explicitly before DB access or schema
+mutation. Do not revive them or claim the feature is initialized. Ship-designer
+persistence remains unsupported until a reviewed canonical migration matches
+the API/worker contract and preserves existing custom installations.
+
+The actual CLI subprocess proves the PHP path makes no DB connection; a MySQL
+regression invokes the standalone SQL against populated design, queue and asset
+tables and confirms all definitions and rows survive the explicit SQL error.
+No migration was added because the conflicting storage contract has not been
+resolved.
 
 ## Writing a New Migration
 
@@ -524,12 +1329,13 @@ storage table. Seed configuration entries are inserted only when missing;
 reexecution preserves configured values. Tests verify configuration retention
 and `ON DELETE SET NULL` for history and configuration audit references.
 
-The complete current manifest now applies **64 migrations / 1,039 statements**
-to a fresh MySQL 8.4 database using native prepares. The actual
-`php scripts/migrate.php up --env=TEST` CLI was also validated with credentials
-restricted to the application test schema: the second run is empty and `status`
-reports 64 applied, 0 pending. This is not a populated legacy-upgrade or
-production restore rehearsal.
+The complete current manifest now applies **72 migrations** to a fresh MySQL
+8.4 database using native prepares; the isolated full-manifest regression checks
+deployment verification and a no-op second run. The preceding real image
+acceptance applied and verified 69 entries / 1,089 statements; the glossary
+addition has not received a new image acceptance. Earlier CLI validation with application-schema
+restricted credentials covered the preceding manifest. This is not a complete
+populated legacy-upgrade or production restore rehearsal.
 
 CI initializes `sql/schema.sql`, then runs the canonical migration CLI instead
 of an alphabetical wildcard loop. Down migrations, maintenance SQL and learning

@@ -90,10 +90,14 @@ function read_user_overview_projection(PDO $db, int $userId): ?array
  * Atomically write (insert or replace) a projection payload for a user.
  * Increments the version counter and records the current unix timestamp as
  * source_tick.  Also clears stale_flag.
+ * Workers opt into strict errors; request-side best-effort behavior is retained.
  */
-function write_user_overview_projection(PDO $db, int $userId, array $payload): void
+function write_user_overview_projection(PDO $db, int $userId, array $payload, bool $strict = false): void
 {
-    $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $json = json_encode(
+        $payload,
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | ($strict ? JSON_THROW_ON_ERROR : 0)
+    );
     $tick = time();
 
     try {
@@ -111,6 +115,9 @@ function write_user_overview_projection(PDO $db, int $userId, array $payload): v
         error_log(sprintf('[projection] write user=%d', $userId));
     } catch (Throwable $e) {
         error_log(sprintf('[projection] write_error user=%d  err=%s', $userId, $e->getMessage()));
+        if ($strict) {
+            throw $e;
+        }
     }
 }
 
@@ -659,6 +666,8 @@ function enqueue_dirty_system(PDO $db, int $galaxy, int $systemIndex, string $re
              ON DUPLICATE KEY UPDATE
                  reason          = VALUES(reason),
                  enqueued_at     = NOW(),
+                 status          = \'queued\',
+                 claim_token     = NULL,
                  attempts        = 0,
                  last_error      = NULL,
                  next_attempt_at = NOW()'
@@ -785,10 +794,14 @@ function read_system_snapshot_range(PDO $db, int $galaxy, int $fromSystem, int $
  * source_tick.  Also clears stale_flag.
  *
  * @param array<string,mixed> $payload
+ * @param bool $strict Workers require persistence failures to propagate before queue acknowledgement.
  */
-function write_system_snapshot(PDO $db, int $galaxy, int $systemIndex, array $payload): void
+function write_system_snapshot(PDO $db, int $galaxy, int $systemIndex, array $payload, bool $strict = false): void
 {
-    $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $json = json_encode(
+        $payload,
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | ($strict ? JSON_THROW_ON_ERROR : 0)
+    );
     $tick = time();
     $ownerUserId     = (int)($payload['colony_owner_user_id'] ?? 0);
     $colonyCount     = (int)($payload['colony_count'] ?? 0);
@@ -816,6 +829,9 @@ function write_system_snapshot(PDO $db, int $galaxy, int $systemIndex, array $pa
             '[projection] system_write_error galaxy=%d system=%d  err=%s',
             $galaxy, $systemIndex, $e->getMessage()
         ));
+        if ($strict) {
+            throw $e;
+        }
     }
 }
 
@@ -851,8 +867,9 @@ function mark_system_snapshot_stale(PDO $db, int $galaxy, int $systemIndex): voi
  * (galaxy, system_index).
  *
  * @return array<string,mixed>|null
+ * @param bool $strict Workers distinguish missing stars from database failures.
  */
-function build_system_snapshot_payload(PDO $db, int $galaxy, int $systemIndex): ?array
+function build_system_snapshot_payload(PDO $db, int $galaxy, int $systemIndex, bool $strict = false): ?array
 {
     // Star descriptor (required – snapshot is pointless without it).
     try {
@@ -873,6 +890,9 @@ function build_system_snapshot_payload(PDO $db, int $galaxy, int $systemIndex): 
             '[projection] build_snapshot_error galaxy=%d system=%d  err=%s',
             $galaxy, $systemIndex, $e->getMessage()
         ));
+        if ($strict) {
+            throw $e;
+        }
         return null;
     }
 
@@ -942,6 +962,15 @@ function build_system_snapshot_payload(PDO $db, int $galaxy, int $systemIndex): 
             $colStmt2->execute([$galaxy, $systemIndex]);
             $col = $colStmt2->fetch(PDO::FETCH_ASSOC);
         } catch (Throwable $e2) {
+            if ($strict) {
+                error_log(sprintf(
+                    '[projection] build_snapshot_colony_error galaxy=%d system=%d  err=%s',
+                    $galaxy,
+                    $systemIndex,
+                    $e2->getMessage()
+                ));
+                throw $e2;
+            }
             $col = false;
         }
     }

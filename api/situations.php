@@ -231,56 +231,10 @@ switch ($action) {
         json_error('Unknown action');
 }
 
-function ensure_situations_tables(PDO $db): void {
-    static $ready = false;
-    if ($ready) {
-        return;
-    }
-
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS situation_states (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            user_id INT NOT NULL,
-            colony_id INT DEFAULT NULL,
-            target_type ENUM(\'empire\',\'colony\',\'system\') NOT NULL DEFAULT \'empire\',
-            target_id INT DEFAULT NULL,
-            situation_type VARCHAR(64) NOT NULL,
-            status ENUM(\'active\',\'resolved\',\'failed\',\'cancelled\') NOT NULL DEFAULT \'active\',
-            progress DECIMAL(6,2) NOT NULL DEFAULT 0,
-            stage TINYINT UNSIGNED NOT NULL DEFAULT 1,
-            approach_key VARCHAR(64) NOT NULL DEFAULT \'maintain\',
-            approach_locked TINYINT(1) NOT NULL DEFAULT 0,
-            payload_json JSON DEFAULT NULL,
-            monthly_deltas_json JSON DEFAULT NULL,
-            started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            last_tick_at DATETIME DEFAULT NULL,
-            ended_at DATETIME DEFAULT NULL,
-            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (colony_id) REFERENCES colonies(id) ON DELETE SET NULL,
-            INDEX idx_situation_user_status (user_id, status),
-            INDEX idx_situation_target (target_type, target_id),
-            INDEX idx_situation_tick (status, last_tick_at)
-        ) ENGINE=InnoDB'
-    );
-
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS situation_stage_log (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            situation_id BIGINT NOT NULL,
-            user_id INT NOT NULL,
-            old_stage TINYINT UNSIGNED NOT NULL,
-            new_stage TINYINT UNSIGNED NOT NULL,
-            reason VARCHAR(128) NOT NULL DEFAULT \'progress_update\',
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (situation_id) REFERENCES situation_states(id) ON DELETE CASCADE,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            INDEX idx_stage_log_situation (situation_id, created_at),
-            INDEX idx_stage_log_user (user_id, created_at)
-        ) ENGINE=InnoDB'
-    );
-
-    $ready = true;
+function ensure_situations_tables(PDO $db): void
+{
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertSituations($db);
 }
 
 function load_user_situation(PDO $db, int $situationId, int $userId): ?array {

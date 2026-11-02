@@ -18,6 +18,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The existing `1.0.0` version is historical metadata, not a production-readiness
   claim. No released `1.0.0` changelog or tag has been invented.
 
+### Retired — Destructive ship-designer initializers
+
+- The legacy PHP initializer and standalone SQL reset no longer drop/recreate
+  ship-design, generation-queue or asset tables. Both fail explicitly without
+  accessing/changing the database.
+- Existing MySQL tables/definitions/rows are preserved in regression coverage.
+  Ship-designer persistence remains unsupported until a canonical schema
+  migration and API/worker acceptance resolve conflicting legacy definitions.
+
 ### Changed — Image publication gates
 
 - Main-branch image publication now waits for all main CI lint, test and E2E
@@ -73,6 +82,245 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - CI runs the gate from the image after migrations and before readiness/seed.
   Missing, pending, changed or newer-image migration history blocks deployment;
   public health snapshots and existing status behavior are unchanged.
+
+### Added — Append-only migration history CI gate
+
+- CI compares canonical forward migration history with the event's real base
+  commit, rejecting removal/reordering and historical Git-clean SQL changes.
+- New files must be readable regular forward migrations appended at the end.
+  The checker parses the declarative manifest without executing PHP and never
+  modifies repository or database state.
+- Local Windows checkout normalization is respected; exact deployment MD5,
+  down companions, schema diff and release authenticity remain separate gates.
+
+### Changed — Star and binary schema is migration-owned
+
+- An append-only migration adds the generator's `WD` spectral class while
+  preserving canonical existing star data; no historical SQL was rewritten.
+- Star/binary runtime helpers now read metadata and fail on missing schema
+  rather than issuing ALTER/CREATE or caching cross-database success.
+- Legacy setup and isolated seed fixtures include the widening before runtime
+  access. Automatic down migration is intentionally unavailable because it
+  could truncate generated white dwarfs.
+- Other runtime DDL remains; this is a partial schema-ownership migration,
+  not a production least-privilege or full schema-diff certification.
+
+### Changed — Planet-science schema is migration-owned
+
+- Eleven runtime ALTER paths are replaced by a read-only schema guard without
+  cross-database caching; missing columns explicitly require migrations.
+- A new append-only migration adds only absent legacy science columns with
+  their original defaults and preserves existing definitions and planet data.
+  Legacy setup includes the upgrade; historical forward SQL remains unchanged.
+- Real MySQL tests cover partial/all-missing schemas, repeat execution and
+  SELECT-only runtime access. The actual image applies/verifies 66 migrations,
+  seeds the start region and passes HTTP health checks.
+- No destructive down migration is provided. Other runtime DDL and production
+  restore/least-privilege certification remain open.
+
+### Changed — App-state storage is migration-owned
+
+- State preflight reads metadata instead of creating a table on each tick/seed
+  access. Missing storage fails explicitly; key defaults and integer upserts
+  retain their behavior without implicit DDL transaction commits.
+- An append-only migration supplies missing legacy coordination storage while
+  preserving existing table definitions, state values and timestamps.
+- Real MySQL tests cover SELECT-only reads, INSERT/UPDATE writes, denied writes,
+  transaction rollback and migration replay. Legacy setup includes the upgrade.
+- No destructive down companion is supplied: removing seed/tick state could
+  repeat coordinated work. Full application DDL removal remains incomplete.
+
+### Changed — Faction and diplomacy schema is migration-owned
+
+- The remaining five CREATE paths in galaxy seed helpers now use read-only
+  metadata guards. Missing storage fails explicitly instead of self-repair.
+- An append-only migration creates the three formerly runtime-only government,
+  alliance and standing tables with existing defaults and CASCADE behavior.
+  Base/v2 faction/quest definitions and populated custom tables stay unchanged.
+- Seed DML remains intact: real MySQL tests cover limited rights, transactions,
+  repeated initialization, modified player values and foreign-key cleanup.
+  Legacy setup includes the new migration; destructive down remains blocked.
+- This completes DDL removal from the galaxy seed helper, not from every API
+  or the full production application.
+
+### Changed — Building and shipyard storage is migration-owned
+
+- Three runtime CREATE statements and global ready caches are replaced by
+  metadata-only guards. Existing base building storage and blueprint-v5
+  vessel storage remain canonical; historical SQL is unchanged.
+- A new append-only migration supplies the ship-construction queue while
+  preserving paid costs, quantities, statuses and custom existing definitions.
+- Missing vessel storage no longer fails silently: blueprint completion
+  preflights storage before ship-count/status mutations; spawn errors propagate.
+  Full completion atomicity/concurrency remains separate work.
+- Real MySQL tests cover DML-only spawning, snapshots, transaction rollback,
+  completion/repetition, missing storage and colony CASCADE.
+  The queue has no destructive down companion.
+
+### Changed — Account and homeworld schema preflight is read-only
+
+- Three runtime CREATE statements for ships, messages and character profiles
+  are replaced by metadata guards; canonical base/v2 already owns the storage.
+  No historical SQL or migration count changes.
+- Missing/incomplete schema fails before profile generation rather than
+  automatically creating storage. Existing stored profiles remain unchanged
+  and can be retrieved with SELECT-only rights.
+- Real MySQL tests cover populated data preservation, active transactions,
+  missing tables/columns and fail-before-generation behavior.
+  Registration, asset-reference validity and production recovery remain
+  separate gates.
+
+### Changed — Situation storage preflight is read-only
+
+- Two runtime CREATE statements and the global ready cache are replaced by
+  metadata guards for situation states and stage history. The existing gameplay
+  migration remains unchanged; no new migration is needed.
+- Missing storage fails explicitly rather than bootstrapping during requests.
+  Real MySQL tests retain populated state, owner-filtered reads, tick/history
+  updates, transaction rollback and existing CASCADE/SET-NULL behavior.
+- Full tick atomicity/concurrency and production recovery remain separate work.
+
+### Changed — World-scenario schema preflight is migration-owned
+
+- Three runtime CREATE statements and schema catch-and-continue fallback
+  are replaced by read-only metadata guards. The canonical world-scenario
+  migration and its foreign keys remain unchanged.
+- Due ticks now verify storage before recording their cooldown, so missing
+  schema cannot consume a one-hour tick window. Not-due behavior is retained.
+- Real MySQL tests cover marker preservation, restricted rights, rollback
+  and existing event retention. Later tick failures, claiming/concurrency and
+  the outer optional subsystem dispatcher remain separate concerns.
+
+### Changed — Glossary cache is migration-owned
+
+- An append-only migration creates glossary cache storage with its original
+  definition while preserving existing data and custom table definitions.
+- Unreachable runtime CREATE after endpoint exits is removed. Generation
+  checks schema before RAG work; missing storage cannot become a cache miss.
+- Cache PDO read/write errors are logged and rethrown; valid TTL hits, expired
+  misses and upserts retain their behavior. Real MySQL tests verify limited
+  rights, replay, transaction rollback and expiry.
+- No destructive down companion is supplied. External RAG transport/readiness
+  and cache-content validation remain separate work.
+
+### Changed — Player-alliance schema preflight is read-only
+
+- Four runtime CREATE statements are replaced by metadata guards for alliances,
+  members, relations and messages. Existing base/v2 migrations are unchanged.
+- Real MySQL tests retain populated treasury/member/message data and active
+  transactions with SELECT-only access; missing columns/storage fail explicitly.
+  Existing CASCADE/SET-NULL relationships remain intact.
+- Multi-party alliance-war runtime DDL and full production least privilege
+  remain separate work.
+
+### Changed — Multi-party alliance-war storage is migration-owned
+
+- Three runtime CREATEs are replaced by metadata guards and an append-only
+  migration preserving existing wars, sides, peace offers and custom definitions.
+- Peace-offer TEXT default uses valid MySQL expression syntax without changing
+  its `[]` value. Existing CASCADE and membership uniqueness are retained.
+- Real MySQL tests cover fresh creation, replay, populated data, SELECT-only
+  preflight and transaction/CASCADE behavior. Legacy setup includes the upgrade.
+- No destructive down companion is provided; full war-action concurrency and
+  production recovery remain separate gates.
+
+### Changed — Leader marketplace schema preflight is read-only
+
+- Marketplace CREATE and fourteen conditional profile ALTERs are replaced by
+  metadata guards without global success caches. Existing canonical base and
+  marketplace migrations remain unchanged; no new migration is needed.
+- Missing storage fails explicitly instead of being repaired on API requests.
+  Existing profile widths/defaults and hired candidate data are preserved.
+- Real MySQL tests cover SELECT-only access, active transactions, retained
+  data/definitions and missing storage after prior success. Hiring resource
+  atomicity and full production least privilege remain separate work.
+
+### Changed — Wormhole storage is migration-owned
+
+- Six duplicate runtime CREATEs and two conditional ALTERs in fleet, faction
+  rewards and NPC maintenance are replaced by shared metadata guards.
+  Existing v8/v9 migrations and populated routes/unlocks remain unchanged.
+- Missing schema propagates rather than becoming an unavailable-route result.
+  A due regeneration tick checks schema before its cooldown marker; beacon
+  rewards check unlock storage before resource or claimed-status changes.
+- Real MySQL tests cover SELECT-only route/list bodies, research/unlock and
+  stability thresholds, cooldowns, DML-only jump/regeneration/reward bodies,
+  transaction rollback, retained migration data and unlock CASCADE behavior.
+- Tick claims, quest/fleet concurrency and full request atomicity remain
+  separate production gates.
+
+### Fixed — Canonical projector workers and read-only bootstrap
+
+- Removed worker bootstrap CREATEs; required queue and projection columns are
+  checked before claims, with fatal exit 1 rather than warning-and-continue.
+- Restored the malformed system worker using existing galaxy/system-keyed
+  payload and persistence helpers and shared claim/retry/acknowledgement logic.
+  Removed conflicting system-ID schema/helpers and duplicate processing loops.
+- Both dry runs now read without claiming. Item limits bound the claimed batch;
+  an already claimed batch finishes past the soft time limit instead of leaving
+  normal-limit exits with unprocessed rows in `processing`.
+  Explicit `--batch=50` also overrides differing configured defaults.
+- Workers opt into strict projection read/write failures and JSON validation.
+  Request-side best-effort defaults are preserved. Failed writes cannot be
+  acknowledged as completed by workers.
+- Real MySQL CLI tests cover bootstrap failures, SELECT-only dry runs,
+  canonical snapshot data/versioning, limited claims and denied-write retries.
+  Crash leases, claim fencing and atomic snapshot/queue commits remain open.
+
+### Changed — Projection worker CLI rejects invalid arguments
+
+- Unknown, positional, duplicate and malformed options now fail before
+  configuration/database access with stderr diagnostics and exit 1.
+  Zero batch size is rejected instead of silently clamped; negative,
+  fractional and overflowing values are not accepted.
+- Numeric limits support exact PHP integer boundaries, leading zeros and zero
+  for unlimited time/item limits. Valid options and configured batch defaults
+  are preserved; invalid configured batch sizes fail explicitly.
+- Standalone `--help` needs no configuration or database. Combining it with
+  worker options is rejected. Update cron/supervisor arguments before rollout.
+- Parser and actual CLI subprocess tests plus real MySQL worker cases pass;
+  strict parsing does not provide a hard execution deadline or crash leases.
+
+### Fixed — Projection failures preserve newly queued events
+
+- Retry and dead-letter updates now require `status='processing'`. A new
+  enqueue wins over the old worker's failure without losing its reset attempts,
+  immediate retry time, payload or reason. Duplicate failures cannot revive
+  dead letters or delay already queued rows.
+- Zero affected rows produce `failure_skipped` diagnostics rather than a
+  success-shaped retry/dead-letter log. Database errors still propagate.
+- Real MySQL tests reproduce the original overwrite and cover producer/worker
+  interleavings, ordinary retry/dead-letter transitions and rollback.
+- This is a status guard, not claim fencing: an old worker can still interfere
+  after another worker reclaims the same row. Claim tokens/leases remain open.
+
+### Fixed — Projector queue claim-token fencing
+
+- Append-only migration 72 adds a nullable binary-comparison claim token,
+  preserving existing queue data and historical SQL.
+- Both workers pass mandatory fresh claim tokens to completion/retry helpers;
+  superseded claims cannot delete, retry or dead-letter replacement claims.
+  Zero-row completion/failure transitions are explicitly logged as skipped.
+- Both producers clear tokens on enqueue. The separate system producer now
+  resets processing/failed rows to queued instead of losing newly dirty events.
+- Real MySQL covers populated migration/replay, replacement-claim ordering and
+  actual CLI workers. Stop old workers and deploy matching producers/workers
+  after canonical migration/verify; mixed old/new workers are not safe.
+- Queue-only fencing does not prevent stale snapshot writes or provide atomic
+  snapshot/ack, expiring leases, exactly-once delivery or production acceptance.
+
+### Fixed — Fenced atomic projector publication
+
+- Both workers lock the current claim before writing and commit strict
+  read-model persistence and queue acknowledgement in one InnoDB transaction.
+  Superseded claims skip the writer; counters distinguish skipped from processed.
+- Write/ack failures roll back both snapshot and queue. Unrecovered transactions
+  stop the worker before retry; commit/rollback errors remain explicit.
+- Startup rejects nontransactional queue/read-model storage without conversion.
+  No new migration beyond claim-token migration 72.
+- Real MySQL covers stale writers, rollback, lock contention and actual CLI
+  DELETE-denial/retry/recovery. Source snapshots, gameplay/outbox atomicity,
+  expiring leases and production crash/restore acceptance remain open.
 
 ### Refactored — JS-Refactoring Phase 2 (C-1, GAP_TODO)
 

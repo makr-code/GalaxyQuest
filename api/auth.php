@@ -617,31 +617,10 @@ function starter_homeworld_config(string $username): array {
     return $defaults;
 }
 
-function ensure_homeworld_support_tables(PDO $db): void {
-    // Legacy/partial schemas may miss these tables in dev environments.
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS ships (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            colony_id INT NOT NULL,
-            type VARCHAR(64) NOT NULL,
-            count INT NOT NULL DEFAULT 0,
-            FOREIGN KEY (colony_id) REFERENCES colonies(id) ON DELETE CASCADE,
-            UNIQUE KEY unique_ship (colony_id, type)
-        ) ENGINE=InnoDB'
-    );
-
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS messages (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            sender_id INT DEFAULT NULL,
-            receiver_id INT NOT NULL,
-            subject VARCHAR(255) NOT NULL DEFAULT \'\',
-            body TEXT NOT NULL,
-            is_read TINYINT(1) NOT NULL DEFAULT 0,
-            sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB'
-    );
+function ensure_homeworld_support_tables(PDO $db): void
+{
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertHomeworldSupport($db);
 }
 
 function render_story_template(string $template, string $username, string $colonyName, ?string $questHook = null): string {

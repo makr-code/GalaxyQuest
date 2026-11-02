@@ -1268,94 +1268,16 @@ function get_or_refresh_marketplace(PDO $db, int $uid): array {
     return $rows->fetchAll();
 }
 
-/**
- * Runtime schema guard so marketplace endpoints stay available even when the
- * optional migration has not been applied yet.
- */
-function ensure_leader_marketplace_schema(PDO $db): void {
-    static $checked = false;
-    if ($checked) {
-        return;
-    }
-
-    $db->exec(
-        "CREATE TABLE IF NOT EXISTS leader_marketplace (
-            id             INT AUTO_INCREMENT PRIMARY KEY,
-            user_id        INT NOT NULL,
-            name           VARCHAR(64)  NOT NULL,
-            role           ENUM('colony_manager','fleet_commander','science_director','diplomacy_officer','trade_director','advisor') NOT NULL,
-            rarity         ENUM('common','uncommon','rare','legendary') NOT NULL DEFAULT 'common',
-            portrait       VARCHAR(8)   NOT NULL DEFAULT '👤',
-            tagline        VARCHAR(128) NOT NULL DEFAULT '',
-            backstory      TEXT         NOT NULL,
-            trait_1        VARCHAR(64)  NOT NULL DEFAULT '',
-            trait_2        VARCHAR(64)  NOT NULL DEFAULT '',
-            skill_production   TINYINT UNSIGNED NOT NULL DEFAULT 1,
-            skill_construction TINYINT UNSIGNED NOT NULL DEFAULT 1,
-            skill_tactics      TINYINT UNSIGNED NOT NULL DEFAULT 1,
-            skill_navigation   TINYINT UNSIGNED NOT NULL DEFAULT 1,
-            skill_research     TINYINT UNSIGNED NOT NULL DEFAULT 1,
-            skill_efficiency   TINYINT UNSIGNED NOT NULL DEFAULT 1,
-            skill_guidance     TINYINT UNSIGNED NOT NULL DEFAULT 1,
-            hire_metal         INT UNSIGNED NOT NULL DEFAULT 5000,
-            hire_crystal       INT UNSIGNED NOT NULL DEFAULT 3000,
-            hire_deuterium     INT UNSIGNED NOT NULL DEFAULT 1000,
-            is_hired       TINYINT(1)   NOT NULL DEFAULT 0,
-            hired_at       DATETIME     DEFAULT NULL,
-            expires_at     DATETIME     NOT NULL,
-            created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            KEY idx_mkt_user_exp (user_id, expires_at)
-        ) ENGINE=InnoDB"
-    );
-
-    $checked = true;
+function ensure_leader_marketplace_schema(PDO $db): void
+{
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertLeaderMarketplace($db);
 }
 
-/**
- * Runtime schema guard for optional leader profile columns used by
- * marketplace hiring. Keeps API endpoints resilient if migration was skipped.
- */
-function ensure_leaders_marketplace_profile_schema(PDO $db): void {
-    static $checked = false;
-    if ($checked) {
-        return;
-    }
-
-    $columns = [
-        'rarity' => "ENUM('common','uncommon','rare','legendary') NOT NULL DEFAULT 'common'",
-        'portrait' => "VARCHAR(16) NOT NULL DEFAULT '👤'",
-        'tagline' => "VARCHAR(255) NOT NULL DEFAULT ''",
-        'backstory' => 'TEXT NULL',
-        'trait_1' => "VARCHAR(128) NOT NULL DEFAULT ''",
-        'trait_2' => "VARCHAR(128) NOT NULL DEFAULT ''",
-        'skill_production' => 'TINYINT UNSIGNED NOT NULL DEFAULT 1',
-        'skill_construction' => 'TINYINT UNSIGNED NOT NULL DEFAULT 1',
-        'skill_tactics' => 'TINYINT UNSIGNED NOT NULL DEFAULT 1',
-        'skill_navigation' => 'TINYINT UNSIGNED NOT NULL DEFAULT 1',
-        'skill_research' => 'TINYINT UNSIGNED NOT NULL DEFAULT 1',
-        'skill_efficiency' => 'TINYINT UNSIGNED NOT NULL DEFAULT 1',
-        'skill_guidance' => 'TINYINT UNSIGNED NOT NULL DEFAULT 1',
-        'marketplace_source_id' => 'INT NULL',
-    ];
-
-    $colExists = $db->prepare(
-        'SELECT COUNT(*)
-           FROM information_schema.COLUMNS
-          WHERE TABLE_SCHEMA = DATABASE()
-            AND TABLE_NAME = "leaders"
-            AND COLUMN_NAME = ?'
-    );
-
-    foreach ($columns as $name => $ddl) {
-        $colExists->execute([$name]);
-        $exists = (int)$colExists->fetchColumn() > 0;
-        if ($exists) {
-            continue;
-        }
-        $db->exec("ALTER TABLE leaders ADD COLUMN {$name} {$ddl}");
-    }
-
-    $checked = true;
+function ensure_leaders_marketplace_profile_schema(PDO $db): void
+{
+    require_once __DIR__ . '/../lib/GalaxySchema.php';
+    \GalaxyQuest\Schema\GalaxySchema::assertLeaderProfiles($db);
 }
 
 /**
