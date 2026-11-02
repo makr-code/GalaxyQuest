@@ -13,6 +13,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/economy_flush.php';
+require_once __DIR__ . '/game_engine.php';
 
 if (!defined('GQ_MARKET_ANALYSIS_BASE_PRICES')) {
     define('GQ_MARKET_ANALYSIS_BASE_PRICES', [
@@ -123,7 +124,7 @@ function calculate_system_supply_demand(
         $analysis['food']['available_supply']      += (float)$col['food'];
         
         // Food consumption (primary resource, not in processed_goods)
-        $analysis['food']['consumption'] += $pop * 1.0;
+        $analysis['food']['consumption'] += colony_food_consumption($pop);
         
         // Processed goods: stock, production rate, and consumption rate
         $goodsStmt = $db->prepare(<<<SQL
@@ -143,8 +144,7 @@ function calculate_system_supply_demand(
         }
 
         // Desired demand: consumer_goods proportional to population
-        $goodsConsumption = $pop * 0.2;
-        $analysis['consumer_goods']['consumption']    += $goodsConsumption;
+        $goodsConsumption = ECONOMY_POP_CONSUMPTION_RATES['consumer_goods'] * ($pop / 1000.0);
         $analysis['consumer_goods']['desired_demand'] += $goodsConsumption * 0.5;
     }
     
@@ -466,5 +466,3 @@ function system_distance(PDO $db, int $galA, int $sysA, int $galB, int $sysB): f
     $dz = (float)$a['z_ly'] - (float)$b['z_ly'];
     return max(1.0, sqrt($dx * $dx + $dy * $dy + $dz * $dz));
 }
-
-

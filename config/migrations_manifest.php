@@ -129,4 +129,6 @@ return [
     'migrate_registration_drafts_v1.sql',
     'migrate_registration_mentor_drafts_v2.sql',
     'migrate_registration_portraits_v1.sql',
+    'migrate_body_resources_v1.sql',
+    'migrate_colony_economy_precision_v1.sql',
 ];
