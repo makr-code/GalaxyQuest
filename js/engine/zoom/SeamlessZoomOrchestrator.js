@@ -302,24 +302,39 @@ class SeamlessZoomOrchestrator {
         this._emit('exitLevel', this._activeLevel);
       }
 
-      // Planet-Approach or Object-Approach: trigger the Bezier fly-in before
-      // entering the level.
-      if (SeamlessZoomOrchestrator._requiresCameraFlight(level)) {
-        const from = opts.cameraFrom || { x: 0, y: 0, z: 100 };
-        const to   = opts.cameraTo   || { x: 0, y: 0, z: 15 };
-        const dur  = opts.flyDuration != null ? opts.flyDuration : 2500;
-        await this._flight.flyTo(from, to, dur, {
-          starBlur: 0.4,
-          onAtmosphereScale: opts.onAtmosphereScale || null,
-          onStarBlur:        opts.onStarBlur        || null,
+      // Enter new level.
+      next.setTransitionSource?.(this._active, this._lastCameraState);
+      if (typeof next.setNavigationHandlers === 'function') {
+        next.setNavigationHandlers({
+          slotClick: (slot) => this._emit('slotClick', slot),
+          back: () => this.zoomTo(level === ZOOM_LEVEL.COLONY_SURFACE ? this._surfaceReturnLevel ?? ZOOM_LEVEL.SYSTEM : ZOOM_LEVEL.SYSTEM, null),
+          surface: (data) => this.zoomTo(ZOOM_LEVEL.COLONY_SURFACE, data),
         });
       }
-
-      // Enter new level.
+      if (level === ZOOM_LEVEL.COLONY_SURFACE && this._activeLevel !== level) {
+        this._surfaceReturnLevel = this._activeLevel === ZOOM_LEVEL.GALAXY ? ZOOM_LEVEL.GALAXY : ZOOM_LEVEL.SYSTEM;
+      }
       await next.enter(this._activeLevel, payload);
 
       this._active      = next;
       this._activeLevel = level;
+      this._backend?.setZoomSceneActive?.(level >= ZOOM_LEVEL.PLANET_APPROACH);
+      // The incoming renderer must receive the flight camera, not an already
+      // exited outgoing level. Keep the final pose after the flight completes.
+      if (SeamlessZoomOrchestrator._requiresCameraFlight(level)) {
+        await this._flight.flyTo(
+          opts.cameraFrom || { x: 0, y: 0, z: 100 },
+          opts.cameraTo || { x: 0, y: 0, z: 15 },
+          opts.flyDuration ?? 2500,
+          {
+            starBlur: 0.4,
+            onAtmosphereScale: opts.onAtmosphereScale || null,
+            onStarBlur: opts.onStarBlur || null,
+          },
+        );
+      } else {
+        this._lastCameraState = null;
+      }
       this._emit('enterLevel', level, payload);
     } finally {
       this._transition = false;
@@ -361,7 +376,8 @@ class SeamlessZoomOrchestrator {
   tick(dt) {
     // Fly-in in progress: use interpolated camera state.
     const flightState = this._flight.tick(dt);
-    const cs = flightState || this._getFallbackCameraState();
+    if (flightState) this._lastCameraState = flightState;
+    const cs = flightState || this._lastCameraState || this._getFallbackCameraState();
     if (this._active) {
       this._active.render(dt, cs);
     }
@@ -392,6 +408,7 @@ class SeamlessZoomOrchestrator {
   // ── Disposal ──────────────────────────────────────────────────────────────
 
   dispose() {
+    this._backend?.setZoomSceneActive?.(false);
     this._running = false;
     if (this._rafId) {
       cancelAnimationFrame(this._rafId);
@@ -399,11 +416,8 @@ class SeamlessZoomOrchestrator {
     }
     this._removeFrameHook?.();
     this._removeFrameHook = null;
-    if (this._active) {
-      try { this._active.dispose(); } catch (_) {}
-      this._active = null;
-    }
     this._registry.clear();
+    this._active = null;
     this._listeners.clear();
   }
 

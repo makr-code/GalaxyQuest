@@ -80,6 +80,9 @@ class RendererRegistry {
    * Remove all registrations and cached instances.
    */
   clear() {
+    for (const instance of this._instances.values()) {
+      try { instance.dispose(); } catch (_) {}
+    }
     this._entries.clear();
     this._instances.clear();
   }

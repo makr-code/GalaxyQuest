@@ -45,7 +45,6 @@
     struct StarAttribs {
       @location(0) pos   : vec2<f32>,   // normalised [−1,1]
       @location(1) color : vec4<f32>,   // rgba
-      @location(2) index : u32,         // star index (for selection highlight)
     };
 
     struct VSOut {
@@ -2457,6 +2456,12 @@
         : (1 / 60);
       this._lastCameraDriverTime = now;
 
+      if (this._zoomSceneActive) {
+        this._frameTick++;
+        this._runFrameHooks(dt, now);
+        return;
+      }
+
       if (this._kbdMove.zoomIn) {
         this._view.targetZoom = Math.min(6, Number(this._view.targetZoom || this._view.zoom || 1) * 1.02);
       }
@@ -2556,6 +2561,10 @@
       this._renderGalaxyOverlay2D();
 
       this._frameTick++;
+      this._runFrameHooks(dt, now);
+    }
+
+    _runFrameHooks(dt, now) {
       for (const hook of this._frameHooks) {
         try {
           hook(dt, now);
@@ -2566,6 +2575,11 @@
           });
         }
       }
+    }
+
+    setZoomSceneActive(active) {
+      this._zoomSceneActive = !!active;
+      if (this._overlayCanvas) this._overlayCanvas.style.visibility = active ? 'hidden' : '';
     }
 
     addFrameHook(hook) {
@@ -3713,8 +3727,8 @@
 
     // Legacy accessors
     get backendType()  { return this._delegate?.rendererBackend ?? this._delegate?.backendType ?? this._backend; }
-    get device()       { return this._delegate?.device ?? this._delegate?._device ?? null; }
-    get context()      { return this._delegate?.context ?? this._delegate?._context ?? null; }
+    get device()       { return this._delegate?.device ?? this._delegate?._device ?? this._device ?? null; }
+    get context()      { return this._delegate?.context ?? this._delegate?._context ?? this._context ?? null; }
     get instanceId()   { return this._delegate?.instanceId ?? this._instanceId ?? ''; }
     get visibleStars() { return this._delegate?.visibleStars ?? this._rawStars ?? []; }
     get selectedIndex(){ return Number(this._delegate?.selectedIndex ?? this._selectedIdx ?? -1); }

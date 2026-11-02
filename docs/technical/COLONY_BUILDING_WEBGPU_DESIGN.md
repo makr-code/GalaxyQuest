@@ -3,10 +3,75 @@
 ## Technisches Implementierungs-Dokument
 
 **Version:** 1.0  
-**Status:** Implementation Blueprint  
+**Status:** Implemented native WebGPU core; extended blueprint below remains backlog
 **Stand:** 2026-04-01  
 **Bezug:** [COLONY_BUILDING_SYSTEM_DESIGN.md](COLONY_BUILDING_SYSTEM_DESIGN.md) · [ARCHITECTURE.md](ARCHITECTURE.md)  
 **Kontext:** Dieses Dokument beschreibt die **technische WebGPU-Umsetzung** des in `COLONY_BUILDING_SYSTEM_DESIGN.md` definierten Bausystems. Es behandelt 3D-Gebäudemodelle (JSON), den isometrischen Raster-Renderer (Stellaris-Stil) und die Integration in die bestehende WebGPU-Infrastruktur.
+
+---
+
+## Implementierter Kern (2. November 2026)
+
+`ColonySurfaceLevelWebGPU` zeichnet eine echte, tiefengeprüfte 3D-Stadt:
+instanzierte Quader mit 36 Vertices, Straßenraster, Farmbeete, Wohnhäuser mit
+Fenstern, Fabrikschornsteine, Reaktoren und Forschungstürme. Gespeicherte Level
+bestimmen die Gebäudehöhe. Maximal 256 Gebäude, 8.192 statische Teile, 96
+deterministische kosmetische Fußgänger und 900 VFX-Partikel begrenzen die Arbeit.
+Bevölkerung und Bevölkerungsklassen stammen aus dem Serverzustand; ihre
+Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
+
+- **Ein Rendering-Pfad:** Gerät, Canvas-Kontext und Frame-Hook des vorhandenen
+  `Galaxy3DRendererWebGPU` werden geliehen. Während der Nahansicht pausiert dessen
+  Galaxie-Zeichenpass; es gibt keinen weiteren Device-Request oder RAF-Loop.
+- **Navigation:** Planet doppelklicken → Anflug → „Land on colony“ bzw.
+  doppelklicken/hineinscrollen. Alternativ öffnet „3D city“ im Koloniefenster
+  direkt die Oberfläche, sobald der native Galaxy-Renderer initialisiert ist.
+  Die Kamera interpoliert in 1,2 Sekunden von Perspektive/Überblick zur
+  orthographischen Isometrie (45° Azimut, 35,264° Höhe). Beim Landen wird der
+  bisherige Planet im gleichen Kontext überblendet.
+- **Interaktion:** Ziehen verschiebt die Kamera, Mausrad oder +/- zoomt,
+  Doppelklick fokussiert ein Gebäude. CPU-Picking projizierter Gebäude-Bounds
+  berücksichtigt Tiefe und Viewportgröße. Auswahl zeigt Typ/Level/Bauzustand.
+  „Back to orbit“/Escape beendet die Oberfläche. Der Weg über das Koloniefenster
+  kann die bestehende Gebäudeverwaltung für genau diese Kolonie öffnen.
+- **Wirtschaft:** Ein abbrechbarer, nicht gecachter Request bei Eintritt und
+  auf „Refresh snapshot“ liest
+  `api/colony_economy.php?action=snapshot&colony_id=N`. Er benötigt das separate
+  On-demand-Economy-Backend, dessen Migration und
+  `ON_DEMAND_ECONOMY_ENABLED=1` (Default aus). Fehlende Freischaltung/Fehler werden
+  sichtbar gemeldet; bestehende `API.buildings()`-Daten bleiben unabhängig
+  nutzbar. Es gibt weder Polling noch Requests bei verborgenem Dokument.
+  Produktions-/Verbrauchswerte werden nur angezeigt, nicht fortgeschrieben.
+  Rote Sockel signalisieren **kolonieweite** servergemeldete Knappheit, nicht
+  berechnete Einzelgebäude-Auslastung. Kein Macro-/Market-Endpoint wird benötigt.
+- **Persistenz:** Gespeicherte `slot_x`/`slot_y` und Slot-Level haben Vorrang.
+  Ohne gespeicherte Platzierungen wird die bestehende Gebäudeliste lediglich
+  deterministisch visualisiert; dieser Ersatzraster wird nicht gespeichert.
+  Veraltete Antworten nach Koloniewechsel/Austritt werden verworfen. Austritt
+  entfernt Eingabehandler/HUD, stoppt Agenten/VFX und zerstört Szenenbuffer sowie
+  Tiefentextur; gecachte Pipelines werden beim Orchestrator-Dispose freigegeben.
+
+**Bewusste Grenzen:** stilisierte prozedurale Gebäude statt JSON-/GLTF-Modellen,
+keine vollständige Planetenterrain-/Geometrie-Morph-Engine, kein GPU-Picking,
+keine Wegfindungs-/Haushalts-/Arbeitsmarkt-Simulation einzelner Personen, keine
+neuen Bau-Mutationen im 3D-Viewport. Fußgänger laufen kosmetische Straßenzyklen.
+Die Legacy-Three.js-Familie und der separate alte Gebäude-Close-up sind nicht
+Teil dieses Kerns. Die folgenden Blueprint-Kapitel sind **keine** Zusage, dass
+PiP, SSAO, Modell-LOD oder Compute-Bauanimationen bereits integriert sind.
+
+**Nachweise:**
+
+```sh
+npx vitest run tests/js/colony-city-simulation.test.js tests/js/seamless-zoom.test.js tests/js/zoom-level-renderers-shared-init.test.js
+GQ_WEBGPU_SHADER_CI=1 npx playwright test tests/e2e/colony-city-webgpu.spec.js tests/e2e/webgpu-shader-validation.spec.js --grep 'colony city|Colony surface|Planet approach'
+npm run vite:build
+```
+
+Der Browser-Test verwendet echte WebGPU-Pipelines auf dem Galaxy-Renderer
+(Software-Vulkan/SwiftShader ist möglich), durchläuft Anflug/Landung/Auswahl/
+Rückkehr und prüft gemeinsame Ressourcen, fehlende Validierungsfehler sowie
+genau einen Snapshot-Request. Ein lokal vorhandener Chromium kann über
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` gewählt werden.
 
 ---
 

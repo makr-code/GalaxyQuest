@@ -1,269 +1,227 @@
 /**
- * PlanetApproachLevelWebGPU.js
- *
- * IZoomLevelRenderer — Planet Approach zoom level (Level 2), WebGPU backend.
- *
- * Rendering features
- * ──────────────────
- *  • High-resolution planet sphere (64×64 segments) via custom WGSL shader.
- *  • Procedural animated cloud layer (second sphere, slightly larger).
- *  • Atmosphere rim-lighting via Fresnel term in WGSL.
- *  • Planet rotation during approach.
- *
- * In the live app, raw WebGPU calls are used.  In test / headless environments
- * (no navigator.gpu) the methods are no-ops so the orchestrator tests pass
- * without a GPU context.
- *
+ * Planet approach on the shared galaxy WebGPU device, canvas and frame loop.
+ * The incoming flight state drives projection; double-click/scroll enters the city.
  * License: MIT — makr-code/GalaxyQuest
  */
-
 'use strict';
 
 var { IZoomLevelRenderer: ZoomLevelRendererBase } = typeof require !== 'undefined'
   ? require('../IZoomLevelRenderer.js')
   : window.GQIZoomLevelRenderer;
 
-function parseHexColor(hex, fallback) {
-  const normalized = String(hex || '').trim();
-  return /^#?[0-9a-f]{6}$/i.test(normalized)
-    ? `#${normalized.replace(/^#/, '')}`
-    : fallback;
+const PLANET_APPROACH_WGSL = `
+struct Uniforms {
+  viewProjection: mat4x4<f32>,
+  base: vec4<f32>,
+  atmosphere: vec4<f32>,
+  animation: vec4<f32>,
+};
+@group(0) @binding(0) var<uniform> u: Uniforms;
+struct Out {
+  @builtin(position) position: vec4<f32>,
+  @location(0) normal: vec3<f32>,
+  @location(1) uv: vec2<f32>,
+};
+fn noise(p: vec2<f32>) -> f32 {
+  return sin(p.x * 2.7 + sin(p.y * 3.8)) * cos(p.y * 2.1 + sin(p.x * 1.7)) * 0.5 + 0.5;
 }
+@vertex fn vs_main(@builtin(vertex_index) vertex: u32) -> Out {
+  let cell = vertex / 6u;
+  let corner = array<vec2<f32>, 6>(
+    vec2<f32>(0,0), vec2<f32>(1,0), vec2<f32>(0,1),
+    vec2<f32>(0,1), vec2<f32>(1,0), vec2<f32>(1,1));
+  let uv = (vec2<f32>(f32(cell / 64u), f32(cell % 64u)) + corner[vertex % 6u]) / vec2<f32>(32,64);
+  let latitude = uv.x * 3.14159265 - 1.57079633;
+  let longitude = uv.y * 6.2831853 + u.animation.x;
+  let normal = vec3<f32>(cos(latitude) * cos(longitude), sin(latitude), cos(latitude) * sin(longitude));
+  var out: Out;
+  out.position = u.viewProjection * vec4<f32>(normal,1);
+  out.normal = normal;
+  out.uv = uv;
+  return out;
+}
+@fragment fn fs_main(in: Out) -> @location(0) vec4<f32> {
+  let normal = normalize(in.normal);
+  let terrain = noise(in.uv * vec2<f32>(9,17));
+  let cloud = smoothstep(0.65,0.9,noise(in.uv * vec2<f32>(15,23) + vec2<f32>(u.animation.y * 0.02,0)));
+  let light = 0.24 + 0.76 * max(0.0,dot(normal,normalize(vec3<f32>(-0.7,0.8,1))));
+  let surface = mix(u.base.rgb * 0.55,u.base.rgb * 1.3,terrain) + cloud * 0.17;
+  let rim = pow(1.0 - abs(normal.z),3.0);
+  return vec4<f32>(mix(surface * light,u.atmosphere.rgb,rim * 0.7) * u.animation.z,1);
+}
+`;
 
-function hexToRgbFloat(hex) {
-  const normalized = parseHexColor(hex, '#7db7ee').replace('#', '');
-  return [
-    parseInt(normalized.slice(0, 2), 16) / 255,
-    parseInt(normalized.slice(2, 4), 16) / 255,
-    parseInt(normalized.slice(4, 6), 16) / 255,
-  ];
+function planetColor(value, fallback) {
+  const hex = /^#?[0-9a-f]{6}$/i.test(String(value || '')) ? String(value).replace('#', '') : fallback;
+  return [0,2,4].map((index) => parseInt(hex.slice(index, index + 2), 16) / 255);
 }
 
 class PlanetApproachLevelWebGPU extends ZoomLevelRendererBase {
   constructor() {
     super();
-    this._canvas    = null;
-    this._backend   = null;
+    this._canvas = null;
+    this._backend = null;
+    this._device = null;
+    this._context = null;
+    this._pipeline = null;
+    this._uniformBuffer = null;
     this._sceneData = null;
-
-    // Runtime GPU state (null until initialize() succeeds with real WebGPU)
-    this._device    = null;
-    this._context   = null;
-    this._pipeline  = null;
-    this._rotation  = 0;          // radians accumulated per-frame
-    this._visualPalette = {
-      base: [0.2, 0.45, 0.8],
-      atmo: [0.55, 0.75, 1.0],
-      clear: [0.0, 0.0, 0.02],
-    };
+    this._rotation = 0;
+    this._time = 0;
+    this._active = false;
+    this._inputCleanups = [];
+    this._hint = null;
+    this._visualPalette = { base: [0.2,0.45,0.8], atmo: [0.55,0.75,1], clear: [0,0,0.02] };
   }
 
   async initialize(canvas, backend) {
-    this._canvas  = canvas;
+    this._canvas = canvas;
     this._backend = backend;
-
     this._device = backend?.device || null;
     this._context = backend?.context || null;
-    if (!this._device || !this._context) {
-      throw new Error('PlanetApproachLevelWebGPU requires the shared WebGPU device and canvas context');
-    }
+    if (!this._device || !this._context) throw new Error('PlanetApproachLevelWebGPU requires the shared WebGPU device and canvas context');
     await this._buildPipeline();
   }
 
   setSceneData(data) {
-    this._sceneData = data || null;
+    this._sceneData = data;
     this._applySceneDataVisuals(data);
   }
 
-  render(dt, cameraState) { // eslint-disable-line no-unused-vars
-    if (!this._device || !this._context || !this._pipeline) return;
-    this._rotation += (dt > 1 ? dt / 1000 : dt) * 0.05; // slow rotation
+  setNavigationHandlers(handlers) {
+    this._navigation = handlers;
+  }
+
+  async enter(prevLevel, payload) {
+    await this.exit();
+    this._active = true;
+    this._rotation = 0;
+    this._time = 0;
+    if (payload) this.setSceneData(payload);
+    this._applySceneDataVisuals(this._sceneData);
+    if (!this._canvas?.addEventListener) return;
+    const land = (event) => {
+      if (event.type === 'wheel' && event.deltaY >= 0) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this._navigation?.surface?.(this._sceneData);
+    };
+    for (const name of ['dblclick', 'wheel']) {
+      const options = { capture: true, passive: false };
+      this._canvas.addEventListener(name, land, options);
+      this._inputCleanups.push(() => this._canvas.removeEventListener(name, land, options));
+    }
+    if (this._canvas.parentElement) {
+      this._hint = document.createElement('div');
+      Object.assign(this._hint.style, { position: 'absolute', top: '72px', left: '12px', zIndex: '20' });
+      const landButton = document.createElement('button');
+      landButton.className = 'btn btn-secondary btn-sm';
+      landButton.textContent = 'Land on colony · double-click or scroll in';
+      landButton.addEventListener('click', land);
+      const backButton = document.createElement('button');
+      backButton.className = 'btn btn-secondary btn-sm';
+      backButton.textContent = 'Back to system';
+      backButton.addEventListener('click', () => this._navigation?.back?.());
+      this._hint.append(landButton, backButton);
+      this._canvas.parentElement.appendChild(this._hint);
+    }
+  }
+
+  async exit() {
+    this._active = false;
+    this._inputCleanups.splice(0).forEach((cleanup) => cleanup());
+    this._hint?.remove();
+    this._hint = null;
+  }
+
+  render(dt, cameraState) {
+    if (!this._active || !this._pipeline) return;
+    const seconds = Math.max(0, Math.min(0.1, dt > 1 ? dt / 1000 : Number(dt) || 0.016));
+    this._rotation += seconds * 0.05;
+    this._time += seconds;
     this._drawFrame(cameraState);
   }
 
-  async enter(prevLevel, transitionPayload) { // eslint-disable-line no-unused-vars
-    this._rotation = 0;
-    this._applySceneDataVisuals(transitionPayload || this._sceneData || null);
+  renderBackdrop(dt, cameraState, opacity) {
+    if (!this._pipeline) return false;
+    this._rotation += dt * 0.05;
+    this._time += dt;
+    this._drawFrame(cameraState, opacity);
+    return true;
   }
-
-  async exit(nextLevel) { // eslint-disable-line no-unused-vars
-    // Nothing to do — resources stay alive for re-entry.
-  }
-
-  dispose() {
-    this._pipeline = null;
-    this._device = null;
-    this._context = null;
-    this._canvas  = null;
-    this._backend = null;
-  }
-
-  // ── Private helpers ───────────────────────────────────────────────────────
 
   async _buildPipeline() {
-    if (!this._device) return;
-
-    const base = this._visualPalette.base.map((value) => Number(value).toFixed(4));
-    const atmo = this._visualPalette.atmo.map((value) => Number(value).toFixed(4));
-
-    const shaderCode = /* wgsl */`
-      struct Uniforms {
-        rotation : f32,
-        time     : f32,
-        pad0     : f32,
-        pad1     : f32,
-      };
-      @group(0) @binding(0) var<uniform> u : Uniforms;
-
-      struct VSOut {
-        @builtin(position) pos   : vec4<f32>,
-        @location(0)       norm  : vec3<f32>,
-        @location(1)       uv    : vec2<f32>,
-      };
-
-      // Icosahedron-less quick sphere: latitude/longitude grid, 64 segments.
-      // Vertex index encodes (lat, lon) packed as a single u32.
-      @vertex
-      fn vs_main(@builtin(vertex_index) idx : u32) -> VSOut {
-        let segments : u32 = 64u;
-        let lat_idx  = idx / (segments + 1u);
-        let lon_idx  = idx % (segments + 1u);
-        let pi       = 3.14159265358979323846;
-        let lat      = (f32(lat_idx) / f32(segments)) * pi - pi * 0.5;
-        let lon      = (f32(lon_idx) / f32(segments)) * 2.0 * pi + u.rotation;
-        let cosLat   = cos(lat);
-        let x        = cosLat * cos(lon);
-        let y        = sin(lat);
-        let z        = cosLat * sin(lon);
-        var out      : VSOut;
-        out.pos      = vec4<f32>(x * 0.6, y * 0.6, z * 0.6 - 2.0, 1.0);
-        out.norm     = vec3<f32>(x, y, z);
-        out.uv       = vec2<f32>(f32(lon_idx) / f32(segments), f32(lat_idx) / f32(segments));
-        return out;
-      }
-
-      @fragment
-      fn fs_main(in : VSOut) -> @location(0) vec4<f32> {
-        // Fresnel atmosphere rim-lighting + procedural surface texturing
-        fn hash2(p : vec2<f32>) -> f32 {
-          return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
-        }
-
-        fn noise2(p : vec2<f32>) -> f32 {
-          let i = floor(p);
-          let f = fract(p);
-          let a = hash2(i);
-          let b = hash2(i + vec2<f32>(1.0, 0.0));
-          let c = hash2(i + vec2<f32>(0.0, 1.0));
-          let d = hash2(i + vec2<f32>(1.0, 1.0));
-          let u = f * f * (3.0 - 2.0 * f);
-          return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
-        }
-
-        fn fbm(p : vec2<f32>) -> f32 {
-          var value = 0.0;
-          var amp = 0.5;
-          var freq = 1.0;
-          for (var i = 0; i < 4; i = i + 1) {
-            value = value + amp * noise2(p * freq);
-            freq = freq * 2.03;
-            amp = amp * 0.5;
-          }
-          return value;
-        }
-
-        let view_dir = normalize(vec3<f32>(0.0, 0.0, 1.0));
-        let fresnel  = pow(1.0 - abs(dot(in.norm, view_dir)), 3.0);
-        let base_col = vec3<f32>(${base[0]}, ${base[1]}, ${base[2]});
-        let atmo_col = vec3<f32>(${atmo[0]}, ${atmo[1]}, ${atmo[2]});
-
-        // UV-driven macro/micro detail to avoid flat-color planets.
-        let uvLarge = vec2<f32>(in.uv.x * 8.0 + u.rotation * 0.08, in.uv.y * 4.0 + u.time * 0.012);
-        let uvFine = vec2<f32>(in.uv.x * 22.0 - u.rotation * 0.03, in.uv.y * 12.0 - u.time * 0.009);
-        let terrain = fbm(uvLarge);
-        let micro = fbm(uvFine);
-        let bands = 0.5 + 0.5 * sin(in.uv.y * 18.0 + terrain * 4.5);
-        let craterMask = smoothstep(0.80, 0.97, fbm(uvFine * 1.7 + vec2<f32>(3.1, 9.7)));
-        let cloudMask = smoothstep(0.62, 0.90, fbm(uvLarge * 1.2 + vec2<f32>(0.0, u.time * 0.02)));
-
-        var surface = mix(base_col * 0.70, base_col * 1.18, terrain);
-        surface = mix(surface, atmo_col * 0.92, bands * 0.22);
-        surface = mix(surface, surface * 0.66, craterMask * 0.30);
-        surface = surface + vec3<f32>(micro * 0.05);
-
-        let clouds = vec3<f32>(1.0, 1.0, 1.0) * cloudMask * 0.12;
-        let lit = surface + clouds;
-        let col = mix(lit, atmo_col, fresnel * 0.8);
-        return vec4<f32>(col, 1.0);
-      }
-    `;
-
-    const module = this._device.createShaderModule({ code: shaderCode });
-    const format = navigator.gpu.getPreferredCanvasFormat
-      ? navigator.gpu.getPreferredCanvasFormat()
-      : 'bgra8unorm';
-
+    const module = this._device.createShaderModule({ label: 'planet_approach', code: PLANET_APPROACH_WGSL });
+    const format = globalThis.navigator?.gpu?.getPreferredCanvasFormat?.() || 'bgra8unorm';
     this._pipeline = this._device.createRenderPipeline({
       layout: 'auto',
-      vertex:   { module, entryPoint: 'vs_main' },
+      vertex: { module, entryPoint: 'vs_main' },
       fragment: { module, entryPoint: 'fs_main', targets: [{ format }] },
-      primitive: { topology: 'triangle-strip' },
+      primitive: { topology: 'triangle-list', cullMode: 'back' },
+    });
+    this._uniformBuffer = this._device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this._bindGroup = this._device.createBindGroup({
+      layout: this._pipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this._uniformBuffer } }],
     });
   }
 
-  _drawFrame(cameraState) { // eslint-disable-line no-unused-vars
-    if (!this._device || !this._context || !this._pipeline) return;
-    try {
-      const encoder = this._device.createCommandEncoder();
-      const view    = this._context.getCurrentTexture().createView();
-      const pass    = encoder.beginRenderPass({
-        colorAttachments: [{
-          view,
-          clearValue: { r: this._visualPalette.clear[0], g: this._visualPalette.clear[1], b: this._visualPalette.clear[2], a: 1.0 },
-          loadOp: 'clear',
-          storeOp: 'store',
-        }],
-      });
-      pass.setPipeline(this._pipeline);
-      // 65×65 grid = 4225 vertices in triangle-strip
-      pass.draw(65 * 65, 1, 0, 0);
-      pass.end();
-      this._device.queue.submit([encoder.finish()]);
-    } catch (_) {}
-  }
-
-  _resolveVisualSource(data) {
-    if (!data || typeof data !== 'object') return null;
-    return data.focusPlanet || data.planet || data.colony || data.target || data;
+  _drawFrame(cameraState, opacity = 1) {
+    const aspect = this._canvas.width / Math.max(1, this._canvas.height);
+    const z = Math.abs(Number(cameraState?.position?.z) || 15);
+    const distance = 2.8 + Math.min(2, z / 50);
+    const near = 0.1;
+    const far = 20;
+    const projection = new Float32Array([
+      1.73 / aspect,0,0,0, 0,1.73,0,0, 0,0,far / (near - far),-1,
+      0,0,(far * near - far * distance) / (near - far),distance,
+    ]);
+    const uniforms = new Float32Array(28);
+    uniforms.set(projection);
+    uniforms.set([...this._visualPalette.base,1],16);
+    uniforms.set([...this._visualPalette.atmo,1],20);
+    uniforms.set([this._rotation,this._time,opacity,0],24);
+    this._device.queue.writeBuffer(this._uniformBuffer,0,uniforms);
+    const encoder = this._device.createCommandEncoder();
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: this._context.getCurrentTexture().createView(),
+        clearValue: { r: this._visualPalette.clear[0], g: this._visualPalette.clear[1], b: this._visualPalette.clear[2], a: 1 },
+        loadOp: 'clear', storeOp: 'store',
+      }],
+    });
+    pass.setPipeline(this._pipeline);
+    pass.setBindGroup(0,this._bindGroup);
+    pass.draw(32 * 64 * 6,1,0,0);
+    pass.end();
+    this._device.queue.submit([encoder.finish()]);
   }
 
   _applySceneDataVisuals(data) {
-    const source = this._resolveVisualSource(data);
-    const ownerColor = parseHexColor(
-      source?.colony_owner_color || source?.owner_color || source?.faction_color || '',
-      '#7db7ee'
-    );
-    const isOwned = !!String(source?.colony_owner_color || source?.owner_color || source?.faction_color || '').trim();
-    const isPlayer = Number(source?.colony_is_player || source?.is_player || 0) === 1;
-    const base = hexToRgbFloat(isOwned ? ownerColor : '#3373cc');
-    const atmo = hexToRgbFloat(isPlayer ? '#7dffb2' : (isOwned ? ownerColor : '#8cc4ff'));
+    const source = data?.focusPlanet || data?.planet || data?.colony || data?.target || data || {};
+    const owner = source.colony_owner_color || source.owner_color || source.faction_color;
     this._visualPalette = {
-      base,
-      atmo,
-      clear: isOwned ? [0.02, 0.04, 0.07] : [0.0, 0.0, 0.02],
+      base: planetColor(owner, '3373cc'),
+      atmo: planetColor(Number(source.colony_is_player || source.is_player) === 1 ? '#7dffb2' : owner, '8cc4ff'),
+      clear: owner ? [0.02,0.04,0.07] : [0,0,0.02],
     };
-    if (this._device && this._context) {
-      this._buildPipeline().catch(() => {});
-    }
+  }
+
+  dispose() {
+    this.exit();
+    this._uniformBuffer?.destroy();
+    this._uniformBuffer = null;
+    this._pipeline = null;
+    this._bindGroup = null;
+    this._device = null;
+    this._context = null;
+    this._canvas = null;
+    this._backend = null;
   }
 }
 
-// ---------------------------------------------------------------------------
-// Export
-// ---------------------------------------------------------------------------
-
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { PlanetApproachLevelWebGPU };
+  module.exports = { PlanetApproachLevelWebGPU, PLANET_APPROACH_WGSL };
 } else {
   window.GQPlanetApproachLevelWebGPU = { PlanetApproachLevelWebGPU };
 }

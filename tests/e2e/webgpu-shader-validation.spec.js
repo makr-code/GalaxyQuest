@@ -59,6 +59,27 @@ function extractWgslConstant(relPath, constantName) {
 function buildShaderCatalogue() {
   return [
     {
+      label: 'Planet approach — flight-projected sphere',
+      type: 'render',
+      source: extractWgslFromModule(
+        'js/engine/zoom/levels/PlanetApproachLevelWebGPU.js', 'PLANET_APPROACH_WGSL',
+      ),
+    },
+    {
+      label: 'Colony surface — depth-tested instanced city',
+      type: 'render',
+      source: extractWgslFromModule(
+        'js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js', 'COLONY_CITY_WGSL',
+      ),
+    },
+    {
+      label: 'Colony surface — projected activity particles',
+      type: 'render',
+      source: extractWgslFromModule(
+        'js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js', 'COLONY_VFX_WGSL',
+      ),
+    },
+    {
       label: 'StarfieldWebGPU — instanced galaxy stars',
       type: 'render',
       source: extractWgslConstant(
@@ -218,6 +239,13 @@ async function acquireWebGPUDevice(page) {
 test.describe('WebGPU WGSL Shader Validation (Hardware-in-Loop)', () => {
 
   let shaders;
+
+  test.beforeEach(async ({ page }) => {
+    // A localhost origin is a secure context; about:blank can hide navigator.gpu.
+    await page.route('http://localhost/webgpu-shader-test', (route) =>
+      route.fulfill({ contentType: 'text/html', body: '<html><body></body></html>' }));
+    await page.goto('http://localhost/webgpu-shader-test');
+  });
 
   test.beforeAll(() => {
     shaders = buildShaderCatalogue();
