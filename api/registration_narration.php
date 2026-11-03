@@ -4,8 +4,15 @@ declare(strict_types=1);
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/tts_client.php';
 
-only_method('GET');
-$id = $_GET['clip'] ?? '';
+only_method('GET', 'POST');
+$method = $_SERVER['REQUEST_METHOD'];
+if ($method === 'POST') {
+    verify_csrf();
+    $body = get_json_body();
+    $id = $body['clip'] ?? '';
+} else {
+    $id = $_GET['clip'] ?? '';
+}
 if (!is_string($id)) json_error('Invalid narration clip.');
 $content = json_decode(file_get_contents(__DIR__ . '/../config/onboarding_prologue.json'), true, 512, JSON_THROW_ON_ERROR);
 $clips = array_merge($content['teaser'], $content['registration_steps'] ?? []);
@@ -46,34 +53,47 @@ if ($clip === null && preg_match('/^mentor-([a-z0-9_]{2,30})$/D', $id, $matches)
     ];
 }
 if ($clip === null) json_error('Unknown narration clip.', 404);
-$result = tts_synthesise($clip['text'], [
-    'voice' => TTS_DEFAULT_VOICE,
-    'lang' => $content['language'] ?? 'de',
-    'prosody' => [
-        'length_scale' => 0.97,
-        'sentence_silence' => 0.22,
-    ],
-    'timeout' => max(210, (int)TTS_TIMEOUT_SECONDS),
-]);
-if (!($result['ok'] ?? false)) {
-    error_log('registration_narration_synthesis_failed clip=' . $id
-        . ' status=' . (int)($result['status'] ?? 502)
-        . ' error=' . (string)($result['error'] ?? 'unknown'));
-    json_error('Narration audio is currently unavailable.', 503);
-}
 $hash = tts_cache_key(TTS_DEFAULT_VOICE, trim($clip['text']), [
     'length_scale' => 0.97,
     'sentence_silence' => 0.22,
 ]);
 $path = TTS_AUDIO_DIR . DIRECTORY_SEPARATOR . $hash . '.mp3';
-if (!is_file($path) || filesize($path) === 0) {
-    error_log('registration_narration_cache_missing clip=' . $id . ' hash=' . $hash);
-    json_error('Narration audio is currently unavailable.', 503);
+$cached = false;
+if (is_file($path) && filesize($path) > 0) {
+    $mtime = filemtime($path);
+    $ttl = (int)TTS_CACHE_TTL;
+    $cached = $mtime !== false && ($ttl === 0 || time() - $mtime < $ttl);
+}
+$generated = false;
+if (!$cached && $method === 'GET') {
+    json_error('Narration audio is not cached or has expired.', 404);
+}
+if (!$cached) {
+    $result = tts_synthesise($clip['text'], [
+        'voice' => TTS_DEFAULT_VOICE,
+        'lang' => $content['language'] ?? 'de',
+        'prosody' => [
+            'length_scale' => 0.97,
+            'sentence_silence' => 0.22,
+        ],
+        'timeout' => max(210, (int)TTS_TIMEOUT_SECONDS),
+    ]);
+    if (!($result['ok'] ?? false)) {
+        error_log('registration_narration_synthesis_failed clip=' . $id
+            . ' status=' . (int)($result['status'] ?? 502)
+            . ' error=' . (string)($result['error'] ?? 'unknown'));
+        json_error('Narration audio is currently unavailable.', 503);
+    }
+    if (!is_file($path) || filesize($path) === 0) {
+        error_log('registration_narration_cache_missing clip=' . $id . ' hash=' . $hash);
+        json_error('Narration audio is currently unavailable.', 503);
+    }
+    $generated = !($result['cached'] ?? false);
 }
 header('Cache-Control: no-store');
 json_ok([
     'clip' => $id,
     'text' => $clip['text'],
     'audio_url' => TTS_AUDIO_WEB . '/' . $hash . '.mp3',
-    'cached' => (bool)($result['cached'] ?? false),
+    'cached' => !$generated,
 ]);

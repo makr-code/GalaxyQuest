@@ -531,6 +531,8 @@ function send_fleet(PDO $db, int $uid, array $body): never {
     } catch (DomainException $error) {
         json_error($error->getMessage(), $error->getCode() ?: 400);
     }
+    gq_cache_delete('shipyard_list', ['uid' => $uid, 'cid' => $originCid]);
+    gq_cache_delete('game_overview', ['uid' => $uid]);
     enqueue_dirty_user($db, $uid, 'fleet_sent');
     json_ok(['fleet_id' => $fleetId, 'arrival_time' => $arrival]);
 }

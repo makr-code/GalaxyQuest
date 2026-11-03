@@ -346,8 +346,12 @@ const API = (() => {
     return get('api/resources.php', options);
   };
 
-  const buildings = async (options = {}) => {
-    return get('api/buildings.php', options);
+  const buildings = async (colonyId, options = {}) => {
+    return get(`api/buildings.php?action=list&colony_id=${encodeURIComponent(Number(colonyId))}`, options);
+  };
+
+  const finishBuilding = async (colonyId, options = {}) => {
+    return post('api/buildings.php?action=finish', { colony_id: Number(colonyId) }, options);
   };
 
   const research = async (options = {}) => {
@@ -356,6 +360,32 @@ const API = (() => {
 
   const shipyard = async (options = {}) => {
     return get('api/shipyard.php', options);
+  };
+
+  const ships = async (colonyId, options = {}) => {
+    return get(`api/shipyard.php?action=list&colony_id=${encodeURIComponent(Number(colonyId))}`, options);
+  };
+
+  const finishShipyard = async (colonyId, options = {}) => {
+    return post('api/shipyard.php?action=finish', { colony_id: Number(colonyId) }, options);
+  };
+
+  const shipyardHulls = async (colonyId, options = {}) => {
+    return get(`api/shipyard.php?action=list_hulls&colony_id=${encodeURIComponent(Number(colonyId))}`, options);
+  };
+
+  const shipyardVessels = async (colonyId, options = {}) => {
+    return get(`api/shipyard.php?action=list_vessels&colony_id=${encodeURIComponent(Number(colonyId))}`, options);
+  };
+
+  const shipyardModules = async (colonyId, hullCode, layoutCode = 'default', options = {}) => {
+    const query = new URLSearchParams({
+      action: 'list_modules',
+      colony_id: String(Number(colonyId)),
+      hull_code: String(hullCode || ''),
+      slot_layout_code: String(layoutCode || 'default'),
+    });
+    return get(`api/shipyard.php?${query}`, options);
   };
 
   const fleet = async (options = {}) => {
@@ -570,8 +600,14 @@ const API = (() => {
     health,
     resources,
     buildings,
+    finishBuilding,
     research,
     shipyard,
+    ships,
+    finishShipyard,
+    shipyardHulls,
+    shipyardVessels,
+    shipyardModules,
     fleet,
     fleets,
     processFleetArrivals,
@@ -608,16 +644,22 @@ const API = (() => {
     attack,
     sendFleet,
     recallFleet,
-    colonyBuildingsLayout: (colonyId, options = {}) =>
-      get(`api/colony_buildings.php?action=get_layout&colony_id=${encodeURIComponent(Number(colonyId))}`, options),
+    colonyBuildingsLayout: async (colonyId, options = {}) => {
+      const id = Number(colonyId);
+      await post('api/colony_buildings.php?action=settle', { colony_id: id }, options);
+      return get(`api/colony_buildings.php?action=get_layout&colony_id=${encodeURIComponent(id)}`, options);
+    },
     colonyBuildingsPlace: (data, options = {}) =>
       post('api/colony_buildings.php?action=place_building', data, options),
     colonyBuildingsRemove: (data, options = {}) =>
       post('api/colony_buildings.php?action=remove_building', data, options),
     colonyBuildingsUpgrade: (data, options = {}) =>
       post('api/colony_buildings.php?action=upgrade_slot', data, options),
-    colonyBuildingsSlotInfo: (colonyId, slotX, slotY, options = {}) =>
-      get(`api/colony_buildings.php?action=get_slot_info&colony_id=${encodeURIComponent(Number(colonyId))}&slot_x=${encodeURIComponent(Number(slotX))}&slot_y=${encodeURIComponent(Number(slotY))}`, options),
+    colonyBuildingsSlotInfo: async (colonyId, slotX, slotY, options = {}) => {
+      const id = Number(colonyId);
+      await post('api/colony_buildings.php?action=settle', { colony_id: id }, options);
+      return get(`api/colony_buildings.php?action=get_slot_info&colony_id=${encodeURIComponent(id)}&slot_x=${encodeURIComponent(Number(slotX))}&slot_y=${encodeURIComponent(Number(slotY))}`, options);
+    },
     getQueueStats,
     cancelPendingRequests,
     isSessionExpired,
@@ -626,7 +668,8 @@ const API = (() => {
     handleAuthError,
     
     // Achievements / quests
-    achievements:    ()    => get('api/achievements.php?action=list'),
+    achievements:    ()    => get('api/achievements.php?action=list', { cacheMode: 'no-store' }),
+    checkAchievements: () => post('api/achievements.php?action=check', {}),
     claimAchievement:(id)  => post('api/achievements.php?action=claim', { achievement_id: id }),
 
     // PvP
@@ -639,7 +682,8 @@ const API = (() => {
     setAutonomy:         (lid, autonomy) => post('api/leaders.php?action=autonomy',     { leader_id: lid, autonomy }),
     dismissLeader:       (lid)         => post('api/leaders.php?action=dismiss',        { leader_id: lid }),
     aiTick:              ()            => post('api/leaders.php?action=ai_tick',        {}),
-    leaderMarketplace:   ()            => get('api/leaders.php?action=marketplace'),
+    leaderMarketplace:   ()            => get('api/leaders.php?action=marketplace', { cacheMode: 'no-store' }),
+    refreshLeaderMarketplace: () => post('api/leaders.php?action=refresh_marketplace', {}),
     hireCandidate:       (cid)         => post('api/leaders.php?action=hire_candidate', { candidate_id: cid }),
     advisorHints:        ()            => get('api/leaders.php?action=advisor_hints'),
     advisorTick:         ()            => post('api/leaders.php?action=advisor_tick',   {}),
@@ -695,10 +739,14 @@ const API = (() => {
     applyPoliticsPreset: (preset_key) =>
       post('api/politics.php?action=apply_preset', { preset_key }),
 
+    // Scientific glossary
+    generateGlossaryDefinition: (term) =>
+      post('api/glossary.php?action=generate', { term: String(term || '') }),
+
     // Messages
     inbox:    ()               => get('api/messages.php?action=inbox'),
     messageUsers: (q = '')     => get(`api/messages.php?action=users&q=${encodeURIComponent(String(q || ''))}`),
-    readMsg:  (id)             => get(`api/messages.php?action=read&id=${id}`),
+    readMsg:  (id)             => post('api/messages.php?action=read', { id }),
     sendMsg:  (to, sub, body)  => post('api/messages.php?action=send', { to_username: to, subject: sub, body }),
     deleteMsg:(id)             => post('api/messages.php?action=delete', { id }),
 

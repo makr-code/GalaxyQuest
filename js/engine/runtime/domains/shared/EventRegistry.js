@@ -10,6 +10,51 @@
  */
 
 const EVENT_REGISTRY = {
+  'population:open-requested': {
+    payload: { colonyId: { type: 'number' } },
+    emitter: 'GameGalaxy',
+    subscribers: ['GamePopulation'],
+  },
+  'market:open-requested': {
+    payload: { colonyId: { type: 'number' }, goodType: { type: 'string' } },
+    emitter: 'GamePopulation, GameEconomy',
+    subscribers: ['GameMarket'],
+  },
+  'shipyard:open-requested': {
+    payload: { colonyId: { type: 'number' } },
+    emitter: 'GameGalaxy, GameFleetCommand',
+    subscribers: ['GameShipyard'],
+  },
+  'fleet:target-picking': {
+    payload: { active: { type: 'boolean' } },
+    emitter: 'GameFleetCommand',
+    subscribers: ['GameGalaxy'],
+  },
+  'fleet:origin-requested': {
+    payload: { colonyId: { type: 'number' } },
+    emitter: 'GameGalaxy',
+    subscribers: ['GameFleetCommand'],
+  },
+  'fleet:target-requested': {
+    payload: { galaxy: { type: 'number' }, system: { type: 'number' }, position: { type: 'number' } },
+    emitter: 'GameGalaxy',
+    subscribers: ['GameFleetLaunch'],
+  },
+  'buildings:open-requested': {
+    payload: { colonyId: { type: 'number' }, buildingType: { type: 'string' } },
+    emitter: 'GameGalaxy',
+    subscribers: ['GameDevelopment'],
+  },
+  'colony:mutation-accepted': {
+    payload: { colonyId: { type: 'number' }, domain: { type: 'string' }, allColonies: { type: 'boolean' } },
+    emitter: 'ServerColonyDomain, ServerFleetDomain',
+    subscribers: ['GameGalaxy'],
+  },
+  'overview:updated': {
+    payload: { state: { type: 'object' }, colonyId: { description: 'Selected colony ID or null' } },
+    emitter: 'ServerGameSession',
+    subscribers: ['GameOverview'],
+  },
   // ==================== ECONOMY EVENTS ====================
   
   'economy:tax-rate-changed': {

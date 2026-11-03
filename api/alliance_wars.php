@@ -331,11 +331,12 @@ function aw_action_get_status(PDO $db, int $uid): never {
         json_error('War not found.', 404);
     }
 
-    aw_mark_expired_offers($db, $warId);
     $sides = aw_load_sides($db, $warId);
 
     $offerSt = $db->prepare(
-        'SELECT id, from_alliance_id, status, terms_json, created_at, expires_at, responded_at
+        'SELECT id, from_alliance_id,
+                CASE WHEN status = "pending" AND expires_at <= NOW() THEN "expired" ELSE status END AS status,
+                terms_json, created_at, expires_at, responded_at
          FROM alliance_war_peace_offers
          WHERE war_id = ?
          ORDER BY id DESC

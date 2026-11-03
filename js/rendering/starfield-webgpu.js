@@ -341,6 +341,7 @@
         clear() {},
       };
       this.ready    = false;
+      this._disposed = false;
     }
 
     /**
@@ -348,16 +349,19 @@
      */
     async init() {
       const gpuAvailable = await _probeWebGPU();
+      if (this._disposed) return;
 
       if (gpuAvailable) {
         try {
           await this._initWebGPU();
+          if (this._disposed) return;
           this._backend = 'webgpu';
           this.ready = true;
           this.start();
           emitRenderTelemetry('backend-active', { backend: 'webgpu' });
           return;
         } catch (err) {
+          if (this._disposed) return;
           if (this._opts.menuGalaxy) throw err;
           emitRenderTelemetry('fallback', {
             from: 'webgpu',
@@ -576,6 +580,19 @@
     getSpatialLabels() {
       return this._perspectiveFlight?.currentLabels?.slice() || [];
     }
+    getSpaceView() { return this._perspectiveFlight; }
+    getSharedZoomBackend() {
+      return {
+        device: this._device, context: this._context, externalCameraControls: true,
+        getCapabilities: () => ({ webgpu: true }),
+        addFrameHook: (hook) => {
+          this._gameFrameHooks ||= new Set();
+          this._gameFrameHooks.add(hook);
+          return () => this._gameFrameHooks.delete(hook);
+        },
+        setZoomSceneActive: (active) => { this._gameZoomSceneActive = active; },
+      };
+    }
     getFlightCoordinates() {
       return this._perspectiveFlight?.getFlightCoordinates?.() || null;
     }
@@ -709,6 +726,7 @@
     }
 
     dispose() {
+      this._disposed = true;
       this.stop();
       this._perspectiveFlight?.dispose();
       this._bloom?.dispose();
@@ -733,6 +751,7 @@
       this._viewBindGroup = null;
       this._context = null;
       this._adapter = null;
+      this._device?.destroy?.();
       this._device = null;
       this._currentTarget = null;
       this._cameraDriver = null;
@@ -748,13 +767,16 @@
         throw new Error('missing canvas');
       }
       this._adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+      if (this._disposed) return;
       if (!this._adapter) {
         throw new Error('no webgpu adapter');
       }
       const filterableFloat16 = this._adapter.features?.has('float16-filterable') === true;
-      this._device = await this._adapter.requestDevice({
+      const device = await this._adapter.requestDevice({
         requiredFeatures: filterableFloat16 ? ['float16-filterable'] : [],
       });
+      if (this._disposed) { device.destroy(); return; }
+      this._device = device;
       this._sceneFormat = filterableFloat16 ? 'rgba16float' : navigator.gpu.getPreferredCanvasFormat();
       this._context = this._canvas.getContext('webgpu');
       if (!this._context) {
@@ -809,6 +831,7 @@
       const sceneShader = this._device.createShaderModule({ code: REGISTRATION_SCENE_WGSL, label: 'registration-flight' });
       if (sceneShader.getCompilationInfo) {
         const info = await sceneShader.getCompilationInfo();
+        if (this._disposed) return;
         const errors = info.messages.filter((message) => message.type === 'error');
         if (errors.length) throw new Error(`Registration shader: ${errors.map((error) => error.message).join('; ')}`);
       }
@@ -840,22 +863,30 @@
           pitchAngleDeg: this._opts.pitchAngleDeg,
         });
         await this._nebulaField.init(this._device, navigator.gpu.getPreferredCanvasFormat(), null, this._sceneFormat);
+        if (this._disposed) return;
       }
       if (this._opts.menuGalaxy && window.GQLensFlarePass?.LensFlarePass) {
         const response = await fetch(new URL('js/engine/post-effects/shaders/lensflare.wgsl', document.baseURI));
+        if (this._disposed) return;
         if (!response.ok) throw new Error(`Lens flare shader: HTTP ${response.status}`);
         this._lensFlare = new window.GQLensFlarePass.LensFlarePass({ globalScale: 0.9 });
-        await this._lensFlare.initialize(this._device, this._sceneFormat, await response.text());
+        const shaderSource = await response.text();
+        if (this._disposed) return;
+        await this._lensFlare.initialize(this._device, this._sceneFormat, shaderSource);
+        if (this._disposed) return;
       }
       if (this._opts.menuGalaxy && window.GQPerspectiveBloom) {
         const [bloomResponse, compositeResponse] = await Promise.all([
           fetch(new URL('js/engine/post-effects/shaders/bloom.wgsl', document.baseURI)),
           fetch(new URL('js/engine/post-effects/shaders/bloom-composite.wgsl', document.baseURI)),
         ]);
+        if (this._disposed) return;
         if (!bloomResponse.ok || !compositeResponse.ok) throw new Error('Bloom shaders could not be loaded');
+        const [bloomSource, compositeSource] = await Promise.all([bloomResponse.text(), compositeResponse.text()]);
+        if (this._disposed) return;
         this._bloom = new window.GQPerspectiveBloom();
         await this._bloom.initialize(this._device, navigator.gpu.getPreferredCanvasFormat(),
-          await bloomResponse.text(), await compositeResponse.text(), this._sceneFormat);
+          bloomSource, compositeSource, this._sceneFormat);
       }
     }
 
@@ -904,12 +935,18 @@
         ? Math.max(0, Math.min(0.048, (now - this._lastCameraDriverTime) / 1000))
         : (1 / 60);
       this._lastCameraDriverTime = now;
+      if (this._gameZoomSceneActive) {
+        for (const hook of this._gameFrameHooks || []) hook(dt);
+        this._frameTick++;
+        return;
+      }
       if (this._perspectiveFlight) {
         if (!this._reducedMotion) this._perspectiveFlight.update(dt);
         this._perspectiveFlight.renderFrame(this._device, this._context, this._flightStars,
           this._canvas.width, this._canvas.height, this._nebulaField,
           this._canvas.width / Math.max(1, this._canvas.clientWidth));
         this._frameTick++;
+        for (const hook of this._gameFrameHooks || []) hook(dt);
         return;
       }
       if (this._opts.menuGalaxy && !this._reducedMotion && !this._regionPreviewTarget) {

@@ -206,21 +206,23 @@ export class SpaceVesselRenderPass {
   render(pass, vessels, camera, origin, effectTime) {
     if (!this.device || !vessels.length) return;
     this._ensurePipelines();
-    const viewProjection = new Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    // Subtract the eye in double precision before uploading planet-scale geometry to f32.
+    const viewRotation = camera.matrixWorldInverse.clone().setPosition(0, 0, 0);
+    const viewProjection = new Matrix4().multiplyMatrices(camera.projectionMatrix, viewRotation);
     const world = camera.matrixWorld.elements;
     for (const vessel of vessels) {
       const resource = this.resources.get(vessel.id);
       const asset = resource?.asset;
       if (!asset?.vertexBuffer) continue;
       this._ensureBindings(resource);
-      const model = new Matrix4().compose(vessel.position.clone().sub(origin), vessel.quaternion,
+      const model = new Matrix4().compose(vessel.position.clone().sub(origin).sub(camera.position), vessel.quaternion,
         new Vector3(vessel.scale, vessel.scale, vessel.scale));
       const uniforms = new Float32Array(48);
       uniforms.set(viewProjection.elements, 0);
       uniforms.set(model.elements, 16);
       uniforms.set(vessel.color, 32);
       uniforms.set([0.38, -0.5, 0.78, 0.24], 36);
-      uniforms.set([camera.position.x, camera.position.y, camera.position.z, effectTime], 40);
+      uniforms.set([0, 0, 0, effectTime], 40);
       uniforms.set([1, 0, 0, 0], 44);
       this.device.queue.writeBuffer(resource.uniformBuffer, 0, uniforms);
       pass.setPipeline(this.pipeline);
@@ -376,6 +378,7 @@ export class SpaceVesselRenderPass {
     const vertices = new Float32Array((positions.length / 3) * 10);
     for (let index = 0; index < positions.length / 3; index += 1) {
       const positionOffset = index * 3;
+      const surfaceOffset = index * 4;
       const vertexOffset = index * 10;
       vertices[vertexOffset] = (positions[positionOffset] - center.x) / maxDimension;
       vertices[vertexOffset + 1] = (positions[positionOffset + 1] - center.y) / maxDimension;
@@ -383,10 +386,10 @@ export class SpaceVesselRenderPass {
       vertices[vertexOffset + 3] = normals[positionOffset];
       vertices[vertexOffset + 4] = normals[positionOffset + 1];
       vertices[vertexOffset + 5] = normals[positionOffset + 2];
-      vertices[vertexOffset + 6] = surfaceColors[positionOffset];
-      vertices[vertexOffset + 7] = surfaceColors[positionOffset + 1];
-      vertices[vertexOffset + 8] = surfaceColors[positionOffset + 2];
-      vertices[vertexOffset + 9] = surfaceColors[positionOffset + 3];
+      vertices[vertexOffset + 6] = surfaceColors[surfaceOffset];
+      vertices[vertexOffset + 7] = surfaceColors[surfaceOffset + 1];
+      vertices[vertexOffset + 8] = surfaceColors[surfaceOffset + 2];
+      vertices[vertexOffset + 9] = surfaceColors[surfaceOffset + 3];
     }
     return vertices;
   }

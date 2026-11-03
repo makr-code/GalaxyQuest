@@ -99,4 +99,14 @@ describe('CI smoke workflow ordering and cleanup', () => {
     expect(dockerfile).toContain('HEALTHCHECK --interval=30s --timeout=5s');
     expect(dockerfile).toContain('/health/live');
   });
+  it('serves the local bundle and hashed assets when Compose mounts the source tree', () => {
+    const entry = readFileSync(path.resolve('index.php'), 'utf8');
+    const rules = readFileSync(path.resolve('.htaccess'), 'utf8');
+    expect(entry.indexOf("'/dist/index.html'")).toBeLessThan(entry.indexOf("'/index.html'"));
+    expect(entry).toContain('if (!is_file($indexPath))');
+    expect(rules).toContain('RewriteRule ^index\\.html$ index.php [L]');
+    expect(rules).toContain('RewriteCond %{DOCUMENT_ROOT}/dist/assets/$1 -f');
+    expect(rules).toContain('RewriteRule ^assets/(.+)$ dist/assets/$1 [L]');
+    expect(rules.indexOf('^assets/(.+)$')).toBeLessThan(rules.indexOf('^(.*)$ /index.php'));
+  });
 });

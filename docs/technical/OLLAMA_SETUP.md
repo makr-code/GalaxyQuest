@@ -27,10 +27,15 @@ Falls nicht gesetzt, werden Defaults verwendet.
 
 ### 3. Datenbank erweitern
 
-Die `glossary_cache` Tabelle wird beim ersten Zugriff automatisch erstellt:
+Die `glossary_cache` Tabelle wird durch die Migration
+`migrate_glossary_cache_v1.sql` angelegt. Die RAG-Generierung verwendet:
 
 ```php
-GET /api/glossary.php?action=generate&term=white_dwarf
+POST /api/glossary.php?action=generate
+X-CSRF-Token: <token>
+Content-Type: application/json
+
+{"term":"white_dwarf"}
 ```
 
 ## RAG Pipeline
@@ -51,7 +56,10 @@ UI: Toggle zwischen Static/AI Definition
 
 ## Endpoints
 
-### `GET /api/glossary.php?action=generate&term=<term_key>`
+### `POST /api/glossary.php?action=generate`
+
+Body: `{"term":"<term_key>"}`. Requires a valid CSRF token. Glossary
+definitions are read-only on GET; generation and cache writes use POST.
 
 Generiert eine LLM-Definitionen mit Wikipedia RAG.
 
@@ -85,7 +93,10 @@ Generiert eine LLM-Definitionen mit Wikipedia RAG.
 
 ```bash
 # Alternative Modelle testen:
-OLLAMA_MODEL=neural-chat php api/glossary.php?action=generate&term=habitable_zone
+curl -X POST http://localhost/api/glossary.php?action=generate \
+  -H 'Content-Type: application/json' \
+  -H 'X-CSRF-Token: <token>' \
+  -d '{"term":"habitable_zone"}'
 ```
 
 ## Performance

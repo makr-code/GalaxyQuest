@@ -293,6 +293,11 @@ function handleGetQueueStatus(TRELLIS2AssetManager $manager, int $user_id, int $
 function handleGetGeneration(TRELLIS2AssetManager $manager, int $user_id, int $generation_id): void {
     try {
         $generation = $manager->getGenerationStatus($generation_id);
+        if (!$generation) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Generation not found']);
+            exit(1);
+        }
         
         // Verify ownership
         if ((int)$generation['user_id'] !== $user_id) {
@@ -353,63 +358,4 @@ function handleGetQuota(TRELLIS2AssetManager $manager, int $user_id): void {
         http_response_code(500);
         echo json_encode(['error' => $e->getMessage()]);
     }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// HELPER FUNCTIONS
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Get current authenticated user ID
- * Supports: session, JWT, API key (adapt for your auth system)
- */
-function getCurrentUserId(): ?int {
-    // If user is logged in via session
-    if (isset($_SESSION['user_id'])) {
-        return (int)$_SESSION['user_id'];
-    }
-    
-    // If using JWT or API key in Authorization header
-    $auth_header = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-    if (preg_match('#Bearer\s+(\d+)#i', $auth_header, $m)) {
-        return (int)$m[1];
-    }
-    
-    // Fallback: mock user for development
-    if (getenv('APP_ENV') === 'development') {
-        return 1; // Mock user
-    }
-    
-    return null;
-}
-
-/**
- * Get PDO database connection
- */
-function getDatabase(): PDO {
-    static $pdo = null;
-    
-    if ($pdo) {
-        return $pdo;
-    }
-    
-    $host = getenv('DB_HOST') ?: 'db';
-    $port = (int)(getenv('DB_PORT') ?: 3306);
-    $name = getenv('DB_NAME') ?: 'galaxyquest';
-    $user = getenv('DB_USER') ?: 'root';
-    $pass = getenv('DB_PASS') ?: 'root';
-    
-    $pdo = new PDO(
-        sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
-            $host, $port, $name
-        ),
-        $user,
-        $pass,
-        [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        ]
-    );
-    
-    return $pdo;
 }

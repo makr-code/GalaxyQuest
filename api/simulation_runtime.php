@@ -57,6 +57,56 @@ function simulation_runtime_supports_state_tracking(): bool
 }
 
 /**
+ * Serialize workers for one simulation scope using a connection-scoped MySQL lock.
+ *
+ * @param callable(): array<string, mixed> $operation
+ * @return array<string, mixed>
+ */
+function simulation_runtime_with_scope_lock(PDO $db, string $scope, string $scopeId, callable $operation): array
+{
+    if ($db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') {
+        throw new RuntimeException('Simulation tick locking requires MySQL.');
+    }
+
+    $lockName = 'gq:sim:' . substr(hash('sha256', $scope . ':' . $scopeId), 0, 48);
+    $acquire = $db->prepare('SELECT GET_LOCK(?, 0)');
+    $acquire->execute([$lockName]);
+    if ((string)$acquire->fetchColumn() !== '1') {
+        return [
+            'executed' => false,
+            'scope' => $scope,
+            'reason' => 'lock_busy',
+        ];
+    }
+
+    $failure = null;
+    try {
+        return $operation();
+    } catch (Throwable $error) {
+        $failure = $error;
+        throw $error;
+    } finally {
+        try {
+            $release = $db->prepare('SELECT RELEASE_LOCK(?)');
+            $release->execute([$lockName]);
+            if ((string)$release->fetchColumn() !== '1') {
+                throw new RuntimeException('Simulation tick lock was not released.');
+            }
+        } catch (Throwable $releaseError) {
+            if ($failure !== null) {
+                error_log(sprintf(
+                    '[simulation] lock_release_failed scope=%s error_class=%s',
+                    $scope,
+                    get_class($releaseError)
+                ));
+            } else {
+                throw $releaseError;
+            }
+        }
+    }
+}
+
+/**
  * @param callable(): mixed $operation
  * @return array<string, mixed>
  */
@@ -166,6 +216,19 @@ function simulation_runtime_execute_subsystem(
  * @return array<string, mixed>
  */
 function simulation_tick_global(PDO $db, bool $force = false): array
+{
+    return simulation_runtime_with_scope_lock(
+        $db,
+        'global',
+        '',
+        static fn(): array => simulation_tick_global_locked($db, $force)
+    );
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function simulation_tick_global_locked(PDO $db, bool $force = false): array
 {
     $now = time();
     $cooldown = max(1, (int)SIMULATION_GLOBAL_TICK_COOLDOWN_SECONDS);
@@ -285,6 +348,19 @@ function simulation_tick_user(PDO $db, int $userId, bool $force = false): array
         throw new InvalidArgumentException('userId must be > 0');
     }
 
+    return simulation_runtime_with_scope_lock(
+        $db,
+        'user',
+        (string)$userId,
+        static fn(): array => simulation_tick_user_locked($db, $userId, $force)
+    );
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function simulation_tick_user_locked(PDO $db, int $userId, bool $force = false): array
+{
     $now = time();
     $cooldown = max(1, (int)SIMULATION_USER_TICK_COOLDOWN_SECONDS);
     $stateKey = 'simulation:user:' . $userId . ':last_tick_unix';

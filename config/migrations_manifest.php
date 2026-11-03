@@ -141,4 +141,5 @@ return [
     'migrate_projection_claim_token_v1.sql',
     'migrate_economy_on_demand_v1.sql',
     'migrate_body_terrain_v1.sql',
+    'migrate_registration_play_v1.sql',
 ];

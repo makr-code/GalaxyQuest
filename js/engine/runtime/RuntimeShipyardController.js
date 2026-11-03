@@ -1440,6 +1440,7 @@
       gqStatusMsg(root, 'Laden\u2026', 'muted');
 
       try {
+        await api.finishShipyard(currentColony.id);
         const [data, hullData, vesselData] = await Promise.all([
           api.ships(currentColony.id),
           api.shipyardHulls(currentColony.id),

@@ -26,6 +26,7 @@ class GameGuideSystem {
             const response = await fetch(`${this.apiBaseUrl}/game_guide.php?action=greeting`, {
                 method: 'GET',
                 headers: this.getHeaders(),
+                credentials: 'same-origin',
             });
             
             const data = await response.json();
@@ -56,15 +57,20 @@ class GameGuideSystem {
         this.assessmentRunning = true;
         
         try {
+            const csrfToken = await this.getCsrfToken();
             const formData = new FormData();
             formData.append('action', 'assess_game_state');
             formData.append('game_state', JSON.stringify(gameState));
-            formData.append('csrf_token', this.getCsrfToken());
+            formData.append('csrf_token', csrfToken);
             
             const response = await fetch(`${this.apiBaseUrl}/game_guide.php`, {
                 method: 'POST',
-                headers: this.getHeaders(),
+                headers: {
+                    ...this.getHeaders(),
+                    'X-CSRF-Token': csrfToken,
+                },
                 body: formData,
+                credentials: 'same-origin',
             });
             
             const data = await response.json();
@@ -99,6 +105,7 @@ class GameGuideSystem {
                 {
                     method: 'GET',
                     headers: this.getHeaders(),
+                    credentials: 'same-origin',
                 }
             );
             
@@ -122,16 +129,21 @@ class GameGuideSystem {
      */
     async requestDirectHelp(helpType, gameState) {
         try {
+            const csrfToken = await this.getCsrfToken();
             const formData = new FormData();
             formData.append('action', 'provide_help');
             formData.append('help_type', helpType);
             formData.append('game_state', JSON.stringify(gameState));
-            formData.append('csrf_token', this.getCsrfToken());
+            formData.append('csrf_token', csrfToken);
             
             const response = await fetch(`${this.apiBaseUrl}/game_guide.php`, {
                 method: 'POST',
-                headers: this.getHeaders(),
+                headers: {
+                    ...this.getHeaders(),
+                    'X-CSRF-Token': csrfToken,
+                },
                 body: formData,
+                credentials: 'same-origin',
             });
             
             const data = await response.json();
@@ -159,15 +171,20 @@ class GameGuideSystem {
         }
         
         try {
+            const csrfToken = await this.getCsrfToken();
             const formData = new FormData();
             formData.append('action', 'record_checkpoint');
             formData.append('checkpoint', checkpointId);
-            formData.append('csrf_token', this.getCsrfToken());
+            formData.append('csrf_token', csrfToken);
             
             const response = await fetch(`${this.apiBaseUrl}/game_guide.php`, {
                 method: 'POST',
-                headers: this.getHeaders(),
+                headers: {
+                    ...this.getHeaders(),
+                    'X-CSRF-Token': csrfToken,
+                },
                 body: formData,
+                credentials: 'same-origin',
             });
             
             const data = await response.json();
@@ -194,6 +211,7 @@ class GameGuideSystem {
             const response = await fetch(`${this.apiBaseUrl}/game_guide.php?action=get_progress`, {
                 method: 'GET',
                 headers: this.getHeaders(),
+                credentials: 'same-origin',
             });
             
             const data = await response.json();
@@ -262,11 +280,30 @@ class GameGuideSystem {
     /**
      * Get CSRF token from page
      */
-    getCsrfToken() {
-        // Try multiple sources
-        return window.gameState?.csrfToken ||
-               document.querySelector('meta[name="csrf-token"]')?.content ||
-               '';
+    async getCsrfToken() {
+        const token = window.gameState?.csrfToken ||
+            document.querySelector('meta[name="csrf-token"]')?.content ||
+            window.APISession?.getCsrfToken?.();
+        if (token) {
+            return token;
+        }
+
+        const endpoint = `${this.apiBaseUrl}/auth.php?action=csrf`;
+        const response = await fetch(endpoint, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' },
+            credentials: 'same-origin',
+        });
+        if (!response.ok) {
+            throw new Error(`CSRF token request failed (${response.status})`);
+        }
+
+        const data = await response.json();
+        if (typeof data.token !== 'string' || data.token.length === 0) {
+            throw new Error('CSRF token missing from response');
+        }
+        window.APISession?.setCsrfToken?.(data.token);
+        return data.token;
     }
     
     /**
@@ -276,17 +313,7 @@ class GameGuideSystem {
         return {
             'Accept': 'application/json',
             'X-Requested-With': 'XMLHttpRequest',
-            'Authorization': `Bearer ${this.getAuthToken()}`,
         };
-    }
-    
-    /**
-     * Get auth token
-     */
-    getAuthToken() {
-        return window.gameState?.authToken ||
-               localStorage.getItem('auth_token') ||
-               '';
     }
     
     /**

@@ -191,6 +191,7 @@ switch ($action) {
 
     case 'set_defense_budget':
         only_method('POST');
+        verify_csrf();
         $colonyId    = (int)($_POST['colony_id'] ?? 0);
         $budgetAmount = (float)($_POST['budget_amount'] ?? 0);
 
@@ -263,6 +264,7 @@ switch ($action) {
     // PHASE 3.1 – Pirate tributary agreement: pay tribute → raids cease for this faction
     case 'propose_contract':
         only_method('POST');
+        verify_csrf();
         $factionId   = (int)($_POST['faction_id'] ?? 0);
         $contractType = strtolower((string)($_POST['contract_type'] ?? 'tributary'));
         $creditOffer = (int)($_POST['credit_offer'] ?? 0);

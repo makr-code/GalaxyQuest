@@ -56,12 +56,19 @@ test(`persistent colony terrain ${scenario.kind}${scenario.regions ? ' GeoJSON r
   };
   let requests = 0, batches = 0, maxBatch = 0;
   const generated = new Map();
+  await page.route('**/api/auth.php?action=csrf', (route) => route.fulfill({
+    json: { success: true, token: 'terrain-test-csrf' },
+  }));
   await page.route('**/api/terrain.php?*', (route) => {
     requests++;
-    const query = new URL(route.request().url()).searchParams;
-    expect(query.get('colony_id')).toBe('7');
+    const request = route.request();
+    expect(request.method()).toBe('POST');
+    expect(request.headers()['x-csrf-token']).toBe('terrain-test-csrf');
+    const query = new URL(request.url()).searchParams;
+    const payload = request.postDataJSON();
+    expect(payload.colony_id).toBe(7);
     if (query.get('action') === 'manifest') return route.fulfill({ json: { success: true, manifest } });
-    const addresses = JSON.parse(query.get('tiles'));
+    const addresses = payload.tiles;
     batches++;
     maxBatch = Math.max(maxBatch, addresses.length);
     const tiles = addresses.map((address) => {

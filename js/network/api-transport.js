@@ -74,6 +74,14 @@ const APITransport = (() => {
     try {
       const clone = response.clone();
       const raw = await clone.text();
+      if (contentType.includes('application/json')) {
+        try {
+          const data = JSON.parse(raw);
+          if (typeof data?.error === 'string' && data.error.trim()) err.message = data.error;
+        } catch (parseError) {
+          if (!(parseError instanceof SyntaxError)) throw parseError;
+        }
+      }
       const snippet = _sanitizeSnippet(raw, 300);
       if (snippet) err.responseSnippet = snippet;
     } catch (err) {
@@ -184,6 +192,7 @@ const APITransport = (() => {
       let timeoutId = null;
       try {
         const timeoutController = new AbortController();
+        if (init?.signal?.aborted) throw init.signal.reason || _createAbortError();
         if (init?.signal && typeof init.signal.addEventListener === 'function') {
           init.signal.addEventListener('abort', () => {
             timeoutController.abort(init.signal.reason || _createAbortError('Request cancelled'));

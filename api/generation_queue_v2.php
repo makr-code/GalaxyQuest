@@ -6,8 +6,8 @@
  * 2. image: Image → 3D  
  * 3. hybrid: Image → Base 3D, then refine with text prompt
  * 
- * GET /api/generation_queue_v2?queue_id=...   – Get job status
- * POST /api/generation_queue_v2                 – Create new job
+ * GET /api/generation_queue_v2?queue_id=...   – Read job status
+ * POST /api/generation_queue_v2                 – Create new job (authenticated, CSRF protected)
  */
 declare(strict_types=1);
 
@@ -119,36 +119,6 @@ function callTrellis2Image(string $imageBase64): ?string {
 }
 
 /**
- * Try to find a recently generated GLB file
- */
-function tryFindGeneratedGLB(?string $queueId, ?string $eventId): ?string {
-    if (!$eventId) return null;
-    
-    $glbDir = '/var/www/html/generated/trellis2';
-    if (!is_dir($glbDir)) return null;
-    
-    $files = scandir($glbDir, SCANDIR_SORT_DESCENDING);
-    if (!$files) return null;
-    
-    $cutoff = time() - 600;  // Last 10 minutes
-    
-    foreach ($files as $file) {
-        if ($file === '.' || $file === '..') continue;
-        if (!str_ends_with($file, '.glb')) continue;
-        
-        $filePath = $glbDir . '/' . $file;
-        $filesize = @filesize($filePath);
-        $mtime = @filemtime($filePath);
-        
-        if ($filesize > 1000 && $mtime > $cutoff) {
-            return '/generated/trellis2/' . $file;
-        }
-    }
-    
-    return null;
-}
-
-/**
  * Create a minimal procedural GLB (fallback)
  */
 function createProceduralGLB(): string {
@@ -212,7 +182,8 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         
         // POST: Create new generation job
         if ($method === 'POST') {
-            $uid = (int)(current_user_id() ?? 1);
+            $uid = require_auth();
+            verify_csrf();
             $db = get_db();
             $body = json_decode(file_get_contents('php://input'), true);
             
@@ -286,11 +257,13 @@ SQL);
         
         // GET: Get job status
         if ($method === 'GET' && $queueId) {
-            $uid = (int)(current_user_id() ?? 1);
+            $uid = require_auth();
             $db = get_db();
             
-            $stmt = $db->prepare('SELECT * FROM generation_queue WHERE id = ? LIMIT 1');
-            $stmt->execute([$queueId]);
+            $stmt = $db->prepare(
+                'SELECT * FROM generation_queue WHERE id = ? AND user_id = ? LIMIT 1'
+            );
+            $stmt->execute([$queueId, $uid]);
             $queue = $stmt->fetch(\PDO::FETCH_ASSOC);
             
             if (!$queue) {
@@ -299,28 +272,7 @@ SQL);
             }
             
             $status = $queue['status'];
-            $progress = 0;
-            $metadata = json_decode($queue['metadata'] ?? '{}', true);
-            $eventId = $metadata['trellis2_event_id'] ?? null;
-            
-            // Check if processing job has completed
-            if ($status === 'processing' && $eventId) {
-                $glbPath = tryFindGeneratedGLB($queueId, $eventId);
-                if ($glbPath) {
-                    // Mark as completed
-                    $generationId = $queue['generation_id'] ?? bin2hex(random_bytes(8));
-                    
-                    $stmt = $db->prepare(<<<'SQL'
-                        UPDATE generation_queue 
-                        SET status = 'completed', generation_id = ?, updated_at = NOW()
-                        WHERE id = ?
-SQL);
-                    $stmt->execute([$generationId, $queueId]);
-                    
-                    $status = 'completed';
-                    $progress = 100;
-                }
-            }
+            $progress = $status === 'completed' ? 100 : 0;
             
             // Calculate progress for processing jobs
             if ($status === 'processing') {

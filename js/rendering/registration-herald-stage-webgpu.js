@@ -308,9 +308,15 @@ export class RegistrationHeraldStage {
       teaserShipUrl: TEASER_SHIP_URL,
     });
     if (await riggedOrchestrator.mount(container, this.actors)) {
+      if (this.destroyed) {
+        riggedOrchestrator.destroy();
+        return false;
+      }
       this.riggedOrchestrator = riggedOrchestrator;
       this.canvas = riggedOrchestrator.canvas;
       this.canvas.dataset.renderer = 'three-webgpu-gltf';
+      riggedOrchestrator.setSelected(this.selectedCode);
+      riggedOrchestrator.setFocus(this.focusCode);
       return true;
     }
     riggedOrchestrator.destroy();

@@ -461,6 +461,19 @@ class CameraFlightPath {
     }
   }
 
+  dispose() {
+    this._state = 'idle';
+    const resolve = this._resolve;
+    this._resolve = null;
+    this._reject = null;
+    this._opts = {};
+    this._targetRef = null;
+    this._colliders = [];
+    this._onAtmosphereScale = null;
+    this._onStarBlur = null;
+    resolve?.();
+  }
+
   /** Whether a flight is currently in progress. */
   get isFlying() {
     return this._state !== 'idle';

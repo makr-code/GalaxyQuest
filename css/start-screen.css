@@ -64,10 +64,12 @@ body.auth-page #auth-section {
 .start-music-controls button:disabled { opacity: .45; cursor: wait; }
 .start-music-controls button[aria-pressed="true"] { background: #367ca070; border-color: #a8d7ff; }
 .start-music-controls svg { width: 16px; height: 16px; }
+.start-music-volume { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: .65rem; }
+.start-music-volume input { min-width: 0; width: 90px; flex: 1; }
 .start-music-status { display: block; font-size: .65rem; color: #b6d7f0; }
 .start-music-status:not(:empty) { margin-top: 6px; }
 @media (max-width: 700px) {
-  .auth-page .start-menu { padding-top: 154px; }
+  .auth-page .start-menu { padding-top: 180px; }
   .start-music-player { width: min(230px, calc(100% - 32px)); }
 }
 

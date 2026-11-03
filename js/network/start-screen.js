@@ -1,7 +1,7 @@
 import { initializeServerAnnouncements } from './server-announcements.js';
 import { initializeRegistrationPrologue } from './registration-prologue.js';
 
-export function initializeStartScreen({ onResume, onMute, onFlightTour = () => true, onRegistrationRequest, onRegistrationPreview } = {}) {
+export function initializeStartScreen({ onResume, onMute, onFlightTour = () => true, onRegistrationRequest, onRegistrationPreview, onEnterDraft } = {}) {
   const menu = document.getElementById('start-menu');
   const template = document.getElementById('auth-forms-template');
   if (!menu || !template?.content.firstElementChild) throw new Error('Start-screen HTML is missing required markup');
@@ -96,6 +96,7 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
 
   const registration = initializeRegistrationPrologue({
     request: onRegistrationRequest, onPreview: onRegistrationPreview,
+    onEnterDraft,
     onClose: () => {
       resumeFlightTourAfterRegistration();
       document.getElementById('start-register').focus();
@@ -160,7 +161,7 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
     try {
       await onResume();
     } catch (error) {
-      report(`Unable to resume: ${error.message}`, 'error');
+      report(`Fortsetzen fehlgeschlagen: ${error.message}`, 'error');
     } finally {
       resumePending = false;
       document.getElementById('start-resume').disabled = false;
@@ -298,7 +299,7 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
       document.getElementById('start-login').hidden = authenticated;
       document.getElementById('start-resume').hidden = !authenticated;
       document.getElementById('start-register').hidden = authenticated;
-      report(authenticated ? `Welcome back${username ? `, ${username}` : ''}. Ready to resume.` : 'Your next chapter awaits.');
+      report(authenticated ? `Willkommen zurück${username ? `, ${username}` : ''}. Mit Fortsetzen kehrst du ins Spiel zurück.` : 'Your next chapter awaits.');
     },
     setStatus: report,
   };

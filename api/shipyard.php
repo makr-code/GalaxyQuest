@@ -30,6 +30,19 @@ if (PHP_SAPI !== 'cli') {
             action_shipyard_list(get_db(), $uid, (int)($_GET['colony_id'] ?? 0));
             break;
 
+        case 'finish':
+            only_method('POST');
+            verify_csrf();
+            $body = get_json_body();
+            $cid = (int)($body['colony_id'] ?? 0);
+            $db = get_db();
+            verify_colony_ownership($db, $cid, $uid);
+            ensure_ship_build_queue_table($db);
+            complete_ship_build_queue($db, $cid);
+            gq_cache_delete('shipyard_list', ['uid' => $uid, 'cid' => $cid]);
+            json_ok();
+            break;
+
         case 'list_hulls':
             only_method('GET');
             action_list_hulls(get_db(), $uid, (int)($_GET['colony_id'] ?? 0));
@@ -167,6 +180,7 @@ if (PHP_SAPI !== 'cli') {
 
             gq_cache_delete('shipyard_list', ['uid' => $uid, 'cid' => $cid]);
             gq_cache_delete('buildings_list', ['uid' => $uid, 'cid' => $cid]);
+            gq_cache_delete('game_overview', ['uid' => $uid]);
 
             $queue = list_ship_build_queue($db, $cid);
             $queuedEntry = null;
@@ -198,7 +212,6 @@ if (PHP_SAPI !== 'cli') {
 function action_shipyard_list(PDO $db, int $uid, int $cid): never {
     verify_colony_ownership($db, $cid, $uid);
     ensure_ship_build_queue_table($db);
-    complete_ship_build_queue($db, $cid);
 
     $cacheKeyParams = ['uid' => $uid, 'cid' => $cid];
     $hasPendingQueue = ship_build_queue_has_pending($db, $cid);

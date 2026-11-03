@@ -24,11 +24,21 @@ require_auth();
 
 $action = strtolower((string)($_GET['action'] ?? 'spaceship_texture'));
 $allowedActions = ['spaceship_texture', 'planet_texture', 'atmosphere_texture', 'detail_texture', 'batch_pbr', 'progressive', 'status', 'queue'];
+$generationActions = ['spaceship_texture', 'planet_texture', 'atmosphere_texture', 'detail_texture', 'batch_pbr', 'progressive'];
 
 if (!in_array($action, $allowedActions, true)) {
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => 'invalid action']);
     exit;
+}
+
+if (in_array($action, $generationActions, true)) {
+    only_method('POST');
+    verify_csrf();
+    $requestData = get_json_body();
+} else {
+    only_method('GET');
+    $requestData = [];
 }
 
 // Check if AI texture generation is enabled
@@ -52,22 +62,23 @@ try {
 
 switch ($action) {
     case 'spaceship_texture':
-        handle_spaceship_texture($textureAiService);
+        handle_spaceship_texture($textureAiService, $requestData);
         break;
     case 'planet_texture':
-        handle_planet_texture($textureAiService);
+        handle_planet_texture($textureAiService, $requestData);
         break;
     case 'atmosphere_texture':
-        handle_atmosphere_texture($textureAiService);
+        handle_atmosphere_texture($textureAiService, $requestData);
         break;
     case 'detail_texture':
-        handle_detail_texture($textureAiService);
+        handle_detail_texture($textureAiService, $requestData);
         break;
     case 'batch_pbr':
-        handle_batch_pbr($textureAiService);
+        handle_batch_pbr($textureAiService, $requestData);
         break;
     case 'progressive':
-        handle_progressive_loading($textureAiService);
+        handle_progressive_loading($textureAiService, $requestData);
+        break;
     case 'status':
         handle_status($textureAiService);
         break;
@@ -81,14 +92,14 @@ exit;
 /**
  * Handle spaceship hull texture generation
  */
-function handle_spaceship_texture(GQTextureAiService $service): void
+function handle_spaceship_texture(GQTextureAiService $service, array $input): void
 {
-    $textureType = sanitize_input((string)($_GET['texture_type'] ?? 'albedo'));
-    $faction = sanitize_input((string)($_GET['faction'] ?? 'generic'));
-    $condition = sanitize_input((string)($_GET['condition'] ?? 'new')); // new, weathered, damaged
-    $style = sanitize_input((string)($_GET['style'] ?? 'scifi')); // scifi, industrial, alien
-    $size = (int)($_GET['size'] ?? 512);
-    $seed = (int)($_GET['seed'] ?? 0);
+    $textureType = sanitize_input((string)($input['texture_type'] ?? 'albedo'));
+    $faction = sanitize_input((string)($input['faction'] ?? 'generic'));
+    $condition = sanitize_input((string)($input['condition'] ?? 'new'));
+    $style = sanitize_input((string)($input['style'] ?? 'scifi'));
+    $size = (int)($input['size'] ?? 512);
+    $seed = (int)($input['seed'] ?? 0);
 
     $descriptor = [
         'type' => 'spaceship',
@@ -117,12 +128,12 @@ function handle_spaceship_texture(GQTextureAiService $service): void
 /**
  * Handle planet surface texture generation
  */
-function handle_planet_texture(GQTextureAiService $service): void
+function handle_planet_texture(GQTextureAiService $service, array $input): void
 {
-    $textureType = sanitize_input((string)($_GET['texture_type'] ?? 'albedo'));
-    $biome = sanitize_input((string)($_GET['biome'] ?? 'rocky')); // rocky, icy, volcanic, alien
-    $size = (int)($_GET['size'] ?? 512);
-    $seed = (int)($_GET['seed'] ?? 0);
+    $textureType = sanitize_input((string)($input['texture_type'] ?? 'albedo'));
+    $biome = sanitize_input((string)($input['biome'] ?? 'rocky'));
+    $size = (int)($input['size'] ?? 512);
+    $seed = (int)($input['seed'] ?? 0);
 
     $descriptor = [
         'type' => 'planet',
@@ -149,12 +160,12 @@ function handle_planet_texture(GQTextureAiService $service): void
 /**
  * Handle atmospheric effects texture generation
  */
-function handle_atmosphere_texture(GQTextureAiService $service): void
+function handle_atmosphere_texture(GQTextureAiService $service, array $input): void
 {
-    $textureType = sanitize_input((string)($_GET['texture_type'] ?? 'cloud'));
-    $style = sanitize_input((string)($_GET['style'] ?? 'earth_like')); // earth_like, toxic, aurora, etc.
-    $size = (int)($_GET['size'] ?? 256);
-    $seed = (int)($_GET['seed'] ?? 0);
+    $textureType = sanitize_input((string)($input['texture_type'] ?? 'cloud'));
+    $style = sanitize_input((string)($input['style'] ?? 'earth_like'));
+    $size = (int)($input['size'] ?? 256);
+    $seed = (int)($input['seed'] ?? 0);
 
     $descriptor = [
         'type' => 'atmosphere',
@@ -181,12 +192,12 @@ function handle_atmosphere_texture(GQTextureAiService $service): void
 /**
  * Handle detail map generation (wear, scratches, damage)
  */
-function handle_detail_texture(GQTextureAiService $service): void
+function handle_detail_texture(GQTextureAiService $service, array $input): void
 {
-    $textureType = sanitize_input((string)($_GET['texture_type'] ?? 'wear'));
-    $intensity = (float)($_GET['intensity'] ?? 0.5);
-    $size = (int)($_GET['size'] ?? 512);
-    $seed = (int)($_GET['seed'] ?? 0);
+    $textureType = sanitize_input((string)($input['texture_type'] ?? 'wear'));
+    $intensity = (float)($input['intensity'] ?? 0.5);
+    $size = (int)($input['size'] ?? 512);
+    $seed = (int)($input['seed'] ?? 0);
 
     $descriptor = [
         'type' => 'detail',
@@ -213,14 +224,14 @@ function handle_detail_texture(GQTextureAiService $service): void
 /**
  * Handle batch PBR texture generation (all maps at once)
  */
-function handle_batch_pbr(GQTextureAiService $service): void
+function handle_batch_pbr(GQTextureAiService $service, array $input): void
 {
-    $faction = sanitize_input((string)($_GET['faction'] ?? 'generic'));
-    $condition = sanitize_input((string)($_GET['condition'] ?? 'new'));
-    $style = sanitize_input((string)($_GET['style'] ?? 'scifi'));
-    $size = (int)($_GET['size'] ?? 512);
-    $seed = (int)($_GET['seed'] ?? 0);
-    $useControlNet = (int)($_GET['controlnet'] ?? 0) === 1;
+    $faction = sanitize_input((string)($input['faction'] ?? 'generic'));
+    $condition = sanitize_input((string)($input['condition'] ?? 'new'));
+    $style = sanitize_input((string)($input['style'] ?? 'scifi'));
+    $size = (int)($input['size'] ?? 512);
+    $seed = (int)($input['seed'] ?? 0);
+    $useControlNet = (int)($input['controlnet'] ?? 0) === 1;
 
     $descriptor = [
         'type' => 'spaceship',
@@ -250,21 +261,20 @@ function handle_batch_pbr(GQTextureAiService $service): void
 /**
  * Handle progressive texture loading (low-res first, then high-res)
  */
-function handle_progressive_loading(GQTextureAiService $service): never
+function handle_progressive_loading(GQTextureAiService $service, array $input): never
 {
-    only_method('GET');
-    $textureType = sanitize_input((string)($_GET['texture_type'] ?? 'albedo'));
-    $objectType = sanitize_input((string)($_GET['object_type'] ?? 'spaceship'));
-    $faction = sanitize_input((string)($_GET['faction'] ?? 'generic'));
-    $targetSize = filter_var($_GET['target_size'] ?? 512, FILTER_VALIDATE_INT);
-    $phase = $_GET['phase'] ?? 'low_res';
+    $textureType = sanitize_input((string)($input['texture_type'] ?? 'albedo'));
+    $objectType = sanitize_input((string)($input['object_type'] ?? 'spaceship'));
+    $faction = sanitize_input((string)($input['faction'] ?? 'generic'));
+    $targetSize = filter_var($input['target_size'] ?? 512, FILTER_VALIDATE_INT);
+    $phase = $input['phase'] ?? 'low_res';
     if ($targetSize === false || $targetSize < 128 || $targetSize > 1024) {
         json_error('target_size must be an integer between 128 and 1024.', 400);
     }
     if (!in_array($phase, ['low_res', 'high_res'], true)) {
         json_error('Invalid progressive phase.', 400);
     }
-    $seed = (int)($_GET['seed'] ?? 0);
+    $seed = (int)($input['seed'] ?? 0);
 
     $descriptor = [
         'type' => $objectType,
@@ -292,7 +302,7 @@ function handle_progressive_loading(GQTextureAiService $service): never
         'progressive' => true,
         'phase' => 'low_res_ready',
         'low_res' => $result,
-        'high_res_url' => 'api/textures-ai.php?' . http_build_query([
+        'high_res_request' => [
             'action' => 'progressive',
             'target_size' => $targetSize,
             'phase' => 'high_res',
@@ -300,7 +310,7 @@ function handle_progressive_loading(GQTextureAiService $service): never
             'object_type' => $objectType,
             'faction' => $faction,
             'seed' => $seed,
-        ]),
+        ],
     ]);
 }
 

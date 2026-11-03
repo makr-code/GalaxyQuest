@@ -2,7 +2,7 @@ import content from '../../config/onboarding_prologue.json';
 import populationIcon from '../../gfx/icons/mono/population.svg?url&no-inline';
 import { RegistrationHeraldStage } from '../rendering/registration-herald-stage-webgpu.js';
 
-export function initializeRegistrationPrologue({ request, onPreview = () => {}, onClose = () => {} }) {
+export function initializeRegistrationPrologue({ request, onPreview = () => {}, onClose = () => {}, onEnterDraft }) {
   const root = document.getElementById('registration-prologue');
   if (!root) throw new Error('Registration prologue HTML is missing.');
   const element = (id) => root.querySelector(`#registration-${id}`);
@@ -184,8 +184,23 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     narrationRequest = controller;
     const timeout = setTimeout(() => controller.abort(), 220000);
     try {
-      const response = await fetch(`api/registration_narration.php?clip=${encodeURIComponent(clip.id)}`, {
+      const csrfResponse = await fetch('api/auth.php?action=csrf', {
         credentials: 'same-origin', signal: controller.signal,
+      });
+      if (!csrfResponse.ok) throw new Error(`CSRF token request failed (HTTP ${csrfResponse.status}).`);
+      const csrfData = await csrfResponse.json();
+      if (typeof csrfData.token !== 'string' || csrfData.token.length === 0) {
+        throw new Error('CSRF token missing.');
+      }
+      const response = await fetch('api/registration_narration.php', {
+        method: 'POST',
+        credentials: 'same-origin',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfData.token,
+        },
+        body: JSON.stringify({ clip: clip.id }),
       });
       if (!response.ok) throw new Error(`Sprachausgabe nicht verfügbar (HTTP ${response.status}).`);
       const data = await response.json();
@@ -580,10 +595,10 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     element('review-commander').textContent = draft.character?.name || 'Nicht festgelegt';
     element('review-background').textContent = draft.character?.background || 'Nicht festgelegt';
     element('review').hidden = false;
-    element('status').textContent = 'Privater, befristeter Entwurf. Es wurde kein Konto angelegt und keine Welt aktiviert.';
+    element('status').textContent = 'Deine Startwelt ist bereit zum Spielen. Sie bleibt bis zur E-Mail-Bestätigung isoliert; dein Draft-Fortschritt läuft nicht ab.';
     preview({ stage: 'surface', target: draft.target, stars: draft.stars, draft });
     next.hidden = false;
-    next.textContent = 'Fertig – zurück zum Start';
+    next.textContent = 'Draft-Welt betreten';
     root.dataset.beat = 'draft-review';
     const narration = content.registration_steps?.find((clip) => clip.id === 'draft-review');
     if (narration) void narrate(narration, () => {});
@@ -617,8 +632,26 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
       else void prepareCharacter();
     }
     else if (phase === 'character') showSurface();
-    else if (phase === 'surface') close();
+    else if (phase === 'surface') void enterDraft();
   });
+  async function enterDraft() {
+    busy = true;
+    next.disabled = true;
+    element('error').textContent = '';
+    const version = revision;
+    try {
+      if (typeof onEnterDraft !== 'function') throw new Error('Draft gameplay is not configured.');
+      await onEnterDraft(draft.prolog_token);
+      if (active && revision === version) {
+        close();
+        window.dispatchEvent(new Event('gq:draft-entered'));
+      }
+    } catch (error) {
+      if (active && revision === version) fail(error);
+    } finally {
+      if (active && revision === version) { busy = false; next.disabled = false; }
+    }
+  }
   element('back').addEventListener('click', back);
   element('retry').addEventListener('click', loadMentorDrafts);
   element('character-form').addEventListener('submit', saveCharacter);

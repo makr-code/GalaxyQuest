@@ -323,9 +323,24 @@ class MultiModeGenerationModal {
     submitBtn.disabled = true;
 
     try {
+      const csrfResponse = await fetch('/api/auth.php?action=csrf', {
+        credentials: 'same-origin'
+      });
+      if (!csrfResponse.ok) {
+        throw new Error(`CSRF token request failed (${csrfResponse.status})`);
+      }
+      const csrfData = await csrfResponse.json();
+      if (typeof csrfData.token !== 'string' || csrfData.token.length === 0) {
+        throw new Error('CSRF token missing from response');
+      }
+
       const response = await fetch(this.apiUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfData.token
+        },
         body: JSON.stringify(payload)
       });
 
@@ -335,6 +350,7 @@ class MultiModeGenerationModal {
         this.showGenerationStatus(data, label);
       } else {
         alert('Error: ' + (data.error || 'Unknown error'));
+        submitBtn.disabled = false;
       }
     } catch (error) {
       alert('Failed to submit: ' + error.message);

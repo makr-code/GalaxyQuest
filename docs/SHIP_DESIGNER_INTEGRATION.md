@@ -52,6 +52,9 @@ if (state.userQuota.storage_percent_used >= 95)
 ```
 
 ### 2. `generateShip()` — Complete workflow
+Design creation and generation-queue POST requests require the session cookie
+and `X-CSRF-Token` from `/api/auth.php?action=csrf`.
+
 ```javascript
 // Step 1: Check quota
 // Step 2: Save design → POST /api/vessel_designs
@@ -79,6 +82,7 @@ queue_position: 3/8 → "35% complete"
 ```javascript
 // Fetch generation metadata
 GET /api/asset_generations/{generation_id}
+// Authenticated, read-only lookup; the generation must already be registered.
 
 // Get:
 {

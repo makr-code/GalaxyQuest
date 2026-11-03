@@ -191,6 +191,36 @@
      * Supports spaceship hulls, planet surfaces, atmospheric effects, and detail maps
      * Falls back to procedural generation if AI service unavailable
      */
+    async _postAITexture(action, payload, signal) {
+      const csrfUrl = new URL('api/auth.php?action=csrf', window.location.href);
+      const csrfResponse = await fetch(csrfUrl.href, {
+        method: 'GET',
+        credentials: 'same-origin',
+        signal,
+      });
+      if (!csrfResponse.ok) {
+        throw new Error(`CSRF token request failed: ${csrfResponse.status}`);
+      }
+      const csrfData = await csrfResponse.json();
+      if (typeof csrfData.token !== 'string' || csrfData.token.length === 0) {
+        throw new Error('CSRF token missing from response');
+      }
+
+      const url = new URL('api/textures-ai.php', window.location.href);
+      url.searchParams.set('action', action);
+      return fetch(url.href, {
+        method: 'POST',
+        credentials: 'same-origin',
+        signal,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfData.token,
+        },
+        body: JSON.stringify(payload),
+      });
+    }
+
     requestAITexture(descriptor = {}, options = {}) {
       const textureType = String(options.textureType || 'albedo').trim();
       const objectType = String(options.objectType || 'spaceship').toLowerCase();
@@ -224,21 +254,11 @@
         params.seed = Number(descriptor.seed);
       }
 
-      const url = new URL('api/textures-ai.php', window.location.href);
-      url.searchParams.set('action', action);
-      Object.entries(params).forEach(([key, value]) => {
-        url.searchParams.set(key, String(value));
-      });
-
       // Fetch with timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
 
-      return fetch(url.href, {
-        method: 'GET',
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' }
-      })
+      return this._postAITexture(action, params, controller.signal)
         .then(response => {
           clearTimeout(timeoutId);
           if (!response.ok) throw new Error(`AI texture request failed: ${response.status}`);
@@ -273,26 +293,16 @@
       const size = Math.max(128, Math.min(1024, Number(options.size || 512)));
       const useControlNet = options.useControlNet === true ? 1 : 0;
 
-      const url = new URL('api/textures-ai.php', window.location.href);
-      url.searchParams.set('action', 'batch_pbr');
-      url.searchParams.set('faction', faction);
-      url.searchParams.set('condition', condition);
-      url.searchParams.set('size', size);
-      url.searchParams.set('controlnet', useControlNet);
-
+      const params = { faction, condition, size, controlnet: useControlNet };
       if (descriptor.seed !== undefined) {
-        url.searchParams.set('seed', Number(descriptor.seed));
+        params.seed = Number(descriptor.seed);
       }
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 120000); // 120s timeout
 
       try {
-        const response = await fetch(url.href, {
-          method: 'GET',
-          signal: controller.signal,
-          headers: { 'Accept': 'application/json' }
-        });
+        const response = await this._postAITexture('batch_pbr', params, controller.signal);
 
         clearTimeout(timeoutId);
 
@@ -343,26 +353,21 @@
       const targetSize = Math.max(128, Math.min(1024, Number(options.size || 512)));
       const faction = String(descriptor.faction || 'generic');
 
-      const url = new URL('api/textures-ai.php', window.location.href);
-      url.searchParams.set('action', 'progressive');
-      url.searchParams.set('texture_type', textureType);
-      url.searchParams.set('object_type', objectType);
-      url.searchParams.set('target_size', targetSize);
-      url.searchParams.set('faction', faction);
-
+      const params = {
+        texture_type: textureType,
+        object_type: objectType,
+        target_size: targetSize,
+        faction,
+      };
       if (descriptor.seed !== undefined) {
-        url.searchParams.set('seed', Number(descriptor.seed));
+        params.seed = Number(descriptor.seed);
       }
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60000);
 
       try {
-        const response = await fetch(url.href, {
-          method: 'GET',
-          signal: controller.signal,
-          headers: { 'Accept': 'application/json' }
-        });
+        const response = await this._postAITexture('progressive', params, controller.signal);
 
         clearTimeout(timeoutId);
 
@@ -385,11 +390,11 @@
         }
 
         // Async load high-res in background
-        if (data.high_res_url) {
-          this._loadHighResProgressiveTextureAsync(data.high_res_url);
+        if (data.high_res_request) {
+          this._loadHighResProgressiveTextureAsync(data.high_res_request);
         }
 
-        return { success: true, lowResTexture, highResUrl: data.high_res_url };
+        return { success: true, lowResTexture, highResRequest: data.high_res_request };
       } catch (err) {
         clearTimeout(timeoutId);
         console.warn('[Progressive] Request error:', err.message);
@@ -400,15 +405,12 @@
     /**
      * Internal: Load high-res texture asynchronously
      */
-    async _loadHighResProgressiveTextureAsync(url) {
+    async _loadHighResProgressiveTextureAsync(request) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60000);
       try {
-        const response = await fetch(url, {
-          method: 'GET',
-          signal: controller.signal,
-          headers: { 'Accept': 'application/json' }
-        });
+        const { action, ...payload } = request;
+        const response = await this._postAITexture(action, payload, controller.signal);
         if (!response.ok) throw new Error(`High-res request failed: ${response.status}`);
         const data = await response.json();
         if (!data.success || data.phase !== 'high_res_ready' ||
@@ -420,7 +422,7 @@
         texture.needsUpdate = true;
         // Dispatch event for UI to swap texture
         window.dispatchEvent(new CustomEvent('GQ:textureUpgrade', {
-          detail: { url, texture }
+          detail: { request, texture }
         }));
       } catch (err) {
         console.warn('[Progressive] High-res load failed:', err.message);

@@ -13,24 +13,9 @@ use GalaxyQuest\Economy\ResourceLedger;
 
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/cache.php';
 require_once __DIR__ . '/economy_flush.php';
 require_once __DIR__ . '/../src/Economy/ResourceLedger.php';
-
-header('Content-Type: application/json; charset=utf-8');
-
-$uid    = require_auth();
-$db     = get_db();
-$action = $_GET['action'] ?? '';
-
-match ($action) {
-    'get_prices'        => action_get_prices($db, $uid),
-    'get_region_prices' => action_get_region_prices($db, $uid),
-    'buy'               => action_buy($db, $uid),
-    'sell'              => action_sell($db, $uid),
-    'get_history'       => action_get_history($db, $uid),
-    'get_active_events' => action_get_active_events($db),
-    default             => json_error('Unknown action: ' . $action, 400),
-};
 
 // ---------------------------------------------------------------------------
 // Base price table (mirrors JS GOOD_BASE_PRICE)
@@ -68,6 +53,22 @@ const PRICE_ELASTICITY = 0.4;
 const PRICE_MULT_MIN = 0.30;
 /** Maximum price multiplier */
 const PRICE_MULT_MAX = 3.50;
+
+header('Content-Type: application/json; charset=utf-8');
+
+$uid    = require_auth();
+$db     = get_db();
+$action = $_GET['action'] ?? '';
+
+match ($action) {
+    'get_prices'        => action_get_prices($db, $uid),
+    'get_region_prices' => action_get_region_prices($db, $uid),
+    'buy'               => action_buy($db, $uid),
+    'sell'              => action_sell($db, $uid),
+    'get_history'       => action_get_history($db, $uid),
+    'get_active_events' => action_get_active_events($db),
+    default             => json_error('Unknown action: ' . $action, 400),
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -244,6 +245,7 @@ function update_supply_demand(PDO $db, int $colonyId, string $goodType, float $s
  * or for a single good if good_type is specified.
  */
 function action_get_prices(PDO $db, int $uid): never {
+    only_method('GET');
     $filter   = $_GET['good_type'] ?? null;
     $colonyId = isset($_GET['colony_id']) ? (int)$_GET['colony_id'] : null;
     $goods    = $filter ? [$filter] : array_keys(BASE_PRICES);
@@ -374,6 +376,7 @@ function compute_regional_price(PDO $db, string $goodType, string $regionId): fl
  * }
  */
 function action_get_region_prices(PDO $db, int $uid): never {
+    only_method('GET');
     $filter = $_GET['good_type'] ?? null;
     $goods  = $filter ? [$filter] : array_keys(BASE_PRICES);
 
@@ -411,6 +414,7 @@ function action_get_region_prices(PDO $db, int $uid): never {
  * Respects AUTARKY policy (no imports allowed).
  */
 function action_buy(PDO $db, int $uid): never {
+    only_method('POST');
     verify_csrf();
     $body     = json_decode(file_get_contents('php://input'), true) ?? [];
     $colonyId = (int)($body['colony_id'] ?? 0);
@@ -425,13 +429,15 @@ function action_buy(PDO $db, int $uid): never {
     if (ON_DEMAND_ECONOMY_ENABLED) {
         require_once __DIR__ . '/game_engine.php';
         try {
-            json_ok((new OnDemandEconomy($db))->exchange(
+            $result = (new OnDemandEconomy($db))->exchange(
                 $colonyId,
                 $uid,
                 $goodType,
                 $quantity,
                 true
-            ));
+            );
+            invalidate_market_trade_cache($uid, $colonyId);
+            json_ok($result);
         } catch (DomainException $error) {
             json_error($error->getMessage(), $error->getCode() ?: 400);
         }
@@ -523,6 +529,7 @@ function action_buy(PDO $db, int $uid): never {
         json_error('Transaction failed.', 500);
     }
 
+    invalidate_market_trade_cache($uid, $colonyId);
     json_ok([
         'colony_id'      => $colonyId,
         'good_type'      => $goodType,
@@ -542,6 +549,7 @@ function action_buy(PDO $db, int $uid): never {
  * Adds credits to the player; removes goods from colony stock.
  */
 function action_sell(PDO $db, int $uid): never {
+    only_method('POST');
     verify_csrf();
     $body     = json_decode(file_get_contents('php://input'), true) ?? [];
     $colonyId = (int)($body['colony_id'] ?? 0);
@@ -556,13 +564,15 @@ function action_sell(PDO $db, int $uid): never {
     if (ON_DEMAND_ECONOMY_ENABLED) {
         require_once __DIR__ . '/game_engine.php';
         try {
-            json_ok((new OnDemandEconomy($db))->exchange(
+            $result = (new OnDemandEconomy($db))->exchange(
                 $colonyId,
                 $uid,
                 $goodType,
                 $quantity,
                 false
-            ));
+            );
+            invalidate_market_trade_cache($uid, $colonyId);
+            json_ok($result);
         } catch (DomainException $error) {
             json_error($error->getMessage(), $error->getCode() ?: 400);
         }
@@ -635,6 +645,7 @@ function action_sell(PDO $db, int $uid): never {
         json_error('Transaction failed.', 500);
     }
 
+    invalidate_market_trade_cache($uid, $colonyId);
     json_ok([
         'colony_id'     => $colonyId,
         'good_type'     => $goodType,
@@ -646,6 +657,11 @@ function action_sell(PDO $db, int $uid): never {
     ]);
 }
 
+function invalidate_market_trade_cache(int $uid, int $colonyId): void {
+    gq_cache_delete('game_overview', ['uid' => $uid]);
+    gq_cache_delete('game_resources', ['uid' => $uid, 'cid' => $colonyId]);
+}
+
 /**
  * GET market.php?action=get_history[&limit=N][&good_type=X]
  *
@@ -653,6 +669,7 @@ function action_sell(PDO $db, int $uid): never {
  * Default limit: 50. Maximum: 200.
  */
 function action_get_history(PDO $db, int $uid): never {
+    only_method('GET');
     $limit    = min(200, max(1, (int)($_GET['limit'] ?? 50)));
     $goodType = $_GET['good_type'] ?? null;
 
@@ -697,6 +714,7 @@ function action_get_history(PDO $db, int $uid): never {
  * Returns all currently active galactic market events.
  */
 function action_get_active_events(PDO $db): never {
+    only_method('GET');
     $stmt = $db->prepare(<<<SQL
         SELECT id, event_code, label, affected_good, price_mult, demand_mult,
                remaining_ticks, started_at

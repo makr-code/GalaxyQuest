@@ -31,7 +31,7 @@ switch ($action) {
     // ── Sprawl ────────────────────────────────────────────────────────────────
     case 'sprawl_status':
         only_method('GET');
-        json_response(ColonizationEngine::recalcSprawl($db, $uid));
+        json_response(ColonizationEngine::calculateSprawl($db, $uid));
 
     // ── Sektoren ──────────────────────────────────────────────────────────────
     case 'list_sectors': {

@@ -11,7 +11,8 @@
  * 
  * GET  /api/trellis2_generator.php?action=status                  – Container health check
  * POST /api/trellis2_generator.php?action=generate_species_base    – Queue base ship gen
- * GET  /api/trellis2_generator.php?action=generation_status&job_id – Check job progress
+ * GET  /api/trellis2_generator.php?action=generation_status&job_id – Read job progress
+ * POST /api/trellis2_generator.php?action=finalize_generation      – Store completed job output
  * GET  /api/trellis2_generator.php?action=base_components&faction_code – List cached components
  */
 declare(strict_types=1);
@@ -370,13 +371,88 @@ PROMPT;
     }
     
     /**
-     * Poll and finalize a generation job
+     * Read job status without persisting the completed output.
+     */
+    public function getJobStatus(string $jobId): array {
+        if (!preg_match('/\A[a-zA-Z0-9_-]{1,128}\z/', $jobId)) {
+            return ['complete' => false, 'error' => 'Invalid TRELLIS2 job ID'];
+        }
+
+        $stmt = $this->db->prepare(
+            'SELECT status, glb_path FROM trellis2_generation_queue WHERE job_id = ? LIMIT 1'
+        );
+        $stmt->execute([$jobId]);
+        $stored = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        if ($stored && $stored['status'] === 'completed' && !empty($stored['glb_path'])) {
+            $storagePath = (string)$stored['glb_path'];
+            if (is_file($storagePath)) {
+                return [
+                    'complete' => true,
+                    'glb_path' => $storagePath,
+                    'file_size' => filesize($storagePath),
+                ];
+            }
+        }
+
+        $status = $this->trellis2->getJobStatus($jobId);
+        if (isset($status['error'])) {
+            return ['complete' => false, 'error' => $status['error']];
+        }
+
+        $jobStatus = $status['status'] ?? 'unknown';
+        return [
+            'complete' => false,
+            'status' => $jobStatus,
+            'progress' => $status['progress'] ?? 0,
+            'ready_to_finalize' => $jobStatus === 'done',
+        ];
+    }
+
+    /**
+     * Fetch and persist a completed generation job.
      */
     public function finalizeJob(string $jobId): array {
         try {
+            if (!preg_match('/\A[a-zA-Z0-9_-]{1,128}\z/', $jobId)) {
+                return [
+                    'complete' => false,
+                    'error' => 'Invalid TRELLIS2 job ID',
+                ];
+            }
+
+            $stmt = $this->db->prepare(
+                'SELECT status, glb_path FROM trellis2_generation_queue WHERE job_id = ? LIMIT 1'
+            );
+            $stmt->execute([$jobId]);
+            $stored = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$stored) {
+                return [
+                    'complete' => false,
+                    'error' => 'Generation job not found',
+                ];
+            }
+
+            if ($stored['status'] === 'completed' && !empty($stored['glb_path'])) {
+                $storagePath = (string)$stored['glb_path'];
+                if (is_file($storagePath)) {
+                    return [
+                        'complete' => true,
+                        'glb_path' => $storagePath,
+                        'file_size' => filesize($storagePath),
+                    ];
+                }
+            }
+
             // Check status
             $status = $this->trellis2->getJobStatus($jobId);
-            
+            if (isset($status['error'])) {
+                return [
+                    'complete' => false,
+                    'error' => $status['error'],
+                ];
+            }
+
             if ($status['status'] !== 'done') {
                 return [
                     'complete' => false,
@@ -396,7 +472,12 @@ PROMPT;
             
             // Store GLB in filesystem
             $storagePath = $this->getStoragePath($jobId);
-            file_put_contents($storagePath, $glbBuffer);
+            if (file_put_contents($storagePath, $glbBuffer) === false) {
+                return [
+                    'complete' => false,
+                    'error' => 'Failed to store GLB output',
+                ];
+            }
             
             // Update database
             $stmt = $this->db->prepare(
@@ -483,11 +564,21 @@ PROMPT;
     }
     
     private function getStoragePath(string $jobId): string {
-        $dir = realpath(__DIR__ . '/../generated/trellis2/components') ?: '';
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+        $dir = __DIR__ . '/../generated/trellis2/components';
+        if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+            throw new \RuntimeException('Failed to create TRELLIS2 component storage directory');
         }
-        return "{$dir}/{$jobId}.glb";
+
+        $realDir = realpath($dir);
+        if ($realDir === false) {
+            throw new \RuntimeException('Failed to resolve TRELLIS2 component storage directory');
+        }
+
+        if (!preg_match('/\A[a-zA-Z0-9_-]{1,128}\z/', $jobId)) {
+            throw new \InvalidArgumentException('Invalid TRELLIS2 job ID');
+        }
+
+        return $realDir . DIRECTORY_SEPARATOR . $jobId . '.glb';
     }
 }
 
@@ -663,6 +754,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             
             case 'generate_base_hull':
                 only_method('POST');
+                verify_csrf();
                 $body = json_decode(file_get_contents('php://input'), true);
                 $factionCode = $body['faction_code'] ?? '';
                 if (!$factionCode) {
@@ -675,6 +767,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             
             case 'generate_components':
                 only_method('POST');
+                verify_csrf();
                 $body = json_decode(file_get_contents('php://input'), true);
                 $factionCode = $body['faction_code'] ?? '';
                 $componentType = $body['component_type'] ?? 'all';
@@ -709,6 +802,22 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
                 }
                 
                 $generator = new BaseShipComponentGenerator($db);
+                $result = $generator->getJobStatus($jobId);
+                json_ok($result);
+
+            case 'finalize_generation':
+                only_method('POST');
+                verify_csrf();
+                $body = get_json_body();
+                if (isset($body['job_id']) && !is_string($body['job_id'])) {
+                    json_error('job_id must be a string.', 400);
+                }
+                $jobId = trim($body['job_id'] ?? '');
+                if ($jobId === '') {
+                    json_error('job_id required', 400);
+                }
+
+                $generator = new BaseShipComponentGenerator($db);
                 $result = $generator->finalizeJob($jobId);
                 json_ok($result);
                 break;
@@ -727,6 +836,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             
             case 'generate_avatar':
                 only_method('POST');
+                verify_csrf();
                 $body = json_decode(file_get_contents('php://input'), true);
                 $speciesCode = $body['species_code'] ?? '';
                 $gender = $body['gender'] ?? 'both';

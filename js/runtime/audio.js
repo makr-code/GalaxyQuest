@@ -926,12 +926,14 @@
       this.state.masterVolume = Math.max(0, Math.min(1, Number(value || 0)));
       this._applyVolumes();
       this._save();
+      this._emitStateChange();
     }
 
     setMusicVolume(value) {
       this.state.musicVolume = Math.max(0, Math.min(1, Number(value || 0)));
       this._applyVolumes();
       this._save();
+      this._emitStateChange();
     }
 
     setSfxVolume(value) {
@@ -1056,6 +1058,7 @@
         }
       }
       this._syncMusicLoopMode();
+      this._emitStateChange();
     }
 
     async playNextInPlaylist(direction = 1, autoplay = true) {
@@ -1270,6 +1273,7 @@
 
     snapshot() {
       return Object.assign({}, this.state, {
+        playlist: this._playlist.slice(),
         lastAudioEvent: this._lastAudioEvent ? Object.assign({}, this._lastAudioEvent) : null,
         musicPlaying: !this._music.paused,
         musicPaused: !!this.state.musicPaused,

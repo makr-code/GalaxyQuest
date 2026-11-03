@@ -5,7 +5,7 @@
  * POST /api/espionage.php?action=hire_agent          body: {name, specialization}
  * POST /api/espionage.php?action=assign_mission      body: {agent_id, mission_type, target_user_id?}
  * GET  /api/espionage.php?action=get_active_missions – list active missions
- * GET  /api/espionage.php?action=mission_result&id=N – result of a completed mission
+ * POST /api/espionage.php?action=mission_result      body: {id}
  *
  * Referenz: docs/gamedesign/EMPIRE_CATEGORIES.md, docs/github-issues/06
  */
@@ -28,6 +28,7 @@ switch ($action) {
 
     case 'hire_agent': {
         only_method('POST');
+        verify_csrf();
         $body = get_json_body();
         $name = trim((string)($body['name'] ?? ''));
         $spec = (string)($body['specialization'] ?? 'intel');
@@ -50,6 +51,7 @@ switch ($action) {
 
     case 'assign_mission': {
         only_method('POST');
+        verify_csrf();
         $body       = get_json_body();
         $agentId    = positive_int($body['agent_id'] ?? 0);
         $missionType = (string)($body['mission_type'] ?? '');
@@ -107,8 +109,10 @@ switch ($action) {
     }
 
     case 'mission_result': {
-        only_method('GET');
-        $missionId = positive_int($_GET['id'] ?? 0);
+        only_method('POST');
+        verify_csrf();
+        $body = get_json_body();
+        $missionId = positive_int($body['id'] ?? 0);
         if ($missionId <= 0) {
             json_error('Mission id required', 400);
         }
@@ -128,8 +132,10 @@ switch ($action) {
         // If completed and agent still on_mission, mark agent available again
         if ($mission['status'] === 'completed' && $mission['agent_id']) {
             $db->prepare(
-                "UPDATE espionage_agents SET status = 'available', mission_id = NULL WHERE id = ?"
-            )->execute([$mission['agent_id']]);
+                "UPDATE espionage_agents
+                 SET status = 'available', mission_id = NULL
+                 WHERE id = ? AND user_id = ? AND mission_id = ? AND status = 'on_mission'"
+            )->execute([$mission['agent_id'], $uid, $missionId]);
         }
 
         json_ok(['mission' => $mission]);

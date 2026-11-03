@@ -16,8 +16,8 @@
  * ── Verifikationsmaßstab ────────────────────────────────────────────────────
  * CACHE_VERSION (config/config.php) ist in Bytes 4–35 jeder Cache-Datei
  * gespeichert. Ein Increment verwaist alle bestehenden Einträge sofort –
- * kein manuelles Flush nötig. Verwaiste Einträge werden lazy beim nächsten
- * Lese-Zugriff gelöscht.
+ * kein manuelles Flush nötig. Verwaiste und abgelaufene Einträge werden als
+ * Cache-Miss behandelt; Cache-Lesezugriffe ändern weder Dateien noch Index.
  *
  * ── Primäre API (Raw-Bytes) ──────────────────────────────────────────────────
  *   $bytes = gq_cache_get_raw('stars', $params);          // ?string
@@ -114,36 +114,6 @@ function _gq_cache_index_save(string $scope, array $rows): void
         @rename($tmp, $file);
     } else {
         @unlink($tmp);
-    }
-}
-
-/** @internal */
-function _gq_cache_index_prune(string $scope): void
-{
-    $now = time();
-    $rows = _gq_cache_index_load($scope);
-    if (!$rows) return;
-    $changed = false;
-    $out = [];
-    foreach ($rows as $row) {
-        $key = (string)($row['key'] ?? '');
-        $expires = (int)($row['expires'] ?? 0);
-        if ($key === '') {
-            $changed = true;
-            continue;
-        }
-        if ($expires > 0 && $expires < $now) {
-            $changed = true;
-            continue;
-        }
-        if (!is_file(_gq_cache_file($key))) {
-            $changed = true;
-            continue;
-        }
-        $out[] = $row;
-    }
-    if ($changed) {
-        _gq_cache_index_save($scope, $out);
     }
 }
 
@@ -269,8 +239,6 @@ function gq_cache_get_raw(string $scope, array $params): ?string
 
     $parsed = _gq_cache_parse($raw, $now);
     if ($parsed === null) {
-        @unlink($file);  // Lazy-Prune: veraltet oder abgelaufen
-        _gq_cache_index_remove_key($scope, $key);
         return null;
     }
 
@@ -359,8 +327,21 @@ function gq_cache_set_raw_meta(string $scope, array $params, string $bytes, int 
 function gq_cache_index_entries(string $scope): array
 {
     if (!CACHE_ENABLED) return [];
-    _gq_cache_index_prune($scope);
-    return _gq_cache_index_load($scope);
+
+    $now = time();
+    return array_values(array_filter(
+        _gq_cache_index_load($scope),
+        static function (mixed $row) use ($now): bool {
+            if (!is_array($row)) {
+                return false;
+            }
+            $key = (string)($row['key'] ?? '');
+            $expires = (int)($row['expires'] ?? 0);
+            return $key !== ''
+                && ($expires === 0 || $expires >= $now)
+                && is_file(_gq_cache_file($key));
+        }
+    ));
 }
 
 // ── Sekundäre API: PHP-Arrays (JSON-serialisiert) ────────────────────────────

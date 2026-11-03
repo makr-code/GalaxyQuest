@@ -198,13 +198,16 @@
           <button id="start-music-next" type="button" title="Next track" aria-label="Next track" disabled><svg aria-hidden="true"><use href="gfx/icons/mono/next.svg#icon-next"></use></svg></button>
           <button id="start-music-mute" type="button" title="Audio stummschalten" aria-label="Audio stummschalten" aria-pressed="false" disabled><svg aria-hidden="true"><use href="gfx/icons/mono/volume.svg#icon-volume"></use></svg></button>
         </div>
+        <label class="start-music-volume">Musiklautstärke
+          <input id="start-music-volume" type="range" min="0" max="100" step="1" value="55" disabled />
+        </label>
         <span id="start-music-status" class="start-music-status" aria-live="polite"></span>
       </div>
       <p class="start-eyebrow">GALAXY QUEST / COMMAND INTERFACE</p>
       <h1 class="start-title">Galaxy<span>Quest</span></h1>
       <p class="start-tagline">Conquer the stars</p>
       <nav class="start-navigation" aria-label="Main menu">
-        <button id="start-resume" class="start-button start-button-primary" type="button" hidden>Resume</button>
+        <button id="start-resume" class="start-button start-button-primary" type="button" hidden>Fortsetzen</button>
         <div class="start-panel-anchor"><button id="start-login" class="start-button start-button-primary" type="button" aria-expanded="false">Login<span>Return to your command</span></button></div>
         <div class="start-panel-anchor"><button id="start-register" class="start-button" type="button" aria-expanded="false">Begin a new campaign<span>Write your first chapter</span></button></div>
         <div class="start-panel-anchor"><button id="start-dev" class="start-button start-button-small" type="button" aria-expanded="false">Developer tools</button></div>
@@ -266,7 +269,7 @@
       <div class="form-group">
         <label>
           <input id="login-remember" type="checkbox" name="remember" value="1" checked />
-          Keep me signed in
+          Auf diesem Gerät angemeldet bleiben
         </label>
       </div>
       <button type="submit" class="btn btn-primary btn-full">Enter the Galaxy</button>
@@ -399,7 +402,7 @@
             <div><dt>Kommandantenname</dt><dd id="registration-review-commander"></dd></div>
             <div><dt>Hintergrund</dt><dd id="registration-review-background"></dd></div>
           </dl>
-          <p>Dieser private Entwurf ist noch kein Konto und aktiviert keine Spielwelt.</p>
+          <p>Du kannst sofort in deiner isolierten Draft-Welt spielen. Erst die E-Mail-Bestätigung etabliert sie in der gemeinsamen Galaxy und übernimmt deinen Fortschritt.</p>
         </section>
         <p id="registration-status" role="status" aria-live="polite"></p>
         <p id="registration-error" role="alert" aria-live="assertive"></p>
@@ -408,6 +411,76 @@
           <button id="registration-continue" class="wm-modal-nav-btn wm-modal-nav-btn-primary" type="button" hidden>Weiter</button>
         </div>
       </main>
+    </section>
+
+    <section id="draft-world" class="draft-world" aria-labelledby="draft-world-title" hidden>
+      <header>
+        <p>DRAFT MODUS / ISOLIERTE STARTWELT</p>
+        <h2 id="draft-world-title" tabindex="-1">Dein Kommandostand</h2>
+        <button id="draft-refresh" type="button">Fortschritt aktualisieren</button>
+        <button id="draft-leave" type="button">Zum Hauptmenü</button>
+      </header>
+      <p>Dein Fortschritt wird serverseitig ohne Ablaufdatum gespeichert. Andere Spieler können diese Welt weder sehen noch mit ihr interagieren. Die E-Mail-Bestätigung übernimmt sie dauerhaft in die Galaxy.</p>
+      <p id="draft-location"></p>
+      <p id="draft-resources" aria-live="polite"></p>
+      <p id="draft-population"></p>
+      <p id="draft-status" role="status" aria-live="polite"></p>
+      <p id="draft-error" role="alert"></p>
+      <section aria-labelledby="draft-orders-title">
+        <h3 id="draft-orders-title">Lokale Aufträge</h3>
+        <ul id="draft-queues"></ul>
+      </section>
+      <section>
+        <h3>Gebäude</h3>
+        <p id="draft-buildings"></p>
+        <form id="draft-building-form">
+          <label for="draft-building">Gebäude ausbauen</label>
+          <select id="draft-building" required></select>
+          <button type="submit">Ausbau starten</button>
+        </form>
+      </section>
+      <section>
+        <h3>Forschung</h3>
+        <p id="draft-research-levels"></p>
+        <form id="draft-research-form">
+          <label for="draft-research">Technologie</label>
+          <select id="draft-research" required></select>
+          <button type="submit">Forschung starten</button>
+        </form>
+      </section>
+      <section>
+        <h3>Lokale Flotte</h3>
+        <p id="draft-ships"></p>
+        <form id="draft-ship-form">
+          <label for="draft-ship">Schiff bauen</label>
+          <select id="draft-ship" required></select>
+          <label for="draft-ship-count">Anzahl</label>
+          <input id="draft-ship-count" type="number" value="1" min="1" max="100" required />
+          <button type="submit">Schiffbau starten</button>
+        </form>
+        <form id="draft-fleet-form">
+          <label for="draft-planet">Private Systemerkundung (eine Sonde, 10 Deuterium)</label>
+          <select id="draft-planet" required></select>
+          <button type="submit">Sonde entsenden</button>
+        </form>
+        <p id="draft-surveyed"></p>
+      </section>
+      <details id="draft-registration">
+        <summary>Dauerhaft in der Galaxy etablieren</summary>
+        <p>Die Bestätigung aktiviert dein Konto und übernimmt Ressourcen, Gebäude, Forschung und Flotte. Bis dahin kannst du ohne Kontodaten weiterspielen.</p>
+        <form id="draft-email-form">
+          <label for="draft-username">Kontoname für den Login (Commander-Dossier bleibt unverändert)</label>
+          <input id="draft-username" type="text" minlength="3" maxlength="32" pattern="[A-Za-z0-9_]{3,32}" autocomplete="username" required />
+          <label for="draft-email">E-Mail</label>
+          <input id="draft-email" type="email" maxlength="255" autocomplete="email" required />
+          <label for="draft-password">Passwort (12–72 Bytes)</label>
+          <input id="draft-password" type="password" minlength="12" maxlength="72" autocomplete="new-password" required />
+          <button type="submit">Bestätigung senden</button>
+        </form>
+        <p id="draft-mail-status" role="status"></p>
+      </details>
+      <button id="draft-confirm-retry" type="button" hidden>Bestätigungslink erneut prüfen</button>
+      <button id="draft-activate-retry" type="button" hidden>Bestätigte Spielebene erneut öffnen</button>
     </section>
 
   <!-- Narrative registration prologue (shown once after successful registration) -->
@@ -454,6 +527,8 @@
           <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/home.svg#icon-home"></use></svg>
         </button>
         <span id="topbar-coords" class="coords-badge"></span>
+        <label class="sr-only" for="game-colony-select">Aktive Kolonie</label>
+        <select id="game-colony-select" aria-label="Aktive Kolonie" disabled></select>
         <span id="topbar-orbit-mode" class="coords-badge orbit-mode-badge hidden" aria-live="polite" role="button" tabindex="0" title="Orbit-Simulation umschalten (AUTO → SIMPLE → COMPLEX)"></span>
       </div>
 
@@ -513,7 +588,7 @@
 
         <!-- Galaxy group -->
         <div class="nav-split-group" id="nav-group-galaxy">
-          <button class="nav-btn nav-split-primary" data-win="factions" title="Galaxy"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/galaxy.svg#icon-galaxy"></use></svg>Galaxy</button>
+          <button class="nav-btn nav-split-primary" data-game-galaxy-overview title="Galaxy"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/galaxy.svg#icon-galaxy"></use></svg>Galaxy</button>
           <button class="nav-btn nav-split-arrow" aria-haspopup="true" aria-expanded="false"
                   aria-controls="nav-drop-galaxy" data-nav-drop="galaxy" type="button"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/chevron-down.svg#icon-chevron-down"></use></svg></button>
           <div id="nav-drop-galaxy" class="nav-dropdown hidden" role="menu">
@@ -566,6 +641,10 @@
             <div id="topbar-player-track-list" class="topbar-player-track-list" role="listbox" aria-label="Verfügbare Titel"></div>
             <span id="topbar-player-current" class="topbar-player-current" title="Aktueller Track">-</span>
             <span id="topbar-player-mode" class="topbar-player-mode" title="Transition-Modus">FADE</span>
+            <label>Musiklautstärke
+              <input id="topbar-player-volume" type="range" min="0" max="100" step="1" value="55" disabled />
+            </label>
+            <span id="topbar-player-status" role="status" aria-live="polite"></span>
           </div>
         </div>
 
@@ -600,6 +679,17 @@
   </section>
 
   <section id="resource-section" class="">
+    <p id="game-data-status" role="status" aria-live="polite"></p>
+    <nav class="game-development-actions" aria-label="Kolonieentwicklung">
+      <button class="btn btn-secondary btn-sm" type="button" data-game-development="buildings">Gebäude</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-game-development="research">Forschung</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-game-economy>Wirtschaft</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-game-fleets>Flotten</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-game-fleet-launch>Flotte starten</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-game-shipyard>Werft</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-game-market>Markt</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-game-population>Bevölkerung</button>
+    </nav>
     <div class="resource-bar">
 
       <button class="resource resource-btn metal" type="button" data-resource="metal" title="Metal-Statistik und Handel oeffnen">
@@ -642,11 +732,11 @@
         <span class="res-label">Energy</span>
         <span id="res-energy" class="res-value">—</span>
       </button>
-      <button class="resource resource-btn dark-matter" type="button" data-resource="dark_matter" title="Dark-Matter-Statistik oeffnen">
+      <div class="resource dark-matter" title="Dark Matter: bestaetigter Kontostand">
         <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/dark-matter.svg#icon-dark-matter"></use></svg></span>
         <span class="res-label">Dark Matter</span>
         <span id="res-dark-matter" class="res-value">0</span>
-      </button>
+      </div>
     </div>
   </section>
 
@@ -2602,4 +2692,3 @@
 
 </body>
 </html>
-

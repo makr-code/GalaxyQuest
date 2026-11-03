@@ -10,6 +10,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/helpers.php';
 
+only_method('GET');
+$userId = require_auth();
 header('Content-Type: application/json');
 
 try {
@@ -42,10 +44,10 @@ try {
             TIMESTAMPDIFF(SECOND, created_at, NOW()) as elapsed_seconds,
             TIMESTAMPDIFF(SECOND, created_at, COALESCE(completed_at, NOW())) as total_duration
         FROM generation_queue
-        WHERE id = ?
+        WHERE id = ? AND user_id = ?
 SQL);
     
-    $stmt->execute([(int)$queueId]);
+    $stmt->execute([(int)$queueId, $userId]);
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
     
     if (!$job) {

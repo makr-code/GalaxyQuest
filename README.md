@@ -79,7 +79,11 @@ Full setup guide: [→ OLLAMA_SETUP.md](docs/technical/OLLAMA_SETUP.md)
 
 **API Endpoint:**
 ```bash
-GET /api/glossary.php?action=generate&term=white_dwarf
+POST /api/glossary.php?action=generate
+X-CSRF-Token: <token>
+Content-Type: application/json
+
+{"term":"white_dwarf"}
 
 # Response includes Wikipedia-contextualized definition
 {
@@ -523,11 +527,366 @@ Port 8080 is strict so a conflict does not silently open a different frontend.
 The Compose Apache service binds to `127.0.0.1:8081`; start the existing backend
 services with `docker compose up -d --no-build db tts web`, then run Vite.
 
+To use Apache directly at `http://localhost:8081`, run `npm run vite:build`
+in the repository first. The Compose bind mount hides the frontend built into
+the image; Apache therefore serves the local `dist/index.html` and resolves
+`/assets/` URLs from `dist/assets/`. Rebuild after frontend changes, or use
+the Vite server on port 8080 for live development. Keep the source `index.html`
+unchanged rather than overwriting it with the build output.
+
 For another PHP backend, set `GQ_PHP_BACKEND_URL` in the shell or in the local
 Vite `.env.local` file, then restart Vite. Keep database credentials on the PHP
 server, not in `VITE_*` variables. An unavailable backend returns a JSON 502
 with a setup hint rather than serving PHP source or a misleading HTML response.
 The development audio catalogue remains available directly from Vite.
+
+#### Playable registration drafts
+
+The character review now enters an isolated, server-persisted draft command
+level instead of closing the registration. It uses the existing start-world
+renderer and offers local building upgrades, research, basic ship construction
+and probe surveys within the private system. Shared galaxy APIs still require a
+confirmed user session; drafts create no public users, colonies, fleets or
+market entries.
+
+Draft gameplay has no server-side expiry. The browser retains an HttpOnly
+draft-owner cookie for returning to the same draft after its PHP session ends.
+Keep this browser cookie: before confirmation there is no account login or
+cross-device recovery. Main-menu Resume and page reload restore server progress.
+Progress settles on demand using the shared economy simulation, cost and
+duration functions, not a background tick engine. Each refresh catches up at
+most one offline day; further refreshes catch up longer absences before orders
+or confirmation. The isolated draft does not include shared trade, PvP,
+alliances, colonization or advanced ship designs.
+
+Apply the canonical migrations, including `migrate_registration_play_v1.sql`
+and its economy/ship-queue prerequisites, before enabling this flow. The
+`registration_play` table stores private progress; no password hashes or
+confirmation tokens are returned in its public state response.
+
+Login name, email and a password are optional until the player chooses permanent
+registration in the draft command level. Local Docker development simulates
+delivery through Mailpit (`docker compose up -d --no-build mailpit web`).
+Open the email at `http://localhost:8025` and follow its confirmation link.
+The email body contains only this link, never a numeric code. Links expire after
+24 hours, are single-use and may be resent after one minute (invalidating
+the previous link). Only a SHA-256 hash of the random 256-bit token is stored.
+The link works in another browser without a draft-owner cookie. Its token is
+carried in the URL fragment, removed from browser history on startup and submitted
+via a CSRF-protected POST; a plain HTTP GET does not activate an account.
+Set `REGISTRATION_PUBLIC_URL` to the externally reachable application root
+(default `http://localhost:8081` in development); links never use the request Host.
+Apache routes legacy `index.html` links (including logout) through the same
+bundled entry as `/`, so returning to login does not load unbundled source.
+Previously sent numeric codes no longer work; request a new email.
+Code-based administrator 2FA is a separate, future authentication concern, not
+part of email validation. Existing 2FA functionality is unchanged.
+A delivery or confirmation failure leaves the
+playable draft intact. This is deliberately **not production email delivery**:
+the adapter is enabled only for `APP_ENV=dev` with `REGISTRATION_MAILPIT_URL`.
+
+Successful confirmation atomically creates the user and reserved colony,
+transfers stocks, population, research, ships and paid pending queues, archives
+the draft dossier/portrait and survey progress, and then enters the existing
+authenticated game shell. A failed promotion rolls back; it cannot reset or
+partially publish a draft. Raw `register`/`register_complete` calls remain
+disabled to prevent bypassing email confirmation.
+
+The login name can differ from the Commander dossier, allowing an already-taken
+account name to be corrected without replacing the playable world.
+
+### Server-authoritative UI migration
+
+The start-screen radio and in-game topbar share one audio manager and playlist.
+Playback and pause position survive login without recreating audio decks.
+Selected track, pause preference, mute and music volume are also restored after
+the logout page reload. Both players observe `gq:audio-state`; the topbar
+also offers the shared track selector, previous/next controls and an
+Escape-dismissable keyboard-accessible player menu. Playback failures are
+shown on both surfaces, and browser autoplay restrictions remain respected.
+
+The authenticated ES-module entry now awaits session validation and
+`api/game.php?action=overview` before showing the game shell. It no longer boots
+the twelve prototype domains against fake repositories or a logging-only event
+bus. `js/engine/runtime/server-game-session.js` owns the overview read model;
+`window.GQGame.domains.overview` exposes `refresh()`, `getState()`,
+`getColony()` and `selectColony(id)`. Snapshots are defensive copies.
+The existing registered event bus publishes `overview:updated` after refresh
+and selection changes. The colony picker and resource HUD display server
+values, including zero and negative energy, without running a client economy.
+
+Refresh is explicit, coalesces concurrent requests, and reports failures rather
+than inventing empty state. Logout/session expiry clears account data and UI
+bindings, aborts active overview requests and rejects stale responses.
+The shared module API reuses the existing transport (timeouts, GET-only retries,
+versioned endpoints) and CSRF-session helpers. Mutations are never retried by
+the transport.
+
+Buildings and research now use server-backed domain adapters and the existing
+window manager. Open them from the Colony dropdown or the mobile-accessible
+development shortcuts beside the HUD. Lists show server levels, base costs,
+prerequisites, research end times and the construction queue. The list actions
+are GET-only; use **Fällige Aufträge abschließen** to explicitly submit the
+canonical `finish` POST. Starting an order uses `upgrade`/`research` POST with
+CSRF. No client-side cost, duration or completion simulation is used.
+With the on-demand engine enabled, a server settlement may itself complete due
+construction; opening a window never sends an extra frontend completion POST.
+Server-side overview/resource caches are invalidated after successful commands
+so the HUD can display the actual remaining resources immediately.
+
+Colony changes discard old lists and abort obsolete GET requests; late replies
+cannot replace the selected colony. Double submissions are blocked per domain.
+If a command succeeds but refreshing fails, the UI says the command was
+accepted and asks for a refresh, never automatically resubmitting it.
+Logout closes these windows, removes subscriptions and aborts active requests.
+The new interfaces are `window.GQGame.domains.buildings` and `.research`.
+
+The economy window now reads `api/colony_economy.php?action=snapshot` and
+`api/economy.php?action=get_policy`, exposed through
+`window.GQGame.domains.economy`. It shows actual stock, storage, population
+classes, shortages and the last settled production/consumption rates. Missing
+rates are shown as an em dash, never estimated by the browser. The server
+snapshot also exposes production methods (including explicit standard defaults)
+and storage capacities.
+
+Empire-wide policy, taxes and subsidies use explicit CSRF-protected POSTs.
+Production-method changes use the canonical colony economy `set_method` action.
+Each setting is saved separately; prerequisites and resource availability are
+checked by PHP. Tax values are sent as fractions, while controls display
+percentages and honor the schema's supported precision. Integer-percent legacy
+schemas and fractional schemas use the same normalized values in the UI and
+simulation, including 0% and 1%. Economy settlement/commands invalidate affected
+overview/resource/building caches and mark enabled overview projections stale.
+The first policy write preserves the previously effective defaults for all
+other settings instead of accidentally adopting different legacy schema defaults.
+The economy and construction adapters share colony-switch, request-cancellation,
+duplicate-command and logout handling; no scheduler or client economy is added.
+
+The new economy window requires `ON_DEMAND_ECONOMY_ENABLED=1`. Apply/verify
+`migrate_economy_on_demand_v1.sql` and its prerequisite building/queue migrations
+before enabling it. Docker Compose passes this flag from the local `.env`
+(default remains **0** for unconfigured environments). After changing the local
+flag, recreate only the web service with `docker compose up -d --no-deps web`.
+When disabled, the UI explicitly reports the unavailable engine rather than
+substituting legacy or fabricated data.
+
+This is **not completion of the full UI migration**.
+
+The start-menu galaxy and authenticated playing field are the same scene,
+canvas and WebGPU renderer. Login stops the public read-only tour and transfers
+control without disposing the renderer. The player view replaces the catalog
+with authenticated `api/galaxy.php?action=stars` data and reads systems through
+the fog-of-war-filtered `action=system` endpoint. Decorative public stars remain
+visual-only and cannot be selected as game systems.
+`window.GQGame.domains.galaxy` provides explicit map refresh, galaxy/system
+navigation and home-system selection. The field supports pointer selection,
+dragging, zoom controls, coordinate entry, searchable loaded systems, planet
+selection and management links for owned colonies only. Switching the active
+colony follows its system. Stale navigation requests are aborted/discarded.
+Logout removes player data and interactions and returns the same renderer to
+the public menu view. Missing WebGPU is reported explicitly; server navigation
+remains usable instead of displaying invented game state.
+
+The galaxy canvas fills the complete viewport, including behind UI controls.
+Only a compact command/audio dock and collapsed navigation entry stay visible.
+The command menu contains colony selection, resources and development actions;
+map navigation and search expand separately. System details appear on selection.
+All menus and development windows are overlays and never reserve canvas space.
+The legacy permanent top/resource bars and bottom taskbar are not shown in this
+layout. The window list is inside the command menu, so minimized windows remain
+recoverable. Command overlays close with Escape, their close button or an outside
+pointer action; logout restores the original DOM locations and menu view.
+
+The authenticated canvas uses a scale-aware orbit target, not distance from the
+galaxy origin. Left-drag rotates, right/middle-drag or Shift+drag pans, and the
+wheel zooms with surface collision limits. Double-click a star to enter its
+server-loaded system, then a planet to approach it; double-click again or zoom
+closer to enter a visible colony. Outward zoom and Escape return through the
+hierarchy; Home recenters the current level. Arrow keys rotate (Shift pans).
+On touch screens, one finger rotates and a tap selects; two fingers pan and
+pinch to zoom on the same canvas, including the live colony/building camera.
+Multi-touch gestures never select objects on release. Pointer cancellation,
+capture loss and logout clear the active contacts without triggering actions.
+Collapsed Navigation > Kamerasteuerung provides help and camera buttons.
+The compact view path exposes only current/ancestor levels. Ancestor buttons
+use the existing reverse transitions, prevent repeated submissions, and restore
+keyboard control to the canvas. The path is hidden at galaxy level.
+Clicking a planet reveals a compact context from the current canonical system
+data, with approach and (for owned colonies only) surface/management actions.
+Selection survives same-system refreshes, clears on system changes or explicitly,
+and is hidden while the native colony/building context is active. Management
+uses the same validated building-window request as the surface HUD.
+System details offer explicit planet/colony focus buttons. Planet approach and
+the full colony surface use the existing `SeamlessZoomOrchestrator`,
+`PersistentBodyPlanetApproachRenderer` and `ColonySurfaceLevelWebGPU`: streamed
+terrain, saved buildings, construction VFX, cosmetic population and building
+detail. The shared starfield frame hook drives all levels without another device,
+canvas or animation loop. Own-colony building/economy snapshots come from the
+canonical APIs; foreign surface data is not requested. Navigation away or logout
+aborts pending entry and disposes level resources without destroying the shared
+renderer. The same renderer, GPU device and canvas are retained at every scale.
+System entry and return flights use that existing frame loop, preserving the
+previous galaxy/system framing when backing out. Manual camera input cancels a
+flight immediately. Colony-to-orbit navigation reverses the surface/planet
+blend before freeing the surface resources. Reduced-motion preferences skip
+these camera animations.
+The native colony HUD starts collapsed to keep the surface unobstructed. It
+provides saved-building inspection, building focus/return, snapshot refresh and
+the authoritative building-management window. Surface mouse/keyboard controls
+and the navigation helpers operate on that same live surface camera.
+A building click reveals its surface context. Separate focus and management
+actions either approach the selected building in the live scene or open its
+highlighted canonical building card, with keyboard focus after loading.
+Selection can be cleared in the building window and is reset on colony changes.
+Accepted server building/research/economy commands refresh only the matching
+visible colony surface, even if the overview refresh fails. Rejected commands
+do not refresh or fabricate visual progress. Updated snapshots preserve the
+current camera, selection and building-detail scene; pending reads are
+cancelled on departure or logout. Hidden-tab changes refresh on return to the
+tab. No polling loop or client-side construction completion is used.
+Persistent terrain requires the existing additive migration
+[`sql/migrate_body_terrain_v1.sql`](sql/migrate_body_terrain_v1.sql); missing
+terrain is reported explicitly as a procedural preview, not persisted success.
+
+The fleet overlay lists account-wide canonical missions, ships, cargo and
+server arrival times. Origin/target actions open the existing galaxy playing
+field. Recall and explicit due-arrival processing use CSRF-protected commands;
+opening or refreshing the list never processes arrivals. Accepted commands
+refresh the authoritative overview and fleet list. Failed refreshes retain
+the last confirmed data, disable further commands until a successful read,
+and explicitly instruct the player not to resubmit an accepted command.
+Logout cancels pending fleet reads/commands and removes the overlay.
+
+Running missions also expose clickable endpoint badges on the shared galaxy
+and system map, grouped per loaded star or planet. The compact selection shows
+canonical ships, cargo, direction and server arrival time, with map navigation,
+recall and explicit arrival processing. Badges follow the existing shared
+renderer frame hook and camera projection; off-screen, unloaded and surface-level
+endpoints are not fabricated. They indicate origin/target, not a simulated
+in-flight position or a common transit path. Target picking hides these badges
+so they cannot intercept destination clicks. Reads do not process arrivals,
+stale data disables commands, and logout removes markers and frame subscriptions.
+
+Fleet commands are point-and-click on the galaxy playing field, not a separate
+launch window. Click an owned planet and choose "Flotte hier auswählen" to
+select its stationed inventory. The compact map overlay provides ships,
+mission and optional cargo. "Ziel im Spielfeld wählen" arms target selection:
+click a star to enter its system, then click a planet to set the destination.
+Picking only selects a target; dispatch still requires explicit confirmation.
+Escape cancels target picking without changing the existing order or camera.
+Planet context can also set the destination without changing the origin.
+Coordinate inputs remain collapsed as a keyboard alternative.
+The inventory includes standard ships and blueprints. Launch uses the existing CSRF-protected
+send command; capacity, fuel, prerequisites and ETA remain server-authoritative.
+Successful dispatch invalidates the origin shipyard and overview caches before
+acknowledging, so the subsequent inventory read cannot reuse pre-launch counts.
+Accepted launches clear selected ships/cargo before refreshing, including on
+refresh failure, and require a fresh inventory before further launches.
+Rejected launches preserve the draft. Changing origin clears the draft and
+cancels obsolete inventory reads. Transit is not a generic standard flight:
+the overlay reads the account's authoritative `ftl_status` and displays the
+existing Vor'Tak K-F, Syl'Nar gate, Vel'Ar quantum, Zhareen resonance,
+Aereth warp or Kryl'Tha swarm profile. Cooldown is a server snapshot, not a
+local countdown or route-clearance promise. Range, gates/nodes, scatter,
+damage and final ETA are applied by the existing server faction-drive rules,
+never recreated as a client simulation. Unknown/failed transit reads block
+dispatch with an explicit error. Manual wormhole override is not yet exposed.
+
+The authoritative shipyard overlay is accessible from the command menu, an
+owned planet's context and fleet composition. It reads the standard catalog,
+existing blueprints, stationed counts and build queue from `shipyard.php`.
+Build orders and explicit due-build completion use CSRF-protected POSTs;
+opening or refreshing never completes builds. Listed costs are base costs,
+not client-calculated quotes: colony bonuses, prerequisites and final duration
+remain server decisions. Accepted orders clear quantity drafts and require
+a fresh list before another command if refresh fails. Rejections preserve
+the draft, colony changes clear it, and logout aborts outstanding work.
+Shipyard acceptance and processed fleet arrivals invalidate fleet-composition
+inventory, while dispatch invalidates the displayed shipyard inventory.
+Completed ships can be selected through the existing map fleet controller.
+Blueprint design, individual-vessel repair and decommissioning are not yet
+migrated into this overlay.
+
+The market overlay reads local colony prices, a subsequent canonical stock
+snapshot and the last 20 account-wide transactions. The command menu and economy
+panel open the same overlay. Buy/sell use CSRF POSTs with captured colony, good
+and positive decimal quantity. Prices are snapshots, not quotes; tax, policy,
+credits and storage validation stay on the server. Price reads can settle
+on-demand production but never initiate trades. Accepted trades clear the
+quantity before refreshing and invalidate overview/resource caches in both
+economy modes. Failed refreshes retain the confirmed data and lock further
+trades until a fresh read; rejected orders preserve their draft. Colony changes
+and logout clear private drafts and cancel obsolete work.
+
+The population/supply overlay shares the canonical economy domain and its
+snapshot; it does not read the legacy tick-based population status or post
+legacy wage/culture/safety policy. Command menu, population resource button,
+economy panel and owned planet context open the same view. It shows population
+classes, capacity, satisfaction, workplace occupancy and measured supply gaps;
+missing metrics are shown as unavailable rather than healthy zeroes. A gap
+opens the selected colony's market with its good preselected, but no quantity
+or trade is generated. Unavailable goods are explicitly reported and cannot
+silently become another purchase. Accepted trades refresh an open supply view.
+Reads remain on-demand, without polling or client growth simulation.
+The compact command/audio dock and its drawer stay above the current game-window
+stack, updated by window-focus events without polling. Selecting a game window
+closes the drawer, so navigation remains accessible without hiding that window.
+While management windows are open, the dock offers "Spielfeld" to minimize them
+as a group. "Fenster (n)" restores only that group in its former stacking order,
+using the window manager's restore operation without re-rendering, reads or
+commands. Existing quantity drafts and pending commands survive. Previously
+minimized windows stay minimized; manually restored or closed group members are
+removed from the remembered group. Closing the last window hides this contextual
+control. The galaxy canvas, camera and point-and-click fleet overlay are not
+minimized or reset. Logout removes the control and its in-memory group.
+
+Resource buttons open the same authoritative overlays: raw goods select their
+economy stock details, population and happiness open supply, and energy shows its
+signed server balance (not a stored/tradable good). Stock-table names also select
+details, including processed goods. Selection is highlighted and keyboard-focused
+after loading, without stealing focus on later reads; colony changes and the
+generic economy entry clear it. Missing measurements remain explicitly unavailable,
+not inferred from the overview or replaced with zero. A stock's market action
+preselects only the colony and good; the market checks availability and still
+requires quantity and explicit confirmation. Read errors block this handoff until
+recovery. Dark Matter is a read-only account balance, not an inactive shop button.
+
+Advanced population policy commands,
+general window navigation and advanced renderer-selection integration still need migration.
+The old client-only domain controllers remain outside the authenticated boot
+until backed by canonical server commands. Rendering remains Three.js/WebGPU;
+game rules and on-demand progression remain authoritative in PHP.
+
+Returning players see **Fortsetzen** instead of Login after the server validates
+their session or persistent login cookie. Password login defaults to
+"Auf diesem Gerät angemeldet bleiben"; successful email confirmation also issues
+the existing `gq_remember` cookie, including a retry after cookie-storage failure.
+It lasts `REMEMBER_ME_DAYS` (30 by default), is HttpOnly, SameSite=Lax and Secure
+over HTTPS. Only a selector and random validator go in the cookie; the database
+stores the validator hash. Session restoration rotates the validator. The start
+screen never trusts a local flag or enters the galaxy without an explicit click.
+Logging out revokes the persistent tokens and clears both cookies; expired or
+revoked cookies fall back to Login. Private drafts retain their separate owner
+cookie and do not receive an authenticated account cookie before confirmation.
+Cookie issuance errors are logged and surfaced, not silently reported as a
+successful persistent login.
+
+Persistent login HTTP tests use an isolated disposable MySQL database:
+`GQ_REMEMBER_MYSQL_TESTS=1` enables
+`tests/Integration/RememberLoginTest.php`. Optional `GQ_REMEMBER_TEST_USER` and
+`GQ_REMEMBER_TEST_PASSWORD` supply a test-only database creator; the configured
+application user is otherwise used. The test removes its database, server and
+session files on completion; it does not modify the live game database.
+
+Focused tests: `npx vitest run tests/js/draft-world.test.js
+tests/js/registration-prologue.test.js tests/js/start-screen.test.js` and
+`$env:GQ_BASE_URL='http://localhost:8081'; npx playwright test draft-world.spec.js`
+in PowerShell.
+The MySQL lifecycle test (`tests/Integration/RegistrationPlayTest.php`) requires
+`GQ_DRAFT_PLAY_MYSQL_DSN` pointing to an **empty disposable** database named
+`gq_draft_play_*`, with matching `DB_NAME`, `DB_USER` and `DB_PASS`; never use
+the live database. It checks isolation, persistence, mail failure, code
+validation and atomic progress transfer.
 
 ### Server-authoritative, elapsed-time production
 

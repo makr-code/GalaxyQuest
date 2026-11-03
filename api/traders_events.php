@@ -30,6 +30,25 @@ if (!is_admin_user($db, $uid)) {
     json_error('Admin access required.', 403);
 }
 
+$readEvents = ['status'];
+$writeEvents = [
+    'market_update',
+    'opportunity_scan',
+    'trader_decisions',
+    'route_process',
+    'route_create',
+    'route_complete',
+    'game_tick',
+];
+if (in_array($event, $readEvents, true)) {
+    only_method('GET');
+} elseif (in_array($event, $writeEvents, true)) {
+    only_method('POST');
+    verify_csrf();
+} else {
+    json_error("Unknown event: $event", 400);
+}
+
 try {
     match ($event) {
         'market_update'     => event_market_update($db),

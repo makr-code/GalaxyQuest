@@ -672,11 +672,12 @@ switch ($action) {
             json_error('War not found.', 404);
         }
 
-        war_mark_expired_offers($db, $warId);
         $goals = war_get_enriched_goals($db, $war);
 
         $offerStmt = $db->prepare(
-            'SELECT id, from_user_id, status, created_at, expires_at, responded_at, terms_json
+            'SELECT id, from_user_id,
+                    CASE WHEN status = "pending" AND expires_at <= NOW() THEN "expired" ELSE status END AS status,
+                    created_at, expires_at, responded_at, terms_json
              FROM peace_offers
              WHERE war_id = ?
              ORDER BY id DESC
@@ -784,6 +785,7 @@ switch ($action) {
 
     case 'set_supply_route': {
         only_method('POST');
+        verify_csrf();
         $warId = (int)($_POST['war_id'] ?? 0);
         $fromColonyId = (int)($_POST['from_colony_id'] ?? 0);
         $toSystemIndex = (int)($_POST['to_system_index'] ?? 0);

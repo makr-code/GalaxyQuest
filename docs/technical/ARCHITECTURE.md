@@ -119,10 +119,9 @@ queue in the database (see [§4.14](#414-projection-runtime)).
    └─ helpers.php: verify_csrf()         — validates token on POST/PUT/DELETE
 
 3. api/game.php switch($action):
-   ├─ update_all_colonies($db, $uid)     — lazy resource tick for all colonies
-   ├─ npc_ai_tick($db, $uid)             — NPC faction tick (rate-limited 5 min)
-   ├─ SELECT colonies + planets JOIN     — fetch fresh colony state
-   ├─ SELECT fleets                      — check_arrivals() resolves overdue fleets
+   ├─ build_live_overview_payload(..., false) — assemble state without simulation ticks
+   ├─ update_all_colonies($db, $uid)     — lazy on-demand colony economy settlement
+   ├─ SELECT colonies + planets JOIN     — fetch colony state
    └─ json_ok([...])                     — sends {"success":true, ...} with 200
 
 4. Browser receives JSON
@@ -149,9 +148,8 @@ is the heartbeat of the game UI — called on page load, after every mutation, a
 game.js: loadOverview()
   ─► GET /api/game.php?action=overview
        │
-       ├─ update_all_colonies()   — lazy resource catch-up for all user colonies
-       ├─ npc_ai_tick()           — NPC faction behaviour (rate-limited ≤5 min)
-       ├─ check_arrivals()        — resolves all overdue fleets
+       ├─ update_all_colonies()   — on-demand economy settlement for user colonies
+       ├─ no NPC or global simulation tick (side effects are disabled on reads)
        └─ JSON response: { colonies[], fleets[], meta{} }
        │
   ◄── game.js stores in window._GQ_* globals
@@ -577,8 +575,11 @@ generate_star_system(galaxy, system)
        └─ derive_planet_deposits() → richness × 4 + deposits × 4 from planet class
 ```
 
-Star system rows cached in `star_systems` on first access. Planet rows created lazily via
-`ensure_planet()` in `planet_helper.php` — only when a fleet visits the coordinates.
+Star system rows are materialized on demand for the requested system/range; read
+requests do not advance the global bootstrap batch or seed faction defaults.
+Registration/homeworld creation may advance the explicit bootstrap process.
+Planet rows are created lazily via `ensure_planet()` in `planet_helper.php` —
+only when a fleet visits the coordinates.
 
 **Seeded RNG** (`gen_rand(int ...$seeds)`): Uses `sin(sum_of_seeds) × large_prime` to get
 a float in [0,1]. Not cryptographic, but deterministic with no shared state.
@@ -629,13 +630,14 @@ $pos = [
 ### 4.8 NPC AI Architecture
 
 The NPC AI is a multi-tier system combining fast rule-based decisions with optional
-LLM-guided steering. All logic is triggered opportunistically by active player traffic
-— no dedicated background process is required.
+LLM-guided steering. Mutating ticks run only through explicit simulation or
+NPC-controller actions; overview GET requests do not execute them.
 
 #### Tier 1 — Rule-Based Faction Tick (`npc_ai.php`)
 
-`npc_ai_tick($db, $userId)` is called on every overview load, rate-limited to
-**once per 5 minutes** per user via `users.last_npc_tick`.
+`npc_ai_tick($db, $userId)` runs from explicit simulation/NPC-controller actions
+and is rate-limited to **once per 5 minutes** per user via `users.last_npc_tick`
+unless explicitly forced. The simulation HTTP endpoint requires POST and CSRF.
 
 ```
 npc_ai_tick($db, $userId)
@@ -731,7 +733,7 @@ GalaxyQuest embeds a local LLM gateway via Ollama for several AI-driven features
 
 | Feature | Endpoint | Notes |
 |---|---|---|
-| Scientific glossary | `GET /api/glossary.php?action=generate&term=…` | Ollama + Wikipedia RAG |
+| Scientific glossary | `POST /api/glossary.php?action=generate` | CSRF-protected Ollama + Wikipedia RAG |
 | Character profiles | `api/character_profile_generator.php` | Backstories for leaders and NPC users |
 | NPC PvE decisions | `api/npc_llm_controller.php` | LLM-guided faction behaviour (see §4.8) |
 | Leader marketplace | `api/llm.php` | AI-generated leader personalities |

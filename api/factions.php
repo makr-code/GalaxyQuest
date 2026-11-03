@@ -36,7 +36,6 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         if (is_array($cached) && isset($cached['factions'])) {
             json_ok($cached);
         }
-        ensure_diplomacy_rows($db, $uid);
         $stmt = $db->prepare(
             'SELECT f.*,
                     COALESCE(d.standing, f.base_diplomacy)     AS standing,
@@ -322,7 +321,6 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         only_method('GET');
         $fid = (int)($_GET['faction_id'] ?? 0);
         $db  = get_db();
-        ensure_precursor_beacon_quest_seed($db);
         $standing = get_standing($db, $uid, $fid);
 
         // Already-active quest IDs for this user
@@ -500,7 +498,7 @@ function get_standing(PDO $db, int $userId, int $factionId): int {
 }
 
 /**
- * Create missing diplomacy rows for all factions (called on list action).
+ * Create missing diplomacy rows before mutations that require persisted rows.
  */
 function ensure_diplomacy_rows(PDO $db, int $userId): void {
     $factions = $db->query('SELECT id, base_diplomacy FROM npc_factions')->fetchAll();

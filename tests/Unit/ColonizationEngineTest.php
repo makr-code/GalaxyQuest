@@ -263,6 +263,17 @@ final class ColonizationEngineTest extends TestCase
         $this->assertEqualsWithDelta(3.0, (float)$row['sprawl_value'], 0.001);
     }
 
+    public function testCalculateSprawlDoesNotWriteCache(): void
+    {
+        $result = ColonizationEngine::calculateSprawl($this->db, 1);
+
+        $this->assertEqualsWithDelta(3.0, $result['sprawl_value'], 0.001);
+        $this->assertSame(
+            0,
+            (int)$this->db->query('SELECT COUNT(*) FROM empire_sprawl_cache')->fetchColumn()
+        );
+    }
+
     public function testRecalcSprawlCountsLargeFleets(): void
     {
         // Add a large fleet (> 5 ships)

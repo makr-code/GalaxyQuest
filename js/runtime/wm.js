@@ -1250,6 +1250,7 @@ const WMCore = (() => {
       _callRender(id);
       _persistWindowStateCookie();
       _syncAllDockGroupUis();
+      window.dispatchEvent(new CustomEvent('wm:window-state-changed', { detail: { id: id, action: 'open' } }));
     }
 
     // ── Public: close ─────────────────────────────────────────────────────
@@ -1288,6 +1289,7 @@ const WMCore = (() => {
       _pushRecentClosed(id, cfg.title || id);
       _persistWindowStateCookie();
       _syncAllDockGroupUis();
+      window.dispatchEvent(new CustomEvent('wm:window-state-changed', { detail: { id: id, action: 'close' } }));
     }
 
     // ── Public: refresh ───────────────────────────────────────────────────
@@ -1560,6 +1562,7 @@ const WMCore = (() => {
       if (taskBtn) taskBtn.classList.add('wm-task-active');
       _recordFocusHistory(id);
       _syncAllDockGroupUis();
+      window.dispatchEvent(new CustomEvent('wm:focus-changed', { detail: { id: id } }));
     }
 
     function _focus(id) {
@@ -1743,6 +1746,7 @@ const WMCore = (() => {
         if (next) activateDockTab(group.id, next);
       });
       _persistWindowStateCookie();
+      window.dispatchEvent(new CustomEvent('wm:window-state-changed', { detail: { id: id, action: 'minimize' } }));
     }
 
     function _restore(id) {
@@ -1759,6 +1763,7 @@ const WMCore = (() => {
       });
       _focus(id);
       _persistWindowStateCookie();
+      window.dispatchEvent(new CustomEvent('wm:window-state-changed', { detail: { id: id, action: 'restore' } }));
     }
 
     function isMinimized(id) {

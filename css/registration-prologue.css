@@ -1,4 +1,16 @@
 .registration-prologue[hidden], .registration-prologue [hidden] { display: none !important; }
+.draft-world[hidden], .draft-world [hidden] { display: none !important; }
+body.draft-playing #auth-section,
+body.draft-playing #auth-status-section,
+body.draft-playing #auth-preload-section,
+body.draft-playing #boot-terminal { visibility: hidden; pointer-events: none; }
+.draft-world { position: fixed; inset: 16px auto 16px 16px; width: min(600px, calc(100vw - 32px)); box-sizing: border-box; overflow: auto; z-index: 115; padding: 24px; background: #04101bea; color: #e3efff; border: 1px solid #a7dfff55; }
+.draft-world section, .draft-world details { margin-top: 24px; border-top: 1px solid #a7dfff33; padding-top: 12px; }
+.draft-world form { display: grid; gap: 10px; margin: 16px 0; }
+.draft-world input, .draft-world select, .draft-world button { max-width: 100%; min-width: 0; box-sizing: border-box; padding: 10px; background: #102536; color: #e3efff; border: 1px solid #a7dfff66; font: inherit; }
+.draft-world p { line-height: 1.6; overflow-wrap: anywhere; }
+.draft-world button:disabled { opacity: .5; cursor: not-allowed; }
+#draft-error { color: #ffb4a1; }
 body.registration-active #auth-status-section,
 body.registration-active #auth-preload-section,
 body.registration-active #auth-action-section,
@@ -6,7 +18,7 @@ body.registration-active #boot-terminal,
 body.registration-active #copyright,
 body.registration-active #affilates { display: none !important; }
 @keyframes registration-menu-exit {
-  to { opacity: 0; transform: scale(1.015); }
+  to { opacity: 0; visibility: hidden; transform: scale(1.015); }
 }
 @keyframes registration-scene-enter {
   from { opacity: 0; }

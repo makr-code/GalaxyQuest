@@ -255,12 +255,9 @@ PRICE_ELASTICITY = 0.4  // Affects price sensitivity
 
 ### Market Update Frequency
 
-Recommended: **Run `process_trader_tick` every 10-15 minutes**
-
-```bash
-# Via cron:
-*/10 * * * * curl -s http://localhost/api/traders.php?action=process_trader_tick
-```
+Do not schedule the HTTP `process_trader_tick` action. It requires an
+authenticated session and CSRF token, and the dedicated worker lease/idempotency
+contract is still open.
 
 ---
 

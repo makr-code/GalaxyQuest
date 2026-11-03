@@ -171,4 +171,25 @@ PHP
         $this->assertSame($expected, $this->request($action, 42, []));
         $this->assertSame($expected, $this->request($action, 42, ['a' => ['b' => -10]]));
     }
+
+    public function testExpiredCacheReadsDoNotMutateCacheFilesOrIndex(): void
+    {
+        $params = ['entry' => 'expired'];
+        Storage\gq_cache_set_raw('read_side_effects', $params, 'payload', 30);
+        $key = Storage\_gq_cache_key('read_side_effects', $params);
+        $cacheFile = Storage\_gq_cache_file($key);
+        $indexFile = Storage\_gq_cache_index_file('read_side_effects');
+        $cacheContents = file_get_contents($cacheFile);
+        $indexContents = file_get_contents($indexFile);
+        $this->assertIsString($cacheContents);
+        $this->assertIsString($indexContents);
+
+        self::$now += 31;
+
+        $this->assertNull(Storage\gq_cache_get_raw('read_side_effects', $params));
+        $this->assertFileExists($cacheFile);
+        $this->assertSame($cacheContents, file_get_contents($cacheFile));
+        $this->assertSame([], Storage\gq_cache_index_entries('read_side_effects'));
+        $this->assertSame($indexContents, file_get_contents($indexFile));
+    }
 }

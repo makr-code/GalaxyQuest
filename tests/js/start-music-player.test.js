@@ -8,25 +8,31 @@ const html = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf8');
 describe('Start music player', () => {
   let state;
   let manager;
+  let player;
   beforeEach(() => {
     const parsed = new DOMParser().parseFromString(html, 'text/html');
     document.body.append(document.importNode(parsed.getElementById('start-music-player'), true));
-    state = { musicUrl: 'music/Nebula_Overture.mp3', musicPlaying: false, masterMuted: false };
+    document.body.append(document.importNode(parsed.getElementById('topbar-player'), true));
+    state = { musicUrl: 'music/Nebula_Overture.mp3', musicPlaying: false, masterMuted: false,
+      musicVolume: 0.55, playlist: ['music/Nebula_Overture.mp3', 'music/Second_Track.mp3'] };
     manager = {
       snapshot: () => state,
       playMusic: vi.fn(async () => { state.musicPlaying = true; return true; }),
       pauseMusic: vi.fn(() => { state.musicPlaying = false; }),
       setMasterMuted: vi.fn((muted) => { state.masterMuted = muted; }),
       playNextInPlaylist: vi.fn(async () => true),
+      setMusicTrack: vi.fn(async (url, autoplay) => { state.musicUrl = url; state.musicPlaying = autoplay; return true; }),
+      setMusicVolume: vi.fn((volume) => { state.musicVolume = volume; }),
     };
   });
   afterEach(() => {
+    player?.destroy();
     document.body.innerHTML = '';
     vi.restoreAllMocks();
   });
 
   it('keeps controls disabled until the shared manager is ready and updates title safely', () => {
-    const player = initializeStartMusicPlayer();
+    player = initializeStartMusicPlayer();
     expect(document.querySelector('#start-music-play').disabled).toBe(true);
     player.setManager(manager);
     expect(document.querySelector('#start-music-play').disabled).toBe(false);
@@ -41,7 +47,8 @@ describe('Start music player', () => {
   });
 
   it('plays, pauses without rewinding, mutes and switches both directions', async () => {
-    initializeStartMusicPlayer().setManager(manager);
+    player = initializeStartMusicPlayer();
+    player.setManager(manager);
     const play = document.querySelector('#start-music-play');
     play.click();
     await vi.waitFor(() => expect(play.getAttribute('aria-label')).toBe('Musik pausieren'));
@@ -61,7 +68,7 @@ describe('Start music player', () => {
   });
 
   it('reflects external audio changes and surfaces blocked playback', async () => {
-    const player = initializeStartMusicPlayer();
+    player = initializeStartMusicPlayer();
     player.setManager(manager);
     state.masterMuted = true;
     state.musicPlaying = true;
@@ -80,12 +87,60 @@ describe('Start music player', () => {
   it('prevents overlapping commands while a track switch is pending', async () => {
     let finish;
     manager.playNextInPlaylist.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
-    initializeStartMusicPlayer().setManager(manager);
+    player = initializeStartMusicPlayer();
+    player.setManager(manager);
     document.querySelector('#start-music-next').click();
     document.querySelector('#start-music-next').click();
     expect(manager.playNextInPlaylist).toHaveBeenCalledOnce();
     expect(document.querySelector('#start-music-play').disabled).toBe(true);
     finish(true);
     await vi.waitFor(() => expect(document.querySelector('#start-music-play').disabled).toBe(false));
+  });
+
+  it('shares play/pause, mute, playlist and volume across both surfaces', async () => {
+    player = initializeStartMusicPlayer();
+    player.setManager(manager);
+    document.querySelector('#topbar-player-toggle').click();
+    await vi.waitFor(() => expect(document.querySelector('#start-music-play').getAttribute('aria-label')).toBe('Musik pausieren'));
+    document.querySelector('#audio-toggle-btn').click();
+    await vi.waitFor(() => expect(document.querySelector('#start-music-mute').getAttribute('aria-pressed')).toBe('true'));
+    const select = document.querySelector('#topbar-player-track');
+    expect(select.options).toHaveLength(2);
+    select.value = 'music/Second_Track.mp3';
+    select.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(document.querySelector('#start-music-title').textContent).toBe('Second Track'));
+    expect(manager.setMusicTrack).toHaveBeenCalledWith('music/Second_Track.mp3', true);
+    const volume = document.querySelector('#topbar-player-volume');
+    volume.value = '23';
+    volume.dispatchEvent(new Event('input'));
+    await vi.waitFor(() => expect(document.querySelector('#start-music-volume').value).toBe('23'));
+    expect(manager.setMusicVolume).toHaveBeenCalledWith(0.23);
+    expect(document.querySelector('#topbar-player-current').textContent).toBe('Second Track');
+  });
+
+  it('keeps a paused track paused when selected and reports failures on both players', async () => {
+    player = initializeStartMusicPlayer();
+    player.setManager(manager);
+    document.querySelector('#topbar-player-track-list button:last-child').click();
+    await vi.waitFor(() => expect(manager.setMusicTrack).toHaveBeenCalledWith('music/Second_Track.mp3', false));
+    manager.playMusic.mockResolvedValue(false);
+    await vi.waitFor(() => expect(document.querySelector('#topbar-player-toggle').disabled).toBe(false));
+    document.querySelector('#topbar-player-toggle').click();
+    await vi.waitFor(() => expect(document.querySelector('#topbar-player-status').textContent).toContain('nicht gestartet'));
+    expect(document.querySelector('#start-music-status').textContent).toBe(document.querySelector('#topbar-player-status').textContent);
+  });
+
+  it('opens the accessible menu, closes on Escape, and removes all bindings on disposal', () => {
+    player = initializeStartMusicPlayer();
+    player.setManager(manager);
+    const toggle = document.querySelector('#topbar-player-menu-toggle');
+    toggle.click();
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(toggle);
+    player.destroy();
+    document.querySelector('#topbar-player-toggle').click();
+    expect(manager.playMusic).not.toHaveBeenCalled();
   });
 });

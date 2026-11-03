@@ -398,11 +398,16 @@ export function createShipDesignerEnhancedUI(opts = {}) {
         };
 
         try {
+            const csrfToken = await getCsrfToken();
             const response = await fetch(
                 `${apiBase}/ship_designer_enhanced.php?action=customize_ship`,
                 {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': csrfToken,
+                    },
                     body: JSON.stringify(payload),
                 }
             );
@@ -428,11 +433,16 @@ export function createShipDesignerEnhancedUI(opts = {}) {
         const payload = { customization_id: customizationId };
 
         try {
+            const csrfToken = await getCsrfToken();
             const response = await fetch(
                 `${apiBase}/ship_designer_enhanced.php?action=refine_with_trellis2`,
                 {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': csrfToken,
+                    },
                     body: JSON.stringify(payload),
                 }
             );
@@ -457,13 +467,40 @@ export function createShipDesignerEnhancedUI(opts = {}) {
     async function pollRefinementProgress() {
         if (!state.refinementJobId) return;
 
+        let pollInFlight = false;
         const interval = setInterval(async () => {
+            if (pollInFlight) return;
+            pollInFlight = true;
             try {
+                const jobId = state.refinementJobId;
                 const response = await fetch(
-                    `${apiBase}/trellis2_generator.php?action=generation_status&job_id=${state.refinementJobId}`
+                    `${apiBase}/trellis2_generator.php?action=generation_status&job_id=${encodeURIComponent(jobId)}`
                 );
 
-                const result = await response.json();
+                let result = await response.json();
+                if (!response.ok || result.error) {
+                    throw new Error(result.error || `Status request failed (${response.status})`);
+                }
+
+                if (result.ready_to_finalize) {
+                    const csrfToken = await getCsrfToken();
+                    const finalizeResponse = await fetch(
+                        `${apiBase}/trellis2_generator.php?action=finalize_generation`,
+                        {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-Token': csrfToken,
+                            },
+                            body: JSON.stringify({ job_id: jobId }),
+                        }
+                    );
+                    result = await finalizeResponse.json();
+                    if (!finalizeResponse.ok || result.error) {
+                        throw new Error(result.error || `Finalization failed (${finalizeResponse.status})`);
+                    }
+                }
 
                 state.refinementProgress = result.progress || 0;
                 render();
@@ -488,8 +525,32 @@ export function createShipDesignerEnhancedUI(opts = {}) {
             } catch (err) {
                 console.error('Poll error:', err);
                 clearInterval(interval);
+            } finally {
+                pollInFlight = false;
             }
         }, 2000); // Poll every 2 seconds
+    }
+
+    async function getCsrfToken() {
+        const session = window.APISession;
+        const cachedToken = session?.getCsrfToken?.();
+        if (cachedToken) return cachedToken;
+
+        const token = await session?.fetchCsrfToken?.(`${apiBase}/auth.php?action=csrf`);
+        if (token) return token;
+
+        const response = await fetch(`${apiBase}/auth.php?action=csrf`, {
+            credentials: 'same-origin',
+        });
+        if (!response.ok) {
+            throw new Error(`CSRF token request failed (${response.status})`);
+        }
+
+        const data = await response.json();
+        if (!data?.token) {
+            throw new Error('CSRF token response did not contain a token');
+        }
+        return data.token;
     }
 
     // ─────────────────────────────────────────────────────────────────────

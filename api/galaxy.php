@@ -38,10 +38,8 @@ $g = max(1, min(GALAXY_MAX, (int)($_GET['galaxy'] ?? 1)));
 $s = max(1, min(galaxy_system_limit(), (int)($_GET['system'] ?? 1)));
 
 $db = get_db();
-$needsBlockingBootstrap = !in_array($action, ['auth_stars', 'auth_flight_preview', 'stars', 'bootstrap'], true);
-if ($needsBlockingBootstrap) {
-    ensure_galaxy_bootstrap_progress($db, false);
-}
+ensure_star_system_columns($db);
+ensure_binary_systems_table($db);
 $renderSchemaVersion = 1;
 $assetsManifestVersion = 2;
 
@@ -1649,4 +1647,3 @@ function hue_to_rgb(float $p, float $q, float $t): float
     if ($t < 2 / 3) return $p + ($q - $p) * (2 / 3 - $t) * 6;
     return $p;
 }
-

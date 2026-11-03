@@ -187,6 +187,25 @@ describe('SeamlessZoomOrchestrator — zoomTo() lifecycle', () => {
     await orchestrator.zoomTo(ZOOM_LEVEL.GALAXY, payload);
     expect(levelA.enter.mock.calls[0][1]).toBe(payload);
   });
+
+  it.each(['initialize', 'enter'])('does not reactivate a level disposed during async %s', async (method) => {
+    let finish;
+    levelA[method].mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    mockBackend.setZoomSceneActive = vi.fn();
+    orchestrator._backend = mockBackend;
+    const entered = vi.fn();
+    orchestrator.on('enterLevel', entered);
+    const pending = orchestrator.zoomTo(ZOOM_LEVEL.GALAXY, null);
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    orchestrator.dispose();
+    finish();
+    await pending;
+    expect(entered).not.toHaveBeenCalled();
+    expect(mockBackend.setZoomSceneActive).not.toHaveBeenCalledWith(true);
+    expect(orchestrator._active).toBeNull();
+    await orchestrator.zoomTo(ZOOM_LEVEL.SYSTEM, null);
+    expect(levelB.enter).not.toHaveBeenCalled();
+  });
 });
 
 describe('SeamlessZoomOrchestrator — shared renderer frame loop', () => {

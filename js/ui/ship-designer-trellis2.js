@@ -465,6 +465,20 @@ class TRELLIS2ShipDesigner {
         this.promptPreview.textContent = prompt;
     }
     
+    async fetchCsrfToken() {
+        const response = await fetch('/api/auth.php?action=csrf', {
+            credentials: 'same-origin',
+        });
+        if (!response.ok) {
+            throw new Error(`CSRF token request failed (${response.status})`);
+        }
+        const data = await response.json();
+        if (typeof data.token !== 'string' || data.token.length === 0) {
+            throw new Error('CSRF token missing from response');
+        }
+        return data.token;
+    }
+
     /**
      * Save design to database
      */
@@ -482,10 +496,15 @@ class TRELLIS2ShipDesigner {
         
         try {
             this.generateButton.disabled = true;
+            const csrfToken = await this.fetchCsrfToken();
             
             const response = await fetch('/api/vessel_designs', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': csrfToken,
+                },
                 body: JSON.stringify({
                     species_code: this.currentSpecies,
                     design_name: designName,
@@ -531,10 +550,15 @@ class TRELLIS2ShipDesigner {
         try {
             this.generateButton.disabled = true;
             this.showStatus('Submitting generation request...');
+            const csrfToken = await this.fetchCsrfToken();
             
             const response = await fetch(`/api/vessel_designs/${this.currentDesignId}/generate`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': csrfToken,
+                },
                 body: JSON.stringify({
                     prompt_text: prompt,
                     priority: 0,

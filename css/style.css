@@ -227,6 +227,157 @@
   height: 100%;
 }
 
+.game-page #wm-galaxy-section.game-field {
+  inset: 0 !important;
+  height: 100dvh !important;
+  width: 100vw !important;
+  z-index: 1 !important;
+  pointer-events: auto !important;
+}
+.game-field #galaxy-bg-wrapper {
+  position: absolute !important;
+  width: 100% !important;
+  height: 100% !important;
+  background: #030916 !important;
+}
+.game-field #starfield { touch-action: none; outline-offset: -3px; }
+.game-field #starfield { cursor: grab; }
+.game-field #starfield:active { cursor: grabbing; }
+#game-galaxy-ui {
+  position: absolute; inset: 0; z-index: 5; pointer-events: none;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  padding: 64px 12px 12px;
+}
+#game-galaxy-ui [hidden] { display: none !important; }
+#game-galaxy-ui > p { padding: 2px 6px; font-size: 12px; }
+#game-galaxy-ui > * {
+  pointer-events: auto; margin: 0; max-width: 100%;
+  background: rgba(5, 15, 30, 0.94); border: 1px solid #264660; border-radius: 6px; padding: 6px;
+}
+.game-galaxy-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+#game-galaxy-navigation { width: min(390px, 100%); max-height: calc(100dvh - 90px); overflow: auto; }
+#game-galaxy-navigation:not([open]) { width: auto; }
+#game-galaxy-navigation .game-galaxy-toolbar { padding-top: 8px; }
+#game-camera-help { margin-top: 8px; }
+#game-camera-help p { font-size: 12px; line-height: 1.5; }
+#game-camera-view { margin: 6px 0; font-size: 12px; }
+#game-camera-path { display: flex; gap: 2px; padding: 3px; flex-wrap: wrap; }
+#game-camera-path .btn { padding: 3px 6px; font-size: 11px; }
+#game-camera-path [aria-current="location"] { color: #bce6ff; opacity: 1; }
+#game-planet-context { width: min(360px, 100%); max-height: 36%; overflow: auto; overflow-wrap: anywhere; }
+#game-planet-context h3 { margin: 0 0 4px; font-size: 14px; }
+#game-planet-context p { margin: 0 0 6px; font-size: 12px; }
+.game-development[data-domain="fleet-launch"] fieldset { display: grid; gap: 8px; min-width: 0; }
+.game-development[data-domain="fleet-launch"] label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; overflow-wrap: anywhere; }
+.game-development[data-domain="fleet-launch"] input { width: 110px; max-width: 100%; }
+.game-market fieldset { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.game-market fieldset p { flex-basis: 100%; overflow-wrap: anywhere; }
+.game-market input, .game-market select { max-width: 100%; min-width: 0; }
+.game-market ol { padding-left: 24px; overflow-wrap: anywhere; }
+#game-fleet-command {
+  position: absolute; z-index: 8; top: 64px; right: 12px;
+  width: min(390px, calc(100% - 24px)); max-height: calc(100dvh - 82px);
+  overflow: auto; padding: 10px; border: 1px solid #264660; border-radius: 6px;
+  background: rgba(5, 15, 30, 0.96); overflow-wrap: anywhere;
+}
+#game-fleet-command[hidden] { display: none; }
+#game-fleet-command h2, #game-fleet-command h3 { font-size: 14px; margin: 6px 0; }
+#game-fleet-command p { font-size: 12px; }
+#game-fleet-markers { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
+#game-fleet-markers button {
+  position: absolute; pointer-events: auto; min-width: 40px; min-height: 32px;
+  background: #102b40ed; border: 1px solid #6ecbff;
+}
+#game-fleet-markers button[aria-pressed="true"] { outline: 2px solid #bce6ff; }
+#game-fleet-context, #game-fleet-map-status {
+  position: absolute; z-index: 7; right: 12px; bottom: 12px;
+  width: min(360px, calc(100% - 24px)); max-height: 44dvh; overflow: auto;
+  padding: 8px; border: 1px solid #264660; border-radius: 6px;
+  background: rgba(5, 15, 30, 0.96); overflow-wrap: anywhere;
+}
+#game-fleet-context h3, #game-fleet-context h4 { font-size: 14px; margin: 6px 0; }
+#game-fleet-context p, #game-fleet-map-status p { font-size: 12px; margin: 6px 0; }
+#game-fleet-map-status { left: 12px; right: auto; max-height: 20dvh; }
+#game-fleet-markers[hidden], #game-fleet-context[hidden], #game-fleet-map-status[hidden] { display: none; }
+.fleet-target-picking #starfield { cursor: crosshair; }
+#game-fleet-command[data-picking="true"] { top: auto; bottom: 12px; max-height: 30dvh; }
+.fleet-target-picking #game-planet-context,
+.fleet-target-picking #game-galaxy-details { display: none; }
+#game-galaxy-ui:is([data-camera-level="colony"], [data-camera-level="building"]) #game-galaxy-details {
+  display: none;
+}
+.game-field [aria-label="Colony surface simulation"] {
+  top: 152px !important; max-width: min(360px, calc(100vw - 24px)) !important;
+  max-height: calc(100dvh - 172px); overflow: auto;
+}
+#game-galaxy-navigation #game-galaxy-catalog { margin-top: 8px; width: 100%; }
+.game-galaxy-toolbar form { display: flex; flex-wrap: wrap; gap: 4px; }
+#game-galaxy-ui .game-galaxy-toolbar input { width: 76px; min-width: 0; }
+#game-galaxy-details, #game-galaxy-catalog { width: min(360px, 100%); overflow: auto; max-height: 36%; }
+#game-galaxy-ui summary { cursor: pointer; }
+#game-galaxy-selection { overflow-wrap: anywhere; }
+#game-galaxy-selection ul { padding-left: 20px; }
+#game-galaxy-selection li { margin: 5px 0; }
+#game-galaxy-selection li.selected { outline: 1px solid #6ecbff; background: #19344a; }
+#game-galaxy-system-list { display: grid; gap: 4px; }
+#game-galaxy-catalog input { max-width: 100%; }
+#game-galaxy-status[data-error="true"], #game-renderer-status[role="alert"] { color: #ffb6ad; }
+@media (max-width: 700px) {
+  #game-galaxy-ui { padding: 64px 8px 8px; gap: 2px; }
+  .game-galaxy-toolbar { gap: 3px; }
+  #game-galaxy-ui > p { font-size: 11px; }
+  #game-galaxy-details, #game-galaxy-catalog { width: min(300px, 80%); max-height: 25%; }
+}
+
+#game-overlay-shell { display: none; }
+.game-page #game-overlay-shell {
+  display: block; position: fixed; inset: 0; z-index: 150; pointer-events: none;
+}
+.game-overlay-dock {
+  position: absolute; top: max(12px, env(safe-area-inset-top)); left: 12px;
+  display: flex; align-items: center; flex-wrap: wrap; max-width: calc(100vw - 24px); gap: 8px; pointer-events: auto;
+  border: 1px solid #6ca9d640; border-radius: 8px; padding: 5px;
+  background: #0d1d30b3; backdrop-filter: blur(12px);
+}
+.game-overlay-dock #topbar-player { position: static; }
+#game-overlay-shell #topbar-player-menu {
+  position: absolute; top: calc(100% + 8px); bottom: auto; left: 0; right: auto;
+  width: min(330px, calc(100vw - 32px)); max-width: none;
+  max-height: calc(100dvh - 100px); overflow: auto;
+}
+#game-command-overlay {
+  position: absolute; top: 64px; right: 12px; width: min(600px, calc(100vw - 24px));
+  max-height: calc(100dvh - 80px); overflow: auto; pointer-events: auto;
+  border: 1px solid #6ca9d640; border-radius: 8px; padding: 12px;
+  background: #0d1d30e8; backdrop-filter: blur(12px);
+}
+#game-overlay-shell [hidden] { display: none !important; }
+.game-page.game-overlay-layout #topbar-section,
+.game-page.game-overlay-layout #resource-section {
+  position: static !important; width: 100% !important; height: auto !important;
+  margin: 0 !important; padding: 0 !important; background: transparent;
+}
+#game-command-overlay .topbar {
+  flex-wrap: wrap; gap: 8px; height: auto; min-height: 0;
+  padding: 8px 0; background: transparent; border: 0;
+}
+#game-command-overlay .topbar-left,
+#game-command-overlay .topbar-right { flex-wrap: wrap; max-width: 100%; }
+#game-command-overlay .topbar-nav { display: none; }
+#game-command-overlay #game-colony-select { max-width: min(300px, 100%); }
+#game-command-overlay .resource-bar { flex-wrap: wrap; background: transparent; padding: 8px 0; }
+.game-page.game-overlay-layout #taskbar-section { position: static; height: auto; }
+#game-command-overlay .wm-taskbar { flex-wrap: wrap; padding: 8px 0; background: transparent; }
+#game-command-overlay #footer-actions,
+#game-command-overlay #footer-load,
+#game-command-overlay #footer-load-badge { display: none; }
+#game-command-overlay #system-breadcrumb-nav,
+#game-command-overlay #stellaris-system-overview { display: none; }
+@media (max-width: 700px) {
+  #game-command-overlay { top: 60px; right: 8px; width: calc(100vw - 16px); }
+  .game-overlay-dock { left: 8px; }
+}
+
 /* ── Space flight HUD component ───────────────────────── */
 .gq-spaceflight-hud {
   position: absolute;
@@ -977,6 +1128,18 @@ input:focus, select:focus, textarea:focus {
   height: 52px;
 }
 .topbar-left { display: flex; align-items: center; gap: 0.75rem; min-width: 160px; }
+#game-colony-select { min-width: 0; max-width: min(230px, 42vw); }
+.game-development { padding: 1rem; overflow-wrap: anywhere; }
+.game-development-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.25rem 0.5rem; }
+.game-development-list { display: grid; gap: 0.75rem; }
+.game-development-card { padding: 0.75rem; border: 1px solid var(--border); border-radius: 6px; }
+.game-development-card[aria-current="true"] { border-color: #6ecbff; outline: 1px solid #6ecbff; }
+.game-economy-table { max-width: 100%; overflow-x: auto; }
+.game-economy-stock { width: 100%; border-collapse: collapse; }
+.game-economy-stock th, .game-economy-stock td { padding: 0.4rem; text-align: left; }
+.game-economy-stock tr[aria-current="true"] { outline: 1px solid #6ecbff; background: #19344a; }
+.game-economy-setting fieldset { display: flex; flex-wrap: wrap; gap: 0.5rem; min-width: 0; margin: 0.5rem 0; }
+.game-economy-setting select, .game-economy-setting input { max-width: 100%; min-width: 0; }
 .logo-small  { font-size: 1rem; font-weight: 700; color: var(--accent-cyan); white-space: nowrap; }
 .topbar-brand-btn {
   background: transparent;

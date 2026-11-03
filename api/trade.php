@@ -129,6 +129,8 @@ function total_trade_cargo_units(array $payload): float {
 // ─── Action handlers ──────────────────────────────────────────────────────────
 
 function action_list(PDO $db, int $uid): never {
+    only_method('GET');
+
     $stmt = $db->prepare(<<<SQL
         SELECT
             tr.id, tr.origin_colony_id, tr.target_colony_id,
@@ -208,6 +210,7 @@ function action_dispatch_due(PDO $db, int $uid): never
 }
 
 function action_create(PDO $db, int $uid): never {
+    only_method('POST');
     verify_csrf();
     $body = json_decode(file_get_contents('php://input'), true) ?? [];
     $originColonyId = (int)($body['origin_colony_id'] ?? 0);
@@ -251,6 +254,7 @@ function action_create(PDO $db, int $uid): never {
 }
 
 function action_delete(PDO $db, int $uid): never {
+    only_method('POST');
     verify_csrf();
     $body = json_decode(file_get_contents('php://input'), true) ?? [];
     $routeId = (int)($body['route_id'] ?? 0);
@@ -270,6 +274,7 @@ function action_delete(PDO $db, int $uid): never {
 }
 
 function action_toggle(PDO $db, int $uid): never {
+    only_method('POST');
     verify_csrf();
     $body = json_decode(file_get_contents('php://input'), true) ?? [];
     $routeId = (int)($body['route_id'] ?? 0);
@@ -296,6 +301,7 @@ function action_toggle(PDO $db, int $uid): never {
 }
 
     function action_list_suggestions(PDO $db, int $uid): never {
+        only_method('GET');
         $limit = min(20, max(1, (int)($_GET['limit'] ?? 10)));
         $intervalHours = min(168, max(1, (int)($_GET['interval_hours'] ?? 24)));
 
@@ -309,6 +315,7 @@ function action_toggle(PDO $db, int $uid): never {
     }
 
     function action_apply_suggestion(PDO $db, int $uid): never {
+        only_method('POST');
         verify_csrf();
         $body = json_decode(file_get_contents('php://input'), true) ?? [];
 
@@ -702,6 +709,8 @@ function action_toggle(PDO $db, int $uid): never {
  * heatmap matrix, existing route efficiency metrics, and AI recommendations.
  */
 function action_goods_flow(PDO $db, int $uid): never {
+    only_method('GET');
+
     $intervalHours = min(168, max(1, (int)($_GET['interval_hours'] ?? 24)));
     $limit         = min(20,  max(1, (int)($_GET['limit']          ?? 10)));
 
@@ -1216,13 +1225,15 @@ function reserve_trade_payload_from_origin(
 // ─── Trade Proposal handlers ─────────────────────────────────────────────────
 
 function action_list_proposals(PDO $db, int $uid): never {
-    // Auto-expire stale proposals
-    $db->prepare('UPDATE trade_proposals SET status = \'expired\'
-                  WHERE status = \'pending\' AND expires_at <= NOW()')
-       ->execute();
+    only_method('GET');
 
     $stmt = $db->prepare(<<<SQL
-        SELECT tp.*,
+        SELECT tp.id, tp.initiator_id, tp.target_id,
+               tp.offer_metal, tp.offer_crystal, tp.offer_deuterium,
+               tp.request_metal, tp.request_crystal, tp.request_deuterium,
+               tp.message, tp.expires_at, tp.created_at,
+               CASE WHEN tp.status = 'pending' AND tp.expires_at <= NOW()
+                    THEN 'expired' ELSE tp.status END AS status,
                ui.username AS initiator_name,
                ut.username AS target_name
         FROM trade_proposals tp
@@ -1261,6 +1272,7 @@ function action_list_proposals(PDO $db, int $uid): never {
 }
 
 function action_propose(PDO $db, int $uid): never {
+    only_method('POST');
     verify_csrf();
     $body = json_decode(file_get_contents('php://input'), true) ?? [];
 
@@ -1325,6 +1337,7 @@ function action_propose(PDO $db, int $uid): never {
 }
 
 function action_accept(PDO $db, int $uid): never {
+    only_method('POST');
     verify_csrf();
     $body = json_decode(file_get_contents('php://input'), true) ?? [];
     $proposalId = (int)($body['proposal_id'] ?? 0);
@@ -1434,6 +1447,7 @@ function action_accept(PDO $db, int $uid): never {
 }
 
 function action_reject(PDO $db, int $uid): never {
+    only_method('POST');
     verify_csrf();
     $body = json_decode(file_get_contents('php://input'), true) ?? [];
     $proposalId = (int)($body['proposal_id'] ?? 0);
@@ -1449,6 +1463,7 @@ function action_reject(PDO $db, int $uid): never {
 }
 
 function action_cancel(PDO $db, int $uid): never {
+    only_method('POST');
     verify_csrf();
     $body = json_decode(file_get_contents('php://input'), true) ?? [];
     $proposalId = (int)($body['proposal_id'] ?? 0);

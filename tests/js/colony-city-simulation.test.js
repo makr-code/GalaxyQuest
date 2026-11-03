@@ -82,6 +82,146 @@ afterEach(() => {
 });
 
 describe('Authoritative city scene mapping', () => {
+  it('offers distinct selected-building focus and management actions without issuing game commands', async () => {
+    const { level, backend } = await makeLevel();
+    backend.externalCameraControls = true;
+    const onOpenBuildings = vi.fn();
+    const building = vi.fn();
+    level.setNavigationHandlers({ building });
+    await level.enter(2, scene({ onOpenBuildings }));
+    const focus = [...level._hud.querySelectorAll('button')].find((button) => button.textContent === 'Focus building');
+    const manage = [...level._hud.querySelectorAll('button')].find((button) => button.textContent === 'Buildings');
+    expect(focus.disabled).toBe(true);
+    manage.click();
+    expect(onOpenBuildings).toHaveBeenCalledWith(null);
+    level._selected = level._slots[0];
+    level._updateHud();
+    expect(focus.disabled).toBe(false);
+    focus.click();
+    expect(building).toHaveBeenCalledWith(expect.objectContaining({ type: 'habitat', colonyId: 7 }));
+    expect(onOpenBuildings).toHaveBeenCalledOnce();
+    manage.click();
+    expect(onOpenBuildings).toHaveBeenLastCalledWith(level._slots[0]);
+    level.enterBuilding(level._slots[0]);
+    expect(focus.disabled).toBe(true);
+    level.leaveBuilding();
+    expect(focus.disabled).toBe(false);
+  });
+  it('reverses the shared planet backdrop transition before releasing the live surface', async () => {
+    const { level, backend } = await makeLevel();
+    backend.externalCameraControls = true;
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
+    const backdrop = { renderBackdrop: vi.fn(() => true) };
+    level.setTransitionSource(backdrop, { position: { x: 0, y: 0, z: 3 } });
+    await level.enter(2, scene());
+    for (let frame = 0; frame < 90; frame++) level.render(1 / 60);
+    level.rotateView(60, 30);
+    level.panView(20, 10);
+    const buffer = level._instanceBuffer;
+    const startSpan = level._camera.span;
+    const exit = level.exit(2);
+    expect(level._active).toBe(true);
+    expect(buffer.destroy).not.toHaveBeenCalled();
+    level.render(0.1);
+    expect(level._camera.progress).toBeGreaterThan(0);
+    expect(level._camera.progress).toBeLessThan(1);
+    expect(level._camera.span).toBeGreaterThan(startSpan);
+    expect(backdrop.renderBackdrop).toHaveBeenLastCalledWith(0.1, expect.any(Object), expect.any(Number));
+    for (let frame = 0; frame < 90; frame++) level.render(1 / 60);
+    await exit;
+    expect(level._camera.progress).toBe(0);
+    expect(level._camera.target.x).toBeCloseTo(0);
+    expect(level._camera.target.z).toBeCloseTo(0);
+    expect(level._active).toBe(false);
+    expect(buffer.destroy).toHaveBeenCalledOnce();
+    expect(backend.device.destroy).not.toHaveBeenCalled();
+  });
+
+  it('settles an interrupted surface departure immediately on disposal without another frame', async () => {
+    const { level, backend } = await makeLevel();
+    backend.externalCameraControls = true;
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
+    level.setTransitionSource({ renderBackdrop: () => true }, {});
+    await level.enter(2, scene());
+    level._camera.progress = 1;
+    const exit = level.exit(2);
+    expect(level._departure).toBeTruthy();
+    level.dispose();
+    await exit;
+    expect(level._active).toBe(false);
+    expect(level._departure).toBeNull();
+    expect(backend.device.destroy).not.toHaveBeenCalled();
+  });
+
+  it('skips surface arrival and departure motion when reduced motion is requested', async () => {
+    const { level, backend } = await makeLevel();
+    backend.externalCameraControls = true;
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
+    level.setTransitionSource({ renderBackdrop: () => true }, {});
+    await level.enter(2, scene());
+    level.render(0.016);
+    expect(level._camera.progress).toBe(1);
+    await level.exit(2);
+    expect(level._departure).toBeFalsy();
+    expect(level._active).toBe(false);
+  });
+  it('uses the shared UI orbit, pan, zoom and reset controls without moving the parent scene', async () => {
+    const { level, canvas, backend } = await makeLevel();
+    backend.externalCameraControls = true;
+    await level.enter(2, scene({ colony: { name: 'Camera fixture' } }));
+    level.render(1.3);
+    const initialPose = [...level._viewProjection];
+    const event = (type, x, y, button = 0) => {
+      const pointer = new MouseEvent(type, { clientX: x, clientY: y, button, bubbles: true, cancelable: true });
+      canvas.dispatchEvent(pointer);
+    };
+    event('pointerdown', 500, 300);
+    event('pointermove', 550, 330);
+    event('pointerup', 550, 330);
+    expect(level._orbit.yaw).not.toBe(0);
+    expect(level._camera.target).toEqual({ x: 0, z: 0 });
+    level.render(0.1);
+    expect([...level._viewProjection]).not.toEqual(initialPose);
+    event('pointerdown', 550, 330, 2);
+    event('pointermove', 590, 350, 2);
+    event('pointerup', 590, 350, 2);
+    expect(level._camera.target).not.toEqual({ x: 0, z: 0 });
+    const span = level._camera.span;
+    level.nudgeZoom('in');
+    expect(level._camera.span).toBeLessThan(span);
+    const pinchedSpan = level._camera.span;
+    level.zoomBy(Math.log(1.25));
+    expect(level._camera.span).toBeCloseTo(pinchedSpan / 1.25, 6);
+    level.zoomBy(-Math.log(1.25));
+    expect(level._camera.span).toBeCloseTo(pinchedSpan, 6);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', cancelable: true }));
+    expect(level._camera.target).toEqual({ x: 0, z: 0 });
+    expect(level._orbit).toEqual({ yaw: 0, pitch: 0 });
+    expect(level._camera.span).toBe(level._citySpan);
+    expect(backend.context.configure).not.toHaveBeenCalled();
+    expect(backend.device.destroy).not.toHaveBeenCalled();
+    expect(level._hud.tagName).toBe('DETAILS');
+    expect(level._hud.open).toBe(false);
+    const overlayButton = document.createElement('button');
+    document.body.append(overlayButton);
+    const arrow = new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true });
+    overlayButton.dispatchEvent(arrow);
+    expect(arrow.defaultPrevented).toBe(false);
+    expect(level._orbit).toEqual({ yaw: 0, pitch: 0 });
+  });
+
+  it('uses an injected authoritative snapshot and explicitly reports errors without legacy fallback', async () => {
+    const { level } = await makeLevel();
+    const onError = vi.fn();
+    const loadSnapshot = vi.fn(async () => { throw new Error('Session expired'); });
+    window.API = { buildings: vi.fn() };
+    await level.enter(2, scene({ loadSnapshot, onError }));
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    expect(loadSnapshot).toHaveBeenCalledWith(7, expect.any(AbortSignal));
+    expect(level._snapshotState).toContain('Session expired');
+    expect(window.API.buildings).not.toHaveBeenCalled();
+    expect(level._slots[0].level).toBe(2);
+  });
   it('preserves slot coordinates, levels, upgrade state and omits empty plots', () => {
     const slots = normalizeCitySlots({
       slots: [
@@ -575,6 +715,7 @@ describe('Isometric camera and shared WebGPU rendering', () => {
     level.render(0.1);
     level._selected = level._slots[0];
     const progress = level._camera.progress;
+    level._updateHud();
     [...host.querySelectorAll('button')].find((button) => button.textContent === 'Focus building').click();
     expect(level._camera.progress).toBe(progress);
     expect(level._camera.target).toEqual({ x: 0, z: 0 });
@@ -884,6 +1025,85 @@ describe('Colony window integration', () => {
 });
 
 describe('On-demand authoritative snapshot lifecycle', () => {
+  it('refreshes only the matching active colony and preserves camera, selection and terrain residency', async () => {
+    let response = scene({ success: true, economy: {} });
+    const loadSnapshot = vi.fn(async () => response);
+    const { level } = await makeLevel();
+    await level.enter(2, scene({ loadSnapshot }));
+    await vi.waitFor(() => expect(level._snapshotLoaded).toBe(true));
+    for (let frame = 0; frame < 90; frame++) level.render(1 / 60);
+    level._selected = level._slots[0];
+    level.panView(20, 10);
+    level.rotateView(35, 18);
+    level._setCameraSpan(32);
+    const camera = structuredClone(level._camera);
+    const orbit = { ...level._orbit };
+    const terrain = level._terrainBuffer;
+    await level.refreshSnapshot(8);
+    expect(loadSnapshot).toHaveBeenCalledOnce();
+    response = scene({ success: true, economy: {}, slots: [
+      { x: 0, z: 0, type: 'habitat', level: 4, upgrade_end: 'tomorrow' },
+    ] });
+    await level.refreshSnapshot(7);
+    expect(level._camera).toEqual(camera);
+    expect(level._orbit).toEqual(orbit);
+    expect(level._selected).toMatchObject({ type: 'habitat', level: 4, upgrade_end: 'tomorrow' });
+    expect(level._terrainBuffer).toBe(terrain);
+    expect(level._hud.textContent).toContain('Construction in progress');
+    await level.exit();
+    await level.refreshSnapshot(7);
+    expect(loadSnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves a user-adjusted pose when the initial snapshot arrives late', async () => {
+    let finish;
+    const { level } = await makeLevel();
+    await level.enter(2, scene({ loadSnapshot: () => new Promise((resolve) => { finish = resolve; }) }));
+    level.render(0.1);
+    level.panView(15, 20);
+    level.rotateView(40, 0);
+    level._setCameraSpan(35);
+    const camera = structuredClone(level._camera);
+    finish(scene({ success: true, economy: {}, slots: [{ x: 0, z: 0, type: 'habitat', level: 5 }] }));
+    await vi.waitFor(() => expect(level._snapshotLoaded).toBe(true));
+    expect(level._camera).toEqual(camera);
+    expect(level._slots[0].level).toBe(5);
+  });
+
+  it('replaces pending reads after another accepted change and ignores late superseded results', async () => {
+    const loadSnapshot = vi.fn(async () => scene({ success: true, economy: {} }));
+    const { level } = await makeLevel();
+    await level.enter(2, scene({ loadSnapshot }));
+    await vi.waitFor(() => expect(level._snapshotLoaded).toBe(true));
+    let finish;
+    loadSnapshot.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const old = level.refreshSnapshot(7);
+    const signal = loadSnapshot.mock.calls.at(-1)[1];
+    loadSnapshot.mockResolvedValueOnce(scene({ success: true, economy: {},
+      slots: [{ x: 0, z: 0, type: 'habitat', level: 6 }] }));
+    await level.refreshSnapshot(7);
+    expect(signal.aborted).toBe(true);
+    finish(scene({ success: true, economy: {}, slots: [] }));
+    await old;
+    expect(level._slots[0].level).toBe(6);
+  });
+
+  it('defers hidden-tab invalidation until visibility returns without polling', async () => {
+    const loadSnapshot = vi.fn(async () => scene({ success: true, economy: {} }));
+    const { level } = await makeLevel();
+    await level.enter(2, scene({ loadSnapshot }));
+    await vi.waitFor(() => expect(level._snapshotLoaded).toBe(true));
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    await level.refreshSnapshot(7);
+    await level.refreshSnapshot(7);
+    expect(loadSnapshot).toHaveBeenCalledOnce();
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.waitFor(() => expect(loadSnapshot).toHaveBeenCalledTimes(2));
+    document.dispatchEvent(new Event('visibilitychange'));
+    for (let frame = 0; frame < 90; frame++) level.render(1 / 60);
+    expect(loadSnapshot).toHaveBeenCalledTimes(2);
+  });
   it('preserves the current pose on refresh during entry and cancels stale building focus', async () => {
     fetch.mockResolvedValue({ ok: true, json: async () => scene({ success: true, economy: {} }) });
     const { level } = await makeLevel();

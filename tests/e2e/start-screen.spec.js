@@ -1,6 +1,9 @@
 const { test, expect } = require('@playwright/test');
 const prologueContent = require('../../config/onboarding_prologue.json');
 
+const apiAction = (file, action) => (url) =>
+  url.pathname.endsWith(`/${file}.php`) && url.searchParams.get('action') === action;
+
 const registrationTarget = { galaxy_index: 1, system_index: 2, position: 3, x_ly: 400, y_ly: 200, z_ly: 0 };
 const registrationDraft = {
   prolog_token: 'a'.repeat(64), faction_code: 'kernrat', colony_name: 'Frontier Colony', system_name: 'Frontier',
@@ -37,6 +40,8 @@ async function mockApi(page, { authenticated = false, expireOnResume = false, tw
       data = { success: true, stars: [], occupied_systems: [], arm_count: 6, pitch_angle_deg: 14 };
     } else if (action === 'csrf') {
       data = { success: true, csrf_token: 'start-screen-test-token', token: 'start-screen-test-token' };
+    } else if (action === 'overview') {
+      data = { success: true, colonies: [], fleets: [], user_meta: { dark_matter: 0 } };
     } else if (action === 'dev_tools_status') {
       data = { success: true, enabled: false };
     } else if (action === 'login') {
@@ -84,6 +89,24 @@ async function reachMentorRoom(page) {
   await expect(page.locator('#registration-title')).toHaveText('Die Heroldkammer');
   await expect(page.locator('#registration-choices button')).toHaveCount(6);
   await expect(page.locator('#registration-choices button').first()).toBeEnabled();
+}
+
+for (const entry of ['/', '/index.html?logout=1']) {
+  test(`start page loads its module graph and opens the login dialog: ${entry}`, async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error' && /module script|module specifier|MIME type/.test(message.text())) {
+        errors.push(message.text());
+      }
+    });
+    await mockApi(page);
+    await page.goto(entry);
+    await page.locator('#start-login').click();
+    await expect(page.locator('#start-auth-dialog')).toBeVisible();
+    await expect(page.locator('#login-username')).toBeFocused();
+    expect(errors).toEqual([]);
+  });
 }
 
 test('narration chapters offer manual Back and Next without waiting for speech', async ({ page }) => {
@@ -165,12 +188,12 @@ test('registration previews mentor systems and restores a private character draf
   await mockApi(page);
   await mockBackgroundRenderer(page);
   const saved = { ...mentorDrafts[1], selected: true, character: { name: 'SavedCommander', background: 'Explorer' } };
-  await page.route('**/auth.php?action=register_mentor_drafts', (route) => route.fulfill({ json: { success: true, drafts: [
+  await page.route(apiAction('auth', 'register_mentor_drafts'), (route) => route.fulfill({ json: { success: true, drafts: [
     ...mentorDrafts.filter((item) => item.mentor_code !== 'vor_tak'), saved,
   ] } }));
-  await page.route('**/auth.php?action=register_select_mentor', (route) => route.fulfill({ json: { success: true, draft: saved } }));
-  await page.route('**/auth.php?action=register_status', (route) => route.fulfill({ json: { success: true, draft: saved } }));
-  await page.route('**/auth.php?action=register_profile', (route) => route.fulfill({ json: { success: true, draft: saved } }));
+  await page.route(apiAction('auth', 'register_select_mentor'), (route) => route.fulfill({ json: { success: true, draft: saved } }));
+  await page.route(apiAction('auth', 'register_status'), (route) => route.fulfill({ json: { success: true, draft: saved } }));
+  await page.route(apiAction('auth', 'register_profile'), (route) => route.fulfill({ json: { success: true, draft: saved } }));
   await page.goto('/');
   await reachMentorRoom(page);
   await expect(page.locator('#registration-status')).toContainText('private System-Drafts');
@@ -200,15 +223,16 @@ test('registration surfaces setup failures and Back cancels the visible flow wit
   await mockApi(page);
   let release;
   const pending = new Promise((resolve) => { release = resolve; });
-  await page.route('**/auth.php?action=register_mentor_drafts', async (route) => {
+  await page.route(apiAction('auth', 'register_mentor_drafts'), async (route) => {
     await pending;
     await route.fulfill({ status: 503, json: { success: false, error: 'Registration setup is incomplete.' } });
   });
   await page.goto('/');
-  await page.clock.install();
   await page.locator('#start-register').click();
-  for (const clip of prologueContent.teaser) await page.clock.fastForward(30000);
-  await page.locator('#registration-continue').click();
+  for (const clip of prologueContent.teaser) {
+    await expect(page.locator('#registration-title')).toHaveText(clip.title);
+    await page.locator('#registration-continue').click();
+  }
   await expect(page.locator('#registration-status')).toContainText('Systeme werden vorbereitet');
   release();
   await expect(page.locator('#registration-error')).toContainText('Registration setup is incomplete');
@@ -267,7 +291,7 @@ test('compact music overlay stays top right on desktop and mobile and uses share
 
 test('local audio catalog exposes every real music file and title switching uses the full playlist', async ({ page }) => {
   await mockApi(page);
-  await page.route('**/api/audio.php?action=list', async (route) => {
+  await page.route(apiAction('audio', 'list'), async (route) => {
     await route.fulfill({ response: await route.fetch() });
   });
   await page.addInitScript(() => {
@@ -301,7 +325,7 @@ test('local audio catalog exposes every real music file and title switching uses
 
 test('failed playlist responses explicitly identify the single fallback track', async ({ page }) => {
   await mockApi(page);
-  await page.route('**/api/audio.php?action=list', (route) => route.fulfill({
+  await page.route(apiAction('audio', 'list'), (route) => route.fulfill({
     status: 503, json: { success: false, error: 'Catalog unavailable' },
   }));
   await page.goto('/');
@@ -310,10 +334,11 @@ test('failed playlist responses explicitly identify the single fallback track', 
   await expect(page.locator('#start-music-title')).toHaveText('Nebula Overture');
 });
 
-test('a confirmed session offers Resume but does not auto-enter the game', async ({ page }) => {
+test('a confirmed session offers Fortsetzen instead of login but does not auto-enter the game', async ({ page }) => {
   await mockApi(page, { authenticated: true, expireOnResume: true });
   await page.goto('/');
   await expect(page.locator('#start-resume')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Fortsetzen', exact: true })).toBeVisible();
   await expect(page.locator('#start-login')).toBeHidden();
   await expect(page.locator('body')).toHaveClass(/auth-page/);
   await expect(page.locator('#start-session-status')).toContainText('TestCommander');
@@ -323,7 +348,7 @@ test('a confirmed session offers Resume but does not auto-enter the game', async
   await expect(page.locator('body')).toHaveClass(/auth-page/);
 });
 
-test('Resume hands control to the existing shell bootstrap only after an explicit click', async ({ page }) => {
+test('Fortsetzen survives a reload and hands control to the existing shell only after an explicit click', async ({ page }) => {
   await mockApi(page, { authenticated: true });
   await page.addInitScript(() => {
     window.__testAuthenticatedEvents = 0;
@@ -331,6 +356,9 @@ test('Resume hands control to the existing shell bootstrap only after an explici
   });
   await page.goto('/');
   await expect(page.locator('#start-resume')).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Fortsetzen', exact: true })).toBeVisible();
+  await expect(page.locator('#start-login')).toBeHidden();
   expect(await page.evaluate(() => window.__testAuthenticatedEvents)).toBe(0);
   await page.locator('#start-resume').click();
   await expect(page.locator('body')).toHaveClass(/game-page/);
@@ -349,7 +377,8 @@ test('settings, content links and the log bar work on narrow screens', async ({ 
   await expect(page.locator('#start-settings-status')).toContainText('saved');
   await page.keyboard.press('Escape');
   await page.locator('[data-start-panel="news"]').click();
-  await expect(page.getByRole('link', { name: 'Read the changelog' })).toBeVisible();
+  await expect(page.locator('#start-panel-news')).toBeVisible();
+  await expect(page.locator('#start-panel-news')).toContainText('Command updates and transmissions');
   await page.keyboard.press('Escape');
   await page.locator('#auth-console-toggle').click();
   await expect(page.locator('#boot-terminal')).toBeVisible();
@@ -381,7 +410,7 @@ test('login progress is visible in the modal and Escape cannot detach an in-flig
   await mockApi(page);
   let releaseLogin;
   const pending = new Promise((resolve) => { releaseLogin = resolve; });
-  await page.route('**/auth.php?action=login', async (route) => {
+  await page.route(apiAction('auth', 'login'), async (route) => {
     await pending;
     await route.fulfill({ json: { success: false, error: 'Test login rejected' } });
   });
@@ -407,7 +436,7 @@ test('unsupported WebGPU reports an unavailable background without loading the l
     if (/three\.min\.js|galaxy-renderer\.js/.test(request.url())) legacyRequests.push(request.url());
   });
   await page.goto('/');
-  await expect(page.locator('#auth-status-line')).toContainText('WebGPU is unavailable');
+  await expect(page.locator('#start-galaxy-source')).toContainText('WebGPU is unavailable');
   await expect(page.locator('#start-login')).toBeVisible();
   expect(legacyRequests).toEqual([]);
 });
@@ -520,7 +549,7 @@ test('database systems stay authoritative while an illustrative visual field rem
     { system_index: 1, galaxy_index: 1, x_ly: 400, y_ly: 200 },
     { system_index: 2, galaxy_index: 1, x_ly: -600, y_ly: 100 },
   ];
-  await page.route('**/galaxy.php?action=auth_stars**', (route) =>
+  await page.route(apiAction('galaxy', 'auth_stars'), (route) =>
     route.fulfill({ json: { success: true, stars, occupied_systems: [], arm_count: 5, pitch_angle_deg: 14 } }));
   await page.goto('/');
   await expect(page.locator('#start-galaxy-source')).toContainText('Database galaxy sample: 2');
@@ -551,10 +580,10 @@ test('settings flight tour visits DB system preview stages without writing world
   const target = { id: 17, galaxy_index: 1, system_index: 17, name: 'DB System 17', x_ly: 120, y_ly: -15, z_ly: 210 };
   const previewRequests = [];
   const writeRequests = [];
-  await page.route('**/galaxy.php?action=auth_stars**', (route) => route.fulfill({ json: {
+  await page.route(apiAction('galaxy', 'auth_stars'), (route) => route.fulfill({ json: {
     success: true, stars: [target], occupied_systems: [], arm_count: 6, pitch_angle_deg: 14,
   } }));
-  await page.route('**/galaxy.php?action=auth_flight_preview**', async (route) => {
+  await page.route(apiAction('galaxy', 'auth_flight_preview'), async (route) => {
     previewRequests.push(route.request().url());
     await route.fulfill({ json: {
       success: true,
@@ -647,11 +676,11 @@ test('login cascades beside its button on desktop and below it on narrow screens
 
 test('all other menu panels cascade, toggle and switch without leaving multiple panels open', async ({ page }) => {
   await mockApi(page);
-  await page.route('**/auth.php?action=dev_tools_status', (route) =>
+  await page.route(apiAction('auth', 'dev_tools_status'), (route) =>
     route.fulfill({ json: { success: true, enabled: true } }));
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/');
-  for (const selector of ['[data-start-panel="news"]', '[data-start-panel="blog"]', '[data-start-panel="settings"]', '#start-dev']) {
+  for (const selector of ['[data-start-panel="news"]', '[data-start-panel="settings"]', '#start-dev']) {
     const trigger = page.locator(selector);
     await trigger.click();
     const panel = page.locator('dialog[open]');
@@ -666,7 +695,7 @@ test('all other menu panels cascade, toggle and switch without leaving multiple 
   await page.locator('#start-dev').click();
   await expect(page.locator('dialog[open]')).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const selector of ['[data-start-panel="news"]', '[data-start-panel="blog"]', '[data-start-panel="settings"]', '#start-dev']) {
+  for (const selector of ['[data-start-panel="news"]', '[data-start-panel="settings"]', '#start-dev']) {
     const trigger = page.locator(selector);
     await trigger.click();
     const panel = page.locator('dialog[open]');
@@ -681,7 +710,7 @@ test('all other menu panels cascade, toggle and switch without leaving multiple 
 
 test('new server messages appear once, can be reopened and do not gate login', async ({ page }) => {
   await mockApi(page);
-  await page.route('**/server_announcements.php?action=list', (route) => route.fulfill({
+  await page.route(apiAction('server_announcements', 'list'), (route) => route.fulfill({
     json: { success: true, announcements: [{
       id: 7, title: 'Scheduled restart', message: 'Test announcement, not a real outage.',
       severity: 'maintenance', published_at: '2026-10-29 12:00:00',

@@ -30,7 +30,6 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
                 json_ok($cached);
             }
             ensure_building_upgrade_queue_table($db);
-            complete_upgrades($db, $cid);
             update_colony_resources($db, $cid);
 
             $planetStmt = $db->prepare(
@@ -143,6 +142,8 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
                 try {
                     $queued = (new OnDemandEconomy($db))->queue($cid, $uid, $type);
                     gq_cache_delete('buildings_list', ['uid' => $uid, 'cid' => $cid]);
+                    gq_cache_delete('game_overview', ['uid' => $uid]);
+                    gq_cache_delete('game_resources', ['uid' => $uid, 'cid' => $cid]);
                     json_ok($queued);
                 } catch (DomainException $error) {
                     json_error($error->getMessage(), $error->getCode() ?: 400);
@@ -291,6 +292,8 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             }
 
             gq_cache_delete('buildings_list', ['uid' => $uid, 'cid' => $cid]);
+            gq_cache_delete('game_overview', ['uid' => $uid]);
+            gq_cache_delete('game_resources', ['uid' => $uid, 'cid' => $cid]);
             json_ok($queued);
             break;
 
@@ -304,6 +307,8 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             ensure_building_upgrade_queue_table($db);
             complete_upgrades($db, $cid);
             gq_cache_delete('buildings_list', ['uid' => $uid, 'cid' => $cid]);
+            gq_cache_delete('game_overview', ['uid' => $uid]);
+            gq_cache_delete('game_resources', ['uid' => $uid, 'cid' => $cid]);
             json_ok();
             break;
 

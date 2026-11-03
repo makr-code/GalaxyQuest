@@ -32,6 +32,64 @@ final class TradeReadSideEffectsTest extends TestCase
         self::assertStringContainsString('check_and_dispatch_trade_routes($db, $uid)', $dispatchAction);
     }
 
+    public function testProposalListProjectsExpiredStatusWithoutWriting(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/trade.php');
+        self::assertIsString($source);
+
+        $readStart = strpos($source, 'function action_list_proposals(');
+        $readEnd = strpos($source, 'function action_propose(', $readStart);
+        self::assertNotFalse($readStart);
+        self::assertNotFalse($readEnd);
+        $readAction = substr($source, $readStart, $readEnd - $readStart);
+
+        self::assertStringContainsString("only_method('GET')", $readAction);
+        self::assertMatchesRegularExpression(
+            '/CASE WHEN tp\.status = \'pending\' AND tp\.expires_at <= NOW\(\)\s+'
+                . 'THEN \'expired\' ELSE tp\.status END AS status/',
+            $readAction
+        );
+        self::assertStringNotContainsString('UPDATE trade_proposals', $readAction);
+        $acceptAction = substr($source, strpos($source, 'function action_accept('));
+        self::assertStringContainsString("strtotime(\$p['expires_at']) < time()", $acceptAction);
+        self::assertStringContainsString("status = \\'expired\\'", $acceptAction);
+    }
+
+    public function testTradeReadHandlersAreGetOnlyAndMutationsRequirePostBeforeCsrf(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/trade.php');
+        self::assertIsString($source);
+
+        foreach ([
+            'action_list',
+            'action_list_suggestions',
+            'action_goods_flow',
+            'action_list_proposals',
+        ] as $handlerName) {
+            $handler = $this->handlerBody($source, $handlerName);
+            self::assertStringContainsString("only_method('GET');", $handler, $handlerName);
+        }
+
+        foreach ([
+            'action_dispatch_due',
+            'action_create',
+            'action_delete',
+            'action_toggle',
+            'action_apply_suggestion',
+            'action_propose',
+            'action_accept',
+            'action_reject',
+            'action_cancel',
+        ] as $handlerName) {
+            $handler = $this->handlerBody($source, $handlerName);
+            $postGuard = strpos($handler, "only_method('POST');");
+            $csrfGuard = strpos($handler, 'verify_csrf();');
+            self::assertNotFalse($postGuard, $handlerName . ' must require POST.');
+            self::assertNotFalse($csrfGuard, $handlerName . ' must verify CSRF.');
+            self::assertLessThan($csrfGuard, $postGuard, $handlerName . ' must check method before CSRF.');
+        }
+    }
+
     public function testTradeDispatchLocksRouteAndUsesResourceLedgerForLegacyCargo(): void
     {
         $source = file_get_contents(__DIR__ . '/../../api/trade.php');
@@ -59,5 +117,15 @@ final class TradeReadSideEffectsTest extends TestCase
         self::assertStringContainsString('(new ResourceLedger($db))->spend(', $reserve);
         self::assertStringContainsString('quantity >= ?', $reserve);
         self::assertStringContainsString("type = 'large_cargo' AND count >= ?", $reserve);
+    }
+
+    private function handlerBody(string $source, string $handlerName): string
+    {
+        $start = strpos($source, 'function ' . $handlerName . '(');
+        self::assertNotFalse($start, $handlerName . ' must exist.');
+        $next = preg_match('/^[ \t]*function\s+/m', $source, $matches, PREG_OFFSET_CAPTURE, $start + 1)
+            ? $matches[0][1]
+            : strlen($source);
+        return substr($source, $start, $next - $start);
     }
 }

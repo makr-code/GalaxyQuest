@@ -42,15 +42,14 @@ class ColonizationEngine
     // ── Öffentliche Methoden ──────────────────────────────────────────────────
 
     /**
-     * Berechnet und speichert den aktuellen Empire Sprawl für einen Spieler.
+     * Berechnet den aktuellen Empire Sprawl ohne Datenbank-Schreibzugriffe.
      *
      * @param PDO $db
      * @param int $userId
      * @return array{sprawl_value: float, admin_cap: int, sprawl_pct: int, malus: array}
      */
-    public static function recalcSprawl(PDO $db, int $userId): array
+    public static function calculateSprawl(PDO $db, int $userId): array
     {
-        // ── 1. Systemanzahl (kontrollierte Systeme mit mind. 1 Kolonie) ───────
         $stmt = $db->prepare(
             'SELECT COUNT(DISTINCT cb.system_index) AS cnt
              FROM colonies c
@@ -60,12 +59,10 @@ class ColonizationEngine
         $stmt->execute([$userId]);
         $systemCount = (int)($stmt->fetchColumn() ?: 0);
 
-        // ── 2. Kolonien-Anzahl ────────────────────────────────────────────────
         $stmt = $db->prepare('SELECT COUNT(*) FROM colonies WHERE user_id = ?');
         $stmt->execute([$userId]);
         $colonyCount = (int)($stmt->fetchColumn() ?: 0);
 
-        // ── 3. Flotten mit > 5 Schiffen ──────────────────────────────────────
         $stmt = $db->prepare('SELECT ships_json FROM fleets WHERE user_id = ? AND `returning` = 0');
         $stmt->execute([$userId]);
         $largeFleets = 0;
@@ -83,28 +80,10 @@ class ColonizationEngine
             + $largeFleets  * self::SPRAWL_WEIGHT_FLEET,
             2
         );
-
-        // ── 4. AdminCap berechnen ─────────────────────────────────────────────
         $adminCap = self::calcAdminCap($db, $userId);
-
-        // ── 5. Sprawl-Prozent (capped at 200 für Anzeige) ────────────────────
         $sprawlPct = $adminCap > 0
             ? min(200, (int)round($sprawlValue / $adminCap * 100))
             : 200;
-
-        // ── 6. Cache upsert ───────────────────────────────────────────────────
-        $upd = $db->prepare(
-            'UPDATE empire_sprawl_cache
-             SET sprawl_value = ?, admin_cap = ?, sprawl_pct = ?, updated_at = CURRENT_TIMESTAMP
-             WHERE player_id = ?'
-        );
-        $upd->execute([$sprawlValue, $adminCap, $sprawlPct, $userId]);
-        if ($upd->rowCount() === 0) {
-            $db->prepare(
-                'INSERT INTO empire_sprawl_cache (player_id, sprawl_value, admin_cap, sprawl_pct, updated_at)
-                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)'
-            )->execute([$userId, $sprawlValue, $adminCap, $sprawlPct]);
-        }
 
         return [
             'sprawl_value' => $sprawlValue,
@@ -112,6 +91,30 @@ class ColonizationEngine
             'sprawl_pct'   => $sprawlPct,
             'malus'        => self::getMalusEffects($sprawlPct),
         ];
+    }
+
+    /**
+     * Recalculates and persists the current empire-sprawl cache.
+     *
+     * @return array{sprawl_value: float, admin_cap: int, sprawl_pct: int, malus: array}
+     */
+    public static function recalcSprawl(PDO $db, int $userId): array
+    {
+        $result = self::calculateSprawl($db, $userId);
+        $upd = $db->prepare(
+            'UPDATE empire_sprawl_cache
+             SET sprawl_value = ?, admin_cap = ?, sprawl_pct = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE player_id = ?'
+        );
+        $upd->execute([$result['sprawl_value'], $result['admin_cap'], $result['sprawl_pct'], $userId]);
+        if ($upd->rowCount() === 0) {
+            $db->prepare(
+                'INSERT INTO empire_sprawl_cache (player_id, sprawl_value, admin_cap, sprawl_pct, updated_at)
+                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)'
+            )->execute([$userId, $result['sprawl_value'], $result['admin_cap'], $result['sprawl_pct']]);
+        }
+
+        return $result;
     }
 
     /**

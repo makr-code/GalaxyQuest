@@ -187,6 +187,8 @@ switch ($action) {
         }
 
         gq_cache_flush('research_list');
+        gq_cache_delete('game_overview', ['uid' => $uid]);
+        gq_cache_delete('game_resources', ['uid' => $uid, 'cid' => $cid]);
 
         json_ok(['research_end' => $end, 'duration_secs' => $secs]);
         break;
@@ -218,6 +220,7 @@ switch ($action) {
             json_error($error->getMessage(), $error->getCode() ?: 400);
         }
         gq_cache_flush('research_list');
+        gq_cache_delete('game_overview', ['uid' => $uid]);
         check_and_update_achievements($db, $uid);
         json_ok(['completed' => $completed]);
         break;

@@ -231,10 +231,15 @@ Get supply/demand breakdown for a system.
 
 ### `POST /api/traders.php?action=process_trader_tick`
 
-Execute periodic updates (call every 10-15 minutes):
+Execute a trader update manually. This mutating endpoint requires an authenticated
+session and a CSRF token; it is not a supported cron/worker interface.
 
 ```bash
-curl -X POST http://localhost/api/traders.php?action=process_trader_tick
+# session.cookies must contain an authenticated session.
+CSRF_TOKEN=$(curl -s -b session.cookies \
+  http://localhost/api/auth.php?action=csrf | jq -r '.token')
+curl -b session.cookies -H "X-CSRF-Token: $CSRF_TOKEN" \
+  -X POST http://localhost/api/traders.php?action=process_trader_tick
 
 # Response:
 {
@@ -251,7 +256,7 @@ curl -X POST http://localhost/api/traders.php?action=process_trader_tick
 - [ ] **Database:** Run migration SQL
 - [ ] **API Endpoints:** Register in game.php or frontend router
 - [ ] **Initialization:** Run initialize_traders_system.php
-- [ ] **Periodic Tasks:** Schedule process_trader_tick every 10-15 min (via cron/tasks)
+- [ ] **Periodic Tasks:** Add a dedicated leased, idempotent trader worker before scheduling ticks; do not cron the HTTP endpoint.
 - [ ] **Frontend UI:** Create Traders Dashboard window (see UI spec below)
 - [ ] **Market Link:** Ensure api/market.php reflects updated prices
 - [ ] **Testing:** Verify trades execute and prices adjust
@@ -348,8 +353,12 @@ scenario('Full trade cycle', () => {
 ```bash
 # Simulate 100 traders, 50 active routes, check query times
 
-# Should complete in < 500ms per tick
-curl -w "Time: %{time_total}s\n" \
+# Should complete in < 500ms per tick. Run only with an authenticated
+# session and CSRF token; this HTTP action is not a worker interface.
+CSRF_TOKEN=$(curl -s -b session.cookies \
+  http://localhost/api/auth.php?action=csrf | jq -r '.token')
+curl -b session.cookies -H "X-CSRF-Token: $CSRF_TOKEN" -X POST \
+  -w "Time: %{time_total}s\n" \
   http://localhost/api/traders.php?action=process_trader_tick
 ```
 
@@ -423,4 +432,3 @@ A: Future feature — would require faction_relations extension and collective c
 3. **Week 2:** Add Trade Director leader integration
 4. **Week 3:** Build frontend dashboard
 5. **Week 4:** Balance & polish, add market events
-

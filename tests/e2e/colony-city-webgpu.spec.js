@@ -12,6 +12,9 @@ test('colony city uses the live galaxy device, canvas and frame loop', async ({ 
     body: '<html><body style="margin:0"><div id="host" style="position:relative;width:1000px;height:700px"><canvas id="galaxy" style="width:100%;height:100%"></canvas></div></body></html>',
   }));
   let requests = 0;
+  await page.route('**/api/auth.php?action=csrf', (route) => route.fulfill({
+    json: { success: true, token: 'terrain-test-csrf' },
+  }));
   await page.route('**/api/terrain.php?*', (route) => route.fulfill({
     status: 503, json: { success: false, error: 'Terrain rollout not installed in preview fixture' },
   }));

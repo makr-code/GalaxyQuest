@@ -8,7 +8,8 @@
  * POST /api/leaders.php?action=autonomy       body: {leader_id, autonomy}
  * POST /api/leaders.php?action=dismiss        body: {leader_id}
  * POST /api/leaders.php?action=ai_tick        (run autonomous actions for all auto leaders)
- * GET  /api/leaders.php?action=marketplace    list marketplace candidates (auto-refresh daily)
+ * GET  /api/leaders.php?action=marketplace    list active marketplace candidates
+ * POST /api/leaders.php?action=refresh_marketplace  ensure a daily candidate batch exists
  * POST /api/leaders.php?action=hire_candidate body: {candidate_id}
  * GET  /api/leaders.php?action=advisor_hints  list active advisor hints
  * POST /api/leaders.php?action=advisor_tick   re-analyse game state, refresh hints
@@ -198,15 +199,23 @@ switch ($action) {
         json_ok(['actions' => $actions]);
         break;
 
-    // ── Marketplace: list available candidates (auto-refresh daily) ───────────
+    // ── Marketplace: read active candidates ──────────────────────────────────
     case 'marketplace':
         only_method('GET');
         $db         = get_db();
         ensure_leader_marketplace_schema($db);
         session_write_close();
-        $candidates = get_or_refresh_marketplace($db, $uid);
+        $candidates = fetch_marketplace_candidates($db, $uid);
         json_ok(['candidates' => $candidates]);
         break;
+
+    case 'refresh_marketplace':
+        only_method('POST');
+        verify_csrf();
+        $db = get_db();
+        ensure_leader_marketplace_schema($db);
+        ensure_marketplace_candidates($db, $uid);
+        json_ok();
 
     // ── Hire a marketplace candidate ──────────────────────────────────────────
     case 'hire_candidate':
@@ -1246,26 +1255,44 @@ function marketplace_pool(): array {
 }
 
 /**
- * Get the user's active marketplace candidates, or generate a fresh batch.
- * Batch expires after 24 hours; up to 10 candidates are shown at once.
+ * Return the user's current marketplace candidates without modifying state.
  */
-function get_or_refresh_marketplace(PDO $db, int $uid): array {
-    // Count active (non-expired, non-hired) candidates
-    $cnt = $db->prepare(
-        'SELECT COUNT(*) FROM leader_marketplace WHERE user_id=? AND is_hired=0 AND expires_at > NOW()'
-    );
-    $cnt->execute([$uid]);
-    $active = (int)$cnt->fetchColumn();
-
-    if ($active === 0) {
-        generate_marketplace_candidates($db, $uid);
-    }
-
+function fetch_marketplace_candidates(PDO $db, int $uid): array {
     $rows = $db->prepare(
         'SELECT * FROM leader_marketplace WHERE user_id=? AND expires_at > NOW() ORDER BY is_hired ASC, rarity DESC, created_at ASC'
     );
     $rows->execute([$uid]);
     return $rows->fetchAll();
+}
+
+/**
+ * Generate a daily batch only when none of the user's candidates remain active.
+ */
+function ensure_marketplace_candidates(PDO $db, int $uid): void {
+    $db->beginTransaction();
+    try {
+        $user = $db->prepare('SELECT id FROM users WHERE id = ? FOR UPDATE');
+        $user->execute([$uid]);
+        if (!$user->fetchColumn()) {
+            throw new RuntimeException('Marketplace owner no longer exists.');
+        }
+
+        $cnt = $db->prepare(
+            'SELECT COUNT(*) FROM leader_marketplace WHERE user_id=? AND is_hired=0 AND expires_at > NOW()'
+        );
+        $cnt->execute([$uid]);
+        $active = (int)$cnt->fetchColumn();
+
+        if ($active === 0) {
+            generate_marketplace_candidates($db, $uid);
+        }
+        $db->commit();
+    } catch (Throwable $error) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        throw $error;
+    }
 }
 
 function ensure_leader_marketplace_schema(PDO $db): void

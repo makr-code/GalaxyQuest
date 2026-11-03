@@ -2,18 +2,25 @@
 /**
  * RAG-based Glossary API with Ollama LLM + Wikipedia
  * 
- * GET /api/glossary.php?term=white_dwarf&action=generate
+ * POST /api/glossary.php?action=generate body: {term}
  * 
  * Retrieves Wikipedia content, generates enhanced definition via Ollama LLM.
  * Serves from cache if available (5day TTL).
  */
 require_once __DIR__ . '/helpers.php';
 
-only_method('GET');
 require_auth();
 
 $action = (string)($_GET['action'] ?? 'definition');
-$term_key = (string)($_GET['term'] ?? '');
+if ($action === 'generate') {
+    only_method('POST');
+    verify_csrf();
+    $body = get_json_body();
+    $term_key = (string)($body['term'] ?? '');
+} else {
+    only_method('GET');
+    $term_key = (string)($_GET['term'] ?? '');
+}
 
 // Validate term (prevent injection)
 if (!preg_match('/^[a-z_]{2,30}$/', $term_key)) {

@@ -433,12 +433,28 @@ function _dp_declare_war(PDO $db, int $uid, int $faction_id, int $play_id): void
 try {
     $db = get_db();
     switch ($action) {
-        case 'list':          json_response(handle_list($db, $uid));
-        case 'trust_threat':  json_response(handle_trust_threat($db, $uid));
-        case 'propose_play':  json_response(handle_propose_play($db, $uid));
-        case 'counter_play':  json_response(handle_counter_play($db, $uid));
-        case 'mobilize':      json_response(handle_mobilize($db, $uid));
-        case 'resolve':       json_response(handle_resolve($db, $uid));
+        case 'list':
+            only_method('GET');
+            json_response(handle_list($db, $uid));
+        case 'trust_threat':
+            only_method('GET');
+            json_response(handle_trust_threat($db, $uid));
+        case 'propose_play':
+            only_method('POST');
+            verify_csrf();
+            json_response(handle_propose_play($db, $uid));
+        case 'counter_play':
+            only_method('POST');
+            verify_csrf();
+            json_response(handle_counter_play($db, $uid));
+        case 'mobilize':
+            only_method('POST');
+            verify_csrf();
+            json_response(handle_mobilize($db, $uid));
+        case 'resolve':
+            only_method('POST');
+            verify_csrf();
+            json_response(handle_resolve($db, $uid));
         default:              json_error('Unknown action', 400);
     }
 } catch (PDOException $e) {

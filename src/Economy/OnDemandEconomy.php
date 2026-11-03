@@ -17,6 +17,7 @@ use Throwable;
 final class OnDemandEconomy
 {
     private bool $mysql;
+    private ?array $policyColumnTypes = null;
     private static int $transactionSequence = 0;
 
     public function __construct(private PDO $db)
@@ -167,6 +168,11 @@ final class OnDemandEconomy
                 )->fetchAll(),
                 'pop_classes' => $state['classes'],
                 'catalog' => self::catalog(),
+                'methods' => array_replace(
+                    array_fill_keys(array_keys(self::catalog()), 'standard'),
+                    $context['methods']
+                ),
+                'storage' => $context['capacity'],
                 'layout' => $context['layout'],
             ];
         });
@@ -237,8 +243,12 @@ final class OnDemandEconomy
                 $capacity[$row['good_type']] = (float)$row['capacity'];
             }
         }
-        $tax = (float)($policy['tax_income'] ?? 0.15);
-        $productionTax = (float)($policy['tax_production'] ?? $policy['tax_resources'] ?? 0);
+        $tax = $this->taxRate($policy, 'tax_income', 0.15);
+        $productionTax = $this->taxRate(
+            $policy,
+            array_key_exists('tax_production', $policy) ? 'tax_production' : 'tax_resources',
+            0.0
+        );
         $policyKey = $policy['global_policy'] ?? 'free_market';
         if (is_numeric($policyKey)) {
             $policyKey = ['free_market', 'subsidies', 'mercantilism', 'autarky', 'war_economy'][(int)$policyKey]
@@ -252,8 +262,8 @@ final class OnDemandEconomy
             'service_levels' => ($buildings['hospital'] ?? 0) + ($buildings['school'] ?? 0)
                 + ($buildings['security_post'] ?? 0),
             'capacity' => $capacity, 'research' => $research, 'methods' => $methods,
-            'policy' => $policyKey, 'income_tax' => min(0.4, max(0, $tax > 1 ? $tax / 100 : $tax)),
-            'production_tax' => min(0.3, max(0, $productionTax > 1 ? $productionTax / 100 : $productionTax)),
+            'policy' => $policyKey, 'income_tax' => min(0.4, max(0, $tax)),
+            'production_tax' => min(0.3, max(0, $productionTax)),
             'good_multipliers' => array_replace(
                 array_fill_keys(array_keys(ColonyEconomySimulation::PRICES), 1.0),
                 get_policy_good_multipliers($this->db, (int)$colony['user_id'])
@@ -582,8 +592,7 @@ final class OnDemandEconomy
             $market = $this->market($context['galaxy_index'], $context['system_index']);
             $price = $market['goods'][$good]['price'] ?? (float)ColonyEconomySimulation::PRICES[$good];
             $policy = $this->query('SELECT tax_trade FROM economy_policies WHERE user_id=?', [$uid])->fetch();
-            $tax = (float)($policy['tax_trade'] ?? 0.05);
-            $tax = min(0.25, max(0, $tax > 1 ? $tax / 100 : $tax));
+            $tax = min(0.25, max(0, $this->taxRate($policy ?: [], 'tax_trade', 0.05)));
             $credits = (float)$this->query('SELECT credits FROM users WHERE id=?', [$uid])->fetchColumn();
             $total = round($quantity * $price * ($buy ? 1 + $tax : 1 - $tax), 4);
             $available = $state['stock'][$good] ?? 0;
@@ -654,8 +663,22 @@ final class OnDemandEconomy
         }
         $this->empireMutation($uid, function () use ($uid, $setting, $value, $policies): void {
             $insert = $this->mysql ? 'INSERT IGNORE' : 'INSERT OR IGNORE';
-            $this->query("$insert INTO economy_policies (user_id) VALUES (?)", [$uid]);
+            $created = $this->query("$insert INTO economy_policies (user_id) VALUES (?)", [$uid])->rowCount() > 0;
             $row = $this->query('SELECT * FROM economy_policies WHERE user_id=?', [$uid])->fetch();
+            if ($created) {
+                $productionColumn = array_key_exists('tax_production', $row) ? 'tax_production' : 'tax_resources';
+                $this->query(
+                    "UPDATE economy_policies SET global_policy=?, tax_income=?, `$productionColumn`=0, tax_trade=?, "
+                        . 'subsidy_agriculture=0, subsidy_research=0, subsidy_military=0 WHERE user_id=?',
+                    [
+                        is_numeric($row['global_policy']) ? 0 : 'free_market',
+                        $this->wholePercentTax('tax_income') ? 15 : 0.15,
+                        $this->wholePercentTax('tax_trade') ? 5 : 0.05,
+                        $uid,
+                    ]
+                );
+                $row = $this->query('SELECT * FROM economy_policies WHERE user_id=?', [$uid])->fetch();
+            }
             if ($setting === 'tax_production' && !array_key_exists($setting, $row)) {
                 $setting = 'tax_resources';
             }
@@ -664,27 +687,76 @@ final class OnDemandEconomy
             } elseif (str_starts_with($setting, 'subsidy_')) {
                 $value = (int)$value;
             } elseif (str_starts_with($setting, 'tax_')) {
-                if ($this->mysql) {
-                    $column = $this->query(
-                        'SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() '
-                            . "AND TABLE_NAME='economy_policies' AND COLUMN_NAME=?",
-                        [$setting]
-                    )->fetch();
-                    $integer = str_contains(strtolower($column['DATA_TYPE']), 'int');
-                } else {
-                    $integer = false;
-                    foreach ($this->query('PRAGMA table_info(economy_policies)')->fetchAll() as $column) {
-                        if ($column['name'] === $setting) {
-                            $integer = str_contains(strtolower($column['type']), 'int');
-                        }
-                    }
-                }
-                if ($integer || (float)$row[$setting] > 1) {
+                if ($this->wholePercentTax($setting) || (float)$row[$setting] > 1) {
                     $value = round((float)$value * 100);
                 }
             }
             $this->query("UPDATE economy_policies SET `$setting`=? WHERE user_id=?", [$value, $uid]);
         });
+    }
+
+    public function policy(int $uid): array
+    {
+        $row = $this->query('SELECT * FROM economy_policies WHERE user_id=?', [$uid])->fetch() ?: [];
+        $policy = $row['global_policy'] ?? 'free_market';
+        if (is_numeric($policy)) {
+            $policy = ['free_market', 'subsidies', 'mercantilism', 'autarky', 'war_economy'][(int)$policy] ?? 'free_market';
+        }
+        $production = array_key_exists('tax_production', $this->policyColumnTypes()) ? 'tax_production' : 'tax_resources';
+        return [
+            'global_policy' => $policy,
+            'taxes' => [
+                'income' => $this->taxRate($row, 'tax_income', 0.15),
+                'production' => $this->taxRate($row, $production, 0.0),
+                'trade' => $this->taxRate($row, 'tax_trade', 0.05),
+            ],
+            'tax_steps' => [
+                'income' => $this->wholePercentTax('tax_income') ? 0.01 : 0.0001,
+                'production' => $this->wholePercentTax($production) ? 0.01 : 0.0001,
+                'trade' => $this->wholePercentTax('tax_trade') ? 0.01 : 0.0001,
+            ],
+            'subsidies' => [
+                'agriculture' => (bool)($row['subsidy_agriculture'] ?? false),
+                'research' => (bool)($row['subsidy_research'] ?? false),
+                'military' => (bool)($row['subsidy_military'] ?? false),
+            ],
+        ];
+    }
+
+    private function taxRate(array $row, string $column, float $default): float
+    {
+        if (!array_key_exists($column, $row)) {
+            return $default;
+        }
+        $value = (float)$row[$column];
+        return $this->wholePercentTax($column) || $value > 1 ? $value / 100 : $value;
+    }
+
+    private function wholePercentTax(string $name): bool
+    {
+        $types = $this->policyColumnTypes();
+        if (!array_key_exists($name, $types)) {
+            throw new RuntimeException('Missing economy tax column: ' . $name);
+        }
+        return str_contains(strtolower($types[$name]), 'int');
+    }
+
+    private function policyColumnTypes(): array
+    {
+        if ($this->policyColumnTypes === null) {
+            if ($this->mysql) {
+                $this->policyColumnTypes = $this->query(
+                    'SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() '
+                        . "AND TABLE_NAME='economy_policies'"
+                )->fetchAll(PDO::FETCH_KEY_PAIR);
+            } else {
+                $this->policyColumnTypes = [];
+                foreach ($this->query('PRAGMA table_info(economy_policies)')->fetchAll() as $column) {
+                    $this->policyColumnTypes[$column['name']] = $column['type'];
+                }
+            }
+        }
+        return $this->policyColumnTypes;
     }
 
     public function spend(int $cid, int $uid, array $cost, callable $commit): mixed

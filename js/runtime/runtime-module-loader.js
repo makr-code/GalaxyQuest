@@ -1,4 +1,5 @@
 const runtimeModules = new Map([
+  ['js/runtime/galaxy-chunk-utils.js', () => import('./galaxy-chunk-utils.js')],
   ['js/runtime/audio.js', () => import('./audio.js')],
   ['js/ui/gq-ui.js', () => import('../ui/gq-ui.js')],
   ['js/runtime/wm.js', () => import('./wm.js')],

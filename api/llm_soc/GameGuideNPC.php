@@ -16,8 +16,6 @@ class GameGuideNPC
     private \PDO $db;
     private array $config = [];
     private array $help_topics = [];
-    private string $cache_dir = __DIR__ . '/../cache/game_guide';
-
     public function __construct(\PDO $db, string $config_file = null)
     {
         $this->db = $db;
@@ -28,11 +26,6 @@ class GameGuideNPC
         }
         
         $this->loadConfig($config_file);
-        
-        // Ensure cache dir exists
-        if (!is_dir($this->cache_dir)) {
-            mkdir($this->cache_dir, 0755, true);
-        }
     }
 
     /**

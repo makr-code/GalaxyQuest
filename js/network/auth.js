@@ -5,6 +5,8 @@
 import { loadRuntimeModule } from '../runtime/runtime-module-loader.js';
 import { initializeStartScreen } from './start-screen.js';
 import { initializeStartMusicPlayer } from './start-music-player.js';
+import { initializeDraftWorld } from './draft-world.js';
+import { startAuthenticatedGame, shutdownAuthenticatedGame } from '../engine/runtime/server-game-session.js';
 import '../ui/prolog.js';
 
 (async function () {
@@ -84,6 +86,17 @@ import '../ui/prolog.js';
 
   authLog('info', 'bootstrap start');
   authProbe('bootstrap start');
+  function takeConfirmationToken() {
+    const confirmationParams = new URLSearchParams(window.location.hash.slice(1));
+    const token = confirmationParams.get('registration-confirm');
+    if (token === null) return null;
+    confirmationParams.delete('registration-confirm');
+    const remainingHash = confirmationParams.toString();
+    window.history.replaceState({}, document.title,
+      window.location.pathname + window.location.search + (remainingHash ? `#${remainingHash}` : ''));
+    return token;
+  }
+  const confirmationToken = takeConfirmationToken();
 
   const authSection = document.getElementById('auth-section');
   const startMusicPlayer = document.getElementById('start-music-player')
@@ -93,6 +106,10 @@ import '../ui/prolog.js';
   let titleCatalogError = '';
   const startScreen = initializeStartScreen({
     onRegistrationRequest: registrationRequest,
+    onEnterDraft: async (token) => {
+      await draftWorld.enter(token);
+      startScreen.setSession(true);
+    },
     onRegistrationPreview: (preview) => {
       const control = window.GQAuthGalaxyBackgroundControl;
       if (typeof control?.setRegistrationPreview !== 'function') return false;
@@ -104,6 +121,10 @@ import '../ui/prolog.js';
       return control.setFlightTourEnabled(enabled);
     },
     onResume: async () => {
+      if (draftWorld.hasDraft()) {
+        await draftWorld.restore();
+        return;
+      }
       const response = await fetchWithTimeout('api/auth.php?action=me&quiet=1', {
         credentials: 'same-origin',
         timeoutMs: 10000,
@@ -125,6 +146,18 @@ import '../ui/prolog.js';
       const manager = ensureSharedAudioManager();
       if (!manager) throw new Error('Audio manager is unavailable');
       manager.setMasterMuted(muted);
+    },
+  });
+  const draftWorld = initializeDraftWorld({
+    request: (action, body) => registrationRequest(action, body, 'api/registration_play.php'),
+    onPreview: (preview) => {
+      window.GQAuthGalaxyBackgroundControl?.setFlightTourEnabled?.(false);
+      return window.GQAuthGalaxyBackgroundControl?.setRegistrationPreview?.(preview);
+    },
+    onActivate: startGameShell,
+    onLeave: () => {
+      startScreen.setSession(true);
+      startScreen.setStatus('Dein Draft ist gespeichert. Mit Fortsetzen kehrst du in deine private Startwelt zurück.');
     },
   });
   const authRoot = startScreen.authRoot;
@@ -289,6 +322,10 @@ import '../ui/prolog.js';
     gameBootPromise = null;
     startGameShellPromise = null;
   }
+
+  window.addEventListener('gq:game-data-error', (event) => {
+    if (Number(event.detail?.error?.status) === 401) returnToLoginPage('game-data-unauthenticated');
+  });
   
   function showErrorBanner(message, durationMs = 5000) {
     const banner = document.createElement('div');
@@ -532,6 +569,7 @@ import '../ui/prolog.js';
   }
 
   async function performLogoutCleanup() {
+    shutdownAuthenticatedGame();
     stopSessionValidationBreaker();
     try {
       await fetchWithTimeout('api/auth.php?action=logout', {
@@ -705,6 +743,7 @@ import '../ui/prolog.js';
   }
 
   function setAuthVisible() {
+    shutdownAuthenticatedGame();
     const gameSection = resolveGameSection();
     const stageSection = document.getElementById('wm-galaxy-section');
     document.body.classList.remove('game-page');
@@ -877,8 +916,8 @@ import '../ui/prolog.js';
         ? (window.GQGalaxyEngineBridge.getAdapter('auth-background') || window.GQGalaxyEngineBridge.getAdapter('starfield'))
         : null;
       const control = bridgeControl || window.GQAuthGalaxyBackgroundControl || window.GQStarfieldControl;
-      if (control && typeof control.releaseCanvasForGame === 'function') {
-        control.releaseCanvasForGame();
+      if (control && typeof control.prepareForGame === 'function') {
+        control.prepareForGame();
       }
     } catch (err) {
       authLog('warn', 'releaseAuthBackgroundForGame failed', String(err?.message || err || 'unknown'));
@@ -1036,7 +1075,7 @@ import '../ui/prolog.js';
     };
 
     const attemptResume = async (event) => {
-      if (event?.target instanceof Element && event.target.closest('#start-music-player')) return;
+      if (event?.target instanceof Element && event.target.closest('#start-music-player, #topbar-player')) return;
       if (unlocked) return;
       if (resumeInFlight) return;
       const now = Date.now();
@@ -1173,18 +1212,20 @@ import '../ui/prolog.js';
 
     try {
       const randomTitleTrack = await pickRandomTitleTrack();
+      const savedTrack = manager.snapshot().musicUrl;
+      const selectedTrack = titleTracks.includes(savedTrack) ? savedTrack : randomTitleTrack;
       // Keep autoplay restrictions intact; we only prime tracks and state.
       manager.setScene('ui', { autoplay: false, force: true, minHoldMs: 0 });
       if (typeof manager.setSceneTrack === 'function') {
-        manager.setSceneTrack('ui', randomTitleTrack);
+        manager.setSceneTrack('ui', selectedTrack);
       }
-      manager.setMusicTrack(randomTitleTrack, false);
+      manager.setMusicTrack(selectedTrack, false);
       manager.setMusicPlaylist(titleTracks.length ? titleTracks : [randomTitleTrack], { mode: 'sequential' });
       startMusicPlayer.setManager(manager);
       if (titleCatalogError) startMusicPlayer.setError(titleCatalogError);
       installAudioUnlock(manager);
-      authLog('info', 'audio primed (lazy), random title track selected', randomTitleTrack);
-      authProbe(`audio primed (lazy), random title track: ${randomTitleTrack}`);
+      authLog('info', 'audio primed (lazy), shared title track selected', selectedTrack);
+      authProbe(`audio primed (lazy), shared title track: ${selectedTrack}`);
     } catch (err) {
       authLog('warn', 'audio priming failed', String(err?.message || err || 'unknown'));
       startMusicPlayer.setError('Musik konnte nicht vorbereitet werden.');
@@ -1530,6 +1571,7 @@ import '../ui/prolog.js';
     emitInitDiag('startGameShell:afterPreloadAssets');
     emitInitDiag('startGameShell:beforeBootRuntime');
     await bootGameRuntime();
+    await startAuthenticatedGame();
     emitInitDiag('startGameShell:afterBootRuntime');
     hidePreloadPanel(true);
     await hideLoginConfirmSection({ animate: true });
@@ -1548,8 +1590,9 @@ import '../ui/prolog.js';
       gameBootPromise = null;
       hideActionModal();
       setAuthVisible();
+      window.GQAuthGalaxyBackgroundControl?.returnToMenu?.();
       startScreen.setSession(true);
-      startScreen.setStatus(`Unable to enter the galaxy: ${String(error?.message || error)}. Try Resume again or reload.`, 'error');
+      startScreen.setStatus(`Unable to enter the galaxy: ${String(error?.message || error)}. Versuche Fortsetzen erneut oder lade die Seite neu.`, 'error');
       throw error;
     } finally {
       startGameShellPromise = null;
@@ -2245,10 +2288,10 @@ import '../ui/prolog.js';
     }
   }
 
-  async function registrationRequest(action, body) {
+  async function registrationRequest(action, body, endpoint = 'api/auth.php') {
     const send = async (force = false) => {
       const csrf = body === undefined ? null : await getCsrf({ force });
-      const response = await fetchWithTimeout(`api/auth.php?action=${action}`, {
+      const response = await fetchWithTimeout(`${endpoint}?action=${action}`, {
         method: body === undefined ? 'GET' : 'POST',
         credentials: 'same-origin',
         timeoutMs: action === 'register_portrait' ? 270000 : 30000,
@@ -2270,6 +2313,13 @@ import '../ui/prolog.js';
 
   authReady.registerBound = !!document.getElementById('registration-character-form');
   authProbe(`register handler bound=${authReady.registerBound}`);
+  window.addEventListener('hashchange', () => {
+    const token = takeConfirmationToken();
+    if (token !== null) {
+      setAuthVisible();
+      void draftWorld.confirmLink(token);
+    }
+  });
 
   try {
     setPhase('Pruefe Session...', 8);
@@ -2290,7 +2340,20 @@ import '../ui/prolog.js';
       }
     }
 
+    if (confirmationToken !== null) {
+      setAuthVisible();
+      await draftWorld.confirmLink(confirmationToken);
+      return;
+    }
     const hasSession = skipAutoBootAfterLogout ? false : await checkSessionForMenu();
+    if (!hasSession && !skipAutoBootAfterLogout) {
+      try {
+        if (await draftWorld.restore()) startScreen.setSession(true);
+      } catch (error) {
+        authLog('error', 'draft restore failed', String(error.message));
+        startScreen.setStatus(`Dein Draft konnte nicht geladen werden: ${error.message}`, 'error');
+      }
+    }
     if (!hasSession) {
       getCsrf().catch((err) => {
         authLog('warn', 'background csrf warmup failed', String(err?.message || err || 'unknown'));

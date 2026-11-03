@@ -112,6 +112,23 @@ final class ColonyBuildingsTest extends TestCase
         $this->assertStringContainsString("case 'get_slot_info'", $this->apiContent());
     }
 
+    public function testSettlementRequiresPostAndCsrfAndIsNotTriggeredByReadActions(): void
+    {
+        $api = $this->apiContent();
+        $this->assertMatchesRegularExpression(
+            '~if \(\$action === \'settle\'\) \{\s*only_method\(\'POST\'\);\s*verify_csrf\(\);~s',
+            $api
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '~case \'get_layout\': \{.*?\$economy->settle\(~s',
+            $api
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '~case \'get_slot_info\': \{.*?\$economy->settle\(~s',
+            $api
+        );
+    }
+
     public function testApiValidatesOwnership(): void
     {
         $this->assertStringContainsString('_assert_colony_owner', $this->apiContent());

@@ -124,8 +124,17 @@ comfyui:
 ### Generate Spaceship Texture
 
 ```http
-GET /api/textures-ai.php?action=spaceship_texture&texture_type=albedo&faction=iron_fleet&condition=weathered&size=512
+POST /api/textures-ai.php?action=spaceship_texture
+X-CSRF-Token: <session-token>
+Content-Type: application/json
+
+{"texture_type":"albedo","faction":"iron_fleet","condition":"weathered","size":512}
 ```
+
+All texture generation actions (`spaceship_texture`, `planet_texture`,
+`atmosphere_texture`, `detail_texture`, `batch_pbr`, and both `progressive`
+phases) require an authenticated session, POST, and the session CSRF token.
+Service status and queue inspection remain GET-only.
 
 **Parameters:**
 - `texture_type`: `albedo`, `normal`, `specular`, `roughness`, `metallic`, `emission`
@@ -151,7 +160,11 @@ GET /api/textures-ai.php?action=spaceship_texture&texture_type=albedo&faction=ir
 ### Generate Planet Texture
 
 ```http
-GET /api/textures-ai.php?action=planet_texture&texture_type=albedo&biome=rocky&size=512
+POST /api/textures-ai.php?action=planet_texture
+X-CSRF-Token: <session-token>
+Content-Type: application/json
+
+{"texture_type":"albedo","biome":"rocky","size":512}
 ```
 
 **Parameters:**
@@ -162,7 +175,11 @@ GET /api/textures-ai.php?action=planet_texture&texture_type=albedo&biome=rocky&s
 ### Generate Atmosphere Texture
 
 ```http
-GET /api/textures-ai.php?action=atmosphere_texture&texture_type=cloud&style=aurora&size=256
+POST /api/textures-ai.php?action=atmosphere_texture
+X-CSRF-Token: <session-token>
+Content-Type: application/json
+
+{"texture_type":"cloud","style":"aurora","size":256}
 ```
 
 **Parameters:**
@@ -172,7 +189,11 @@ GET /api/textures-ai.php?action=atmosphere_texture&texture_type=cloud&style=auro
 ### Generate Detail Map
 
 ```http
-GET /api/textures-ai.php?action=detail_texture&texture_type=wear&intensity=0.7
+POST /api/textures-ai.php?action=detail_texture
+X-CSRF-Token: <session-token>
+Content-Type: application/json
+
+{"texture_type":"wear","intensity":0.7}
 ```
 
 **Parameters:**
@@ -485,7 +506,11 @@ if (pbrSet) {
 
 **API Endpoint:**
 ```http
-GET /api/textures-ai.php?action=batch_pbr&faction=iron_fleet&condition=weathered&size=512&controlnet=1
+POST /api/textures-ai.php?action=batch_pbr
+X-CSRF-Token: <session-token>
+Content-Type: application/json
+
+{"faction":"iron_fleet","condition":"weathered","size":512,"controlnet":1}
 ```
 
 **Response:**
@@ -525,7 +550,7 @@ if (progressive) {
   
   // Listen for high-res completion
   window.addEventListener('GQ:textureUpgrade', (e) => {
-    if (e.detail.url === progressive.highResUrl) {
+    if (e.detail.request.phase === 'high_res') {
       material.map = e.detail.texture;
       material.needsUpdate = true;
     }
@@ -595,7 +620,8 @@ These are incorporated into the AI prompt automatically.
 
 **Endpoint:** `api/textures-admin.php`
 
-Requires admin authentication (add security layer as needed).
+Requires admin authentication. Read actions use GET; all mutation and
+generation actions use POST with the session's `X-CSRF-Token`.
 
 #### List Cached Textures
 ```http
@@ -604,25 +630,38 @@ GET /api/textures-admin.php?action=list&filter=spaceship
 
 #### Regenerate Single Texture
 ```http
-GET /api/textures-admin.php?action=regenerate&cache_key=<sha256>&force=1
+POST /api/textures-admin.php?action=regenerate
+X-CSRF-Token: <session-token>
+Content-Type: application/json
+
+{"cache_key":"<sha256>","force":1}
 ```
 
 #### Test Custom Prompt
 ```http
 POST /api/textures-admin.php?action=test_prompt
-Content-Type: application/x-www-form-urlencoded
+Content-Type: application/json
+X-CSRF-Token: <session-token>
 
-prompt=sci-fi+spaceship+hull&negative_prompt=low+quality&size=512&steps=30
+{"prompt":"sci-fi spaceship hull","negative_prompt":"low quality","size":512,"steps":30}
 ```
 
 #### Batch Regenerate
 ```http
-GET /api/textures-admin.php?action=batch_regenerate&faction=iron_fleet&texture_type=albedo&dry_run=1
+POST /api/textures-admin.php?action=batch_regenerate
+X-CSRF-Token: <session-token>
+Content-Type: application/json
+
+{"faction":"iron_fleet","texture_type":"albedo","dry_run":1}
 ```
 
 #### Clear Cache
 ```http
-GET /api/textures-admin.php?action=clear_cache&confirm=yes_clear_all&pattern=spaceship
+POST /api/textures-admin.php?action=clear_cache
+X-CSRF-Token: <session-token>
+Content-Type: application/json
+
+{"confirm":"yes_clear_all","pattern":"spaceship"}
 ```
 
 #### Cache Statistics

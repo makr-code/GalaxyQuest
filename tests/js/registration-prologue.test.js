@@ -31,6 +31,7 @@ let audio;
 let prologue;
 let request;
 let preview;
+let onEnterDraft;
 
 async function endClip() {
   await vi.waitFor(() => expect(audio.onended).toBeTypeOf('function'));
@@ -68,8 +69,13 @@ describe('Cinematic draft registration', () => {
       removeAttribute = vi.fn();
       play = vi.fn().mockResolvedValue(undefined);
     });
-    vi.stubGlobal('fetch', vi.fn(async (url) => {
-      const clipId = new URL(url, 'http://localhost').searchParams.get('clip');
+    vi.stubGlobal('fetch', vi.fn(async (url, options = {}) => {
+      const parsedUrl = new URL(url, 'http://localhost');
+      if (parsedUrl.pathname.endsWith('/auth.php')) {
+        return { ok: true, json: async () => ({ token: 'registration-test-csrf' }) };
+      }
+      const clipId = parsedUrl.searchParams.get('clip')
+        || JSON.parse(options.body || '{}').clip;
       const staticClip = [...content.teaser, ...(content.registration_steps || [])].find((entry) => entry.id === clipId)
         || content.factions.find((entry) => entry.code === clipId);
       const mentorCode = clipId?.match(/^mentor-(.+)$/)?.[1];
@@ -94,7 +100,8 @@ describe('Cinematic draft registration', () => {
       return { draft };
     });
     preview = vi.fn();
-    prologue = initializeRegistrationPrologue({ request, onPreview: preview });
+    onEnterDraft = vi.fn(async () => {});
+    prologue = initializeRegistrationPrologue({ request, onPreview: preview, onEnterDraft });
   });
 
   afterEach(() => {
@@ -167,9 +174,13 @@ describe('Cinematic draft registration', () => {
     expect(preview).toHaveBeenLastCalledWith(expect.objectContaining({ stage: 'planet', draft: expect.objectContaining({ mentor_code: 'vor_tak' }) }));
     expect(el('story').textContent).toContain('vor_tak System');
     expect(el('continue').textContent).toContain('Tutorial starten');
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining('clip=mentor-vor_tak'), expect.objectContaining({ credentials: 'same-origin' }),
-    ));
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith('api/registration_narration.php',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: expect.objectContaining({ 'X-CSRF-Token': 'registration-test-csrf' }),
+        body: JSON.stringify({ clip: 'mentor-vor_tak' }),
+      })));
     await vi.waitFor(() => expect(audio.onended).toBeTypeOf('function'));
     el('continue').click();
     await vi.waitFor(() => expect(el('title').textContent).toBe('Dein Sternsystem'));
@@ -191,9 +202,12 @@ describe('Cinematic draft registration', () => {
 
   it('persists species and character privately, never requests activation or credentials', async () => {
     await reachCharacter();
-    expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining('clip=character-dossier'), expect.objectContaining({ credentials: 'same-origin' }),
-    );
+    expect(fetch).toHaveBeenCalledWith('api/registration_narration.php', expect.objectContaining({
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: expect.objectContaining({ 'X-CSRF-Token': 'registration-test-csrf' }),
+      body: JSON.stringify({ clip: 'character-dossier' }),
+    }));
     expect(request).toHaveBeenCalledWith('register_select_mentor', expect.objectContaining({ mentor_code: 'vor_tak' }));
     expect(request).toHaveBeenCalledWith('register_profile', { prolog_token: draft.prolog_token, species_code: 'vor_tak' });
     el('name').value = 'Commander';
@@ -205,7 +219,7 @@ describe('Cinematic draft registration', () => {
     expect(document.querySelector('input[type="email"],input[type="password"]')).toBeNull();
   });
 
-  it('shows progress and a review of the private draft before returning to the start screen', async () => {
+  it('shows progress and a review before entering the playable draft instead of returning to the menu', async () => {
     await reachCharacter();
     expect(el('progress').value).toBe(9);
     el('name').value = 'Commander';
@@ -221,12 +235,19 @@ describe('Cinematic draft registration', () => {
     expect(el('review-world').textContent).toBe('vor_tak III');
     expect(el('review-commander').textContent).toBe('Commander');
     expect(el('review-background').textContent).toBe('Grenzforscher');
-    expect(el('continue').textContent).toBe('Fertig – zurück zum Start');
-    expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining('clip=draft-review'), expect.objectContaining({ credentials: 'same-origin' }),
-    );
+    expect(el('continue').textContent).toBe('Draft-Welt betreten');
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      'api/registration_narration.php',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: expect.objectContaining({ 'X-CSRF-Token': 'registration-test-csrf' }),
+        body: JSON.stringify({ clip: 'draft-review' }),
+      }),
+    ));
     el('continue').click();
-    expect(prologue.isActive()).toBe(false);
+    await vi.waitFor(() => expect(prologue.isActive()).toBe(false));
+    expect(onEnterDraft).toHaveBeenCalledWith(draft.prolog_token);
     expect(preview).toHaveBeenLastCalledWith(null);
   });
 

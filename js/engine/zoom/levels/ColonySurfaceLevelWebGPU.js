@@ -1142,6 +1142,7 @@ class CubeSphereTerrainStream {
     this.colonyId = colonyId;
     this.onChange = onChange;
     this.manifest = null;
+    this.csrfToken = null;
     this.tiles = new Map();
     this.surfaceTiles = new Map();
     this.request = null;
@@ -1158,9 +1159,7 @@ class CubeSphereTerrainStream {
     this.request = request;
     this.onChange('Persistent terrain loading; procedural preview');
     try {
-      const response = await fetch(`api/terrain.php?action=manifest&colony_id=${this.colonyId}`, {
-        credentials: 'same-origin', signal: request.signal, cache: 'no-cache',
-      });
+      const response = await this._fetchTerrain('manifest', {}, request.signal);
       if (!response.ok) throw new Error(`Terrain manifest HTTP ${response.status}`);
       const data = await response.json();
       if (!data.success) throw new Error(data.error || 'Terrain manifest unavailable');
@@ -1258,9 +1257,7 @@ class CubeSphereTerrainStream {
     const request = new AbortController();
     this.request = request;
     try {
-      const response = await fetch(`api/terrain.php?action=tiles&colony_id=${this.colonyId}&tiles=${encodeURIComponent(JSON.stringify(addresses))}`, {
-        credentials: 'same-origin', signal: request.signal, cache: 'no-cache',
-      });
+      const response = await this._fetchTerrain('tiles', { tiles: addresses }, request.signal);
       if (!response.ok) throw new Error(`Terrain tiles HTTP ${response.status}`);
       const data = await response.json();
       if (!data.success || !Array.isArray(data.tiles) || data.tiles.length !== addresses.length) {
@@ -1290,6 +1287,32 @@ class CubeSphereTerrainStream {
     } finally {
       if (this.request === request) this.request = null;
     }
+  }
+
+  async _fetchTerrain(action, payload, signal) {
+    if (!this.csrfToken) {
+      const csrfResponse = await fetch('/api/auth.php?action=csrf', {
+        credentials: 'same-origin',
+        signal,
+      });
+      if (!csrfResponse.ok) throw new Error(`Terrain CSRF token HTTP ${csrfResponse.status}`);
+      const csrfData = await csrfResponse.json();
+      if (typeof csrfData.token !== 'string' || csrfData.token.length === 0) {
+        throw new Error('Terrain CSRF token missing');
+      }
+      this.csrfToken = csrfData.token;
+    }
+
+    return fetch(`api/terrain.php?action=${action}`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': this.csrfToken,
+      },
+      body: JSON.stringify({ ...payload, colony_id: this.colonyId }),
+    });
   }
 
   dispose() {
@@ -1378,11 +1401,11 @@ function buildPersistedTerrainMesh(manifest, tiles, terrain) {
   return { vertices, vertexCount: vertices.length / 8 };
 }
 
-function cityCameraPose(span, progress = 1, target = { x: 0, z: 0 }, surfaceRadius = 0, terrain = null, previousEye = null) {
+function cityCameraPose(span, progress = 1, target = { x: 0, z: 0 }, surfaceRadius = 0, terrain = null, previousEye = null, orbit = null) {
   const t = bounded(progress, 0, 1);
   const eased = t * t * (3 - 2 * t);
-  const yaw = Math.PI / 4;
-  const pitch = (65 + (35.264 - 65) * eased) * Math.PI / 180;
+  const yaw = Math.PI / 4 + (orbit?.yaw || 0);
+  const pitch = bounded((65 + (35.264 - 65) * eased) * Math.PI / 180 + (orbit?.pitch || 0), 0.15, 1.45);
   let distance = span * (2.6 - eased * 0.6);
   let right = [Math.cos(yaw), 0, -Math.sin(yaw)];
   let back = [Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)];
@@ -1643,6 +1666,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._cameraBuffer = null;
     this._depthTexture = null;
     this._camera = { span: 25, target: { x: 0, z: 0 }, progress: 0 };
+    this._orbit = { yaw: 0, pitch: 0 };
     this._cameraFocus = null;
     this._buildingView = null;
     this._viewProjection = cityCameraMatrix(1, 25);
@@ -1675,7 +1699,9 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   setSceneData(data) {
     this._cameraFocus = null;
     const detail = this._buildingView;
-    if (Number(this._sceneData?.colony?.id || 0) !== Number(data?.colony?.id || 0)) {
+    const sameColony = Number(this._sceneData?.colony?.id || 0) === Number(data?.colony?.id || 0);
+    const selectedKey = sameColony ? this._selected?.key : null;
+    if (!sameColony) {
       this._terrainStream?.dispose();
       this._terrainStream = null;
       this._terrainState = '';
@@ -1716,9 +1742,8 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._zoomMultiplier = 1;
     this._people = cityPedestrians(data?.colony?.population, this._slots, data?.pop_classes);
     this._camera.span = this._entrySpan;
-    this._selected = this._buildingView
-      ? this._slots.find((slot) => slot.key === this._buildingView.key) || null
-      : null;
+    const selection = this._buildingView?.key ?? selectedKey;
+    this._selected = selection != null ? this._slots.find((slot) => slot.key === selection) || null : null;
     if (detail && !this._selected) {
       this._buildingView = null;
       this._navigation?.surface?.();
@@ -1735,14 +1760,28 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
         || viewport.top >= globalThis.innerHeight || viewport.left >= globalThis.innerWidth) return;
     const seconds = bounded(Number(dt) > 1 ? Number(dt) / 1000 : dt, 0, 0.1, 0.016);
     this._elapsed += seconds;
-    this._camera.progress = Math.min(1, this._camera.progress + seconds / 1.2);
-    this._setCameraSpan(this._transitionBaseSpan() * this._zoomMultiplier);
+    const departure = this._departure;
+    if (departure) {
+      departure.elapsed += seconds;
+      const t = Math.min(1, departure.elapsed / 1.2);
+      const eased = t * t * (3 - 2 * t);
+      this._camera.progress = departure.progress * (1 - eased);
+      this._camera.target = { x: departure.target.x * (1 - eased), z: departure.target.z * (1 - eased) };
+      this._orbit = { yaw: departure.orbit.yaw * (1 - eased), pitch: departure.orbit.pitch * (1 - eased) };
+      this._setCameraSpan(departure.span * Math.pow(this._entrySpan / departure.span, eased));
+      if (t === 1) departure.resolve();
+    } else {
+      this._camera.progress = this._sceneData?.reduced_motion === true
+        || (this._backend?.externalCameraControls && globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+        ? 1 : Math.min(1, this._camera.progress + seconds / 1.2);
+      this._setCameraSpan(this._transitionBaseSpan() * this._zoomMultiplier);
+    }
     this._advanceCameraFocus(seconds);
     this._uploadTerrain();
     const aspect = Math.max(0.1, this._canvas.width / Math.max(1, this._canvas.height));
     const cameraSpan = this._camera.span / Math.min(1, aspect);
     const pose = cityCameraPose(cameraSpan, this._camera.progress, this._camera.target,
-      this._bodySurface.radius, this._bodySurface.terrain, this._cameraEye);
+      this._bodySurface.radius, this._bodySurface.terrain, this._cameraEye, this._orbit);
     this._cameraEye = pose.eye;
     this._viewProjection = cityCameraMatrix(
       aspect, this._camera.span / Math.min(1, aspect), this._camera.progress,
@@ -1802,6 +1841,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._active = true;
     this._camera.progress = 0;
     this._camera.target = { x: 0, z: 0 };
+    this._orbit = { yaw: 0, pitch: 0 };
     let data = transitionPayload || this._sceneData;
     const sameColony = Number(this._sceneData?.colony?.id || 0) > 0
       && Number(transitionPayload?.colony?.id || 0) === Number(this._sceneData.colony.id);
@@ -1827,7 +1867,24 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._loadSnapshot();
   }
 
-  async exit() {
+  async exit(nextLevel) {
+    if (nextLevel === 2 && this._backend?.externalCameraControls && this._active
+        && this._planetBackdrop && this._camera.progress > 0 && this._sceneData?.reduced_motion !== true
+        && !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      this._cameraFocus = null;
+      this._requestGeneration++;
+      this._request?.abort();
+      this._request = null;
+      this._inputCleanups.splice(0).forEach((cleanup) => cleanup());
+      this._hud?.remove();
+      this._hud = null;
+      await new Promise((resolve) => {
+        this._departure = { elapsed: 0, progress: this._camera.progress, span: this._camera.span,
+          target: { ...this._camera.target }, orbit: { ...this._orbit }, resolve };
+      });
+    }
+    this._departure?.resolve();
+    this._departure = null;
     this._active = false;
     this._cameraEye = null;
     this._cameraFocus = null;
@@ -2222,6 +2279,47 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._navigation = handlers;
   }
 
+  rotateView(dx, dy) {
+    if (this._departure) return;
+    this._cameraFocus = null;
+    this._orbit.yaw -= dx * 0.008;
+    this._orbit.pitch = bounded(this._orbit.pitch + dy * 0.006, -0.4, 0.8);
+  }
+
+  panView(dx, dy) {
+    if (this._departure) return;
+    this._cameraFocus = null;
+    const scale = this._camera.span / Math.max(100, this._canvas.getBoundingClientRect().height);
+    const yaw = Math.PI / 4 + this._orbit.yaw;
+    this._camera.target.x = bounded(this._camera.target.x - (dx * Math.cos(yaw) + dy * Math.sin(yaw) * 1.4) * scale, -100, 100);
+    this._camera.target.z = bounded(this._camera.target.z + (dx * Math.sin(yaw) - dy * Math.cos(yaw) * 1.4) * scale, -100, 100);
+  }
+
+  nudgeZoom(direction) {
+    if (this._departure) return;
+    this._cameraFocus = null;
+    this._zoomCamera(direction === 'in' ? -110 : 110);
+  }
+
+  zoomBy(amount) {
+    if (this._departure || !this._active) return;
+    this._cameraFocus = null;
+    this._zoomCamera(-amount / 0.002);
+  }
+
+  selectAt(x, y) {
+    if (this._departure || !this._active) return;
+    this._selectAt(x, y);
+  }
+
+  resetView() {
+    if (this._departure) return;
+    this._cameraFocus = null;
+    this._orbit = { yaw: 0, pitch: 0 };
+    this._camera.target = { x: 0, z: 0 };
+    this._setCameraSpan(this._citySpan);
+  }
+
   setTransitionSource(source, pose) {
     this._planetBackdrop = typeof source?.renderBackdrop === 'function' ? source : null;
     this._backdropPose = pose;
@@ -2333,8 +2431,16 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     if (t === 1) this._cameraFocus = null;
   }
 
+  refreshSnapshot(colonyId) {
+    if (!this._active || this._departure
+        || (colonyId !== null && Number(this._sceneData?.colony?.id) !== Number(colonyId))) return;
+    return this._loadSnapshot();
+  }
+
   async _loadSnapshot() {
-    if (!this._active || globalThis.document?.hidden) return;
+    if (!this._active || this._departure) return;
+    if (globalThis.document?.hidden) { this._snapshotDirty = true; return; }
+    this._snapshotDirty = false;
     const id = Number(this._sceneData?.colony?.id || 0);
     if (!Number.isSafeInteger(id) || id < 1) return;
     this._request?.abort();
@@ -2344,11 +2450,15 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._snapshotState = 'Loading authoritative economy…';
     this._updateHud();
     try {
-      const response = await fetch(`api/colony_economy.php?action=snapshot&colony_id=${id}`, {
-        credentials: 'same-origin', cache: 'no-store', signal: request.signal,
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const snapshot = await response.json();
+      let snapshot;
+      if (this._sceneData?.loadSnapshot) snapshot = await this._sceneData.loadSnapshot(id, request.signal);
+      else {
+        const response = await fetch(`api/colony_economy.php?action=snapshot&colony_id=${id}`, {
+          credentials: 'same-origin', cache: 'no-store', signal: request.signal,
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        snapshot = await response.json();
+      }
       if (!snapshot.success || !snapshot.economy || Number(snapshot.colony?.id) !== id) {
         throw new Error(snapshot.error || 'Economy rollout not enabled');
       }
@@ -2356,15 +2466,19 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       this._snapshotState = `Server snapshot · ${snapshot.economy.settled_at || 'just loaded'}`;
       const target = { ...this._camera.target };
       const span = this._camera.span;
-      const preserveCamera = this._snapshotLoaded;
       this._snapshotLoaded = true;
       this.setSceneData({ ...this._sceneData, ...snapshot, colony: { ...this._sceneData.colony, ...snapshot.colony } });
-      if (preserveCamera) {
-        this._camera.target = target;
-        this._setCameraSpan(span);
-      }
+      this._camera.target = target;
+      this._setCameraSpan(span);
+      this._sceneData.onSnapshotLoaded?.();
     } catch (error) {
       if (!this._active || generation !== this._requestGeneration || error.name === 'AbortError') return;
+      if (this._sceneData?.loadSnapshot) {
+        this._snapshotState = `Snapshot unavailable: ${error.message}`;
+        window.GQLog?.error?.('[colony-surface]', error.message);
+        this._sceneData.onError?.(error);
+        return;
+      }
       this._snapshotState = 'Economy unavailable (requires on-demand rollout); showing saved buildings';
       // Older deployments can still supply real building levels via the existing endpoint.
       if (!this._slots.length && globalThis.window?.API?.buildings) {
@@ -2391,14 +2505,19 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       this._inputCleanups.push(() => target.removeEventListener(name, fn, options));
     };
     const capture = { capture: true };
+    listen(document, 'visibilitychange', () => {
+      if (!document.hidden && this._snapshotDirty) void this.refreshSnapshot(this._sceneData?.colony?.id);
+    });
     let drag = null;
     const stop = (event) => { event.stopImmediatePropagation(); };
     listen(canvas, 'pointerdown', (event) => {
       stop(event);
-      if (event.button !== 0) return;
+      if (![0, 1, 2].includes(event.button)) return;
       event.preventDefault();
+      canvas.focus?.({ preventScroll: true });
       this._cameraFocus = null;
-      drag = { x: event.clientX, y: event.clientY, moved: false };
+      drag = { x: event.clientX, y: event.clientY, moved: false, button: event.button,
+        pan: !this._backend?.externalCameraControls || event.shiftKey || event.button !== 0 };
       canvas.setPointerCapture?.(event.pointerId);
     }, capture);
     listen(canvas, 'pointermove', (event) => {
@@ -2408,23 +2527,21 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       const dy = event.clientY - drag.y;
       if (Math.abs(dx) + Math.abs(dy) > 3 || drag.moved) {
         drag.moved = true;
-        const scale = this._camera.span / Math.max(100, canvas.getBoundingClientRect().height);
-        this._camera.target.x -= (dx + dy * 1.4) * scale * 0.707;
-        this._camera.target.z += (dx - dy * 1.4) * scale * 0.707;
-        this._camera.target.x = bounded(this._camera.target.x, -100, 100);
-        this._camera.target.z = bounded(this._camera.target.z, -100, 100);
+        if (drag.pan) this.panView(dx, dy);
+        else this.rotateView(dx, dy);
       }
       drag.x = event.clientX;
       drag.y = event.clientY;
     }, capture);
     listen(canvas, 'pointerup', (event) => {
       stop(event);
-      if (drag && !drag.moved) this._selectAt(event.clientX, event.clientY);
+      if (drag && !drag.moved && drag.button === 0) this._selectAt(event.clientX, event.clientY);
       drag = null;
       if (canvas.hasPointerCapture?.(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
     }, capture);
     listen(canvas, 'pointercancel', () => { drag = null; }, capture);
     listen(canvas, 'click', stop, capture);
+    listen(canvas, 'contextmenu', (event) => { stop(event); event.preventDefault(); }, capture);
     for (const name of ['mousedown', 'mousemove', 'mouseup']) listen(canvas, name, stop, capture);
     listen(canvas, 'dblclick', (event) => {
       stop(event);
@@ -2438,25 +2555,41 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     }, { capture: true, passive: false });
     listen(window, 'keydown', (event) => {
       if (/input|textarea|select/i.test(event.target?.tagName) || event.target?.isContentEditable) return;
+      if (this._backend?.externalCameraControls && event.target instanceof Element
+          && event.target !== canvas && event.target !== document.body && !this._hud?.contains(event.target)) return;
       const key = event.key;
-      if (!['Escape', '+', '=', '-', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key)) return;
+      if (!['Escape', 'Home', '+', '=', '-', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key)) return;
       stop(event);
       event.preventDefault();
       this._cameraFocus = null;
       if (key === 'Escape') this._navigation?.back?.();
+      if (key === 'Home') this.resetView();
       if (key === '+' || key === '=') {
         this._zoomCamera(Math.log(0.9) / 0.002);
       }
       if (key === '-') {
         this._zoomCamera(Math.log(1.1) / 0.002);
       }
-      if (key === 'ArrowLeft') this._camera.target.x -= 0.8;
-      if (key === 'ArrowRight') this._camera.target.x += 0.8;
-      if (key === 'ArrowUp') this._camera.target.z -= 0.8;
-      if (key === 'ArrowDown') this._camera.target.z += 0.8;
+      if (this._backend?.externalCameraControls) {
+        const dx = key === 'ArrowLeft' ? -18 : key === 'ArrowRight' ? 18 : 0;
+        const dy = key === 'ArrowUp' ? -18 : key === 'ArrowDown' ? 18 : 0;
+        if (event.shiftKey) this.panView(dx, dy);
+        else this.rotateView(dx, dy);
+      } else {
+        if (key === 'ArrowLeft') this._camera.target.x -= 0.8;
+        if (key === 'ArrowRight') this._camera.target.x += 0.8;
+        if (key === 'ArrowUp') this._camera.target.z -= 0.8;
+        if (key === 'ArrowDown') this._camera.target.z += 0.8;
+      }
     }, capture);
     if (!canvas.parentElement) return;
-    const hud = document.createElement('section');
+    const hud = document.createElement(this._backend?.externalCameraControls ? 'details' : 'section');
+    if (this._backend?.externalCameraControls) {
+      hud.setAttribute('role', 'region');
+      const heading = document.createElement('summary');
+      heading.textContent = 'Kolonieoberfläche';
+      hud.appendChild(heading);
+    }
     hud.setAttribute('aria-label', 'Colony surface simulation');
     Object.assign(hud.style, {
       position: 'absolute', top: '72px', left: '12px', zIndex: '20', maxWidth: '360px',
@@ -2470,7 +2603,9 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     selection.dataset.citySelection = '';
     hud.appendChild(selection);
     const hint = document.createElement('p');
-    hint.textContent = 'Drag to pan · Wheel / + − to zoom · Double-click building to focus · Esc to leave. Green: online · Amber: construction · Red: colony shortage. People are cosmetic.';
+    hint.textContent = this._backend?.externalCameraControls
+      ? 'Ziehen: drehen · Rechts/Mitte oder Umschalt+Ziehen: verschieben · Mausrad: Zoom · Doppelklick: Gebäude · Esc: zurück.'
+      : 'Drag to pan · Wheel / + − to zoom · Double-click building to focus · Esc to leave. Green: online · Amber: construction · Red: colony shortage. People are cosmetic.';
     hud.appendChild(hint);
     for (const [label, action] of [
       ['Back to orbit', () => this._navigation?.back?.()],
@@ -2480,12 +2615,15 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
         if (typeof this._sceneData?.onOpenBuildings === 'function') this._sceneData.onOpenBuildings(this._selected);
         else this._openBuilding();
       }],
+      ...(typeof this._sceneData?.onOpenBuildings === 'function'
+        ? [['Focus building', () => this._openBuilding()]] : []),
     ]) {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'btn btn-secondary btn-sm';
       button.textContent = label;
       if (label === 'Back to orbit') button.dataset.cityBack = '';
+      if (label === 'Focus building') button.dataset.cityFocus = '';
       listen(button, 'click', action);
       hud.appendChild(button);
     }
@@ -2497,6 +2635,8 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   _updateHud() {
     if (!this._hud) return;
     this._hud.querySelector('[data-city-back]').textContent = this._buildingView ? 'Back to colony' : 'Back to orbit';
+    const focus = this._hud.querySelector('[data-city-focus]');
+    if (focus) focus.disabled = !this._selected || !!this._buildingView;
     const colony = this._sceneData?.colony || {};
     const status = cityEconomyStatus(this._sceneData);
     const population = Number(colony.population);
@@ -2551,6 +2691,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     });
     const previousKey = this._selected?.key;
     this._selected = selected;
+    if (selected && this._backend?.externalCameraControls && this._hud) this._hud.open = true;
     if (this._active && previousKey !== selected?.key) this._uploadSlots();
     this._updateHud();
     if (selected) this._navigation?.slotClick?.({ ...selected, colonyId: this._sceneData?.colony?.id });

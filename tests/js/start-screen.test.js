@@ -128,13 +128,15 @@ describe('Start-screen menu', () => {
     expect(localStorage.getItem('gq_start_flight_tour')).toBe('1');
   });
 
-  it('shows Resume only for a server-confirmed session without auto-resuming', async () => {
+  it('shows Fortsetzen instead of login only for a server-confirmed session without auto-resuming', async () => {
     const onResume = vi.fn().mockResolvedValue(undefined);
     const screen = initializeStartScreen({ onResume });
     screen.setSession(true, 'Commander');
     expect(document.getElementById('start-login').hidden).toBe(true);
     expect(document.getElementById('start-register').hidden).toBe(true);
     expect(document.getElementById('start-resume').hidden).toBe(false);
+    expect(document.getElementById('start-resume').textContent).toBe('Fortsetzen');
+    expect(document.getElementById('start-session-status').textContent).toContain('Commander');
     expect(onResume).not.toHaveBeenCalled();
     document.getElementById('start-resume').click();
     await vi.waitFor(() => expect(onResume).toHaveBeenCalledOnce());

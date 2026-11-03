@@ -21,6 +21,19 @@ window.createWireframeEditor = function(opts) {
   const apiBase = opts.apiBase || '/api';
   const onPromptUpdate = opts.onPromptUpdate || (() => {});
   const onExport = opts.onExport || (() => {});
+  const fetchCsrfToken = async () => {
+    const response = await fetch(`${apiBase}/auth.php?action=csrf`, {
+      credentials: 'same-origin',
+    });
+    if (!response.ok) {
+      throw new Error(`CSRF token request failed (${response.status})`);
+    }
+    const data = await response.json();
+    if (typeof data.token !== 'string' || data.token.length === 0) {
+      throw new Error('CSRF token missing from response');
+    }
+    return data.token;
+  };
 
   if (!window.THREE) {
     console.error('[WireframeEditor] THREE.js not found in window');
@@ -1005,11 +1018,15 @@ window.createWireframeEditor = function(opts) {
 
     console.log('[WireframeEditor] Saving wireframe design:', name);
     
-    fetch(apiBase + '/vessel_designs.php?wireframe=1', {
+    fetchCsrfToken().then(csrfToken => fetch(apiBase + '/vessel_designs.php?wireframe=1', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken,
+      },
       body: JSON.stringify(payload),
-    })
+    }))
       .then(res => {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();

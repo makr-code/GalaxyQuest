@@ -34,6 +34,41 @@ final class BodyTerrainTest extends TestCase
         self::assertSame(1, (int)$this->db->query('SELECT COUNT(*) FROM body_terrain_manifests')->fetchColumn());
     }
 
+    public function testReadOnlyManifestAndTileGenerationDoesNotPersistCacheRows(): void
+    {
+        $manifest = BodyTerrain::manifest($this->db, $this->body, false);
+        $tile = BodyTerrain::tile(
+            $this->db,
+            $manifest,
+            ['face' => 0, 'lod' => 0, 'x' => 0, 'y' => 0],
+            false
+        );
+
+        self::assertSame(7, $manifest['body_id']);
+        self::assertCount(289, $tile['heights']);
+        self::assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM body_terrain_manifests')->fetchColumn());
+        self::assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM body_terrain_tiles')->fetchColumn());
+    }
+
+    public function testReadOnlyLegacyManifestUpgradeDoesNotPersistTheCompatibilityShape(): void
+    {
+        $manifest = BodyTerrain::manifest($this->db, $this->body);
+        unset($manifest['shape']);
+        $this->db->prepare('UPDATE body_terrain_manifests SET manifest_json = ? WHERE body_id = ?')
+            ->execute([json_encode($manifest, JSON_THROW_ON_ERROR), $this->body['id']]);
+
+        $loaded = BodyTerrain::manifest($this->db, $this->body, false);
+        $stored = json_decode(
+            (string)$this->db->query('SELECT manifest_json FROM body_terrain_manifests')->fetchColumn(),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+
+        self::assertArrayHasKey('shape', $loaded);
+        self::assertArrayNotHasKey('shape', $stored);
+    }
+
     public function testGeoJsonRegionsShareHeightAndMaterialMasksAcrossHolesAndDateline(): void
     {
         $polygon = [

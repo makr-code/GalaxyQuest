@@ -19,25 +19,13 @@ switch ($action) {
 
     case 'get_scores': {
         only_method('GET');
-        $stmt = $db->prepare(
-            'SELECT score_economy, score_military, score_research,
-                    score_growth, score_stability, score_diplomacy,
-                    score_espionage, total_score, calculated_at
-             FROM empire_category_scores WHERE user_id = ?'
-        );
-        $stmt->execute([$uid]);
-        $row = $stmt->fetch();
-        if (!$row) {
-            // First-time: compute now
-            $scores = calc_and_store_empire_scores($db, $uid);
-            json_ok(['scores' => $scores, 'fresh' => true]);
-        }
-        json_ok(['scores' => $row]);
+        $scores = calc_empire_scores($db, $uid);
+        json_ok(['scores' => $scores, 'fresh' => true]);
     }
 
     case 'get_score_breakdown': {
         only_method('GET');
-        $scores = calc_and_store_empire_scores($db, $uid);
+        $scores = calc_empire_scores($db, $uid);
 
         // Colony stats
         $stmt = $db->prepare(

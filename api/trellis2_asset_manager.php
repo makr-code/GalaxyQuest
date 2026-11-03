@@ -22,21 +22,14 @@ final class TRELLIS2AssetManager {
     
     private PDO $db;
     private string $designsBasePath;
-    private string $modelsBasePath;
     private int $maxRetries = 3;
-    
+
     public function __construct(
         PDO $db,
-        ?string $designsBasePath = null,
-        ?string $modelsBasePath = null
+        ?string $designsBasePath = null
     ) {
         $this->db = $db;
         $this->designsBasePath = $designsBasePath ?? __DIR__ . '/../generated/designs';
-        $this->modelsBasePath = $modelsBasePath ?? __DIR__ . '/../generated/trellis2/models';
-        
-        // Ensure directories exist
-        @mkdir($this->designsBasePath, 0755, true);
-        @mkdir($this->modelsBasePath, 0755, true);
     }
     
     /**
@@ -74,8 +67,15 @@ final class TRELLIS2AssetManager {
         $timestamp = date('YmdHis');
         $designPath = "{$this->designsBasePath}/{$user_id}/{$design_name}_{$timestamp}.json";
         
-        @mkdir(dirname($designPath), 0755, true);
-        file_put_contents($designPath, json_encode($designState, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        $designDirectory = dirname($designPath);
+        if (!is_dir($designDirectory) && !mkdir($designDirectory, 0755, true) && !is_dir($designDirectory)) {
+            throw new \RuntimeException('Failed to create vessel design storage directory');
+        }
+
+        $designJson = json_encode($designState, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($designJson === false || file_put_contents($designPath, $designJson) === false) {
+            throw new \RuntimeException('Failed to write vessel design file');
+        }
         
         // Calculate JSON hash for deduplication
         $designHash = hash('sha256', json_encode($designState, JSON_UNESCAPED_SLASHES));
@@ -222,7 +222,8 @@ final class TRELLIS2AssetManager {
     public function getGenerationStatus(int $generation_id): array {
         $stmt = $this->db->prepare(
             'SELECT 
-                id, status, glb_path, thumbnail_path, metadata_json,
+                id, user_id, generation_uuid, status, glb_path, glb_file_size,
+                thumbnail_path, metadata_json,
                 generation_time_ms, completed_at, error_message,
                 created_at
              FROM asset_generations

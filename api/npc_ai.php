@@ -1,8 +1,7 @@
 <?php
 /**
- * NPC AI tick – called from game.php overview action.
+ * NPC AI tick – invoked by explicit simulation or NPC-controller actions.
  * Handles: trade offer generation, pirate raids, diplomacy time-decay.
- * All operations are fast (< 50 ms) and idempotent for repeated calls.
  */
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
@@ -15,7 +14,7 @@ require_once __DIR__ . '/llm_soc/ScenarioEngine.php';
 
 /**
  * Run the NPC AI tick for a specific user.
- * Safe to call on every overview load (rate-limited internally via DB timestamps).
+ * Overview reads must not invoke this mutating operation.
  */
 function npc_ai_tick(PDO $db, int $userId, bool $force = false): void {
     // Only run once per 5 minutes per user (stored in user meta as last_npc_tick)

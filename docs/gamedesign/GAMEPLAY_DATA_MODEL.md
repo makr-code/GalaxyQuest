@@ -698,7 +698,8 @@ Ziel:
 
 ### Runtime-Flow
 
-1. `overview` triggert `npc_ai_tick(...)`.
+1. NPC-/Simulationstakte laufen nur über explizite POST-Aktionen; `overview`
+   führt keinen `npc_ai_tick(...)` aus.
 2. Pro Fraktion versucht `npc_pve_llm_controller_try(...)` genau eine Entscheidung.
 3. Decision wird normalisiert und validiert (Action-Whitelist, Confidence, Standing-Delta).
 4. Erlaubte Aktionen werden ausgefuehrt:

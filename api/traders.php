@@ -53,6 +53,7 @@ if (!defined('TRADERS_LIB_MODE')) {
  * Returns ranked list of profitable trade opportunities.
  */
 function action_list_opportunities(PDO $db): never {
+    only_method('GET');
     $minMargin = (float)($_GET['min_margin'] ?? 10);  // minimum 10% profit
     $limit     = (int)($_GET['limit'] ?? 50);
     
@@ -103,6 +104,7 @@ function action_list_opportunities(PDO $db): never {
  * Returns all active NPC traders with profitability stats.
  */
 function action_list_traders(PDO $db): never {
+    only_method('GET');
     $stmt = $db->prepare(<<<SQL
         SELECT 
             t.id, t.faction_id, t.name, t.base_colony_id,
@@ -150,6 +152,7 @@ function action_list_traders(PDO $db): never {
  * Returns current trader routes with status and progress.
  */
 function action_list_routes(PDO $db): never {
+    only_method('GET');
     $status = $_GET['status'] ?? null;
     
     $query = <<<SQL
@@ -248,6 +251,7 @@ function action_list_routes(PDO $db): never {
  * Returns supply/demand analysis for a system.
  */
 function action_market_analysis(PDO $db): never {
+    only_method('GET');
     $system = (int)($_GET['system'] ?? 1);
     $galaxy = (int)($_GET['galaxy'] ?? 1);
     
@@ -300,6 +304,9 @@ function action_market_analysis(PDO $db): never {
  * Called periodically via background job.
  */
 function action_process_trader_tick(PDO $db): never {
+    only_method('POST');
+    verify_csrf();
+
     try {
         $db->beginTransaction();
         
@@ -353,6 +360,9 @@ function action_process_trader_tick(PDO $db): never {
  * Initialize a new NPC trader for a faction.
  */
 function action_create_trader(PDO $db): never {
+    only_method('POST');
+    verify_csrf();
+
     $body = json_decode(file_get_contents('php://input'), true) ?? [];
     $faction_id = (int)($body['faction_id'] ?? 0);
     $base_colony_id = (int)($body['base_colony_id'] ?? 0);

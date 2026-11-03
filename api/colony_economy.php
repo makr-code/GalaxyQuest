@@ -6,6 +6,7 @@ use GalaxyQuest\Economy\OnDemandEconomy;
 
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
+require_once __DIR__ . '/economy_cache.php';
 
 $uid = require_auth();
 if (!ON_DEMAND_ECONOMY_ENABLED) {
@@ -31,6 +32,7 @@ try {
         only_method('GET');
         $cid = (int)($_GET['colony_id'] ?? 0);
         $snapshot = $service->settle($cid, $uid);
+        invalidate_economy_views(get_db(), $uid, $cid);
         json_ok($snapshot);
     }
     only_method('POST');
@@ -53,20 +55,25 @@ try {
         if (!is_string($body['building_type'] ?? null)) {
             json_error('building_type required.', 400);
         }
-        json_ok($service->queue($cid, $uid, $body['building_type'], $slot));
+        $result = $service->queue($cid, $uid, $body['building_type'], $slot);
+        invalidate_economy_views(get_db(), $uid, $cid);
+        json_ok($result);
     }
     if ($action === 'buy' || $action === 'sell') {
         $quantity = $body['quantity'] ?? null;
         if (!is_string($body['good_type'] ?? null) || !is_numeric($quantity)) {
             json_error('good_type and numeric quantity required.', 400);
         }
-        json_ok($service->exchange($cid, $uid, $body['good_type'], (float)$quantity, $action === 'buy'));
+        $result = $service->exchange($cid, $uid, $body['good_type'], (float)$quantity, $action === 'buy');
+        invalidate_economy_views(get_db(), $uid, $cid);
+        json_ok($result);
     }
     if ($action === 'set_method') {
         if (!is_string($body['building_type'] ?? null) || !is_string($body['method'] ?? null)) {
             json_error('building_type and method required.', 400);
         }
         $service->method($cid, $uid, $body['building_type'], $body['method']);
+        invalidate_economy_views(get_db(), $uid, $cid);
         json_ok();
     }
     json_error('Unknown economy action.', 404);

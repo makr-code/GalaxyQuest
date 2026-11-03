@@ -4,6 +4,16 @@ declare(strict_types=1);
 require_once __DIR__ . '/../lib/RegistrationDraftService.php';
 require_once __DIR__ . '/../lib/RegistrationPortraitService.php';
 
+function registration_session_owner(string $action, bool $read): string {
+    $ownerToken = $_SESSION['registration_owner'] ?? ($_COOKIE['gq_draft_owner'] ?? null);
+    if (!is_string($ownerToken) || !preg_match('/^[a-f0-9]{64}$/', $ownerToken)) $ownerToken = null;
+    if (!$read && $action !== 'register_cancel' && (!is_string($ownerToken) || $ownerToken === '')) {
+        $ownerToken = bin2hex(random_bytes(32));
+        $_SESSION['registration_owner'] = $ownerToken;
+    }
+    return is_string($ownerToken) && $ownerToken !== '' ? hash('sha256', $ownerToken) : '';
+}
+
 function handle_registration(string $action): void {
     $read = in_array($action, ['register_catalog', 'register_preview', 'register_status', 'register_portrait_status', 'register_portrait_image'], true);
     only_method($read ? 'GET' : 'POST');
@@ -12,8 +22,7 @@ function handle_registration(string $action): void {
     if (in_array($action, ['register', 'register_complete'], true)) {
         json_error(RegistrationDraftService::ACTIVATION_UNAVAILABLE, 503);
     }
-    $_SESSION['registration_owner'] ??= bin2hex(random_bytes(32));
-    $owner = hash('sha256', $_SESSION['registration_owner']);
+    $owner = registration_session_owner($action, $read);
     $species = [];
     foreach (get_playable_faction_codes() as $code) {
         $species[$code] = json_decode(
@@ -24,6 +33,13 @@ function handle_registration(string $action): void {
     $service = new RegistrationDraftService($db, $species, starter_homeworld_config('Commander'));
     $body = $read ? [] : get_json_body();
     try {
+        if (!$read && $action !== 'register_portrait') {
+            $playing = $db->prepare(
+                'SELECT p.draft_token FROM registration_play p JOIN registration_drafts d ON d.token = p.draft_token WHERE d.session_hash = ?'
+            );
+            $playing->execute([$owner]);
+            if ($playing->fetchColumn()) json_error('Your playable draft is already running. Resume it instead of replacing it.', 409);
+        }
         switch ($action) {
             case 'register_catalog':
                 json_ok($service->catalog());
@@ -31,20 +47,22 @@ function handle_registration(string $action): void {
                 if (!is_string($_GET['faction_id'] ?? null)) json_error('Choose a faction.');
                 json_ok(['preview' => $service->preview($_GET['faction_id'])]);
             case 'register_status':
-                json_ok(['draft' => $service->status($owner)]);
+                json_ok(['draft' => $owner === '' ? null : $service->status($owner)]);
             case 'register_cancel':
-                $service->cancel($owner);
+                if ($owner !== '') $service->cancel($owner);
                 json_ok();
             case 'register_profile':
                 json_ok(['draft' => $service->saveProfile($owner, $body)]);
             case 'register_character':
                 json_ok(['draft' => $service->saveCharacter($owner, $body)]);
             case 'register_portrait_status':
+                if ($owner === '') json_error('Registration draft expired or unavailable.', 410);
                 json_ok(['portrait' => (new RegistrationPortraitService($db))->status($owner)]);
             case 'register_portrait_image':
                 if (!is_string($_GET['revision'] ?? null) || !preg_match('/^[a-f0-9]{32}$/', $_GET['revision'])) {
                     json_error('Invalid portrait revision.');
                 }
+                if ($owner === '') json_error('Registration draft expired or unavailable.', 410);
                 $bytes = (new RegistrationPortraitService($db))->image($owner, $_GET['revision']);
                 header('Content-Type: image/png');
                 header('Cache-Control: private, no-store');

@@ -158,16 +158,15 @@ function mark_projection_stale(PDO $db, int $userId): void
  * game.php?action=overview response structure exactly.
  * It runs update_all_colonies() to keep resource counts fresh.
  *
- * When $runSimulationSideEffects is true, achievements and simulation ticks
- * AI tick are also executed – use false in the projector worker to avoid
- * running session-scoped logic outside a user request.
+ * Simulation side effects are opt-in and must only be enabled from an
+ * explicit mutation/tick path, never from an overview GET.
  *
  * @param PDO  $db
  * @param int  $uid
- * @param bool $runSimulationSideEffects  true = run achievements + simulation ticks
+ * @param bool $runSimulationSideEffects  true = explicitly run achievements + simulation ticks
  * @return array  The overview payload (same structure as the HTTP response body)
  */
-function build_live_overview_payload(PDO $db, int $uid, bool $runSimulationSideEffects = true): array
+function build_live_overview_payload(PDO $db, int $uid, bool $runSimulationSideEffects = false): array
 {
     // ── Offline-progress: snapshot before resource update ─────────────────────
     $offlineBeforeStmt = $db->prepare(

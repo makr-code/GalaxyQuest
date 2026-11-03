@@ -293,28 +293,14 @@ async function loadLLMDefinition(entry, termKey) {
         loading.style.display = 'inline-block';
         loading.textContent = 'AI Loading...';
         
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000);  // 30s timeout
-        
-        const response = await fetch(
-            `/api/glossary.php?action=generate&term=${encodeURIComponent(termKey)}`,
-            { 
-                credentials: 'include',
-                signal: controller.signal 
-            }
-        );
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-            const error = await response.json().catch(() => ({}));
-            console.warn(`API error ${response.status}:`, error.message);
-            loading.textContent = `⚠️ Failed (${response.status})`;
+        const data = await window.API.generateGlossaryDefinition(termKey);
+        if (data?.error) {
+            console.warn('Glossary generation API error:', data.error);
+            loading.textContent = '⚠️ Generation failed';
             loading.style.color = '#ff8866';
             return;
         }
 
-        const data = await response.json();
         if (data.full) {
             aiText.textContent = data.full;
             aiText.dataset.source = data.source || 'ollama';
@@ -329,15 +315,9 @@ async function loadLLMDefinition(entry, termKey) {
             }
         }
     } catch (error) {
-        if (error.name === 'AbortError') {
-            loading.textContent = 'Timeout (30s)';
-            loading.style.color = '#ff9944';
-            console.warn(`LLM generation timeout for ${termKey}`);
-        } else {
-            loading.textContent = 'Offline';
-            loading.style.color = '#ff6666';
-            console.warn(`Failed to load AI definition for ${termKey}:`, error);
-        }
+        loading.textContent = error.status ? `⚠️ Failed (${error.status})` : 'Offline';
+        loading.style.color = '#ff6666';
+        console.warn(`Failed to load AI definition for ${termKey}:`, error);
     }
 }
 

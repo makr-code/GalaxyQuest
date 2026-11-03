@@ -344,12 +344,11 @@ function calc_espionage_score(PDO $db, int $uid): int
 }
 
 /**
- * Compute all 7 empire category scores and upsert into empire_category_scores.
- * Returns the scores array.
+ * Compute all 7 empire category scores without persisting them.
  *
  * @return array{economy:int,military:int,research:int,growth:int,stability:int,diplomacy:int,espionage:int,total:int}
  */
-function calc_and_store_empire_scores(PDO $db, int $uid): array
+function calc_empire_scores(PDO $db, int $uid): array
 {
     $economy   = calc_economy_score($db, $uid);
     $military  = calc_military_score($db, $uid);
@@ -361,6 +360,18 @@ function calc_and_store_empire_scores(PDO $db, int $uid): array
 
     // Simple equal-weight total (max 700 → normalise to 0–700)
     $total = $economy + $military + $research + $growth + $stability + $diplomacy + $espionage;
+
+    return compact('economy', 'military', 'research', 'growth', 'stability', 'diplomacy', 'espionage', 'total');
+}
+
+/**
+ * Compute and persist all 7 empire category scores.
+ *
+ * @return array{economy:int,military:int,research:int,growth:int,stability:int,diplomacy:int,espionage:int,total:int}
+ */
+function calc_and_store_empire_scores(PDO $db, int $uid): array
+{
+    $scores = calc_empire_scores($db, $uid);
 
     $db->prepare(
         'INSERT INTO empire_category_scores
@@ -378,7 +389,17 @@ function calc_and_store_empire_scores(PDO $db, int $uid): array
              score_espionage = VALUES(score_espionage),
              total_score     = VALUES(total_score),
              calculated_at   = NOW()'
-    )->execute([$uid, $economy, $military, $research, $growth, $stability, $diplomacy, $espionage, $total]);
+    )->execute([
+        $uid,
+        $scores['economy'],
+        $scores['military'],
+        $scores['research'],
+        $scores['growth'],
+        $scores['stability'],
+        $scores['diplomacy'],
+        $scores['espionage'],
+        $scores['total'],
+    ]);
 
-    return compact('economy', 'military', 'research', 'growth', 'stability', 'diplomacy', 'espionage', 'total');
+    return $scores;
 }

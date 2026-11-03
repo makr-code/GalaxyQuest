@@ -68,6 +68,32 @@ describe('API wrapper versioning', () => {
     expect(calledEndpoint).toContain('api/v1/war.php?action=get_status&war_id=42');
   });
 
+  it('marks a message as read through an explicit POST mutation', async () => {
+    const API = loadApiScript();
+    window.APISession.getCsrfToken = () => 'csrf_token_test';
+
+    await API.readMsg(42);
+
+    const [endpoint, requestInit] = global.fetch.mock.calls.at(-1);
+    expect(String(endpoint)).toContain('api/v1/messages.php?action=read');
+    expect(requestInit.method).toBe('POST');
+    expect(JSON.parse(requestInit.body)).toEqual({ id: 42 });
+    expect(requestInit.headers['X-CSRF-Token']).toBe('csrf_token_test');
+  });
+
+  it('generates glossary definitions through an explicit CSRF-protected POST', async () => {
+    const API = loadApiScript();
+    window.APISession.getCsrfToken = () => 'csrf_token_test';
+
+    await API.generateGlossaryDefinition('white_dwarf');
+
+    const [endpoint, requestInit] = global.fetch.mock.calls.at(-1);
+    expect(String(endpoint)).toContain('api/v1/glossary.php?action=generate');
+    expect(requestInit.method).toBe('POST');
+    expect(JSON.parse(requestInit.body)).toEqual({ term: 'white_dwarf' });
+    expect(requestInit.headers['X-CSRF-Token']).toBe('csrf_token_test');
+  });
+
   it('keeps fleet listing read-only and exposes explicit arrival processing as a POST', async () => {
     const API = loadApiScript();
 
@@ -96,6 +122,84 @@ describe('API wrapper versioning', () => {
     expect(String(endpoint)).toContain('api/v1/trade.php?action=dispatch_due');
     expect(requestInit.method).toBe('POST');
     expect(JSON.parse(requestInit.body)).toEqual({});
+  });
+
+  it('uses explicit POST actions to settle building and shipyard queues', async () => {
+    const API = loadApiScript();
+
+    await API.finishBuilding(17);
+    let [endpoint, requestInit] = global.fetch.mock.calls.at(-1);
+    expect(String(endpoint)).toContain('api/v1/buildings.php?action=finish');
+    expect(requestInit.method).toBe('POST');
+    expect(JSON.parse(requestInit.body)).toEqual({ colony_id: 17 });
+
+    await API.finishShipyard(17);
+    [endpoint, requestInit] = global.fetch.mock.calls.at(-1);
+    expect(String(endpoint)).toContain('api/v1/shipyard.php?action=finish');
+    expect(requestInit.method).toBe('POST');
+    expect(JSON.parse(requestInit.body)).toEqual({ colony_id: 17 });
+  });
+
+  it('keeps achievement progress checks explicit and reads fresh list data', async () => {
+    const API = loadApiScript();
+
+    await API.checkAchievements();
+    let [endpoint, requestInit] = global.fetch.mock.calls.at(-1);
+    expect(String(endpoint)).toContain('api/v1/achievements.php?action=check');
+    expect(requestInit.method).toBe('POST');
+    expect(JSON.parse(requestInit.body)).toEqual({});
+
+    await API.achievements();
+    [endpoint, requestInit] = global.fetch.mock.calls.at(-1);
+    expect(String(endpoint)).toContain('api/v1/achievements.php?action=list');
+    expect(requestInit.method).toBe('GET');
+  });
+
+  it('refreshes the leader marketplace through POST and reads candidates through GET', async () => {
+    const API = loadApiScript();
+
+    await API.refreshLeaderMarketplace();
+    let [endpoint, requestInit] = global.fetch.mock.calls.at(-1);
+    expect(String(endpoint)).toContain('api/v1/leaders.php?action=refresh_marketplace');
+    expect(requestInit.method).toBe('POST');
+    expect(JSON.parse(requestInit.body)).toEqual({});
+
+    await API.leaderMarketplace();
+    [endpoint, requestInit] = global.fetch.mock.calls.at(-1);
+    expect(String(endpoint)).toContain('api/v1/leaders.php?action=marketplace');
+    expect(requestInit.method).toBe('GET');
+  });
+
+  it('keeps building and shipyard data reads on list GET endpoints', async () => {
+    const API = loadApiScript();
+
+    await API.buildings(17);
+    let [endpoint, requestInit] = global.fetch.mock.calls.at(-1);
+    expect(String(endpoint)).toContain('api/v1/buildings.php?action=list&colony_id=17');
+    expect(requestInit.method).toBe('GET');
+
+    await API.ships(17);
+    [endpoint, requestInit] = global.fetch.mock.calls.at(-1);
+    expect(String(endpoint)).toContain('api/v1/shipyard.php?action=list&colony_id=17');
+    expect(requestInit.method).toBe('GET');
+
+    await API.shipyardHulls(17);
+    [endpoint, requestInit] = global.fetch.mock.calls.at(-1);
+    expect(String(endpoint)).toContain('api/v1/shipyard.php?action=list_hulls&colony_id=17');
+    expect(requestInit.method).toBe('GET');
+
+    await API.shipyardVessels(17);
+    [endpoint, requestInit] = global.fetch.mock.calls.at(-1);
+    expect(String(endpoint)).toContain('api/v1/shipyard.php?action=list_vessels&colony_id=17');
+    expect(requestInit.method).toBe('GET');
+
+    await API.shipyardModules(17, 'hull-a', 'compact');
+    [endpoint, requestInit] = global.fetch.mock.calls.at(-1);
+    expect(String(endpoint)).toContain('api/v1/shipyard.php?action=list_modules');
+    expect(String(endpoint)).toContain('colony_id=17');
+    expect(String(endpoint)).toContain('hull_code=hull-a');
+    expect(String(endpoint)).toContain('slot_layout_code=compact');
+    expect(requestInit.method).toBe('GET');
   });
 
   it('normalizes strategic war mutation payloads before posting', async () => {
@@ -148,9 +252,14 @@ describe('Colony buildings API methods', () => {
     const API = loadApiScript();
 
     await API.colonyBuildingsLayout(17);
-    expect(String(global.fetch.mock.calls.at(-1)[0])).toContain(
-      'api/v1/colony_buildings.php?action=get_layout&colony_id=17',
+    let colonyBuildingRequests = global.fetch.mock.calls.filter(([endpoint]) =>
+      String(endpoint).includes('api/v1/colony_buildings.php'),
     );
+    expect(colonyBuildingRequests.map(([endpoint, init]) => [String(endpoint), init?.method || 'GET'])).toEqual([
+      ['api/v1/colony_buildings.php?action=settle', 'POST'],
+      ['api/v1/colony_buildings.php?action=get_layout&colony_id=17', 'GET'],
+    ]);
+    expect(JSON.parse(colonyBuildingRequests[0][1].body)).toEqual({ colony_id: 17 });
 
     const requests = [
       ['colonyBuildingsPlace', 'place_building', { colony_id: 17, building_type: 'farm', slot_x: 2, slot_y: 3 }],
@@ -168,9 +277,13 @@ describe('Colony buildings API methods', () => {
     }
 
     await API.colonyBuildingsSlotInfo(17, 2, 3);
-    expect(String(global.fetch.mock.calls.at(-1)[0])).toContain(
-      'api/v1/colony_buildings.php?action=get_slot_info&colony_id=17&slot_x=2&slot_y=3',
+    colonyBuildingRequests = global.fetch.mock.calls.filter(([endpoint]) =>
+      String(endpoint).includes('api/v1/colony_buildings.php'),
     );
+    expect(colonyBuildingRequests.slice(-2).map(([endpoint, init]) => [String(endpoint), init?.method || 'GET'])).toEqual([
+      ['api/v1/colony_buildings.php?action=settle', 'POST'],
+      ['api/v1/colony_buildings.php?action=get_slot_info&colony_id=17&slot_x=2&slot_y=3', 'GET'],
+    ]);
   });
 });
 

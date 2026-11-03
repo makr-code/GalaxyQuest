@@ -11,8 +11,11 @@ require_once __DIR__ . '/lib/template-renderer.php';
 // Determine build information
 $buildInfo = getBuildInfo();
 
-// Extract static index.html
-$indexPath = __DIR__ . '/index.html';
+// Prefer the bundled frontend, including when Compose bind-mounts the repository.
+$indexPath = __DIR__ . '/dist/index.html';
+if (!is_file($indexPath)) {
+  $indexPath = __DIR__ . '/index.html';
+}
 if (!is_file($indexPath)) {
   http_response_code(500);
   die('index.html not found');

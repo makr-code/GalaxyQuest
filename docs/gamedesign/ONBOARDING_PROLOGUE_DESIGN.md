@@ -42,13 +42,15 @@ Gleichsetzung von Fraktion und Spezies.
   zeitlich korrekte Orbit-Simulation. Die Oberflaeche ist prozedurale Grafik,
   noch kein bebaubares Terrain; der Tutorial-Weiterbutton bleibt entsprechend
   sichtbar gesperrt. Es werden weder aktive Gebaeude noch Spieler angelegt.
-- Gastnarration liest nur vorbereitete Kapitel aus dem bestehenden TTS-Cache.
-  Vorbereitung:
-  `php scripts/render_onboarding_narration.php` bei konfiguriertem, aktiviertem
-  Piper-/XTTS-Dienst. Fehlende Sprache wird sichtbar gemeldet; lesbarer Text
-  laeuft mit kapitelweiser Lesezeit weiter. Back beendet Requests, Sprache
-  und Kapitel-Timer. Shared Mute/Volume, Musik-Ducking und reduzierte Bewegung
-  bleiben wirksam.
+- Gastnarration liest vorhandene Kapitel per GET ausschliesslich aus dem
+  bestehenden TTS-Cache. Fehlt ein Clip, fordert der Client seine Erzeugung per
+  CSRF-geschuetztem POST an; der GET selbst loest weder Synthese noch Cache-
+  Schreibzugriffe aus. Kapitel koennen vorab mit
+  `php scripts/render_onboarding_narration.php` bei konfiguriertem,
+  aktiviertem Piper-/XTTS-Dienst vorbereitet werden. Fehlende Sprache wird
+  sichtbar gemeldet; lesbarer Text laeuft mit kapitelweiser Lesezeit weiter.
+  Back beendet Requests, Sprache und Kapitel-Timer. Shared Mute/Volume,
+  Musik-Ducking und reduzierte Bewegung bleiben wirksam.
 - Die NPC-Hauptwelten bleiben bestehen; politische Codes verweisen explizit
   auf geografische Anker. Charakterdaten werden noch nicht in User-Tabellen
   publiziert. Eine Speziesaenderung verwirft den abhaengigen Charakter.

@@ -33,7 +33,17 @@ function json_error(string $message, int $status = 400): never
 
 function only_method(string ...$methods): void
 {
-    TestCase::assertSame(['GET'], $methods);
+    TestCase::assertSame(['POST'], $methods);
+}
+
+function verify_csrf(): void
+{
+    TextureAiProgressiveTest::$csrfVerifications++;
+}
+
+function get_json_body(): array
+{
+    return TextureAiProgressiveTest::$input;
 }
 
 function error_log(string $message): bool
@@ -45,7 +55,8 @@ function error_log(string $message): bool
 final class TextureAiProgressiveTest extends TestCase
 {
     public static array $logs = [];
-    private array $previousGet;
+    public static array $input = [];
+    public static int $csrfVerifications = 0;
 
     public static function setUpBeforeClass(): void
     {
@@ -60,14 +71,15 @@ final class TextureAiProgressiveTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->previousGet = $_GET;
-        $_GET = [];
+        self::$input = [];
+        self::$csrfVerifications = 0;
         self::$logs = [];
     }
 
     protected function tearDown(): void
     {
-        $_GET = $this->previousGet;
+        self::$input = [];
+        self::$csrfVerifications = 0;
         self::$logs = [];
     }
 
@@ -93,7 +105,9 @@ final class TextureAiProgressiveTest extends TestCase
     private function request(object $service): JsonResponse
     {
         try {
-            handle_progressive_loading($service);
+            only_method('POST');
+            verify_csrf();
+            handle_progressive_loading($service, self::$input);
         } catch (JsonResponse $response) {
             return $response;
         }
@@ -102,22 +116,25 @@ final class TextureAiProgressiveTest extends TestCase
     public function testBothPhasesPreserveDescriptorAndTerminateUpgradeChain(): void
     {
         $service = $this->service();
-        $_GET = ['target_size' => '513', 'seed' => '0', 'faction' => 'fleet'];
+        self::$input = ['target_size' => '513', 'seed' => '0', 'faction' => 'fleet'];
         $low = $this->request($service);
         $this->assertSame(200, $low->getCode());
+        $this->assertSame(1, self::$csrfVerifications);
         $this->assertSame(256, $service->calls[0][1]);
         $this->assertSame('low_res_ready', $low->payload['phase']);
-        parse_str(parse_url($low->payload['high_res_url'], PHP_URL_QUERY), $query);
-        $this->assertSame('0', $query['seed']);
-        $this->assertSame('progressive', $query['action']);
-        $_GET = $query;
+        $request = $low->payload['high_res_request'];
+        $this->assertSame(0, $request['seed']);
+        $this->assertSame('progressive', $request['action']);
+        unset($request['action']);
+        self::$input = $request + ['phase' => 'high_res'];
         $high = $this->request($service);
+        $this->assertSame(2, self::$csrfVerifications);
         $this->assertSame(200, $high->getCode());
         $this->assertSame(513, $service->calls[1][1]);
         $this->assertSame($service->calls[0][0], $service->calls[1][0]);
         $this->assertSame('high_res_ready', $high->payload['phase']);
         $this->assertSame('generated/513.png', $high->payload['high_res']['path']);
-        $this->assertArrayNotHasKey('high_res_url', $high->payload);
+        $this->assertArrayNotHasKey('high_res_request', $high->payload);
     }
 
     /** @return iterable<array{mixed, mixed}> */
@@ -133,7 +150,7 @@ final class TextureAiProgressiveTest extends TestCase
     #[DataProvider('invalidInputs')]
     public function testInvalidSizeOrPhaseDoesNotGenerate(mixed $size, mixed $phase): void
     {
-        $_GET = ['target_size' => $size, 'phase' => $phase];
+        self::$input = ['target_size' => $size, 'phase' => $phase];
         $service = $this->service();
         $this->assertSame(400, $this->request($service)->getCode());
         $this->assertSame([], $service->calls);
@@ -166,10 +183,10 @@ final class TextureAiProgressiveTest extends TestCase
     public function testSizeBoundariesUseIntegerSizes(int $target, int $lowSize): void
     {
         $service = $this->service();
-        $_GET = ['target_size' => $target];
+        self::$input = ['target_size' => $target];
         $this->request($service);
         $this->assertSame($lowSize, $service->calls[0][1]);
-        $_GET['phase'] = 'high_res';
+        self::$input['phase'] = 'high_res';
         $this->request($service);
         $this->assertSame($target, $service->calls[1][1]);
     }

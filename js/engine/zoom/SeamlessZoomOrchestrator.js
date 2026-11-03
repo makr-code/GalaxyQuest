@@ -210,6 +210,7 @@ class SeamlessZoomOrchestrator {
     this._surfaceReturnLevel = ZOOM_LEVEL.PLANET_APPROACH;
     this._planetCameraState = null;
     this._transition = false;  // guard flag
+    this._disposed = false;
     this._rafId      = 0;
     this._removeFrameHook = null;
     this._running    = false;
@@ -234,6 +235,7 @@ class SeamlessZoomOrchestrator {
    * @returns {Promise<void>}
    */
   async initialize() {
+    if (this._disposed) return;
     if (this._opts._backend) {
       // Allow test injection without touching RendererFactory.
       this._backend = this._opts._backend;
@@ -245,6 +247,7 @@ class SeamlessZoomOrchestrator {
       if (typeof this._backend.init === 'function') {
         await this._backend.init();
       }
+      if (this._disposed) return;
       if (typeof this._backend.addFrameHook === 'function') {
         const removeFrameHook = this._backend.addFrameHook((dt) => this.tick(dt));
         if (typeof removeFrameHook === 'function') {
@@ -289,6 +292,7 @@ class SeamlessZoomOrchestrator {
    * @returns {Promise<boolean>} true if scene data was accepted
    */
   async setSceneData(level, data) {
+    if (this._disposed) return false;
     const backend = this._backend || this._opts?._backend || null;
     if (!backend) return false;
 
@@ -307,6 +311,7 @@ class SeamlessZoomOrchestrator {
       await target.initialize(this._canvas, backend);
       target._initialised = true;
     }
+    if (this._disposed) { target.dispose(); return false; }
 
     if (typeof target.setSceneData === 'function') {
       target.setSceneData(data);
@@ -338,7 +343,7 @@ class SeamlessZoomOrchestrator {
    * @returns {Promise<void>}
    */
   async zoomTo(level, payload, opts = {}) {
-    if (this._transition) return;
+    if (this._transition || this._disposed) return;
     this._transition = true;
 
     try {
@@ -369,10 +374,12 @@ class SeamlessZoomOrchestrator {
         await next.initialize(this._canvas, this._backend);
         next._initialised = true;
       }
+      if (this._disposed) { next.dispose(); return; }
 
       // Exit old level.
       if (this._active) {
         await this._active.exit(level);
+        if (this._disposed) return;
         this._emit('exitLevel', this._activeLevel);
       }
 
@@ -411,6 +418,7 @@ class SeamlessZoomOrchestrator {
           : ZOOM_LEVEL.SYSTEM;
       }
       await next.enter(this._activeLevel, payload);
+      if (this._disposed) { next.dispose(); return; }
 
       this._active      = next;
       this._activeLevel = level;
@@ -439,6 +447,7 @@ class SeamlessZoomOrchestrator {
       } else {
         this._lastCameraState = null;
       }
+      if (this._disposed) return;
       if (level === ZOOM_LEVEL.PLANET_APPROACH) {
         const cameraTo = opts.cameraTo || { x: 0, y: 0, z: 15 };
         const target = opts.cameraTarget ?? payload?.cameraTarget ?? { x: 0, y: 0, z: 0 };
@@ -491,10 +500,12 @@ class SeamlessZoomOrchestrator {
    *                       accepts both)
    */
   tick(dt) {
+    if (this._disposed) return;
     // Fly-in in progress: use interpolated camera state.
     const flightState = this._flight.tick(dt);
     if (flightState) this._lastCameraState = flightState;
-    const cs = flightState || this._lastCameraState || this._getFallbackCameraState();
+    const cs = flightState || this._opts.getCameraState?.(this._activeLevel)
+      || this._lastCameraState || this._getFallbackCameraState();
     if (this._active) {
       this._active.render(dt, cs);
     }
@@ -525,6 +536,8 @@ class SeamlessZoomOrchestrator {
   // ── Disposal ──────────────────────────────────────────────────────────────
 
   dispose() {
+    this._disposed = true;
+    this._flight.dispose();
     this._backend?.setZoomSceneActive?.(false);
     this._running = false;
     if (this._rafId) {

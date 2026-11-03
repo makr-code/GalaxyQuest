@@ -238,7 +238,8 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         // Handle POST: Create new generation job
         if ($method === 'POST' && !$queueId) {
             only_method('POST');
-            $uid = (int)(current_user_id() ?? 1);  // Fallback to user ID 1 for testing
+            $uid = require_auth();
+            verify_csrf();
             
             $db = get_db();
             $body = json_decode(file_get_contents('php://input'), true);
@@ -282,19 +283,19 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         }
         if ($method === 'GET' && $queueId) {
             only_method('GET');
-            $uid = (int)(current_user_id() ?? 1);  // Fallback to user ID 1 for testing
+            $uid = require_auth();
             
             $db = get_db();
             $stmt = $db->prepare(<<<'SQL'
                 SELECT q.* 
                 FROM generation_queue q
-                WHERE q.id = ?
+                WHERE q.id = ? AND q.user_id = ?
                 LIMIT 1
             SQL);
-            $stmt->execute([$queueId]);
+            $stmt->execute([$queueId, $uid]);
             $queue = $stmt->fetch(PDO::FETCH_ASSOC);
             
-            if (!$queue || $queue['user_id'] !== (int)$uid) {
+            if (!$queue) {
                 json_error('Queue item not found', 404);
                 return;
             }

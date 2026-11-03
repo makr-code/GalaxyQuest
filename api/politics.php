@@ -20,19 +20,16 @@ $db = get_db();
 switch ($action) {
     case 'catalog':
         only_method('GET');
-        ensure_empire_profile_row($db, $uid);
         json_ok(load_catalog($db));
         break;
 
     case 'presets':
         only_method('GET');
-        ensure_empire_profile_row($db, $uid);
         json_ok(['presets' => politics_presets()]);
         break;
 
     case 'status':
         only_method('GET');
-        ensure_empire_profile_row($db, $uid);
         $profile = load_user_empire_profile($db, $uid);
         $effects = empire_dynamic_effects($db, $uid);
         $factions = load_user_faction_state_rows($db, $uid);

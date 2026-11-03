@@ -24,12 +24,8 @@ header('Content-Type: application/json');
 // ─────────────────────────────────────────────────────────────────────────────
 
 try {
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        http_response_code(405);
-        echo json_encode(['ok' => false, 'error' => 'Method not allowed']);
-        exit;
-    }
-    
+    only_method('POST');
+    verify_csrf();
     $payload = json_decode(file_get_contents('php://input'), true);
     
     if (!$payload) {

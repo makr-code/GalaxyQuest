@@ -17,6 +17,7 @@ require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/economy_flush.php';
 require_once __DIR__ . '/economy_runtime.php';
+require_once __DIR__ . '/economy_cache.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -51,6 +52,7 @@ if (ON_DEMAND_ECONOMY_ENABLED) {
             } else {
                 $economy->configure($uid, 'subsidy_' . ($body['sector'] ?? ''), (bool)($body['enabled'] ?? false));
             }
+            invalidate_economy_views($db, $uid, $action === 'set_production_method' ? (int)$body['colony_id'] : null);
             json_ok($body);
         }
         if ($action === 'get_pop_classes') {
@@ -178,7 +180,6 @@ function fetch_pirate_damage_modifier(PDO $db, int $uid): float {
 }
 
 function fetch_policy(PDO $db, int $uid): array {
-    ensure_policy_row($db, $uid);
     $stmt = $db->prepare('SELECT * FROM economy_policies WHERE user_id = ?');
     $stmt->execute([$uid]);
     return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -414,6 +415,8 @@ function action_get_production(PDO $db, int $uid): never {
  * Sets the active ProcessingMethod for a processing building in a colony.
  */
 function action_set_production_method(PDO $db, int $uid): never {
+    only_method('POST');
+    verify_csrf();
     $body        = json_decode(file_get_contents('php://input'), true) ?? [];
     $colonyId    = (int)($body['colony_id']    ?? 0);
     $buildingType = trim($body['building_type'] ?? '');
@@ -453,6 +456,7 @@ function action_set_production_method(PDO $db, int $uid): never {
         ON DUPLICATE KEY UPDATE method = VALUES(method), updated_at = CURRENT_TIMESTAMP
     SQL)->execute([$colonyId, $buildingType, $method]);
 
+    invalidate_economy_views($db, $uid, $colonyId);
     json_ok([
         'colony_id'     => $colonyId,
         'building_type' => $buildingType,
@@ -466,6 +470,10 @@ function action_set_production_method(PDO $db, int $uid): never {
  * Returns the player's current economic policy and tax rates.
  */
 function action_get_policy(PDO $db, int $uid): never {
+    only_method('GET');
+    if (ON_DEMAND_ECONOMY_ENABLED) {
+        json_ok((new OnDemandEconomy($db))->policy($uid));
+    }
     $policy = fetch_policy($db, $uid);
     $globalPolicy = policy_key_from_mixed($policy['global_policy'] ?? 'free_market');
     $taxProductionRaw = $policy['tax_production'] ?? ($policy['tax_resources'] ?? 0);
@@ -491,6 +499,8 @@ function action_get_policy(PDO $db, int $uid): never {
  * Changes the global economic policy. Switching policies has a 10-tick cooldown.
  */
 function action_set_policy(PDO $db, int $uid): never {
+    only_method('POST');
+    verify_csrf();
     $body   = json_decode(file_get_contents('php://input'), true) ?? [];
     $policy = trim($body['policy'] ?? '');
 
@@ -504,6 +514,7 @@ function action_set_policy(PDO $db, int $uid): never {
     $db->prepare('UPDATE economy_policies SET global_policy = ? WHERE user_id = ?')
        ->execute([$storage, $uid]);
 
+    invalidate_economy_views($db, $uid);
     json_ok(['global_policy' => $policy]);
 }
 
@@ -514,6 +525,8 @@ function action_set_policy(PDO $db, int $uid): never {
  * Sets a tax rate (income | production | trade). Clamped to allowed maximum.
  */
 function action_set_tax(PDO $db, int $uid): never {
+    only_method('POST');
+    verify_csrf();
     $body = json_decode(file_get_contents('php://input'), true) ?? [];
     $type = trim($body['type'] ?? '');
     $rate = (float)($body['rate'] ?? 0);
@@ -540,6 +553,7 @@ function action_set_tax(PDO $db, int $uid): never {
     $db->prepare("UPDATE economy_policies SET {$col} = ? WHERE user_id = ?")
        ->execute([$storeRate, $uid]);
 
+    invalidate_economy_views($db, $uid);
     json_ok(['type' => $type, 'rate' => $clamped]);
 }
 
@@ -550,6 +564,8 @@ function action_set_tax(PDO $db, int $uid): never {
  * Toggles a subsidy for a sector (agriculture | research | military).
  */
 function action_set_subsidy(PDO $db, int $uid): never {
+    only_method('POST');
+    verify_csrf();
     $body    = json_decode(file_get_contents('php://input'), true) ?? [];
     $sector  = trim($body['sector']  ?? '');
     $enabled = (bool)($body['enabled'] ?? false);
@@ -563,6 +579,7 @@ function action_set_subsidy(PDO $db, int $uid): never {
     $db->prepare("UPDATE economy_policies SET {$col} = ? WHERE user_id = ?")
        ->execute([$enabled ? 1 : 0, $uid]);
 
+    invalidate_economy_views($db, $uid);
     json_ok(['sector' => $sector, 'enabled' => $enabled]);
 }
 

@@ -25,15 +25,18 @@ services:
       NPC_LLM_CONTROLLER_COOLDOWN_SECONDS: 900
       NPC_LLM_CONTROLLER_MIN_CONFIDENCE: 0.55
       GAME_SPEED: 1
+      ON_DEMAND_ECONOMY_ENABLED: ${ON_DEMAND_ECONOMY_ENABLED:-0}
       SESSION_LIFETIME: 3600
       XDEBUG_MODE: develop,debug
       XDEBUG_CONFIG: client_host=host.docker.internal client_port=9003 idekey=VSCODE
       OLLAMA_BASE_URL: http://ollama:11434
       VLLM_BASE_URL: http://vllm:8000
       COMFYUI_BASE_URL: http://comfyui:8188
-      STABLE_DIFFUSION_BASE_URL: http://stable-diffusion:7860
+      STABLE_DIFFUSION_BASE_URL: http://stable-diffusion:8080
       TTS_ENABLED: 1
       TTS_SERVICE_URL: http://tts:5500
+      REGISTRATION_MAILPIT_URL: http://mailpit:8025
+      REGISTRATION_PUBLIC_URL: ${REGISTRATION_PUBLIC_URL:-http://localhost:8081}
       # ThemisDB – Phase 0 dual-write (disabled by default; enable when themisdb profile is active)
       THEMISDB_ENABLED: 0
       THEMISDB_BASE_URL: http://themisdb:8080
@@ -43,6 +46,15 @@ services:
       - "127.0.0.1:8081:8080"
     volumes:
       - ./:/var/www/html
+
+  mailpit:
+    image: axllent/mailpit:v1.29
+    ports:
+      - "127.0.0.1:8025:8025"
+    environment:
+      MP_DATABASE: /data/mailpit.db
+    volumes:
+      - galaxyquest-mailpit-data:/data
 
   db:
     image: mysql:8.4
@@ -138,7 +150,7 @@ services:
   # Standard SD for quick ship/planet/texture generation
   # Profile: ai-fast, ai-full
   stable-diffusion:
-    image: ghcr.io/automatic1111/stable-diffusion-webui:latest
+    image: universonic/stable-diffusion-webui:latest
     container_name: galaxyquest-stable-diffusion
     profiles:
       - ai-fast
@@ -146,18 +158,31 @@ services:
     environment:
       GRADIO_QUEUE_CONCURRENCY_COUNT: 2
       CUDA_VISIBLE_DEVICES: 0
+      PIP_CONSTRAINT: /tmp/pip-constraints.txt
+      STABLE_DIFFUSION_REPO: https://github.com/CompVis/stable-diffusion.git
+      STABLE_DIFFUSION_COMMIT_HASH: 21f890f9da3cfbeaba8e2ac3c425ee9e998d5229
     ports:
-      - "127.0.0.1:7860:7860"
+      - "127.0.0.1:7860:8080"
     volumes:
       - stable-diffusion-models:/stable-diffusion-webui/models
       - stable-diffusion-outputs:/stable-diffusion-webui/outputs
       - stable-diffusion-extensions:/stable-diffusion-webui/extensions
+      - ./docker/stable-diffusion/pip-constraints.txt:/tmp/pip-constraints.txt:ro
+      - ./docker/stable-diffusion/prelaunch.py:/tmp/stable-diffusion-prelaunch.py:ro
+      - ./docker/stable-diffusion/webui-user.sh:/app/stable-diffusion-webui/webui-user.sh:ro
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:7860/info"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/info', timeout=3)"]
       interval: 15s
       timeout: 5s
       retries: 10
-      start_period: 120s
+      start_period: 90m
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   # ── ComfyUI (Node-based Image Generation Workflows) ──────────────────────────────
   # Flexible node-based workflow engine for advanced image generation and processing
@@ -228,14 +253,14 @@ services:
     environment:
       CUDA_VISIBLE_DEVICES: 0
     ports:
-      - "127.0.0.1:11434:11434"
+      - "127.0.0.1:${OLLAMA_HOST_PORT:-11435}:11434"
     volumes:
       - ollama-models:/root/.ollama
     # Pre-download model on start (optional, comment out for faster startup)
     # Uncomment to auto-pull model on container start:
     # entrypoint: sh -c 'ollama serve & sleep 2 && ollama pull mistral && wait'
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+      test: ["CMD", "ollama", "list"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -302,7 +327,10 @@ services:
   #   4318  → OpenTelemetry / Prometheus metrics
   # Set THEMISDB_ENABLED=1 in the web service environment to activate dual-write.
   themisdb:
-    image: themisdb/themisdb:latest
+    build:
+      context: ./docker/themisdb
+      dockerfile: Dockerfile
+    image: galaxyquest-themisdb:develop-runtime
     container_name: galaxyquest-themisdb
     profiles:
       - themisdb          # opt-in: start with `docker compose --profile themisdb up`
@@ -316,6 +344,14 @@ services:
       # LLM integration – mount a models/ directory and set the path here.
       THEMIS_LLM_ENABLED: 0
       THEMIS_LLM_MODEL_DIR: /models
+    command:
+      - --data-dir
+      - /data
+      - --port
+      - "8080"
+      - --server-profile
+      - minimal
+      - --allow-degraded-build
     ports:
       - "127.0.0.1:8090:8080"
       - "127.0.0.1:18765:18765"
@@ -323,15 +359,14 @@ services:
     volumes:
       - galaxyquest-themisdb-data:/data
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8080'"]
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 30s
 
   # ── ThemisDB schema provisioner ──────────────────────────────────────────────
-  # Runs once after ThemisDB is healthy: creates all collections, indexes, graph
-  # definitions and seed data that mirror the MySQL schema.
+  # Runs once after ThemisDB is healthy and mirrors table metadata.
   # MySQL parallel: sql/schema.sql + sql/migrate_*.sql → themis_schema_provision.php
   #
   # Automatically runs when starting with the 'themisdb' profile:
@@ -359,15 +394,17 @@ services:
     volumes:
       - ./:/app:ro          # mount repo read-only
     working_dir: /app
-    # Provision schema + seed data, then exit (restart: no)
-    command: >
-      sh -c "php tools/themis_schema_provision.php
-               --url=http://themisdb:8080
-               --seed
-               && echo '[themisdb-init] Schema provisioning complete.'"
+    # Provision table metadata, then exit (restart: no)
+    command:
+      - php
+      - tools/themis_schema_provision.php
+      - --url=http://themisdb:8080
+      - --skip-indexes
+      - --skip-graphs
     restart: "no"
 
 volumes:
+  galaxyquest-mailpit-data:
   galaxyquest-db-data:
   galaxyquest-tts-voice-cache:
   galaxyquest-tts-audio-cache:

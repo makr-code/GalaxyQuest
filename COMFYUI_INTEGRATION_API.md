@@ -2,17 +2,28 @@
 
 ## API Endpoints
 
+All queue operations require an authenticated session. Job submissions also
+require the session's CSRF token in the `X-CSRF-Token` header. The API derives
+the job owner from that session; do not send a `user_id` in the request body.
+
 ### 1. Submit Job (Text/Image/Hybrid)
 **POST** `/api/generation_queue_v3.php`
 
 ```bash
+# COOKIE_JAR must contain the authenticated session cookie.
+COOKIE_JAR=/path/to/galaxyquest-cookies.txt
+CSRF_TOKEN=$(curl -fsS -b "$COOKIE_JAR" \
+  -c "$COOKIE_JAR" http://localhost:8080/api/auth.php?action=csrf | jq -r '.token')
+
 curl -X POST http://localhost:8080/api/generation_queue_v3.php \
+  -b "$COOKIE_JAR" \
+  -c "$COOKIE_JAR" \
   -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: $CSRF_TOKEN" \
   -d '{
     "mode": "text",
     "job_type": "comfyui",
-    "prompt": "A shiny red metallic sphere",
-    "user_id": 1
+    "prompt": "A shiny red metallic sphere"
   }'
 ```
 
@@ -43,8 +54,12 @@ curl -X POST http://localhost:8080/api/generation_queue_v3.php \
 **GET** `/api/generation_queue_status_v3.php?queue_id=15`
 
 ```bash
-curl http://localhost:8080/api/generation_queue_status_v3.php?queue_id=15
+curl -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+  http://localhost:8080/api/generation_queue_status_v3.php?queue_id=15
 ```
+
+The status endpoint returns `404` for jobs that do not belong to the
+authenticated session.
 
 **Response (200 OK):**
 ```json
@@ -80,14 +95,16 @@ curl http://localhost:8080/api/generation_queue_status_v3.php?queue_id=15
 
 ```javascript
 // 1. Submit job
+const csrfResponse = await fetch('/api/auth.php?action=csrf', { credentials: 'same-origin' });
+const { token } = await csrfResponse.json();
 const response = await fetch('/api/generation_queue_v3.php', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  credentials: 'same-origin',
+  headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token },
   body: JSON.stringify({
     mode: 'text',
     job_type: 'comfyui',
-    prompt: 'A crystalline blue cube with metallic edges',
-    user_id: 1
+    prompt: 'A crystalline blue cube with metallic edges'
   })
 });
 
@@ -96,7 +113,9 @@ console.log(`Job submitted: ${queue_id}`);
 
 // 2. Poll status every 5 seconds
 const poll = setInterval(async () => {
-  const status = await fetch(`/api/generation_queue_status_v3.php?queue_id=${queue_id}`);
+  const status = await fetch(`/api/generation_queue_status_v3.php?queue_id=${queue_id}`, {
+    credentials: 'same-origin',
+  });
   const job = await status.json();
   
   console.log(`Progress: ${(job.progress * 100).toFixed(1)}% - ${job.progress_label}`);
@@ -122,16 +141,18 @@ const reader = new FileReader();
 
 reader.onload = async (e) => {
   const imageBase64 = e.target.result.split(',')[1]; // Remove data:image/png;base64, prefix
+  const csrfResponse = await fetch('/api/auth.php?action=csrf', { credentials: 'same-origin' });
+  const { token } = await csrfResponse.json();
   
   // 2. Submit image job
   const response = await fetch('/api/generation_queue_v3.php', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token },
     body: JSON.stringify({
       mode: 'image',
       job_type: 'comfyui',
-      image_base64: imageBase64,
-      user_id: 1
+      image_base64: imageBase64
     })
   });
   
@@ -147,13 +168,18 @@ reader.readAsDataURL(file);
 ```javascript
 const response = await fetch('/api/generation_queue_v3.php', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  credentials: 'same-origin',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-CSRF-Token': (await (await fetch('/api/auth.php?action=csrf', {
+      credentials: 'same-origin',
+    })).json()).token,
+  },
   body: JSON.stringify({
     mode: 'hybrid',
     job_type: 'comfyui',
     image_base64: imageBase64,
-    refinement_prompt: 'Add more metallic shine and chrome details',
-    user_id: 1
+    refinement_prompt: 'Add more metallic shine and chrome details'
   })
 });
 

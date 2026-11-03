@@ -24,6 +24,41 @@ function loadAll() {
   loadModule('RuntimeQuestsClaimBindings');
 }
 
+describe('RuntimeQuestsRenderFacade', () => {
+  it('checks achievement progress explicitly before loading the list', async () => {
+    const source = fs.readFileSync(path.join(base, 'RuntimeQuestsRenderFacade.js'), 'utf8');
+    window.eval(source);
+    const order = [];
+    const root = document.createElement('div');
+    const facade = window.GQRuntimeQuestsRenderFacade.createQuestsRenderFacade();
+
+    await facade.render({
+      wm: { body: () => root },
+      api: {
+        checkAchievements: async () => {
+          order.push('check');
+          return { success: true };
+        },
+        achievements: async () => {
+          order.push('list');
+          return { success: true, achievements: [] };
+        },
+      },
+      questsDataModelBuilder: { build: () => ({ groups: {}, categoryLabels: {}, categoryOrder: [] }) },
+      questsCardTemplateBuilder: { build: () => '' },
+      questsGroupTemplateBuilder: { build: () => '' },
+      questsClaimBindings: { bindClaimButtons: vi.fn() },
+      esc,
+      fmt,
+      showToast: vi.fn(),
+      loadOverview: vi.fn(),
+      rerenderQuests: vi.fn(),
+    });
+
+    expect(order).toEqual(['check', 'list']);
+  });
+});
+
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const fmt = (n) => Number(n).toLocaleString();
 

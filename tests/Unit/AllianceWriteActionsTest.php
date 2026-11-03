@@ -23,6 +23,18 @@ function get_json_body(): array
     return AllianceWriteActionsTest::$body;
 }
 
+function only_method(string ...$methods): void
+{
+    if (!in_array(AllianceWriteActionsTest::$requestMethod, $methods, true)) {
+        throw new JsonResponse(['error' => 'Method not allowed.'], 405);
+    }
+}
+
+function verify_csrf(): void
+{
+    AllianceWriteActionsTest::$csrfChecks++;
+}
+
 function json_ok(array $payload): never
 {
     throw new JsonResponse($payload, 200);
@@ -36,6 +48,8 @@ function json_error(string $message, int $code = 400): never
 final class AllianceWriteActionsTest extends TestCase
 {
     public static array $body = [];
+    public static string $requestMethod = 'POST';
+    public static int $csrfChecks = 0;
     private PDO $db;
 
     public static function setUpBeforeClass(): void
@@ -55,6 +69,8 @@ final class AllianceWriteActionsTest extends TestCase
     protected function setUp(): void
     {
         self::$body = [];
+        self::$requestMethod = 'POST';
+        self::$csrfChecks = 0;
         $this->db = new PDO('sqlite::memory:', options: [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
         $this->db->exec(
             'CREATE TABLE alliances (id INTEGER PRIMARY KEY, name TEXT, tag TEXT, leader_user_id INTEGER, description TEXT);
@@ -72,11 +88,57 @@ final class AllianceWriteActionsTest extends TestCase
     {
         $handler = __NAMESPACE__ . '\\' . $action;
         try {
+            enforce_alliance_action_method(substr($action, strlen('action_')));
             $handler($db ?? $this->db, 42);
         } catch (JsonResponse $response) {
             return $response;
         }
         throw new RuntimeException('Handler did not produce a response.');
+    }
+
+    /** @return iterable<string, array{string, string, bool}> */
+    public static function actionMethods(): iterable
+    {
+        foreach (['list', 'details', 'relations', 'war_map', 'get_messages'] as $action) {
+            yield $action => [$action, 'GET', false];
+        }
+        foreach ([
+            'create', 'join', 'accept_member', 'leave', 'disband', 'remove_member',
+            'set_role', 'contribute', 'withdraw', 'declare_war', 'declare_nap',
+            'declare_alliance', 'revoke_relation', 'set_relation', 'send_message',
+        ] as $action) {
+            yield $action => [$action, 'POST', true];
+        }
+    }
+
+    #[DataProvider('actionMethods')]
+    public function testActionsEnforceMethodAndCsrfPolicy(
+        string $action,
+        string $method,
+        bool $requiresCsrf
+    ): void {
+        self::$requestMethod = $method;
+
+        enforce_alliance_action_method($action);
+
+        $this->assertSame($requiresCsrf ? 1 : 0, self::$csrfChecks);
+    }
+
+    #[DataProvider('actionMethods')]
+    public function testActionsRejectOtherMethodsBeforeHandler(
+        string $action,
+        string $method,
+        bool $requiresCsrf
+    ): void {
+        self::$requestMethod = $method === 'GET' ? 'POST' : 'GET';
+
+        try {
+            enforce_alliance_action_method($action);
+            $this->fail('The action must reject a disallowed method.');
+        } catch (JsonResponse $response) {
+            $this->assertSame(405, $response->getCode());
+            $this->assertSame(0, self::$csrfChecks);
+        }
     }
 
     public function testCreateTrimsInputAndAddsLeaderMembership(): void

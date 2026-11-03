@@ -19,7 +19,8 @@
  * GET  /api/auth.php?action=register_portrait_image&revision=...
  * POST /api/auth.php?action=register_portrait body: {prolog_token}
  * POST /api/auth.php?action=register_cancel
- * POST /api/auth.php?action=register_complete  disabled until tutorial + email verification exist (503)
+ * POST /api/auth.php?action=register_complete  legacy direct activation disabled (503)
+ * Playable drafts and email-confirmed activation use /api/registration_play.php.
  *
  * TOTP 2FA:
  * GET  /api/auth.php?action=totp_status

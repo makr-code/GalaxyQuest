@@ -78,6 +78,33 @@
       this.container.querySelector(`[data-tab="${tab}"]`).classList.add('active');
     }
 
+    async postWithCsrf(endpoint, body) {
+      const csrfResponse = await fetch('api/auth.php?action=csrf', {
+        credentials: 'same-origin',
+      });
+      if (!csrfResponse.ok) {
+        throw new Error(`CSRF token request failed (${csrfResponse.status})`);
+      }
+      const csrfData = await csrfResponse.json();
+      if (typeof csrfData.token !== 'string' || csrfData.token.length === 0) {
+        throw new Error('CSRF token missing from response');
+      }
+
+      return fetch(endpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfData.token,
+        },
+        body: JSON.stringify(body),
+      });
+    }
+
+    postAdminAction(action, body) {
+      return this.postWithCsrf(`api/textures-admin.php?action=${encodeURIComponent(action)}`, body);
+    }
+
     async loadCacheList() {
       const container = this.container.querySelector('#cache-list-container');
       container.innerHTML = '<p>Loading...</p>';
@@ -107,9 +134,20 @@
     async regenTexture(key) {
       if (!confirm('Regenerate?')) return;
       try {
-        const res = await fetch(`api/textures-admin.php?action=regenerate&cache_key=${encodeURIComponent(key)}&force=1`);
+        const res = await this.postAdminAction('regenerate', { cache_key: key, force: 1 });
         const data = await res.json();
-        alert(data.success ? 'Queued' : data.error);
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || `Regeneration request failed (${res.status})`);
+        }
+        if (data.request?.method !== 'POST' || typeof data.request.url !== 'string') {
+          throw new Error('Regeneration request is missing.');
+        }
+        const generationResponse = await this.postWithCsrf(data.request.url, data.request.body || {});
+        const generation = await generationResponse.json();
+        if (!generationResponse.ok || !generation.success) {
+          throw new Error(generation.error || `Texture generation failed (${generationResponse.status})`);
+        }
+        alert('Regenerated');
         this.loadCacheList();
       } catch (e) {
         alert(`Error: ${GQTextureAdminUI.escapeHtml(e.message)}`);
@@ -120,13 +158,13 @@
       e.preventDefault();
       const res = this.container.querySelector('#test-result');
       res.innerHTML = '<p>Generating...</p>';
-      const form = new FormData();
-      form.append('prompt', this.container.querySelector('#positive-prompt').value);
-      form.append('negative_prompt', this.container.querySelector('#negative-prompt').value);
-      form.append('size', this.container.querySelector('#test-size').value);
-      form.append('steps', '30');
       try {
-        const r = await fetch('api/textures-admin.php?action=test_prompt', {method: 'POST', body: form});
+        const r = await this.postAdminAction('test_prompt', {
+          prompt: this.container.querySelector('#positive-prompt').value,
+          negative_prompt: this.container.querySelector('#negative-prompt').value,
+          size: this.container.querySelector('#test-size').value,
+          steps: 30,
+        });
         const d = await r.json();
         res.innerHTML = d.success ? `<p>Submitted! ID: ${GQTextureAdminUI.escapeHtml(d.prompt_id)}</p>` : `<p>Error: ${GQTextureAdminUI.escapeHtml(d.error)}</p>`;
       } catch (err) {
@@ -144,12 +182,11 @@
       const faction = this.container.querySelector('#batch-faction').value;
       const type = this.container.querySelector('#batch-type').value;
       try {
-        const url = new URL('api/textures-admin.php', location.href);
-        url.searchParams.set('action', 'batch_regenerate');
-        url.searchParams.set('faction', faction);
-        url.searchParams.set('texture_type', type);
-        url.searchParams.set('dry_run', '1');
-        const r = await fetch(url);
+        const r = await this.postAdminAction('batch_regenerate', {
+          faction,
+          texture_type: type,
+          dry_run: 1,
+        });
         const d = await r.json();
         res.innerHTML = d.success ? `<p>Would affect ${d.count} texture(s)</p>` : `<p>Error: ${GQTextureAdminUI.escapeHtml(d.error)}</p>`;
       } catch (e) {
@@ -167,12 +204,11 @@
       const faction = this.container.querySelector('#batch-faction').value;
       const type = this.container.querySelector('#batch-type').value;
       try {
-        const url = new URL('api/textures-admin.php', location.href);
-        url.searchParams.set('action', 'batch_regenerate');
-        url.searchParams.set('faction', faction);
-        url.searchParams.set('texture_type', type);
-        url.searchParams.set('dry_run', '0');
-        const r = await fetch(url);
+        const r = await this.postAdminAction('batch_regenerate', {
+          faction,
+          texture_type: type,
+          dry_run: 0,
+        });
         const d = await r.json();
         res.innerHTML = d.success ? `<p>Deleted ${d.deleted} texture(s)</p>` : `<p>Error: ${GQTextureAdminUI.escapeHtml(d.error)}</p>`;
       } catch (e) {
@@ -191,7 +227,7 @@
 
     async clearCache() {
       try {
-        const r = await fetch('api/textures-admin.php?action=clear_cache&confirm=yes_clear_all');
+        const r = await this.postAdminAction('clear_cache', { confirm: 'yes_clear_all' });
         const d = await r.json();
         alert(d.success ? `Deleted ${d.deleted} files` : d.error);
         this.loadCacheList();

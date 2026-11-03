@@ -36,7 +36,6 @@ if ($action === 'recent') {
         'source' => $source,
         'user_id' => $targetUser,
     ]);
-    telemetry_prune_old_files($retentionDays);
     if (count($events) > $limit) {
         $events = array_slice($events, 0, $limit);
     }
@@ -68,7 +67,6 @@ if ($action === 'summary') {
         'source' => $source,
         'user_id' => $targetUser,
     ]);
-    telemetry_prune_old_files($retentionDays);
     $cutoffMs = (int)round((microtime(true) - ($minutes * 60)) * 1000);
     $events = array_values(array_filter($events, static function(array $ev) use ($cutoffMs): bool {
         return (int)($ev['ts_ms'] ?? 0) >= $cutoffMs;
@@ -89,6 +87,7 @@ if ($action === 'summary') {
 if ($action === 'ingest') {
     only_method('POST');
     $uid = require_auth();
+    verify_csrf();
     $body = get_json_body();
 
     $optIn = ($body['opt_in'] ?? false) === true;

@@ -279,9 +279,17 @@ final class ThemisDbClient
      */
     public function ensureCollection(string $name, string $type = 'collection'): array
     {
-        return $this->request('PUT', '/api/collection/' . rawurlencode($name), [
+        $schemaType = match ($type) {
+            'edge' => 'graph_edge',
+            'document' => 'document',
+            default => 'relational',
+        };
+
+        return $this->request('PUT', '/api/v1/schema/' . rawurlencode($name), [
             'name' => $name,
-            'type' => $type,
+            'type' => $schemaType,
+            'properties' => [],
+            'indexes' => [],
         ]);
     }
 

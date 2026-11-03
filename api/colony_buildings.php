@@ -4,6 +4,8 @@
  *
  * GET  /api/colony_buildings.php?action=get_layout&colony_id=N
  *        – All building slots for a colony, keyed by "x,y"
+ * POST /api/colony_buildings.php?action=settle
+ *        body: {colony_id}
  * POST /api/colony_buildings.php?action=place_building
  *        body: {colony_id, building_type, slot_x, slot_y}
  * POST /api/colony_buildings.php?action=remove_building
@@ -24,6 +26,24 @@ require_once __DIR__ . '/game_engine.php';
 $action = $_GET['action'] ?? '';
 $uid    = require_auth();
 $db     = get_db();
+
+if ($action === 'settle') {
+    only_method('POST');
+    verify_csrf();
+    $body = get_json_body();
+    $cid = filter_var($body['colony_id'] ?? null, FILTER_VALIDATE_INT);
+    if ($cid === false || $cid < 1) {
+        json_error('Invalid colony_id.', 400);
+    }
+    if (!ON_DEMAND_ECONOMY_ENABLED) {
+        json_ok(['settled' => false, 'reason' => 'on_demand_economy_disabled']);
+    }
+    try {
+        json_ok((new OnDemandEconomy($db))->settle($cid, $uid));
+    } catch (DomainException $error) {
+        json_error($error->getMessage(), $error->getCode() ?: 400);
+    }
+}
 
 if (ON_DEMAND_ECONOMY_ENABLED) {
     $economy = new OnDemandEconomy($db);
@@ -62,9 +82,6 @@ if (ON_DEMAND_ECONOMY_ENABLED) {
                 json_error('Building not found.', 404);
             }
             json_ok($economy->queue($cid, $uid, $type, [$x, $y]));
-        }
-        if (in_array($action, ['get_layout', 'get_slot_info'], true)) {
-            $economy->settle((int)($_GET['colony_id'] ?? 0), $uid);
         }
     } catch (DomainException $error) {
         json_error($error->getMessage(), $error->getCode() ?: 400);

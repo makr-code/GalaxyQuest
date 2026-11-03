@@ -45,6 +45,20 @@ export function createShipDesignerUI(opts = {}) {
     nodeEditor: null,
   };
 
+  const fetchShipDesignerCsrfToken = async () => {
+    const response = await fetch(`${apiBase}/auth.php?action=csrf`, {
+      credentials: 'same-origin',
+    });
+    if (!response.ok) {
+      throw new Error(`CSRF token request failed (${response.status})`);
+    }
+    const data = await response.json();
+    if (typeof data.token !== 'string' || data.token.length === 0) {
+      throw new Error('CSRF token missing from response');
+    }
+    return data.token;
+  };
+
   // ─── UI Components ────────────────────────────────────────────────────────
 
   const html = `
@@ -505,9 +519,14 @@ export function createShipDesignerUI(opts = {}) {
       // Step 2: Save design if not already saved
       if (!state.designId) {
         updateProgress(10, 'Saving design...');
+        const csrfToken = await fetchShipDesignerCsrfToken();
         const saveRes = await fetch(`${apiBase}/vessel_designs`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
+          },
           body: JSON.stringify({
             species_code: state.selectedFaction,
             design_name: state.shipName,
@@ -558,9 +577,14 @@ export function createShipDesignerUI(opts = {}) {
       updateProgress(25, 'Queueing generation...');
 
       // Step 4: Queue generation via TRELLIS2 API
+      const csrfToken = await fetchShipDesignerCsrfToken();
       const queueRes = await fetch(`${apiBase}/vessel_designs/${state.designId}/generate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+        },
         body: JSON.stringify({
           prompt_text: state.generatedPrompt,
           priority: 0,

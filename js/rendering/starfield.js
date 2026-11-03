@@ -1289,6 +1289,61 @@ window.GQPerspectiveBloom = PerspectiveBloom;
   }
 
   const controlApi = {
+    prepareForGame() {
+      runtime.gameOwned = true;
+      runtime.flightTourController?.stop();
+      runtime.authStarsAbortController?.abort();
+      getFlightRenderer()?.cancelCameraFlight?.();
+      if (runtime.speedOverlayRafId) cancelAnimationFrame(runtime.speedOverlayRafId);
+      runtime.speedOverlayRafId = 0;
+      if (runtime.speedOverlayCtx && runtime.speedOverlayCanvas) {
+        runtime.speedOverlayCtx.clearRect(0, 0, runtime.speedOverlayCanvas.width, runtime.speedOverlayCanvas.height);
+      }
+    },
+    async acquireGameView() {
+      controlApi.prepareForGame();
+      if (runtime.released && !runtime.renderer) delete window.__GQ_WEBGPU_ADAPTER_AVAILABLE;
+      await ensureDeps();
+      if (runtime.released && !runtime.renderer) {
+        runtime.released = false;
+        runtime.releaseRequested = false;
+        runtime.renderer = new window.StarfieldWebGPU(canvas, {
+          menuGalaxy: true, stars: renderableStars(runtime.stars),
+          armCount: runtime.armCount, pitchAngleDeg: runtime.pitchAngleDeg,
+        });
+        runtime.initializingPromise = runtime.renderer.init();
+      }
+      try {
+        if (runtime.initializingPromise) await runtime.initializingPromise;
+      } catch (error) {
+        starfieldDebug({ stage: 'player-view-init', message: error.message }, 'error');
+        destroy();
+        throw error;
+      }
+      const activeRenderer = getFlightRenderer();
+      const renderer = activeRenderer?._native || activeRenderer;
+      if (!renderer?.ready || renderer.getRenderStats?.().backend !== 'webgpu') {
+        throw new Error(runtime.error || 'WebGPU ist nicht verfügbar. Servernavigation bleibt bedienbar.');
+      }
+      return renderer;
+    },
+    returnToMenu() {
+      runtime.gameOwned = false;
+      const renderer = getFlightRenderer();
+      renderer?.setRegistrationScene?.(null);
+      renderer?.setStars?.(renderableStars(runtime.stars), { preserveView: true });
+      renderer?.setSpatialLabelStars?.(runtime.stars);
+      runtime.flightTourController?.start();
+      requestAnimationFrame(() => {
+        if (!runtime.gameOwned) getFlightRenderer()?.resize?.();
+      });
+    },
+    getVisualStars() { return runtime.visualStars || []; },
+    getViewTarget() {
+      const activeRenderer = getFlightRenderer();
+      const target = (activeRenderer?._native || activeRenderer)?._currentTarget;
+      return target ? { galaxy: Number(target.galaxy_index), system: Number(target.system_index) } : null;
+    },
     setFlightTourScene(scene) {
       const renderer = getFlightRenderer();
       if (!isStartMenu || !renderer) return false;
@@ -1544,7 +1599,7 @@ window.GQPerspectiveBloom = PerspectiveBloom;
 
   try {
     await ensureDeps();
-    if (runtime.releaseRequested || document.body.classList.contains('game-page')) {
+    if (runtime.releaseRequested || (!runtime.gameOwned && document.body.classList.contains('game-page'))) {
       if (!(runtime.released && !runtime.renderer)) {
         destroy({ keepCanvasVisible: true });
       }
@@ -1608,9 +1663,13 @@ window.GQPerspectiveBloom = PerspectiveBloom;
       transitionMs: 0,
     });
 
-    if (runtime.renderer && typeof runtime.renderer.init === 'function') {
-      await runtime.renderer.init();
+    const initializingRenderer = runtime.renderer;
+    if (initializingRenderer && typeof initializingRenderer.init === 'function') {
+      runtime.initializingPromise = initializingRenderer.init();
+      await runtime.initializingPromise;
     }
+    if (runtime.releaseRequested || runtime.released || runtime.renderer !== initializingRenderer) return;
+    if (runtime.gameOwned) return;
     
     // Re-resize canvas after renderer init to ensure proper dimensions
     resizeCanvas();
@@ -1678,7 +1737,7 @@ window.GQPerspectiveBloom = PerspectiveBloom;
     loadAuthGalaxySamples({
       signal: authStarsAbortController.signal,
       onSample: ({ stars, occupiedSystems: sampleOccupiedSystems, armCount, pitchAngleDeg }) => {
-        if (runtime.releaseRequested || runtime.released || !runtime.renderer || !stars.length) return;
+        if (runtime.gameOwned || runtime.releaseRequested || runtime.released || !runtime.renderer || !stars.length) return;
         const isFirstSample = starsBySystem.size === 0;
         const nextArmCount = Number(armCount);
         const nextPitchAngle = Number(pitchAngleDeg);

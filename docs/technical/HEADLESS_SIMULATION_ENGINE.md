@@ -27,6 +27,11 @@ see [Colony on-demand economy](COLONY_ON_DEMAND_ECONOMY.md).
   `SIMULATION_TICK_ON_READ_ENABLED` setting has been retired; changing it in an
   environment file has no effect.
 - Simulation runs only through the explicit HTTP or CLI trigger paths below.
+- Global ticks and each user tick are serialized by a MySQL connection-scoped
+  advisory lock. If the same scope is already running, a concurrent invocation
+  returns `executed: false` with `reason: lock_busy`; the scheduler may retry on
+  its next run. This prevents overlapping workers but is not a durable lease,
+  crash-recovery protocol, or idempotent tick ledger.
 - The overview still performs lazy colony-resource settlement from `last_update`;
   this on-demand economy accounting is separate from simulation ticks.
 - Each executed global/user subsystem emits `duration_ms`, `lag_seconds`

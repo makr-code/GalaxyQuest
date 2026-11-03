@@ -22,6 +22,8 @@ define('POSITION_MAX', (int) env_value('POSITION_MAX', 15)); // Max planets per 
 define('SESSION_LIFETIME', (int) env_value('SESSION_LIFETIME', 3600)); // Seconds
 define('REMEMBER_ME_DAYS', (int) env_value('REMEMBER_ME_DAYS', 30)); // Persistent login cookie lifetime
 define('APP_ENV', env_value('APP_ENV', 'production'));
+define('REGISTRATION_MAILPIT_URL', rtrim((string)env_value('REGISTRATION_MAILPIT_URL', ''), '/'));
+define('REGISTRATION_PUBLIC_URL', rtrim((string)env_value('REGISTRATION_PUBLIC_URL', APP_ENV === 'dev' ? 'http://localhost:8081' : ''), '/'));
 define('ENABLE_DEV_AUTH_TOOLS', (int) env_value('ENABLE_DEV_AUTH_TOOLS', APP_ENV === 'dev' ? 1 : 0));
 
 // Local LLM (Ollama) configuration

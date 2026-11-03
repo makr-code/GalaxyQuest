@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHeraldInstanceData, parseNpcJsonMeshDescriptor } from '../../js/rendering/registration-herald-stage-webgpu.js';
+import { RegistrationHeraldStage, createHeraldInstanceData, parseNpcJsonMeshDescriptor } from '../../js/rendering/registration-herald-stage-webgpu.js';
+import { RegistrationHeraldModelOrchestrator } from '../../js/rendering/registration-herald-model-orchestrator.js';
 
 const actors = ['aereth', 'vor_tak', 'syl_nar', 'vel_ar', 'kryl_tha', 'zhareen']
   .map((code) => ({ code, name: code }));
@@ -15,6 +16,50 @@ const viewport = {
 };
 
 describe('registration WebGPU herald stage', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('replays the latest focus and selection when the rigged stage finishes mounting', async () => {
+    let finish;
+    let mountedStage;
+    vi.spyOn(RegistrationHeraldModelOrchestrator.prototype, 'mount').mockImplementation(function () {
+      mountedStage = this;
+      this.canvas = { dataset: {}, remove() {} };
+      return new Promise((resolve) => { finish = resolve; });
+    });
+    const selected = vi.spyOn(RegistrationHeraldModelOrchestrator.prototype, 'setSelected').mockImplementation(() => {});
+    const focused = vi.spyOn(RegistrationHeraldModelOrchestrator.prototype, 'setFocus').mockImplementation(() => {});
+    const destroy = vi.spyOn(RegistrationHeraldModelOrchestrator.prototype, 'destroy').mockImplementation(() => {});
+    const stage = new RegistrationHeraldStage({ windowRef: { navigator: { gpu: {} }, removeEventListener() {} }, documentRef: {} });
+    const mounting = stage.mount({}, actors);
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    stage.setSelected('aereth');
+    stage.setFocus('vor_tak');
+    finish(true);
+    expect(await mounting).toBe(true);
+    expect(stage.riggedOrchestrator).toBe(mountedStage);
+    expect(selected).toHaveBeenCalledExactlyOnceWith('aereth');
+    expect(focused).toHaveBeenCalledExactlyOnceWith('vor_tak');
+    expect(selected.mock.invocationCallOrder[0]).toBeLessThan(focused.mock.invocationCallOrder[0]);
+    stage.destroy();
+    expect(destroy).toHaveBeenCalledOnce();
+  });
+
+  it('disposes a rigged stage that finishes mounting after leaving registration', async () => {
+    let finish;
+    vi.spyOn(RegistrationHeraldModelOrchestrator.prototype, 'mount').mockImplementation(function () {
+      this.canvas = { dataset: {} };
+      return new Promise((resolve) => { finish = resolve; });
+    });
+    const destroy = vi.spyOn(RegistrationHeraldModelOrchestrator.prototype, 'destroy').mockImplementation(() => {});
+    const stage = new RegistrationHeraldStage({ windowRef: { navigator: { gpu: {} }, removeEventListener() {} }, documentRef: {} });
+    const mounting = stage.mount({}, actors);
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    stage.destroy();
+    finish(true);
+    expect(await mounting).toBe(false);
+    expect(stage.riggedOrchestrator).toBeNull();
+    expect(destroy).toHaveBeenCalledOnce();
+  });
   it('converts the six existing NPC Object JSON models to finite GPU vertex data', async () => {
     for (const actor of actors) {
       const source = fs.readFileSync(path.resolve(process.cwd(), `models/npc_avatars/${actor.code}_npc_bust.json`), 'utf8');

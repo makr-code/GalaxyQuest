@@ -19,6 +19,52 @@ function loadStarfield() {
 }
 
 describe('StarfieldWebGPU camera driver', () => {
+  it('hands the existing frame loop to colony zoom and resumes spatial rendering after hook removal', () => {
+    const Starfield = loadStarfield();
+    const renderer = Object.create(Starfield.prototype);
+    const spatial = { update: vi.fn(), renderFrame: vi.fn() };
+    Object.assign(renderer, {
+      _device: {}, _context: {}, _pipeline: {}, _starBuffer: {}, _viewUniformBuffer: {},
+      _viewBindGroup: {}, _starCount: 1, _frameTick: 0,
+      _canvas: { width: 800, height: 600, clientWidth: 800 }, _perspectiveFlight: spatial,
+    });
+    const backend = renderer.getSharedZoomBackend();
+    const hook = vi.fn();
+    const remove = backend.addFrameHook(hook);
+    expect(backend.device).toBe(renderer._device);
+    expect(backend.context).toBe(renderer._context);
+    expect(backend.externalCameraControls).toBe(true);
+    renderer._renderFrame(1000);
+    expect(spatial.renderFrame).toHaveBeenCalledOnce();
+    backend.setZoomSceneActive(true);
+    renderer._renderFrame(1020);
+    expect(spatial.renderFrame).toHaveBeenCalledOnce();
+    expect(hook).toHaveBeenCalledTimes(2);
+    remove();
+    backend.setZoomSceneActive(false);
+    renderer._renderFrame(1040);
+    expect(spatial.renderFrame).toHaveBeenCalledTimes(2);
+    expect(hook).toHaveBeenCalledTimes(2);
+    expect(renderer._frameTick).toBe(3);
+    expect(renderer._gameFrameHooks.size).toBe(0);
+  });
+  it('packs four material channels per vertex without shifting colony colors into emission', () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+    const material = new MeshBasicMaterial({ color: 0x24bba4 });
+    const scene = new Group();
+    scene.add(new Mesh(geometry, material));
+    const flight = new PerspectiveSpaceFlight();
+    const vertices = flight.vesselRenderPass._extractVertices(scene);
+    for (let index = 0; index < 3; index++) {
+      expect([...vertices.slice(index * 10 + 6, index * 10 + 10)])
+        .toEqual([...Float32Array.from(material.color.toArray()), 0]);
+    }
+    flight.dispose();
+    geometry.dispose();
+    material.dispose();
+  });
+
   it('loads the organic transfer GLB with its procedural engine flame and particle trail', async () => {
     const file = fs.readFileSync(path.resolve(process.cwd(),
       'generated/trellis2/imported/ship/ship_generic_teaser_transfer_organic_lod0_dev.glb'));
@@ -358,6 +404,16 @@ describe('StarfieldWebGPU camera driver', () => {
     expect(building.modelUrl).toBe('procedural:building');
     expect(loadAsync).not.toHaveBeenCalled();
     expect(flight.systemManagedEntityIds.size).toBe(3);
+    await flight.setGalaxyFleets([{
+      id: 'system-shuttle', space_entity: 'vessel', model_url: '/shuttle.glb',
+      route: [[24, -8, 3], [24.01, -8, 3]], visual_scale_ly: 1e-9,
+    }]);
+    expect(flight.spaceEntities.size).toBe(4);
+    expect(flight.spaceEntities.get(colony.id)).toBe(colony);
+    expect(flight.setGalaxyFleets([])).toBe(true);
+    expect(flight.spaceEntities.size).toBe(3);
+    expect(flight.vesselRenderPass.resources.size).toBe(3);
+    expect(flight.spaceEntities.get(colony.id)).toBe(colony);
     expect(flight.setSystem({ sceneGraph: { type: 'galaxy', children: [{ type: 'system',
       data: { ...systemData, system_index: 8, x_ly: 28 }, children: [],
     }] } })).toBe(true);
@@ -877,6 +933,51 @@ describe('StarfieldWebGPU camera driver', () => {
     document.body.innerHTML = '';
     delete document.body.dataset.startReducedMotion;
     delete window.StarfieldWebGPU;
+  });
+
+  it('discards a device arriving after disposal instead of restarting the renderer', async () => {
+    let resolveDevice;
+    const requestDevice = vi.fn(() => new Promise((resolve) => { resolveDevice = resolve; }));
+    vi.stubGlobal('__GQ_WEBGPU_ADAPTER_AVAILABLE', { value: true });
+    vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => ({ requestDevice }) } });
+    const StarfieldWebGPU = loadStarfield();
+    const starfield = new StarfieldWebGPU(document.createElement('canvas'), { menuGalaxy: true });
+    const initializing = starfield.init();
+    await vi.waitFor(() => expect(requestDevice).toHaveBeenCalledOnce());
+    starfield.dispose();
+    const device = { destroy: vi.fn() };
+    resolveDevice(device);
+    await initializing;
+    expect(device.destroy).toHaveBeenCalledOnce();
+    expect(starfield._device).toBeNull();
+    expect(starfield.ready).toBe(false);
+    expect(starfield._running).toBe(false);
+  });
+
+  it('does not access a disposed device after asynchronous shader validation', async () => {
+    let resolveShader;
+    const getCompilationInfo = vi.fn(() => new Promise((resolve) => { resolveShader = resolve; }));
+    const device = {
+      createShaderModule: vi.fn(() => ({ getCompilationInfo })),
+      createRenderPipeline: vi.fn(() => ({ getBindGroupLayout: vi.fn() })),
+      createBuffer: vi.fn(() => ({ destroy: vi.fn() })),
+      createBindGroup: vi.fn(), destroy: vi.fn(),
+    };
+    vi.stubGlobal('__GQ_WEBGPU_ADAPTER_AVAILABLE', { value: true });
+    vi.stubGlobal('GPUBufferUsage', { UNIFORM: 1, COPY_DST: 2 });
+    vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => ({ requestDevice: async () => device }),
+      getPreferredCanvasFormat: () => 'bgra8unorm' } });
+    const canvas = document.createElement('canvas');
+    vi.spyOn(canvas, 'getContext').mockReturnValue({ configure: vi.fn() });
+    const StarfieldWebGPU = loadStarfield();
+    const starfield = new StarfieldWebGPU(canvas, { menuGalaxy: true });
+    const initializing = starfield.init();
+    await vi.waitFor(() => expect(getCompilationInfo).toHaveBeenCalledOnce());
+    starfield.dispose();
+    resolveShader({ messages: [] });
+    await expect(initializing).resolves.toBeUndefined();
+    expect(device.createRenderPipeline).toHaveBeenCalledOnce();
+    expect(starfield.ready).toBe(false);
   });
 
   it('updates the animated galaxy view from a camera-driver flight pose', () => {

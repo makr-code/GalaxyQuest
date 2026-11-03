@@ -269,6 +269,10 @@ CREATE TABLE user_ship_customizations (
 
 ## 🚀 API-Endpunkte
 
+All generation POSTs require an authenticated session and the session's
+`X-CSRF-Token` header. Fetch the token from `auth.php?action=csrf` using the
+same cookie jar before submitting a generation request.
+
 ### **POST** `/api/trellis2_generator.php?action=generate_base_hull`
 
 Queue hull generation für Fraktion.
@@ -316,23 +320,39 @@ Queue alle Komponenten auf einmal.
 
 ### **GET** `/api/trellis2_generator.php?action=generation_status&job_id=...`
 
-Prüfe Job-Status und finalisiere bei Completion.
+Liest den TRELLIS2-Jobstatus. Bei abgeschlossener Generierung signalisiert
+`ready_to_finalize: true`, dass die Ausgabe separat persistiert werden kann.
+Der GET schreibt weder eine GLB-Datei noch einen Queue-Status.
+
+### **POST** `/api/trellis2_generator.php?action=finalize_generation`
+
+Finalisiert die Ausgabe eines abgeschlossenen Jobs. Die Aktion erfordert
+Authentifizierung und CSRF-Validierung.
+
+```json
+{ "job_id": "..." }
+```
 
 **Response**:
 ```json
 {
   "complete": false,
   "status": "processing",
-  "progress": 45
+  "progress": 45,
+  "ready_to_finalize": false
 }
 
-// Wenn complete:
+// Wenn TRELLIS2 fertig ist:
 {
-  "complete": true,
-  "glb_path": "/generated/trellis2/components/job_id.glb",
-  "file_size": 2451234
+  "complete": false,
+  "status": "done",
+  "progress": 100,
+  "ready_to_finalize": true
 }
 ```
+
+Erst der CSRF-geschützte POST liefert nach erfolgreicher Persistierung
+`complete: true`, `glb_path` und `file_size`.
 
 ### **GET** `/api/trellis2_generator.php?action=base_components&faction_code=vor_tak`
 
@@ -577,11 +597,19 @@ curl http://localhost/api/trellis2_generator.php?action=status
 
 # Queue hull generation
 curl -X POST http://localhost/api/trellis2_generator.php?action=generate_base_hull \
+  -b session.cookies -c session.cookies \
   -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <csrf-token>" \
   -d '{"faction_code":"vor_tak"}'
 
-# Check status
+# Read status (GET)
 curl "http://localhost/api/trellis2_generator.php?action=generation_status&job_id=..."
+
+# Persist completed output (authenticated POST with session and CSRF token)
+curl -X POST "http://localhost/api/trellis2_generator.php?action=finalize_generation" \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <csrf-token>" \
+  -d '{"job_id":"..."}'
 ```
 
 ---

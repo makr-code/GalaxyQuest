@@ -61,9 +61,16 @@ test('guest narration synthesizes approved chapters on demand and serves cached 
   const context = await playwright.request.newContext({ baseURL: api });
   try {
     expect((await context.get('/api/registration_narration.php?clip=anything&text=arbitrary')).status()).toBe(404);
-    expect((await context.post('/api/registration_narration.php', { data: { text: 'arbitrary' } })).status()).toBe(405);
+    expect((await context.post('/api/registration_narration.php', { data: { text: 'arbitrary' } })).status()).toBe(403);
+    const csrf = await (await context.get('/api/auth.php?action=csrf')).json();
+    const headers = { 'X-CSRF-Token': csrf.token };
+    expect((await context.post('/api/registration_narration.php', {
+      data: { clip: 'anything', text: 'arbitrary' }, headers,
+    })).status()).toBe(404);
     for (const step of content.registration_steps) {
-      const instruction = await context.get(`/api/registration_narration.php?clip=${step.id}`);
+      const instruction = await context.post('/api/registration_narration.php', {
+        data: { clip: step.id }, headers, timeout: 240_000,
+      });
       expect([200, 503]).toContain(instruction.status());
       const instructionBody = await instruction.json();
       if (instruction.status() === 503) {
@@ -74,7 +81,9 @@ test('guest narration synthesizes approved chapters on demand and serves cached 
         expect(instructionBody.audio_url).toMatch(/^generated\/tts\/[a-f0-9]{64}\.mp3$/);
       }
     }
-    const clip = await context.get('/api/registration_narration.php?clip=teaser-distance');
+    const clip = await context.post('/api/registration_narration.php', {
+      data: { clip: 'teaser-distance' }, headers, timeout: 240_000,
+    });
     expect([200, 503]).toContain(clip.status());
     const body = await clip.json();
     if (clip.status() === 503) {
@@ -86,9 +95,11 @@ test('guest narration synthesizes approved chapters on demand and serves cached 
       const audio = await context.get(`/${body.audio_url}`);
       expect(audio.status()).toBe(200);
       expect(audio.headers()['content-type']).toContain('audio/mpeg');
-      const repeated = await (await context.get('/api/registration_narration.php?clip=teaser-distance')).json();
-      expect(repeated.audio_url).toBe(body.audio_url);
-      expect(repeated.cached).toBe(true);
+      const repeated = await context.get('/api/registration_narration.php?clip=teaser-distance');
+      expect(repeated.ok()).toBe(true);
+      const repeatedBody = await repeated.json();
+      expect(repeatedBody.audio_url).toBe(body.audio_url);
+      expect(repeatedBody.cached).toBe(true);
     }
   } finally {
     await context.dispose();
@@ -109,7 +120,11 @@ test('mentor narration speaks only the current session draft and caches its syst
     expect(drafts).toHaveLength(6);
     const draft = drafts[0];
 
-    const clip = await context.get(`/api/registration_narration.php?clip=mentor-${draft.mentor_code}`, { timeout: 240_000 });
+    const clip = await context.post('/api/registration_narration.php', {
+      data: { clip: `mentor-${draft.mentor_code}` },
+      headers: { 'X-CSRF-Token': csrfToken },
+      timeout: 240_000,
+    });
     expect(clip.ok(), await clip.text()).toBe(true);
     const body = await clip.json();
     expect(body.text).toContain(draft.system_name);

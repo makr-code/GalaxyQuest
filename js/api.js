@@ -1,79 +1,32 @@
-/**
- * Shared API Module
- * Unified interface for all API calls
- * 
- * Usage:
- *   import { API } from './api.js';
- *   const data = await API.get('/api/economy');
- *   await API.post('/api/economy/tax', { rate: 0.2 });
- */
+import './network/api-transport.js';
+import './network/api-session.js';
+
+async function request(method, endpoint, body, { signal } = {}) {
+  const headers = { Accept: 'application/json' };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (method !== 'GET') {
+    const token = await window.APISession.fetchCsrfToken();
+    if (!token) throw new Error('CSRF token is unavailable. Please retry.');
+    headers['X-CSRF-Token'] = token;
+  }
+  const response = await window.APITransport.fetchWithRetry(
+    window.APITransport.versionEndpoint(endpoint),
+    {
+      method, headers, signal, credentials: 'same-origin', cache: 'no-store',
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    },
+    { timeoutMs: 15000 },
+  );
+  const data = await response.json();
+  if (data?.success !== true) throw new Error(data?.error || 'Invalid API response.');
+  return data;
+}
 
 export const API = {
-  /**
-   * GET request
-   * @param {string} url - API endpoint
-   * @returns {Promise<Object>}
-   */
-  async get(url) {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`API ${response.status}: ${url}`);
-    }
-    return response.json();
-  },
-
-  /**
-   * POST request
-   * @param {string} url - API endpoint
-   * @param {Object} data - Request body
-   * @returns {Promise<Object>}
-   */
-  async post(url, data) {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!response.ok) {
-      throw new Error(`API ${response.status}: ${url}`);
-    }
-    return response.json();
-  },
-
-  /**
-   * PUT request
-   * @param {string} url - API endpoint
-   * @param {Object} data - Request body
-   * @returns {Promise<Object>}
-   */
-  async put(url, data) {
-    const response = await fetch(url, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!response.ok) {
-      throw new Error(`API ${response.status}: ${url}`);
-    }
-    return response.json();
-  },
-
-  /**
-   * DELETE request
-   * @param {string} url - API endpoint
-   * @returns {Promise<Object>}
-   */
-  async delete(url) {
-    const response = await fetch(url, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (!response.ok) {
-      throw new Error(`API ${response.status}: ${url}`);
-    }
-    return response.json();
-  },
+  get: (endpoint, options) => request('GET', endpoint, undefined, options),
+  post: (endpoint, body, options) => request('POST', endpoint, body, options),
+  put: (endpoint, body, options) => request('PUT', endpoint, body, options),
+  delete: (endpoint, options) => request('DELETE', endpoint, undefined, options),
 };
 
-// Make available globally for backward compatibility
 window.API = API;

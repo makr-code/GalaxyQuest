@@ -6,7 +6,7 @@ require_once __DIR__ . '/PlanetReservation.php';
 
 final class RegistrationDraftService {
     public const STYLES = ['exploration', 'economy', 'diplomacy', 'military'];
-    public const ACTIVATION_UNAVAILABLE = 'World activation requires the surface tutorial and email verification. Registration activation is not available yet.';
+    public const ACTIVATION_UNAVAILABLE = 'Direct account activation is disabled. Enter the playable draft and confirm your email through registration_play.php.';
 
     public function __construct(private PDO $db, private array $species, private array $starter) {}
 

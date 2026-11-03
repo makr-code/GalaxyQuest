@@ -2,7 +2,7 @@
 /**
  * Messages API
  * GET  /api/messages.php?action=inbox
- * GET  /api/messages.php?action=read&id=X
+ * POST /api/messages.php?action=read body: {id}
  * POST /api/messages.php?action=send   body: {to_username, subject, body}
  * POST /api/messages.php?action=delete body: {id}
  */
@@ -58,8 +58,11 @@ switch ($action) {
         break;
 
     case 'read':
-        only_method('GET');
-        $id   = (int)($_GET['id'] ?? 0);
+        only_method('POST');
+        verify_csrf();
+        $body = get_json_body();
+        $id   = (int)($body['id'] ?? 0);
+        if ($id <= 0) json_error('id is required', 400);
         $db   = get_db();
         $stmt = $db->prepare(
             'SELECT m.*, COALESCE(u.username, \'System\') AS sender
@@ -70,7 +73,9 @@ switch ($action) {
         $stmt->execute([$id, $uid]);
         $msg = $stmt->fetch();
         if (!$msg) json_error('Message not found', 404);
-        $db->prepare('UPDATE messages SET is_read = 1 WHERE id = ?')->execute([$id]);
+        $db->prepare('UPDATE messages SET is_read = 1 WHERE id = ? AND receiver_id = ?')
+            ->execute([$id, $uid]);
+        $msg['is_read'] = 1;
         json_ok(['message' => $msg]);
         break;
 

@@ -8,6 +8,139 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] — Sprint 1.2: Technische Schulden abbauen
 
+### Changed — Read paths without queue completion side effects
+
+- Multi-mode generation queue status GETs no longer scan generated files or
+  persist completion state. Queue creation requires authentication and CSRF;
+  status reads require authentication and are scoped to the owning user.
+- The legacy generation queue no longer falls back to user 1; creation is
+  authenticated and CSRF-protected, and status reads are owner-scoped.
+- Terrain GETs no longer persist manifests, compatibility upgrades, or tiles.
+  The WebGPU terrain client materializes cached terrain through authenticated,
+  CSRF-protected POST requests.
+- Procedural texture GETs now read existing cache files or render response
+  bytes in memory; cache misses no longer create directories, lock files, or
+  persistent texture files.
+- Market buy and sell mutations explicitly require POST before CSRF
+  verification; price, history, and event reads remain GET-only.
+- Trader event dispatch now allows GET only for status and requires POST plus
+  CSRF for market updates, scans, decisions, route mutations, and game ticks.
+- Trader opportunity, trader, route, and market-analysis reads now explicitly
+  require GET.
+- Trader dashboard queries require GET before database access.
+- The admin generation-queue monitor explicitly requires GET before admin
+  authentication and database access.
+- Game guide reads now require authentication and GET; write actions require
+  POST plus CSRF. Greeting reads and guide construction no longer initialize
+  database rows or cache directories.
+- Game guide browser requests now use the same-origin session cookie and fetch
+  a CSRF token when one is not already available; legacy bearer-token headers
+  are no longer sent.
+- Registration catalog, preview, and status GETs no longer initialize the
+  registration-owner session value; draft mutations initialize it on POST.
+- Audited faction relation/event and colonization read paths: faction dialogue
+  effects remain POST-only, and colonization GET handlers plus sprawl/edict
+  read helpers do not persist state.
+- Trade route and goods-flow/suggestion reads now explicitly require GET;
+  route, proposal, and suggestion mutations explicitly require POST before CSRF.
+- Market price/history/event reads and market mutations enforce GET/POST
+  respectively. A colony-scoped price GET settles only after verifying colony
+  ownership; regional price projections read the last-settled market snapshot.
+- Building and shipyard queue list GETs were rechecked: they display queue
+  state without completing items or advancing the next queue entry. Resource
+  settlement remains separate from queue completion.
+- Spy and battle report GETs were rechecked: handlers and report-hydration
+  helpers read/transform data without persisting state.
+- The colony-economy macro GET reads the last-settled market projection only;
+  the owner-scoped snapshot GET remains the explicit lazy-settlement contract.
+- Building and shipyard queue completion no longer runs inside list GETs.
+  The runtime invokes dedicated CSRF-protected POST actions before refreshing
+  those lists; lazy colony resource settlement remains a separate contract.
+- Colony building layout and slot-info GETs no longer settle economy or
+  complete due upgrades; their API client now calls an explicit CSRF-protected
+  settlement POST before reading.
+- Single-player and alliance-war status GETs now report expired peace offers
+  through read-only SQL projections instead of updating offer rows; POST
+  handling retains persistence where needed.
+- Trade-proposal list GETs now project expired status without globally
+  updating proposal rows; proposal actions still validate expiry.
+- Achievement progress is checked through its existing CSRF-protected POST
+  before the quests view reads the list; the list GET itself is read-only.
+- Leader marketplace candidate generation now uses a CSRF-protected POST,
+  serialized by the user row; marketplace listing GETs only read active rows.
+- Colonization sprawl status now calculates its response without writing the
+  persistent sprawl cache from a GET request.
+- Faction and faction-quest list GETs no longer backfill diplomacy or quest
+  seed rows; existing read fallbacks and migration-seeded quest content remain.
+- Politics catalog, preset, and status GETs no longer create default profile
+  or civic rows; the status loader already provides an in-memory default.
+- Read-only alliance and situation schema guards remain before request dispatch.
+  Regression contracts verify guard placement and prohibit runtime DDL there;
+  broader app-user DDL denial and schema-diff evidence remain open.
+- Trader tick and trader creation actions now reject non-POST requests and
+  verify CSRF before beginning mutations. Scheduling the HTTP tick remains
+  deferred until the separate worker lease/idempotency work is complete.
+- Opening a message now marks it as read through a CSRF-protected POST rather
+  than a GET; the update is constrained to the authenticated recipient.
+- Diplomatic-play list and trust/threat reads are GET-only, while propose,
+  counter, mobilize, and resolve actions now require POST and CSRF validation.
+- Faction-relations standing and trust/threat GETs no longer insert default
+  diplomacy rows; missing standings retain the faction's base default and
+  trust/threat reads return neutral in-memory defaults.
+- Empire score GETs now calculate live scores without persisting them;
+  persistence remains separated in the dedicated write helper.
+- Espionage mission-result retrieval now uses POST with CSRF because it may
+  release a completed agent; the release is constrained to that user's agent
+  and the requested mission. Agent hiring and mission assignment also verify
+  CSRF.
+- Economy policy reads no longer insert default policy rows; write actions
+  retain explicit initialization. On-demand colony settlement is unchanged.
+- Global and per-user simulation ticks now serialize through MySQL advisory
+  locks; overlapping runs skip the scope, while durable leases and idempotent
+  tick records remain open.
+- Galaxy read requests no longer advance the global seed batch or initialize
+  faction defaults; requested star systems remain lazily materialized.
+- Glossary generation now uses POST with CSRF; static definition reads remain
+  GET-only.
+- Faction-agreement list and catalogue actions are GET-only; proposing,
+  responding to, and cancelling agreements now require POST and CSRF.
+- TRELLIS2 generation-status GETs no longer download or persist completed GLB
+  outputs. A completed job is finalized through a dedicated CSRF-protected POST.
+- Overview GETs no longer persist the durable user projection; the dedicated
+  projector worker owns that write. The short-lived response cache remains a
+  performance optimization. Overview payload computation also defaults to no
+  simulation side effects; simulation ticks remain available through explicit
+  POST+CSRF actions and the dedicated CLI tick runner.
+- Asset-generation GETs now route through the authenticated read endpoint;
+  the legacy handler that created asset records while serving a GET is retired.
+- TRELLIS2 asset-manager construction no longer creates storage directories;
+  directory and design-file creation happens only in the explicit design write.
+- Registration narration GETs only serve unexpired cached audio. Cache misses
+  synthesize through a CSRF-protected POST, and the onboarding client now uses
+  that write method.
+- Performance telemetry GETs no longer prune old files; retention pruning runs
+  only after a telemetry event is successfully ingested through POST.
+- Expired file-cache reads now return misses without deleting cache files or
+  rewriting index files; cache index queries filter stale entries in memory.
+- Alliance API actions now enforce GET for reads and POST plus CSRF for every
+  state-changing action before dispatch.
+- Pirate defense-budget updates and contract proposals now verify CSRF before
+  reading request data or performing database work.
+- War supply-route creation now verifies CSRF after the POST guard and before
+  reading request data.
+- Enhanced ship-designer customization and TRELLIS2 refinement now verify CSRF;
+  the browser client sends its same-origin session token for both operations.
+- TRELLIS2 hull, component, and avatar generation now verify CSRF before
+  reading request bodies; the integration guide documents the session contract.
+- Vessel design creation and generation queueing, plus telemetry ingestion, now
+  verify CSRF before reading or persisting request data; designer clients send
+  the session token with same-origin credentials.
+- AI texture generation and admin cache mutations now use POST+CSRF instead of
+  GET; progressive high-resolution upgrades return a request descriptor, and
+  texture/admin clients submit generation parameters in JSON bodies.
+- The legacy v3 generation queue now requires CSRF for job creation and scopes
+  status reads to the authenticated job owner.
+
 ### Added — Release metadata quality gate
 
 - `npm run check:release-metadata` validates SemVer in `VERSION.txt` and
@@ -93,12 +226,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   conditional credit and stock updates, capacity checks and atomic market
   records. The on-demand market path remains unchanged.
 
-### Added — ResourceLedger concurrency coverage
+### Added — Resource mutation concurrency coverage
 
-- CI now runs a real MySQL test with two synchronized PHP workers attempting
-  competing spends against one colony. It verifies only one coupled mutation
-  commits and that the remaining resource balance is nonnegative.
-- API-specific parallel request coverage for each mutation remains open.
+- CI now runs real MySQL tests with synchronized PHP workers. They verify an
+  actual InnoDB lock wait for competing spends and prove that the account lock
+  serializes research-like reservations across different colonies. Only one
+  coupled mutation commits in each race; rejected mutations roll back.
+- Separate HTTP/MySQL race tests cover legacy fleet launches competing for a
+  shared ship inventory, shipyard orders competing for a shared resource
+  budget, building upgrades, market purchases/sales, and research starts
+  across two colonies, plus concurrent dispatch of the same due trade route.
+  Requests use independent authenticated sessions and CSRF tokens and prove
+  actual InnoDB account-lock waits. Assertions verify single commits and
+  rollback of losing resource/ship reservations; competing trade dispatches
+  create one fleet, reserve cargo/fuel/freighter once and update `last_dispatch`
+  once. The market tests also caught and fixed constants being initialized
+  after request dispatch.
 
 ### Changed — Isolated CI smoke stack
 

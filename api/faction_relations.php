@@ -370,11 +370,10 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         // Player's standing with all factions (MySQL authoritative)
         case 'standing':
             only_method('GET');
-            ensure_diplomacy_rows($db, $uid);
 
             $standings = $db->prepare('
                 SELECT f.id, f.name,
-                       COALESCE(d.standing, 0)      as standing,
+                       COALESCE(d.standing, f.base_diplomacy) as standing,
                        COALESCE(d.trust_level, 0.0)  as trust_level,
                        COALESCE(d.threat_level, 0.0) as threat_level
                 FROM npc_factions f
@@ -401,17 +400,17 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         // GET ?action=trust_threat&faction_id=N  → single faction
         case 'trust_threat':
             only_method('GET');
-            ensure_diplomacy_rows($db, $uid);
 
             $faction_id_filter = (int)($_GET['faction_id'] ?? 0);
             if ($faction_id_filter > 0) {
                 $stmt = $db->prepare('
-                    SELECT faction_id,
-                           COALESCE(trust_level,  0.0) as trust_level,
-                           COALESCE(threat_level, 0.0) as threat_level,
-                           COALESCE(trust_decay_rate, 0.5) as trust_decay_rate
-                    FROM diplomacy
-                    WHERE user_id = ? AND faction_id = ?
+                    SELECT f.id AS faction_id,
+                           COALESCE(d.trust_level,  0.0) as trust_level,
+                           COALESCE(d.threat_level, 0.0) as threat_level,
+                           COALESCE(d.trust_decay_rate, 0.5) as trust_decay_rate
+                    FROM npc_factions f
+                    LEFT JOIN diplomacy d ON d.faction_id = f.id AND d.user_id = ?
+                    WHERE f.id = ?
                     LIMIT 1
                 ');
                 $stmt->execute([$uid, $faction_id_filter]);

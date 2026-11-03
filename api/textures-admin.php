@@ -15,11 +15,19 @@ require_admin();
 
 $action = strtolower((string)($_GET['action'] ?? 'list'));
 $allowedActions = ['list', 'regenerate', 'test_prompt', 'batch_regenerate', 'clear_cache', 'cache_stats'];
+$readActions = ['list', 'cache_stats'];
 
 if (!in_array($action, $allowedActions, true)) {
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => 'invalid action']);
     exit;
+}
+
+if (in_array($action, $readActions, true)) {
+    only_method('GET');
+} else {
+    only_method('POST');
+    verify_csrf();
 }
 
 $textureAdmin = new GQTextureAdminService();
@@ -69,8 +77,9 @@ function handle_list_textures(GQTextureAdminService $admin): void
  */
 function handle_regenerate_texture(GQTextureAdminService $admin): void
 {
-    $cacheKey = sanitize_input((string)($_GET['cache_key'] ?? ''));
-    $force = (int)($_GET['force'] ?? 0) === 1;
+    $body = get_json_body();
+    $cacheKey = sanitize_input((string)($body['cache_key'] ?? ''));
+    $force = (int)($body['force'] ?? 0) === 1;
 
     if (!$cacheKey) {
         http_response_code(400);
@@ -93,10 +102,11 @@ function handle_regenerate_texture(GQTextureAdminService $admin): void
  */
 function handle_test_prompt(GQTextureAdminService $admin): void
 {
-    $prompt = (string)($_POST['prompt'] ?? '');
-    $negativePrompt = (string)($_POST['negative_prompt'] ?? '');
-    $size = (int)($_POST['size'] ?? 512);
-    $steps = (int)($_POST['steps'] ?? 30);
+    $body = get_json_body();
+    $prompt = (string)($body['prompt'] ?? '');
+    $negativePrompt = (string)($body['negative_prompt'] ?? '');
+    $size = (int)($body['size'] ?? 512);
+    $steps = (int)($body['steps'] ?? 30);
 
     if (!$prompt) {
         http_response_code(400);
@@ -119,9 +129,10 @@ function handle_test_prompt(GQTextureAdminService $admin): void
  */
 function handle_batch_regenerate(GQTextureAdminService $admin): void
 {
-    $faction = sanitize_input((string)($_GET['faction'] ?? ''));
-    $textureType = sanitize_input((string)($_GET['texture_type'] ?? ''));
-    $dry_run = (int)($_GET['dry_run'] ?? 0) === 1;
+    $body = get_json_body();
+    $faction = sanitize_input((string)($body['faction'] ?? ''));
+    $textureType = sanitize_input((string)($body['texture_type'] ?? ''));
+    $dry_run = (int)($body['dry_run'] ?? 0) === 1;
 
     try {
         $result = $admin->batchRegenerate($faction, $textureType, $dry_run);
@@ -138,8 +149,9 @@ function handle_batch_regenerate(GQTextureAdminService $admin): void
  */
 function handle_clear_cache(GQTextureAdminService $admin): void
 {
-    $pattern = sanitize_input((string)($_GET['pattern'] ?? ''));
-    $confirm = sanitize_input((string)($_GET['confirm'] ?? ''));
+    $body = get_json_body();
+    $pattern = sanitize_input((string)($body['pattern'] ?? ''));
+    $confirm = sanitize_input((string)($body['confirm'] ?? ''));
 
     if ($confirm !== 'yes_clear_all') {
         http_response_code(400);
@@ -256,7 +268,11 @@ class GQTextureAdminService
             'success' => true,
             'message' => 'Regeneration queued',
             'cache_key' => $cacheKey,
-            'url' => 'api/textures-ai.php?action=spaceship_texture&size=512&seed=' . rand(0, 1000000),
+            'request' => [
+                'method' => 'POST',
+                'url' => 'api/textures-ai.php?action=spaceship_texture',
+                'body' => ['size' => 512, 'seed' => random_int(0, 1000000)],
+            ],
         ];
     }
 

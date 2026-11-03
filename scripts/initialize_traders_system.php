@@ -159,7 +159,7 @@ try {
     echo "🎉 Traders System Initialized!\n";
     echo "═══════════════════════════════════════════════════\n";
     echo "Next steps:\n";
-    echo "1. Run /api/traders.php?action=process_trader_tick periodically\n";
+    echo "1. Do not schedule the HTTP trader tick; worker lease/idempotency work remains open.\n";
     echo "2. Monitor traders via /api/traders.php?action=list_traders\n";
     echo "3. Adjust balancing in scripts based on market behavior\n";
     

@@ -232,23 +232,25 @@ export class PerspectiveSpaceFlight {
     const vessels = (Array.isArray(fleets) ? fleets : []).filter((fleet) =>
       fleet?.registration_vessel === true || fleet?.space_entity === 'vessel' || fleet?.kind === 'vessel');
     if (!vessels.length) {
-      this.clearSpaceVessels();
+      for (const [id, entity] of this.spaceEntities) {
+        if (!this.systemManagedEntityIds.has(id)) this._removeSpaceEntity(entity);
+      }
       return true;
     }
-    return this.setSpaceEntities(vessels);
+    return this.setSpaceEntities(vessels, { preserveSystem: true });
   }
 
   setSpaceVessels(vessels = []) {
     return this.setSpaceEntities(vessels);
   }
 
-  setSpaceEntities(entities = []) {
+  setSpaceEntities(entities = [], { preserveSystem = false } = {}) {
     const descriptors = (Array.isArray(entities) ? entities : []).filter((entity) => {
       return entity?.id;
     });
     const desiredIds = new Set(descriptors.map((entity) => String(entity.id)));
     for (const [id, entity] of this.spaceEntities) {
-      if (!desiredIds.has(id)) this._removeSpaceEntity(entity);
+      if (!desiredIds.has(id) && !(preserveSystem && this.systemManagedEntityIds.has(id))) this._removeSpaceEntity(entity);
     }
     const primary = descriptors.find((entity) => entity.follow_camera || entity.registration_vessel) || null;
     this.cameraFollowEntity = primary ? this.spaceEntities.get(String(primary.id)) || null : null;
@@ -441,6 +443,18 @@ export class PerspectiveSpaceFlight {
     });
   }
 
+  clearSystem() {
+    for (const id of this.systemManagedEntityIds) {
+      const entity = this.spaceEntities.get(id);
+      if (entity) this._removeSpaceEntity(entity);
+    }
+    this.systemManagedEntityIds.clear();
+    this.lensFlare?.clearSources();
+    this.root.clear();
+    this.bodies = [];
+    this.previousView = null;
+  }
+
   setSystem(scene) {
     const system = scene?.sceneGraph?.children?.find((node) => node.type === 'system');
     if (!system?.data) return false;
@@ -454,16 +468,8 @@ export class PerspectiveSpaceFlight {
       this.flight.focus.add(shift);
     }
     this.origin.copy(origin);
-    for (const id of this.systemManagedEntityIds) {
-      const entity = this.spaceEntities.get(id);
-      if (entity) this._removeSpaceEntity(entity);
-    }
-    this.systemManagedEntityIds.clear();
+    this.clearSystem();
     const systemId = `${Number(star.galaxy_index) || 0}:${Number(star.system_index) || 0}`;
-    this.previousView = null;
-    this.lensFlare?.clearSources();
-    this.root.clear();
-    this.bodies = [];
     const addBody = (parent, type, data, position, radius) => {
       const body = new Object3D();
       body.position.copy(position);

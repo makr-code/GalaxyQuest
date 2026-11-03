@@ -371,6 +371,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             
             case 'customize_ship':
                 only_method('POST');
+                verify_csrf();
                 $body = json_decode(file_get_contents('php://input'), true);
                 $body['user_id'] = $uid;
                 $result = $designer->customizeShip($body);
@@ -379,6 +380,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             
             case 'refine_with_trellis2':
                 only_method('POST');
+                verify_csrf();
                 $body = json_decode(file_get_contents('php://input'), true);
                 $customizationId = $body['customization_id'] ?? null;
                 if (!$customizationId) {

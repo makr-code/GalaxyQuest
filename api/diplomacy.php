@@ -396,11 +396,24 @@ function handle_cancel(PDO $db, int $uid): array {
 try {
     $db = get_db();
     switch ($action) {
-        case 'list':    json_response(handle_list($db, $uid));
-        case 'types':   json_response(handle_types());
-        case 'propose': json_response(handle_propose($db, $uid));
-        case 'respond': json_response(handle_respond($db, $uid));
-        case 'cancel':  json_response(handle_cancel($db, $uid));
+        case 'list':
+            only_method('GET');
+            json_response(handle_list($db, $uid));
+        case 'types':
+            only_method('GET');
+            json_response(handle_types());
+        case 'propose':
+            only_method('POST');
+            verify_csrf();
+            json_response(handle_propose($db, $uid));
+        case 'respond':
+            only_method('POST');
+            verify_csrf();
+            json_response(handle_respond($db, $uid));
+        case 'cancel':
+            only_method('POST');
+            verify_csrf();
+            json_response(handle_cancel($db, $uid));
         default:        json_error('Unknown action', 400);
     }
 } catch (PDOException $e) {

@@ -251,16 +251,19 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
   Monde, Kometen und Asteroiden erhalten weder Wolken noch Himmel.
   Ein explizit atmosphärischer Mond kann dennoch eine Kuppel zeigen.
 - **Persistierte Höhenkacheln:** Die Kolonie lädt ihr körperweites Cube-Sphere-
-  Manifest über `api/terrain.php?action=manifest&colony_id=N`. Seed, physischer
-  Radius, Biom, Höhenbereich und Generatorversion werden beim ersten Zugriff
-  in `body_terrain_manifests` eingefroren; spätere Kolonie-/Layoutänderungen
-  verändern diese Grunddaten nicht. Adressen sind
+  Manifest über `POST api/terrain.php?action=manifest` mit `colony_id` im
+  JSON-Body. Der Client materialisiert Manifest und Kacheln über
+  CSRF-geschützte POSTs; GET-Aufrufe bleiben lesend und berechnen fehlende
+  Daten nur für die Antwort. Seed,
+  physischer Radius, Biom, Höhenbereich und Generatorversion werden bei der
+  ersten Materialisierung in `body_terrain_manifests` eingefroren; spätere
+  Kolonie-/Layoutänderungen verändern diese Grunddaten nicht. Adressen sind
   `body_id/generator_version/face/lod/x/y`. Sechs Quadtree-Flächen vermeiden
   Polsingularitäten, sind aber **nicht exakt flächengleich**; Isometrie ist
   weiterhin eine Kameraeigenschaft, keine Kachelprojektion.
   Jede Kachel enthält 17 × 17 inklusive Rand geteilte, auf 16 Bit quantisierte
   Höhenwerte als kompaktes JSON, keine Dreiecke oder PNG-Textur. Fehlende
-  Kacheln werden im Request deterministisch erzeugt und in `body_terrain_tiles`
+  Kacheln werden bei POST deterministisch erzeugt und in `body_terrain_tiles`
   gespeichert; vorhandene Samples werden gelesen, nicht neu berechnet.
   Keine planetenweite Vorberechnung und kein Hintergrund-Tick.
   Der Client verfeinert nach projizierter Kachelgröße (> 384 Renderpixel)

@@ -4,6 +4,7 @@
  * Generation Queue v2 - Multi-Mode Test Suite
  * Tests all three modes: text, image, hybrid
  * 
+ * Set GQ_SESSION_COOKIE and GQ_CSRF_TOKEN for an authenticated test session.
  * Usage: php scripts/test_generation_queue_v2.php
  */
 
@@ -15,9 +16,25 @@ echo "════════════════════════�
 echo "GENERATION QUEUE v2 - MULTI-MODE TEST SUITE\n";
 echo "═══════════════════════════════════════════════════════════════\n\n";
 
-$db = get_db();
 $apiUrl = 'http://localhost:8080/api/generation_queue_v2.php';  // ← LOKAL TESTEN
-$userId = 1;
+$sessionCookie = trim((string)getenv('GQ_SESSION_COOKIE'));
+$csrfToken = trim((string)getenv('GQ_CSRF_TOKEN'));
+if ($sessionCookie === '' || $csrfToken === '') {
+    fwrite(STDERR, "Set GQ_SESSION_COOKIE and GQ_CSRF_TOKEN for an authenticated test session.\n");
+    exit(2);
+}
+
+function configureQueueRequest(CurlHandle $ch, bool $isPost = false): void
+{
+    global $sessionCookie, $csrfToken;
+
+    curl_setopt($ch, CURLOPT_COOKIE, $sessionCookie);
+    $headers = ['Content-Type: application/json'];
+    if ($isPost) {
+        $headers[] = 'X-CSRF-Token: ' . $csrfToken;
+    }
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+}
 
 // Test 1: Text → 3D
 echo "TEST 1: Text → 3D Generation\n";
@@ -34,7 +51,7 @@ echo "Payload: " . json_encode($payload, JSON_PRETTY_PRINT) . "\n";
 
 $ch = curl_init($apiUrl);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+configureQueueRequest($ch, true);
 curl_setopt($ch, CURLOPT_POST, true);
 curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
 $response = curl_exec($ch);
@@ -52,6 +69,7 @@ if ($result['success'] ?? false) {
     $checkUrl = $apiUrl . '?queue_id=' . $queueId1;
     $ch = curl_init($checkUrl);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    configureQueueRequest($ch);
     $status = json_decode(curl_exec($ch), true);
     curl_close($ch);
     echo "Status: " . $status['status'] . " (Progress: " . $status['progress'] . "%)\n\n";
@@ -84,7 +102,7 @@ echo "Payload (truncated): " . json_encode([
 
 $ch = curl_init($apiUrl);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+configureQueueRequest($ch, true);
 curl_setopt($ch, CURLOPT_POST, true);
 curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
 $response = curl_exec($ch);
@@ -101,6 +119,7 @@ if ($result['success'] ?? false) {
     $checkUrl = $apiUrl . '?queue_id=' . $queueId2;
     $ch = curl_init($checkUrl);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    configureQueueRequest($ch);
     $status = json_decode(curl_exec($ch), true);
     curl_close($ch);
     echo "Status: " . $status['status'] . " (Input Mode: " . $status['input_mode'] . ")\n\n";
@@ -132,7 +151,7 @@ echo "Payload (truncated): " . json_encode([
 
 $ch = curl_init($apiUrl);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+configureQueueRequest($ch, true);
 curl_setopt($ch, CURLOPT_POST, true);
 curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
 $response = curl_exec($ch);
@@ -149,6 +168,7 @@ if ($result['success'] ?? false) {
     $checkUrl = $apiUrl . '?queue_id=' . $queueId3;
     $ch = curl_init($checkUrl);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    configureQueueRequest($ch);
     $status = json_decode(curl_exec($ch), true);
     curl_close($ch);
     echo "Status: " . $status['status'] . " (Input Mode: " . $status['input_mode'] . ")\n\n";

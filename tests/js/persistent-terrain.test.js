@@ -24,11 +24,16 @@ const tile = (address, height = 45000) => ({
 const flush = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
 
 function fixtureFetch() {
-  const fetcher = vi.fn(async (url) => {
-    const query = new URL(url, 'http://localhost/').searchParams;
+  const fetcher = vi.fn(async (url, options = {}) => {
+    const parsedUrl = new URL(url, 'http://localhost/');
+    const query = parsedUrl.searchParams;
+    if (parsedUrl.pathname.endsWith('/api/auth.php')) {
+      return { ok: true, json: async () => ({ token: 'terrain-test-csrf' }) };
+    }
+    const payload = JSON.parse(options.body || '{}');
     return { ok: true, json: async () => query.get('action') === 'manifest'
       ? { success: true, manifest: { ...manifest } }
-      : { success: true, tiles: JSON.parse(query.get('tiles')).map((address) => tile(address)) } };
+      : { success: true, tiles: payload.tiles.map((address) => tile(address)) } };
   });
   vi.stubGlobal('fetch', fetcher);
   return fetcher;
@@ -171,9 +176,13 @@ describe('Persisted cube-sphere terrain', () => {
     for (let frame = 0; frame < 100; frame++) stream.update(8000, [0, 1, 0]);
     await flush();
     expect(fetcher).toHaveBeenCalledTimes(requests);
-    for (const [url] of fetcher.mock.calls.slice(1)) {
-      const batch = JSON.parse(new URL(url, 'http://localhost/').searchParams.get('tiles'));
-      expect(batch.length).toBeLessThanOrEqual(16);
+    for (const [url, options] of fetcher.mock.calls) {
+      if (!new URL(url, 'http://localhost/').pathname.endsWith('/api/terrain.php')) continue;
+      expect(options.method).toBe('POST');
+      expect(options.headers['X-CSRF-Token']).toBe('terrain-test-csrf');
+      if (new URL(url, 'http://localhost/').searchParams.get('action') === 'tiles') {
+        expect(JSON.parse(options.body).tiles.length).toBeLessThanOrEqual(16);
+      }
     }
     stream.dispose();
     expect(stream.tiles.size).toBe(0);
@@ -242,8 +251,11 @@ describe('Persisted cube-sphere terrain', () => {
       fixtureFetch();
       const stream = new CubeSphereTerrainStream(7, vi.fn());
       await stream.load();
-      fetch.mockImplementation(async (url) => {
-        const tiles = JSON.parse(new URL(url, 'http://localhost/').searchParams.get('tiles')).map((a) => tile(a));
+      fetch.mockImplementation(async (url, options = {}) => {
+        if (new URL(url, 'http://localhost/').pathname.endsWith('/api/auth.php')) {
+          return { ok: true, json: async () => ({ token: 'terrain-test-csrf' }) };
+        }
+        const tiles = JSON.parse(options.body).tiles.map((a) => tile(a));
         change(tiles);
         return { ok: true, json: async () => ({ success: true, tiles }) };
       });

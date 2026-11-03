@@ -84,6 +84,8 @@ final class OnDemandEconomyTest extends TestCase
             );
             CREATE TABLE research (user_id INTEGER, type TEXT, level INTEGER);
             CREATE TABLE leaders (colony_id INTEGER, role TEXT, autonomy INTEGER);
+            CREATE TABLE colony_events (colony_id INTEGER, event_type TEXT, expires_at TEXT);
+            CREATE TABLE ships (colony_id INTEGER, type TEXT, count INTEGER);
             INSERT INTO users (id) VALUES (1),(2);
             INSERT INTO celestial_bodies VALUES (1,1,1,1),(2,1,2,1),(3,2,1,1);
             INSERT INTO colonies (id,user_id,body_id,name) VALUES (1,1,1,'Alpha'),(2,2,2,'Beta'),(3,2,3,'Gamma');
@@ -100,6 +102,8 @@ final class OnDemandEconomyTest extends TestCase
         $snapshot = $this->economy->settle(1, 1, 1000000);
         self::assertSame(100, $snapshot['pop_classes']['colonist']);
         self::assertCount(18, $snapshot['catalog']);
+        self::assertSame('standard', $snapshot['methods']['metallurgy']);
+        self::assertGreaterThan(0, $snapshot['storage']['metal']);
         self::assertSame(1000000, $snapshot['economy']['settled_at']);
         self::assertSame(0.0, $snapshot['economy']['stock']['steel_alloy'] ?? 0.0);
         self::assertSame(23, (int)$this->db->query('SELECT COUNT(*) FROM economy_colony_market')->fetchColumn());
@@ -218,6 +222,7 @@ final class OnDemandEconomyTest extends TestCase
     {
         $this->economy->method(1, 1, 'metallurgy', 'efficient');
         self::assertSame('efficient', $this->db->query('SELECT method FROM economy_production_methods')->fetchColumn());
+        self::assertSame('efficient', $this->economy->settle(1, 1)['methods']['metallurgy']);
         $this->expectException(DomainException::class);
         $this->economy->method(1, 1, 'metallurgy', 'unlimited');
     }
@@ -262,6 +267,57 @@ final class OnDemandEconomyTest extends TestCase
         self::assertSame(1, (int)$row['subsidy_agriculture']);
         $this->expectException(DomainException::class);
         $this->economy->exchange(1, 1, 'food', 1, true);
+    }
+
+    public function testPolicyReadUsesSimulationDefaultsWithoutCreatingPolicyRows(): void
+    {
+        $policy = $this->economy->policy(1);
+        self::assertSame(['income' => 0.15, 'production' => 0.0, 'trade' => 0.05], $policy['taxes']);
+        self::assertSame(0.0001, $policy['tax_steps']['income']);
+        self::assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM economy_policies')->fetchColumn());
+    }
+
+    public function testFirstPolicyWritePreservesOtherEffectiveDefaults(): void
+    {
+        $this->db->exec('DROP TABLE economy_policies');
+        $this->db->exec(<<<'SQL'
+            CREATE TABLE economy_policies (
+                user_id INTEGER PRIMARY KEY, global_policy INTEGER DEFAULT 50,
+                tax_income INTEGER DEFAULT 20, tax_trade INTEGER DEFAULT 15, tax_resources INTEGER DEFAULT 10,
+                subsidy_agriculture INTEGER DEFAULT 5, subsidy_research INTEGER DEFAULT 10,
+                subsidy_military INTEGER DEFAULT 3
+            )
+            SQL);
+        $this->economy = new OnDemandEconomy($this->db);
+        $this->economy->configure(1, 'tax_income', 0.01);
+        $policy = $this->economy->policy(1);
+        self::assertSame('free_market', $policy['global_policy']);
+        self::assertSame(['income' => 0.01, 'production' => 0.0, 'trade' => 0.05], $policy['taxes']);
+        self::assertSame(['agriculture' => false, 'research' => false, 'military' => false], $policy['subsidies']);
+    }
+
+    public function testIntegerSchemaPreservesZeroOnePercentAndMaximumTaxes(): void
+    {
+        $this->db->exec(<<<'SQL'
+            DROP TABLE economy_policies;
+            CREATE TABLE economy_policies (
+                user_id INTEGER PRIMARY KEY, global_policy INTEGER DEFAULT 0,
+                tax_income INTEGER DEFAULT 15, tax_trade INTEGER DEFAULT 5, tax_resources INTEGER DEFAULT 0,
+                subsidy_agriculture INTEGER DEFAULT 0, subsidy_research INTEGER DEFAULT 0,
+                subsidy_military INTEGER DEFAULT 0
+            );
+            SQL);
+        $this->economy = new OnDemandEconomy($this->db);
+        self::assertSame(0.01, $this->economy->policy(1)['tax_steps']['production']);
+        foreach (['income' => 0.4, 'production' => 0.3, 'trade' => 0.25] as $type => $max) {
+            foreach ([0.0, 0.01, $max] as $rate) {
+                $this->economy->configure(1, 'tax_' . $type, $rate);
+                self::assertSame($rate, $this->economy->policy(1)['taxes'][$type]);
+            }
+        }
+        $this->economy->configure(1, 'tax_trade', 0.01);
+        $this->economy->exchange(1, 1, 'food', 1, true);
+        self::assertSame(0.01, (float)$this->db->query('SELECT trade_tax_rate FROM economy_market_transactions')->fetchColumn());
     }
 
     public function testDeliveryPreservesOverflowAndDoesNotCreditTreasuryTwice(): void

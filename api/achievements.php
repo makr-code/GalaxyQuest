@@ -7,8 +7,7 @@
  * POST /api/achievements.php?action=check  – re-evaluate all conditions for current user
  *
  * The check logic is also exported as check_and_update_achievements() so that
- * buildings.php, research.php and fleet.php can trigger it inline after
- * completing relevant actions.
+ * gameplay actions can trigger it inline after completing relevant actions.
  */
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/cache.php';
@@ -27,8 +26,6 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             if (is_array($cached) && isset($cached['achievements'])) {
                 json_ok($cached);
             }
-            // Auto-check before returning so the client always sees fresh state
-            check_and_update_achievements($db, $uid);
             $payload = ['achievements' => fetch_achievements_for_user($db, $uid)];
             gq_cache_set('achievements_list', $cacheKeyParams, $payload, CACHE_TTL_DEFAULT);
             json_ok($payload);

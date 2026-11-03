@@ -199,8 +199,10 @@ function issue_remember_me_token(int $userId): void {
              VALUES (?, ?, ?, ?)'
         )->execute([$userId, $selector, $tokenHash, $expiresAt]);
         set_remember_cookie($selector, $validator, $expiresTs);
-    } catch (Throwable $e) {
+    } catch (PDOException $e) {
         clear_remember_cookie();
+        error_log('remember_token_issue_failed code=' . $e->getCode());
+        throw new RuntimeException('Angemeldet bleiben konnte nicht gespeichert werden. Bitte erneut anmelden.', 503, $e);
     }
 }
 

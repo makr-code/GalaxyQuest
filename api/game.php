@@ -53,11 +53,6 @@ switch ($action) {
 
         gq_cache_set('game_overview', $overviewCacheKey, $payload, CACHE_TTL_OVERVIEW);
 
-        // Write fresh projection so the next request can be served from it.
-        if (defined('PROJECTION_OVERVIEW_ENABLED') && PROJECTION_OVERVIEW_ENABLED) {
-            write_user_overview_projection($db, $uid, $payload);
-        }
-
         json_ok($payload);
         break;
 

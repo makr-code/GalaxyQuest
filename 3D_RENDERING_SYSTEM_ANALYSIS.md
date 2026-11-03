@@ -356,10 +356,9 @@ particleSystem.addEmitter(emitter);
 
 #### Backend API
 - **[api/textures-ai.php](api/textures-ai.php)**
-  - Endpoint: POST `/api/textures-ai.php?action=generate`
-  - Body: `{ descriptor: {...}, cache: true }`
-  - Returns: Base64 PNG + quality metadata
-  - Caching: SHA256 key, LRU eviction
+  - Generation endpoints: POST `/api/textures-ai.php?action=<texture-action>` with session CSRF token
+  - Returns: generated texture path + metadata
+  - Caching: SHA256 key, disk cache
   - Fallback: Procedural texture on error
 
 #### Configuration (.env)
@@ -557,7 +556,11 @@ COMFYUI_CACHE_MODE=disk
 - `api/model_gen.php?type=<modelId>` — Fetch Three.js Object JSON
 
 #### Texture API
-- `api/textures-ai.php?action=generate` — AI-generated texture
+- `api/textures.php?action=planet_map` — Deterministic procedural textures;
+  GET reads existing cache files or renders misses in memory without writing
+  persistent cache files.
+- `api/textures-ai.php?action=planet_texture` — AI-generated texture via
+  POST with session CSRF token; status and queue monitoring remain GET-only.
 
 #### Health Checks
 - Docker services: `http://comfyui:8188/health` (ComfyUI)

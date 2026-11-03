@@ -354,6 +354,11 @@
 
         try {
           if (this._tab === 'marketplace') {
+            const refresh = await api.refreshLeaderMarketplace();
+            if (!refresh.success) {
+              root.innerHTML = '<p class="error">Marketplace refresh failed.</p>';
+              return;
+            }
             const marketplace = await api.leaderMarketplace();
             if (!marketplace.success) {
               root.innerHTML = '<p class="error">Marketplace unavailable.</p>';

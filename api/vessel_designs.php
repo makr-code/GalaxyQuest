@@ -37,6 +37,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         // Handle CREATE wireframe design: POST /api/wireframe_designs
         if ($isWireframe && $method === 'POST' && !$designId && !$action) {
             only_method('POST');
+            verify_csrf();
             $uid = current_user_id() ?? 'demo_' . bin2hex(random_bytes(4));
             
             $db = get_db();
@@ -75,6 +76,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         // Handle CREATE new design: POST /api/vessel_designs
         if (!$isWireframe && $method === 'POST' && !$designId && !$action) {
             only_method('POST');
+            verify_csrf();
             $uid = current_user_id() ?? 'demo_' . bin2hex(random_bytes(4));
             
             $db = get_db();
@@ -106,6 +108,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         // Handle QUEUE generation: POST /api/vessel_designs/{id}/generate
         if ($method === 'POST' && $designId && $action === 'generate') {
             only_method('POST');
+            verify_csrf();
             $uid = current_user_id() ?? 'demo_' . bin2hex(random_bytes(4));
             
             $db = get_db();

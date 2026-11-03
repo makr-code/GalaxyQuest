@@ -2,7 +2,14 @@ Options -Indexes
 RewriteEngine On
 DirectoryIndex index.php index.html
 
+# Legacy shell links must use the same bundled entry as the directory index.
+RewriteRule ^index\.html$ index.php [L]
+
 RewriteRule ^health(?:/.*)?$ health.php [L]
+
+# Resolve Vite's root-relative asset URLs from the bind-mounted build.
+RewriteCond %{DOCUMENT_ROOT}/dist/assets/$1 -f
+RewriteRule ^assets/(.+)$ dist/assets/$1 [L]
 
 # Serve compressed JavaScript artifacts (*.js.gz) with strict JS MIME + gzip.
 <IfModule mod_mime.c>
@@ -64,10 +71,10 @@ RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^api/generation_queue(/.*)?$ /api/generation_queue.php [QSA,L]
 
-# /api/asset_generations/* -> /api/asset_generations.php
+# /api/asset_generations/* -> authenticated TRELLIS2 read endpoint
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^api/asset_generations(/.*)?$ /api/asset_generations.php [QSA,L]
+RewriteRule ^api/asset_generations(/.*)?$ /api/trellis2_endpoints.php [QSA,L]
 
 # PHP files in api/ are served directly without RewriteRule
 # (POSTDaten werden mit Rewrite Rules nicht korrekt weitergeleitet)

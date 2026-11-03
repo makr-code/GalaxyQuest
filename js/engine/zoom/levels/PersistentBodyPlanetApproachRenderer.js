@@ -201,6 +201,7 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
     this._time = 0;
     this.setSceneData(sceneData);
     this._applySceneDataVisuals(this._sceneData);
+    if (this._backend?.externalCameraControls) return;
     if (!this._canvas?.addEventListener) return;
     const land = (event) => {
       event.preventDefault();
@@ -350,7 +351,9 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
     const meshSurface = !!solid || hasRegions;
     const extent = solid ? geometry.bodySolidBound(solid)
       : Math.max(...(shape?.axes || [1, 1, 1])) * (1 + (shape?.deformation || 0));
-    const distance = (2.8 + Math.min(2, cameraDistance / 50)) * extent;
+    const distance = this._backend?.externalCameraControls
+      ? Math.max(extent * 1.04, cameraDistance)
+      : (2.8 + Math.min(2, cameraDistance / 50)) * extent;
     const near = 0.1;
     const far = Math.max(20, distance + extent * 2);
     const uniforms = new Float32Array(36);

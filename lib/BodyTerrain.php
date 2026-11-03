@@ -451,7 +451,7 @@ final class BodyTerrain
         ];
     }
 
-    public static function forColony(PDO $db, int $userId, int $colonyId): array
+    public static function forColony(PDO $db, int $userId, int $colonyId, bool $persist = true): array
     {
         $read = $db->prepare(
             'SELECT cb.* FROM colonies c JOIN celestial_bodies cb ON cb.id = c.body_id
@@ -462,10 +462,10 @@ final class BodyTerrain
         if (!$body) {
             throw new RuntimeException('Colony body not found or access denied', 404);
         }
-        return self::manifest($db, $body);
+        return self::manifest($db, $body, $persist);
     }
 
-    public static function tiles(PDO $db, array $manifest, array $requested): array
+    public static function tiles(PDO $db, array $manifest, array $requested, bool $persist = true): array
     {
         if (!array_is_list($requested) || count($requested) < 1 || count($requested) > 16) {
             throw new InvalidArgumentException('Request between one and sixteen tiles');
@@ -476,10 +476,13 @@ final class BodyTerrain
             }
             self::address($tile, (int)$manifest['max_lod']);
         }
-        return array_map(static fn ($tile) => self::tile($db, $manifest, $tile), $requested);
+        return array_map(
+            static fn ($tile) => self::tile($db, $manifest, $tile, $persist),
+            $requested
+        );
     }
 
-    public static function manifest(PDO $db, array $body): array
+    public static function manifest(PDO $db, array $body, bool $persist = true): array
     {
         $read = $db->prepare('SELECT manifest_json FROM body_terrain_manifests WHERE body_id = ?');
         $read->execute([(int)$body['id']]);
@@ -489,8 +492,10 @@ final class BodyTerrain
             if (!isset($manifest['shape'])) {
                 // Existing v1 worlds keep their original spherical base.
                 $manifest['shape'] = ['version' => 1, 'axes' => [1, 1, 1], 'deformation' => 0];
-                $db->prepare('UPDATE body_terrain_manifests SET manifest_json = ? WHERE body_id = ?')
-                    ->execute([json_encode($manifest, JSON_THROW_ON_ERROR), $body['id']]);
+                if ($persist) {
+                    $db->prepare('UPDATE body_terrain_manifests SET manifest_json = ? WHERE body_id = ?')
+                        ->execute([json_encode($manifest, JSON_THROW_ON_ERROR), $body['id']]);
+                }
             }
             return $manifest;
         }
@@ -539,6 +544,9 @@ final class BodyTerrain
         }
         if (preg_match('/comet/i', (string)$body['body_type'] . ' ' . ($body['planet_class'] ?? '')) === 1) {
             $manifest['settlement'] = self::valleySettlement($manifest);
+        }
+        if (!$persist) {
+            return $manifest;
         }
         $sql = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite'
             ? 'INSERT INTO body_terrain_manifests (body_id, manifest_json)
@@ -702,7 +710,7 @@ final class BodyTerrain
         return $height;
     }
 
-    public static function tile(PDO $db, array $manifest, array $requested): array
+    public static function tile(PDO $db, array $manifest, array $requested, bool $persist = true): array
     {
         $tile = self::address($requested, (int)$manifest['max_lod']);
         if ((int)$manifest['generator_version'] !== self::VERSION) {
@@ -738,6 +746,9 @@ final class BodyTerrain
             'body_id' => $manifest['body_id'], 'generator_version' => self::VERSION,
             'resolution' => $resolution, 'heights' => $samples,
         ];
+        if (!$persist) {
+            return $payload;
+        }
         $sql = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite'
             ? 'INSERT INTO body_terrain_tiles (body_id, generator_version, face, lod, tile_x, tile_y, tile_json)
                VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING'

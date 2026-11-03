@@ -11,6 +11,7 @@ $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $db->exec('SET sql_notes = 0');
 ensure_alliance_schema($db);
 $action = $_GET['action'] ?? '';
+enforce_alliance_action_method($action);
 
 match ($action) {
     'list'              => action_list($db, $uid),
@@ -40,6 +41,37 @@ function ensure_alliance_schema(PDO $db): void
 {
     require_once __DIR__ . '/../lib/GalaxySchema.php';
     \GalaxyQuest\Schema\GalaxySchema::assertAlliances($db);
+}
+
+function enforce_alliance_action_method(string $action): void
+{
+    $readActions = ['list', 'details', 'relations', 'war_map', 'get_messages'];
+    if (in_array($action, $readActions, true)) {
+        only_method('GET');
+        return;
+    }
+
+    $writeActions = [
+        'create',
+        'join',
+        'accept_member',
+        'leave',
+        'disband',
+        'remove_member',
+        'set_role',
+        'contribute',
+        'withdraw',
+        'declare_war',
+        'declare_nap',
+        'declare_alliance',
+        'revoke_relation',
+        'set_relation',
+        'send_message',
+    ];
+    if (in_array($action, $writeActions, true)) {
+        only_method('POST');
+        verify_csrf();
+    }
 }
 
 // ─── Action handlers ──────────────────────────────────────────────────────────

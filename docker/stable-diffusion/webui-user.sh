@@ -1,0 +1,1 @@
+LAUNCH_SCRIPT="/tmp/stable-diffusion-prelaunch.py"

@@ -42,44 +42,11 @@ $cacheScope = $action === 'planet_map'
     ? 'planet'
     : ('object' . DIRECTORY_SEPARATOR . $objectType);
 $cacheDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'generated' . DIRECTORY_SEPARATOR . 'textures' . DIRECTORY_SEPARATOR . $cacheScope;
-if (!is_dir($cacheDir) && !@mkdir($cacheDir, 0775, true) && !is_dir($cacheDir)) {
-    header('Content-Type: application/json; charset=utf-8');
-    http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'cache dir unavailable']);
-    exit;
-}
 
 $normalizedDescriptor = normalize_descriptor($descriptor);
 $signature = hash('sha256', $action . '|' . $objectType . '|' . $map . '|' . $size . '|' . $algo . '|' . json_encode($normalizedDescriptor, JSON_UNESCAPED_SLASHES));
 $ext = $gdAvailable ? 'png' : 'svg';
 $cacheFile = $cacheDir . DIRECTORY_SEPARATOR . $signature . '.' . $ext;
-$lockFile = $cacheDir . DIRECTORY_SEPARATOR . $signature . '.lock';
-
-$lockHandle = @fopen($lockFile, 'c+');
-if ($lockHandle !== false) {
-    @flock($lockHandle, LOCK_EX);
-}
-
-if (!is_file($cacheFile)) {
-    $ok = $gdAvailable
-        ? render_planet_map_png($cacheFile, $map, $size, $height, $normalizedDescriptor)
-        : render_planet_map_svg($cacheFile, $map, $size, $height, $normalizedDescriptor);
-    if (!$ok) {
-        if ($lockHandle !== false) {
-            @flock($lockHandle, LOCK_UN);
-            @fclose($lockHandle);
-        }
-        header('Content-Type: application/json; charset=utf-8');
-        http_response_code(500);
-        echo json_encode(['success' => false, 'error' => 'texture generation failed']);
-        exit;
-    }
-}
-
-if ($lockHandle !== false) {
-    @flock($lockHandle, LOCK_UN);
-    @fclose($lockHandle);
-}
 
 $etag = '"' . $signature . '"';
 header('ETag: ' . $etag);
@@ -88,9 +55,31 @@ if (isset($_SERVER['HTTP_IF_NONE_MATCH']) && trim((string)$_SERVER['HTTP_IF_NONE
     exit;
 }
 
+$bytes = null;
+if (is_file($cacheFile)) {
+    $cachedBytes = file_get_contents($cacheFile);
+    if ($cachedBytes === false) {
+        header('Content-Type: application/json; charset=utf-8');
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => 'texture cache read failed']);
+        exit;
+    }
+    $bytes = $cachedBytes;
+} else {
+    $bytes = $gdAvailable
+        ? render_planet_map_png($map, $size, $height, $normalizedDescriptor)
+        : render_planet_map_svg($map, $size, $height, $normalizedDescriptor);
+    if ($bytes === false) {
+        header('Content-Type: application/json; charset=utf-8');
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => 'texture generation failed']);
+        exit;
+    }
+}
+
 header('Content-Type: ' . ($gdAvailable ? 'image/png' : 'image/svg+xml; charset=utf-8'));
-header('Content-Length: ' . (string)filesize($cacheFile));
-readfile($cacheFile);
+header('Content-Length: ' . (string)strlen($bytes));
+echo $bytes;
 exit;
 
 function decode_descriptor(string $encoded): ?array
@@ -203,7 +192,7 @@ function allocate_rgba(GdImage $image, int $r, int $g, int $b, int $alpha): int
     );
 }
 
-function render_planet_map_png(string $path, string $map, int $width, int $height, array $descriptor): bool
+function render_planet_map_png(string $map, int $width, int $height, array $descriptor): string|false
 {
     $img = imagecreatetruecolor($width, $height);
     if (!$img) return false;
@@ -353,22 +342,14 @@ function render_planet_map_png(string $path, string $map, int $width, int $heigh
         }
     }
 
-    $tmpPath = $path . '.tmp';
-    $ok = imagepng($img, $tmpPath, 6);
+    ob_start();
+    $ok = imagepng($img, null, 6);
+    $bytes = ob_get_clean();
     imagedestroy($img);
-    if (!$ok) {
-        @unlink($tmpPath);
-        return false;
-    }
-    $renamed = @rename($tmpPath, $path);
-    if (!$renamed) {
-        @copy($tmpPath, $path);
-        @unlink($tmpPath);
-    }
-    return is_file($path);
+    return $ok && is_string($bytes) ? $bytes : false;
 }
 
-function render_planet_map_svg(string $path, string $map, int $width, int $height, array $descriptor): bool
+function render_planet_map_svg(string $map, int $width, int $height, array $descriptor): string
 {
         $seed = (int)($descriptor['seed'] ?? 0);
         $palette = is_array($descriptor['palette'] ?? null) ? $descriptor['palette'] : [];
@@ -444,16 +425,5 @@ SVG;
 SVG;
         }
 
-        $tmpPath = $path . '.tmp';
-        $ok = @file_put_contents($tmpPath, $svg);
-        if ($ok === false) {
-                @unlink($tmpPath);
-                return false;
-        }
-        $renamed = @rename($tmpPath, $path);
-        if (!$renamed) {
-                @copy($tmpPath, $path);
-                @unlink($tmpPath);
-        }
-        return is_file($path);
+        return $svg;
 }

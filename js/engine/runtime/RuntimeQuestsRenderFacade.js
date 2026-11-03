@@ -23,6 +23,11 @@
       root.innerHTML = '<p class="text-muted">LoadingÔÇª</p>';
 
       try {
+        const check = await api.checkAchievements();
+        if (!check.success) {
+          root.innerHTML = '<p class="text-red">Error updating quests.</p>';
+          return;
+        }
         const data = await api.achievements();
         if (!data.success) {
           root.innerHTML = '<p class="text-red">Error loading quests.</p>';
