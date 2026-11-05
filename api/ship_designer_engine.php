@@ -4,7 +4,7 @@
  * Generates TRELLIS2 prompts from faction specs + player customization
  * Supports LoRA-based style consistency and real-time generation
  * 
- * GET  /api/ship_designer_engine.php?action=generate_prompt          – Generate TRELLIS2 prompt from faction/class
+ * POST /api/ship_designer_engine.php?action=generate_prompt         – Generate TRELLIS2 prompt from faction/class
  * POST /api/ship_designer_engine.php?action=queue_generation         – Queue async generation job
  * GET  /api/ship_designer_engine.php?action=generation_status&job_id – Check generation progress
  * POST /api/ship_designer_engine.php?action=save_generated_ship      – Import generated GLB as user ship
@@ -391,13 +391,11 @@ final class ShipDesignerPromptEngine {
     
     /**
      * Get faction-specific templates
+     *
+     * @throws \InvalidArgumentException when the faction spec is missing or invalid.
      */
     public function getFactionShips(string $factionCode): array {
-        try {
-            $spec = $this->specLoader->loadFactionSpec($factionCode);
-        } catch (\Exception $e) {
-            return [];
-        }
+        $spec = $this->specLoader->loadFactionSpec($factionCode);
         
         $templates = ShipClassTemplate::getAllTemplates();
         $signature = FactionShipSignature::getSignature($factionCode);

@@ -626,41 +626,37 @@ function is_quest_complete(PDO $db, int $userId, string $type, array $req): bool
 }
 
 function ensure_precursor_beacon_quest_seed(PDO $db): void {
-    try {
-        $precursorIdStmt = $db->prepare('SELECT id FROM npc_factions WHERE code = ? LIMIT 1');
-        $precursorIdStmt->execute(['precursors']);
-        $precursorId = (int)($precursorIdStmt->fetchColumn() ?: 0);
-        if ($precursorId <= 0) {
-            return;
-        }
-
-        $db->prepare(
-            'INSERT IGNORE INTO faction_quests
-                (faction_id, code, title, description, quest_type, requirements_json,
-                 reward_metal, reward_crystal, reward_deuterium, reward_rare_earth,
-                 reward_dark_matter, reward_rank_points, reward_standing, min_standing, difficulty, repeatable)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-        )->execute([
-            $precursorId,
-            'precursor_wormhole_beacon',
-            'Unlock the Ancient Beacon',
-            'Decode precursor harmonics and stabilize an ancient beacon lattice to unlock permanent wormhole corridors.',
-            'research',
-            '{"tech":"wormhole_theory","level":5}',
-            15000,
-            12000,
-            9000,
-            0,
-            500,
-            180,
-            18,
-            80,
-            'epic',
-            0,
-        ]);
-    } catch (Throwable $e) {
-        // Non-fatal: endpoint should continue even if seed backfill cannot run.
+    $precursorIdStmt = $db->prepare('SELECT id FROM npc_factions WHERE code = ? LIMIT 1');
+    $precursorIdStmt->execute(['precursors']);
+    $precursorId = (int)($precursorIdStmt->fetchColumn() ?: 0);
+    if ($precursorId <= 0) {
+        return;
     }
+
+    $db->prepare(
+        'INSERT IGNORE INTO faction_quests
+            (faction_id, code, title, description, quest_type, requirements_json,
+             reward_metal, reward_crystal, reward_deuterium, reward_rare_earth,
+             reward_dark_matter, reward_rank_points, reward_standing, min_standing, difficulty, repeatable)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    )->execute([
+        $precursorId,
+        'precursor_wormhole_beacon',
+        'Unlock the Ancient Beacon',
+        'Decode precursor harmonics and stabilize an ancient beacon lattice to unlock permanent wormhole corridors.',
+        'research',
+        '{"tech":"wormhole_theory","level":5}',
+        15000,
+        12000,
+        9000,
+        0,
+        500,
+        180,
+        18,
+        80,
+        'epic',
+        0,
+    ]);
 }
 
 function faction_dialog_trim_text(string $text, int $maxLen = 280): string {

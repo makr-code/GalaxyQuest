@@ -148,4 +148,85 @@ final class AdminReadHandlersTest extends TestCase
         $this->assertStringContainsString('trellis_admin_get_stats();', $stats);
         $this->assertStringNotContainsString('function getStats(', $stats);
     }
+
+    public function testAdminReadRoutesAndHandlersAreNonMutating(): void
+    {
+        $users = file_get_contents(__DIR__ . '/../../api/admin_users.php');
+        $endpoints = file_get_contents(__DIR__ . '/../../api/admin_endpoints.php');
+        self::assertIsString($users);
+        self::assertIsString($endpoints);
+
+        foreach ([
+            ['list', 'get', 'admin_users_handle_list($db);'],
+            ['get', 'create', 'handle_get($db);'],
+        ] as [$action, $nextAction, $dispatch]) {
+            $start = strpos($users, "case '" . $action . "':");
+            $end = strpos($users, "case '" . $nextAction . "':", $start + 1);
+            self::assertNotFalse($start, $action . ' route must exist.');
+            self::assertNotFalse($end, $action . ' route must be bounded.');
+            $route = substr($users, $start, $end - $start);
+            $methodOffset = strpos($route, "only_method('GET');");
+            $dispatchOffset = strpos($route, $dispatch);
+            self::assertNotFalse($methodOffset);
+            self::assertNotFalse($dispatchOffset);
+            self::assertLessThan($dispatchOffset, $methodOffset);
+        }
+        foreach ([
+            'trellis_admin_get_stats',
+            'getQueue',
+            'getQuotas',
+            'getAuditLogs',
+            'exportAuditLogs',
+            'getAnalytics',
+            'getHealth',
+        ] as $handler) {
+            $body = $this->extractFunctionBody($endpoints, $handler);
+            self::assertDoesNotMatchRegularExpression(
+                '/\\b(?:INSERT\\s+INTO\\s+[a-z_]+|UPDATE\\s+[a-z_]+\\s+SET|DELETE\\s+FROM\\s+[a-z_]+|REPLACE\\s+INTO\\s+[a-z_]+)\\b/i',
+                $body,
+                $handler . ' must not persist changes.'
+            );
+            self::assertStringNotContainsString('file_put_contents(', $body, $handler);
+            self::assertStringNotContainsString('unlink(', $body, $handler);
+        }
+
+        self::assertStringContainsString(
+            "header('Content-Disposition: attachment; filename=\"trellis2_audit_logs.csv\"');",
+            $this->extractFunctionBody($endpoints, 'exportAuditLogs')
+        );
+        self::assertStringContainsString(
+            "fopen('php://output', 'w')",
+            $this->extractFunctionBody($endpoints, 'exportAuditLogs')
+        );
+    }
+
+    public function testAdminReadFailuresAreLoggedWithoutExposingExceptionDetails(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/admin_endpoints.php');
+        self::assertIsString($source);
+
+        foreach ([
+            'trellis_admin_get_stats' => ['Admin stats read failed', 'Unable to read admin statistics'],
+            'getQueue' => ['Admin queue read failed', 'Unable to read generation queue'],
+            'getQuotas' => ['Admin quota read failed', 'Unable to read user quotas'],
+            'getAuditLogs' => ['Admin audit log read failed', 'Unable to read audit logs'],
+            'exportAuditLogs' => ['Admin audit log export failed', 'Unable to export audit logs'],
+            'getAnalytics' => ['Admin analytics read failed', 'Unable to read admin analytics'],
+            'getHealth' => ['Admin health read failed', 'Unable to read system health'],
+        ] as $handler => [$logMessage, $responseMessage]) {
+            $body = $this->extractFunctionBody($source, $handler);
+            self::assertStringContainsString("error_log('" . $logMessage . ": ' . \$e->getMessage());", $body, $handler);
+            self::assertStringContainsString("'error' => '" . $responseMessage . "'", $body, $handler);
+            self::assertStringNotContainsString("'error' => \$e->getMessage()", $body, $handler);
+        }
+    }
+
+    private function extractFunctionBody(string $source, string $function): string
+    {
+        $start = strpos($source, 'function ' . $function . '(');
+        self::assertNotFalse($start, $function . ' function must exist.');
+        $nextFunction = strpos($source, "\nfunction ", $start + 1);
+        $end = $nextFunction === false ? strlen($source) : $nextFunction;
+        return substr($source, $start, $end - $start);
+    }
 }

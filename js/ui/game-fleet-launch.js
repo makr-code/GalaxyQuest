@@ -12,6 +12,7 @@ export function mountFleetCommandOverlay({ domain, fleets, session }) {
   const root = node('section');
   root.id = 'game-fleet-command';
   root.setAttribute('aria-label', 'Flottensteuerung');
+  root.tabIndex = -1;
   root.hidden = true;
   stage.append(root);
   let disposed = false;
@@ -20,6 +21,7 @@ export function mountFleetCommandOverlay({ domain, fleets, session }) {
   let draft = emptyDraft();
   let lastColony = session.getColony()?.id ?? null;
   let validationError = '';
+  let handoffNotice = '';
   function emptyDraft() {
     return { mission: 'transport', target_galaxy: '', target_system: '', target_position: '',
       ships: {}, cargo: { metal: '0', crystal: '0', deuterium: '0' } };
@@ -36,10 +38,18 @@ export function mountFleetCommandOverlay({ domain, fleets, session }) {
     document.getElementById('starfield')?.focus({ preventScroll: true });
   }
   function open() {
-    if (disposed) return;
+    if (disposed || !canChangeOrder()) return;
     root.hidden = false;
     void domain.load();
     render();
+    root.focus({ preventScroll: true });
+  }
+  function canChangeOrder() {
+    if (!domain.getState().mutating) return true;
+    handoffNotice = 'Flottenbefehl wird verarbeitet. Herkunft und Ziel können erst danach geändert werden.';
+    render();
+    root.focus({ preventScroll: true });
+    return false;
   }
   function render() {
     if (disposed) return;
@@ -68,6 +78,7 @@ export function mountFleetCommandOverlay({ domain, fleets, session }) {
       if (disposed || domain.getState().mutating) return;
       setPicking(!picking);
       render();
+      if (!picking) root.focus({ preventScroll: true });
     });
     content.append(pick);
     const target = draft.target_system
@@ -96,8 +107,9 @@ export function mountFleetCommandOverlay({ domain, fleets, session }) {
       session.events.emit('shipyard:open-requested', { colonyId: Number(colony.id) });
     });
     content.append(shipyard);
-    const status = node('p', validationError || state.error || (busy ? 'Serveranfrage läuft ...' : state.message));
-    status.setAttribute('role', validationError || state.error ? 'alert' : 'status');
+    const notice = state.mutating ? handoffNotice : '';
+    const status = node('p', validationError || state.error || notice || (busy ? 'Serveranfrage läuft ...' : state.message));
+    status.setAttribute('role', validationError || state.error || notice ? 'alert' : 'status');
     content.append(status);
     if (state.data?.transit) {
       const transit = state.data.transit;
@@ -172,6 +184,7 @@ export function mountFleetCommandOverlay({ domain, fleets, session }) {
       event.preventDefault();
       if (disposed || state.loading || state.mutating || !form.reportValidity()) return;
       validationError = '';
+      handoffNotice = '';
       try {
         await domain.command('send', { ...draft, cargo: { ...draft.cargo },
           ships: Object.fromEntries(Object.entries(draft.ships).filter(([, value]) => Number(value) !== 0)) });
@@ -212,6 +225,7 @@ export function mountFleetCommandOverlay({ domain, fleets, session }) {
     void fleets.load();
   });
   const unsubscribeTarget = session.events.on('fleet:target-requested', ({ galaxy, system, position }) => {
+    if (!canChangeOrder()) return;
     draft.target_galaxy = String(galaxy);
     draft.target_system = String(system);
     draft.target_position = String(position);
@@ -220,6 +234,7 @@ export function mountFleetCommandOverlay({ domain, fleets, session }) {
     open();
   });
   const unsubscribeOrigin = session.events.on('fleet:origin-requested', ({ colonyId }) => {
+    if (!canChangeOrder()) return;
     session.selectColony(colonyId);
     setPicking(false);
     open();
@@ -231,7 +246,7 @@ export function mountFleetCommandOverlay({ domain, fleets, session }) {
     if (event.key !== 'Escape' || root.hidden || disposed || (!picking && !root.contains(event.target))) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (picking) { setPicking(false); render(); }
+    if (picking) { setPicking(false); render(); root.focus({ preventScroll: true }); }
     else close();
   };
   document.addEventListener('click', openClick);

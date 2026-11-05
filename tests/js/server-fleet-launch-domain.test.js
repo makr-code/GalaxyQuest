@@ -146,6 +146,49 @@ describe('Canonical fleet composition and launch', () => {
     expect(domain.getState().error).toContain('Ungültiger Schiffsbestand');
     expect(domain.getState().data).toBeNull();
   });
+  it.each(['accepted', 'rejected', 'refresh'])('keeps pending map handoffs from changing the captured order (%s)', async (phase) => {
+    const accepted = phase !== 'rejected';
+    document.body.innerHTML = '<section id="wm-galaxy-section"></section><canvas id="starfield" tabindex="0"></canvas><button data-game-fleet-launch>Flotte</button>';
+    cleanup = mountFleetCommandOverlay({ domain, fleets: { load: vi.fn() }, session });
+    session.events.emit('fleet:target-requested', { galaxy: 2, system: 2000, position: 4 });
+    const root = document.getElementById('game-fleet-command');
+    await vi.waitFor(() => expect(root.textContent).toContain('small cargo'));
+    const input = root.querySelector('[aria-label="small cargo (4 verfügbar)"]');
+    input.value = '2';
+    input.dispatchEvent(new Event('input'));
+    let finish;
+    let reject;
+    api[phase === 'refresh' ? 'get' : 'post'].mockImplementationOnce(() => new Promise((resolve, fail) => {
+      finish = resolve;
+      reject = fail;
+    }));
+    root.querySelector('form').dispatchEvent(new Event('submit', { cancelable: true }));
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    expect(domain.getState().mutating).toBe(true);
+    api.get.mockClear();
+    session.events.emit('fleet:target-requested', { galaxy: 9, system: 99, position: 9 });
+    session.events.emit('fleet:origin-requested', { colonyId: 2 });
+    document.querySelector('[data-game-fleet-launch]').click();
+    expect(root.querySelector('[role="alert"]').textContent).toContain('erst danach geändert');
+    expect(session.getColony().id).toBe(1);
+    expect(root.querySelector('[aria-label="Zielsystem"]').value).toBe('2000');
+    expect(root.querySelector('[aria-label="small cargo (4 verfügbar)"]').value).toBe(phase === 'refresh' ? '0' : '2');
+    expect(document.activeElement).toBe(root);
+    expect(api.get).not.toHaveBeenCalled();
+    expect(api.post).toHaveBeenCalledOnce();
+    expect(api.post.mock.calls[0][1]).toMatchObject({ origin_colony_id: 1, target_system: 2000, ships: { small_cargo: 2 } });
+    if (accepted) finish(phase === 'refresh' ? overview() : { success: true });
+    else reject(new Error('Send rejected'));
+    await vi.waitFor(() => expect(domain.getState().mutating).toBe(false));
+    expect(root.textContent).not.toContain('erst danach geändert');
+    expect(root.querySelector('[aria-label="small cargo (4 verfügbar)"]').value).toBe(accepted ? '0' : '2');
+    if (!accepted) expect(root.querySelector('[role="alert"]').textContent).toContain('Send rejected');
+    session.events.emit('fleet:target-requested', { galaxy: 9, system: 99, position: 9 });
+    expect(root.querySelector('[aria-label="Zielsystem"]').value).toBe('99');
+    session.events.emit('fleet:origin-requested', { colonyId: 2 });
+    expect(session.getColony().id).toBe(2);
+    await vi.waitFor(() => expect(domain.getState().loading).toBe(false));
+  });
   it('prefills target without changing origin, preserves rejected draft and clears accepted composition even if refresh fails', async () => {
     document.body.innerHTML = '<section id="wm-galaxy-section"></section><canvas id="starfield" tabindex="0"></canvas>';
     const fleets = { load: vi.fn() };
@@ -153,6 +196,7 @@ describe('Canonical fleet composition and launch', () => {
     const root = document.getElementById('game-fleet-command');
     session.events.emit('fleet:target-requested', { galaxy: 2, system: 2000, position: 4 });
     await vi.waitFor(() => expect(root.textContent).toContain('small cargo'));
+    expect(document.activeElement).toBe(root);
     expect(session.getColony().id).toBe(1);
     expect(root.querySelector('img')).toBeNull();
     const input = (label) => root.querySelector(`[aria-label="${label}"]`);
@@ -171,6 +215,7 @@ describe('Canonical fleet composition and launch', () => {
     expect(picking).toHaveBeenLastCalledWith({ active: true });
     document.getElementById('starfield').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     expect(picking).toHaveBeenLastCalledWith({ active: false });
+    expect(document.activeElement).toBe(root);
     expect(input('Zielsystem').value).toBe('2000');
     expect(root.querySelector('form')).not.toBeNull();
     unsubscribePicking();
@@ -191,6 +236,12 @@ describe('Canonical fleet composition and launch', () => {
     expect(input('Fracht Metall').value).toBe('0');
     expect(input('Zielsystem').value).toBe('2000');
     expect(fleets.load).toHaveBeenCalledOnce();
+    root.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(root.hidden).toBe(true);
+    expect(document.activeElement).toBe(document.getElementById('starfield'));
+    session.events.emit('fleet:target-requested', { galaxy: 2, system: 2000, position: 4 });
+    expect(root.hidden).toBe(false);
+    expect(document.activeElement).toBe(root);
     session.selectColony(2);
     await vi.waitFor(() => expect(root.textContent).toContain('Herkunft: Other'));
     expect(input('Zielsystem').value).toBe('');

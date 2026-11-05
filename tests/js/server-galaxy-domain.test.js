@@ -4,6 +4,7 @@ import { createGalaxyDomain } from '../../js/engine/runtime/server-galaxy-domain
 import { mountGameGalaxy } from '../../js/ui/game-galaxy.js';
 import { createGameGalaxyRenderer } from '../../js/rendering/game-galaxy-renderer.js';
 import { PerspectiveSpaceFlight } from '../../js/rendering/perspective-space-flight.js';
+import { API } from '../../js/api.js';
 
 const star = { galaxy_index: 1, system_index: 10, name: '<img src=x>', x_ly: 10, y_ly: 15, z_ly: 2 };
 const systemPayload = (system = 10) => ({
@@ -63,6 +64,39 @@ describe('Authoritative galaxy playing field', () => {
     expect(api.get.mock.calls.filter(([url]) => url.includes('action=stars'))).toHaveLength(1);
     expect(domain.getState().stars.map((entry) => entry.system_index)).toEqual([10, 25]);
   });
+  it('replaces stale catalog coordinates with validated system data while preserving catalog metadata', async () => {
+    api.get.mockResolvedValueOnce({ success: true, galaxy: 1, stars: [{ ...star, faction_color: '#abcdef' }] });
+    await domain.overview();
+    const updated = systemPayload();
+    updated.star_system = { ...star, name: 'Updated star', x_ly: 200, y_ly: 300 };
+    api.get.mockResolvedValueOnce(updated);
+    await domain.home();
+    const current = domain.getState();
+    expect(current.stars).toEqual([{ ...updated.star_system, faction_color: '#abcdef' }]);
+    expect(current.selected).toEqual(current.stars[0]);
+    domain.select(star);
+    expect(domain.getState().selected).toEqual(current.selected);
+    expect(api.post).not.toHaveBeenCalled();
+    delete updated.star_system.x_ly;
+    api.get.mockResolvedValueOnce(updated);
+    await domain.home();
+    expect(domain.getState().error).toContain('Systemposition fehlt');
+    expect(domain.getState().stars).toEqual(current.stars);
+  });
+  it('never sends a second-stage system read after a superseded catalog response arrives late', async () => {
+    let finish;
+    api.get.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const old = domain.navigate(2, 25);
+    const signal = api.get.mock.calls[0][1].signal;
+    await domain.home();
+    const count = api.get.mock.calls.length;
+    expect(signal.aborted).toBe(true);
+    finish({ success: true, galaxy: 2, stars: [{ ...star, galaxy_index: 2 }] });
+    await old;
+    expect(api.get).toHaveBeenCalledTimes(count);
+    expect(api.get.mock.calls.some(([url]) => url.includes('system=25'))).toBe(false);
+    expect(domain.getState().system.system).toBe(10);
+  });
   it('follows colony selection but does not reload for same-colony HUD refresh', async () => {
     await domain.home();
     await session.refresh();
@@ -120,7 +154,7 @@ describe('Authoritative galaxy playing field', () => {
     const canvas = document.getElementById('starfield');
     const renderer = { getRenderStats: () => ({ backend: 'webgpu' }), setStars: vi.fn(), focusOnStar: vi.fn(),
       fitCameraToStars: vi.fn(), enterSystemView: vi.fn(), exitSystemView: vi.fn(), setGalaxyFleets: vi.fn(),
-      nudgeZoom: vi.fn(), resize: vi.fn(), destroy: vi.fn() };
+      setSpatialLabelMode: vi.fn(() => true), nudgeZoom: vi.fn(), resize: vi.fn(), destroy: vi.fn() };
     renderer.refreshColony = vi.fn();
     renderer.returnTo = vi.fn(async () => true);
     const factory = vi.fn().mockRejectedValueOnce(new Error('GPU unavailable')).mockResolvedValue(renderer);
@@ -131,6 +165,14 @@ describe('Authoritative galaxy playing field', () => {
     expect(document.querySelectorAll('canvas')).toHaveLength(1);
     [...document.querySelectorAll('button')].find((item) => item.textContent === '3D erneut starten').click();
     await vi.waitFor(() => expect(document.getElementById('game-renderer-status').textContent).toContain('webgpu'));
+    const badgeMode = document.getElementById('game-spatial-badges-dom-toggle');
+    expect(badgeMode.checked).toBe(false);
+    badgeMode.checked = true;
+    badgeMode.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(renderer.setSpatialLabelMode).toHaveBeenLastCalledWith('dom');
+    badgeMode.checked = false;
+    badgeMode.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(renderer.setSpatialLabelMode).toHaveBeenLastCalledWith('webgpu');
     await domain.home();
     const rendererOptions = factory.mock.calls.at(-1)[1];
     rendererOptions.onViewChange({ level: 'building', planetPosition: 3 });
@@ -183,6 +225,129 @@ describe('Authoritative galaxy playing field', () => {
     expect(document.getElementById('game-galaxy-ui')).toBeNull();
     cleanups.pop();
   });
+  it('shows system visualization toggles only in system view and applies their state', async () => {
+    const renderer = { getRenderStats: () => ({ backend: 'webgpu' }), setStars: vi.fn(),
+      fitCameraToStars: vi.fn(), enterSystemView: vi.fn(), exitSystemView: vi.fn(),
+      setGalaxyFleets: vi.fn(), setSystemVisualizationOptions: vi.fn(), destroy: vi.fn() };
+    const factory = vi.fn().mockResolvedValue(renderer);
+    cleanups.push(mountGameGalaxy({ session, domain, createRenderer: factory }));
+    window.dispatchEvent(new CustomEvent('gq:authenticated'));
+    await vi.waitFor(() => expect(window.galaxy3d).toBe(renderer));
+
+    const controls = document.getElementById('game-system-visualizations');
+    const orbits = document.getElementById('game-system-orbits-toggle');
+    const planes = document.getElementById('game-system-planes-toggle');
+    const distanceLine = document.getElementById('game-system-distance-line-toggle');
+    const apsides = document.getElementById('game-system-apsides-toggle');
+    const phaseArc = document.getElementById('game-system-phase-arc-toggle');
+    const selection = document.getElementById('game-system-selection-toggle');
+    expect(controls.hidden).toBe(true);
+    expect(orbits.checked).toBe(true);
+    expect(planes.checked).toBe(false);
+    expect(distanceLine.checked).toBe(false);
+    expect(apsides.checked).toBe(false);
+    expect(phaseArc.checked).toBe(false);
+    expect(selection.checked).toBe(true);
+    expect(renderer.setSystemVisualizationOptions).toHaveBeenCalledWith({
+      orbits: true, planes: false, distanceLine: false, apsides: false, phaseArc: false, selection: true,
+    });
+
+    factory.mock.calls.at(-1)[1].onViewChange({ level: 'system', planetPosition: null });
+    expect(controls.hidden).toBe(false);
+    orbits.click();
+    expect(renderer.setSystemVisualizationOptions).toHaveBeenLastCalledWith({
+      orbits: false, planes: false, distanceLine: false, apsides: false, phaseArc: false, selection: true,
+    });
+    planes.click();
+    expect(renderer.setSystemVisualizationOptions).toHaveBeenLastCalledWith({
+      orbits: false, planes: true, distanceLine: false, apsides: false, phaseArc: false, selection: true,
+    });
+    distanceLine.click();
+    expect(renderer.setSystemVisualizationOptions).toHaveBeenLastCalledWith({
+      orbits: false, planes: true, distanceLine: true, apsides: false, phaseArc: false, selection: true,
+    });
+    apsides.click();
+    expect(renderer.setSystemVisualizationOptions).toHaveBeenLastCalledWith({
+      orbits: false, planes: true, distanceLine: true, apsides: true, phaseArc: false, selection: true,
+    });
+    selection.click();
+    expect(renderer.setSystemVisualizationOptions).toHaveBeenLastCalledWith({
+      orbits: false, planes: true, distanceLine: true, apsides: true, phaseArc: false, selection: false,
+    });
+
+    factory.mock.calls.at(-1)[1].onViewChange({ level: 'planet', planetPosition: 3 });
+    expect(controls.hidden).toBe(true);
+  });
+  it('shows a clearly marked estimated stellar distance when the measurement line is enabled', async () => {
+    const renderer = { getRenderStats: () => ({ backend: 'webgpu' }), setStars: vi.fn(),
+      fitCameraToStars: vi.fn(), enterSystemView: vi.fn(), exitSystemView: vi.fn(),
+      setGalaxyFleets: vi.fn(), setSystemVisualizationOptions: vi.fn(), destroy: vi.fn() };
+    const factory = vi.fn().mockResolvedValue(renderer);
+    cleanups.push(mountGameGalaxy({ session, domain, createRenderer: factory }));
+    window.dispatchEvent(new CustomEvent('gq:authenticated'));
+    await vi.waitFor(() => expect(window.galaxy3d).toBe(renderer));
+    await domain.home();
+
+    const options = factory.mock.calls.at(-1)[1];
+    options.onViewChange({ level: 'system', planetPosition: null });
+    options.onClick({ __kind: 'planet', position: 3 });
+    const readout = document.getElementById('game-planet-distance');
+    expect(readout.hidden).toBe(true);
+
+    document.getElementById('game-system-distance-line-toggle').click();
+    expect(readout.hidden).toBe(false);
+    expect(readout.textContent).toMatch(/^Sternabstand: \d.* AU · schematisch geschätzt$/);
+
+    options.onViewChange({ level: 'planet', planetPosition: 3 });
+    expect(readout.hidden).toBe(true);
+  });
+  it('shows estimated periapsis and apoapsis measurements when the extrema helper is enabled', async () => {
+    const renderer = { getRenderStats: () => ({ backend: 'webgpu' }), setStars: vi.fn(),
+      fitCameraToStars: vi.fn(), enterSystemView: vi.fn(), exitSystemView: vi.fn(),
+      setGalaxyFleets: vi.fn(), setSystemVisualizationOptions: vi.fn(), destroy: vi.fn() };
+    const factory = vi.fn().mockResolvedValue(renderer);
+    cleanups.push(mountGameGalaxy({ session, domain, createRenderer: factory }));
+    window.dispatchEvent(new CustomEvent('gq:authenticated'));
+    await vi.waitFor(() => expect(window.galaxy3d).toBe(renderer));
+    await domain.home();
+
+    const options = factory.mock.calls.at(-1)[1];
+    options.onViewChange({ level: 'system', planetPosition: null });
+    options.onClick({ __kind: 'planet', position: 3 });
+    const readout = document.getElementById('game-planet-distance');
+    expect(readout.hidden).toBe(true);
+
+    document.getElementById('game-system-apsides-toggle').click();
+    expect(readout.hidden).toBe(false);
+    expect(readout.textContent).toMatch(
+      /^Periapsis \(grün, nächster Punkt\): 3 AU · Apoapsis \(orange gestrichelt, fernster Punkt\): 3 AU · schematisch geschätzt$/,
+    );
+
+    options.onViewChange({ level: 'planet', planetPosition: 3 });
+    expect(readout.hidden).toBe(true);
+  });
+  it('labels estimated orbital phase when the phase arc helper is enabled', async () => {
+    const renderer = { getRenderStats: () => ({ backend: 'webgpu' }), setStars: vi.fn(),
+      fitCameraToStars: vi.fn(), enterSystemView: vi.fn(), exitSystemView: vi.fn(),
+      setGalaxyFleets: vi.fn(), setSystemVisualizationOptions: vi.fn(), destroy: vi.fn() };
+    const factory = vi.fn().mockResolvedValue(renderer);
+    cleanups.push(mountGameGalaxy({ session, domain, createRenderer: factory }));
+    window.dispatchEvent(new CustomEvent('gq:authenticated'));
+    await vi.waitFor(() => expect(window.galaxy3d).toBe(renderer));
+    await domain.home();
+
+    const options = factory.mock.calls.at(-1)[1];
+    options.onViewChange({ level: 'system', planetPosition: null });
+    options.onClick({ __kind: 'planet', position: 3 });
+    const readout = document.getElementById('game-planet-distance');
+    document.getElementById('game-system-phase-arc-toggle').click();
+
+    expect(readout.hidden).toBe(false);
+    expect(readout.textContent).toBe('Phasenbogen: Periapsis bis Planetenposition · Position schematisch geschätzt');
+    expect(renderer.setSystemVisualizationOptions).toHaveBeenLastCalledWith({
+      orbits: true, planes: false, distanceLine: false, apsides: false, phaseArc: true, selection: true,
+    });
+  });
   it('uses the menu renderer and same device, clears player scene on return, and removes controls', async () => {
     const space = new PerspectiveSpaceFlight();
     const canvas = document.getElementById('starfield');
@@ -190,6 +355,7 @@ describe('Authoritative galaxy playing field', () => {
       renderer: { domElement: canvas }, getSpaceView: () => space,
       setFlightScene: vi.fn((scene) => { if (scene.sceneGraph) return space.setSystem(scene); return true; }),
       setStars: vi.fn(), setSpatialLabelStars: vi.fn(), cancelCameraFlight: vi.fn(),
+      setSystemVisualizationOptions: vi.fn(() => true),
       setGalaxyFleets: vi.fn(), resize: vi.fn(), getRenderStats: () => ({ backend: 'webgpu', frameTick: 20 }),
       getSharedZoomBackend: () => ({ addFrameHook: vi.fn(() => vi.fn()) }),
     };
@@ -200,13 +366,155 @@ describe('Authoritative galaxy playing field', () => {
     adapter.setStars([star]);
     expect(raw.setStars.mock.calls[0][0]).toHaveLength(2);
     expect(raw.setSpatialLabelStars).toHaveBeenCalledWith([star]);
+    expect(adapter.setSystemVisualizationOptions({ orbits: false, selection: true })).toBe(true);
+    expect(raw.setSystemVisualizationOptions).toHaveBeenCalledWith({ orbits: false, selection: true });
     adapter.enterSystemView(star, systemPayload());
     expect(space.bodies.filter((body) => body.userData.type === 'planet')).toHaveLength(2);
     adapter.exitSystemView();
     expect(space.bodies).toHaveLength(0);
     adapter.destroy();
+    adapter.destroy();
     expect(control.returnToMenu).toHaveBeenCalledOnce();
     space.dispose();
+  });
+  it('updates changed system contents with the same timestamp and leaves identical snapshots alone', async () => {
+    const renderer = { getRenderStats: () => ({ backend: 'webgpu' }), setStars: vi.fn(),
+      fitCameraToStars: vi.fn(), enterSystemView: vi.fn(), exitSystemView: vi.fn(),
+      setGalaxyFleets: vi.fn(), resize: vi.fn(), destroy: vi.fn() };
+    const factory = vi.fn().mockResolvedValue(renderer);
+    cleanups.push(mountGameGalaxy({ session, domain, createRenderer: factory }));
+    window.dispatchEvent(new CustomEvent('gq:authenticated'));
+    await vi.waitFor(() => expect(window.galaxy3d).toBe(renderer));
+    await domain.home();
+    renderer.enterSystemView.mockClear();
+    renderer.fitCameraToStars.mockClear();
+    const changed = systemPayload();
+    changed.planets[0].player_planet.name = 'Updated home';
+    changed.planets.push({ position: 5, generated_planet: { position: 5, name: 'New planet' } });
+    const original = api.get.getMockImplementation();
+    api.get.mockImplementation(async (url) => url.includes('game.php') ? original(url)
+      : url.includes('action=stars') ? { success: true, galaxy: 1, stars: [star] } : structuredClone(changed));
+    await domain.refresh();
+    expect(renderer.enterSystemView).toHaveBeenCalledExactlyOnceWith(star, changed);
+    expect(document.getElementById('game-galaxy-selection').textContent).toContain('Updated home');
+    await domain.refresh();
+    await session.refresh();
+    expect(renderer.enterSystemView).toHaveBeenCalledOnce();
+    expect(renderer.fitCameraToStars).not.toHaveBeenCalled();
+    changed.planets = [];
+    await domain.refresh();
+    expect(renderer.enterSystemView).toHaveBeenCalledTimes(2);
+    expect(renderer.enterSystemView.mock.lastCall[1].planets).toEqual([]);
+  });
+  it('rolls back a partially synchronized renderer and retries with the current canonical system', async () => {
+    await domain.home();
+    const makeRenderer = () => ({
+      getRenderStats: () => ({ backend: 'webgpu' }), setStars: vi.fn(),
+      fitCameraToStars: vi.fn(), enterSystemView: vi.fn(), exitSystemView: vi.fn(),
+      setGalaxyFleets: vi.fn(), resize: vi.fn(), destroy: vi.fn(),
+    });
+    const failed = makeRenderer();
+    failed.setGalaxyFleets.mockImplementation(() => { throw new Error('Scene synchronization failed'); });
+    const recovered = makeRenderer();
+    const factory = vi.fn().mockResolvedValueOnce(failed).mockResolvedValue(recovered);
+    cleanups.push(mountGameGalaxy({ session, domain, createRenderer: factory }));
+    window.dispatchEvent(new CustomEvent('gq:authenticated'));
+    const status = document.getElementById('game-renderer-status');
+    await vi.waitFor(() => expect(status.textContent).toBe('Scene synchronization failed'));
+    expect(status.hidden).toBe(false);
+    expect(failed.destroy).toHaveBeenCalledOnce();
+    expect(window.galaxy3d).not.toBe(failed);
+    const stale = factory.mock.calls[0][1];
+    stale.onViewChange({ level: 'planet', planetPosition: 3 });
+    stale.onError(new Error('Late obsolete error'));
+    stale.onClick(star);
+    expect(status.textContent).toBe('Scene synchronization failed');
+    expect(document.getElementById('game-camera-path').hidden).toBe(true);
+    await domain.navigate(1, 20);
+    const reads = api.get.mock.calls.length;
+    let finish;
+    factory.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const retry = [...document.querySelectorAll('button')].find((item) => item.textContent === '3D erneut starten');
+    retry.click();
+    expect(retry.disabled).toBe(true);
+    expect(status.getAttribute('role')).toBe('status');
+    retry.dispatchEvent(new MouseEvent('click'));
+    expect(factory).toHaveBeenCalledTimes(2);
+    finish(recovered);
+    await vi.waitFor(() => expect(window.galaxy3d).toBe(recovered));
+    expect(recovered.setStars).toHaveBeenCalledOnce();
+    expect(recovered.enterSystemView).toHaveBeenCalledWith(
+      expect.objectContaining({ system_index: 20 }), expect.objectContaining({ system: 20 }));
+    expect(api.get).toHaveBeenCalledTimes(reads);
+    stale.onError(new Error('Late obsolete error'));
+    stale.onOverview();
+    expect(status.textContent).toBe('3D aktiv: webgpu');
+    expect(domain.getState().system.system).toBe(20);
+    expect(document.querySelectorAll('canvas')).toHaveLength(1);
+  });
+
+  it('disposes late initialization after logout without publishing a renderer or accepting callbacks', async () => {
+    let finish;
+    const factory = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
+    const unmount = mountGameGalaxy({ session, domain, createRenderer: factory });
+    window.dispatchEvent(new CustomEvent('gq:authenticated'));
+    await vi.waitFor(() => expect(factory).toHaveBeenCalledOnce());
+    const callbacks = factory.mock.calls[0][1];
+    unmount();
+    const destroy = vi.fn();
+    finish({ destroy });
+    await vi.waitFor(() => expect(destroy).toHaveBeenCalledOnce());
+    const reads = api.get.mock.calls.length;
+    callbacks.onError(new Error('Late error'));
+    callbacks.onViewChange({ level: 'colony', planetPosition: 3 });
+    callbacks.onDoubleClick(star);
+    callbacks.onOverview();
+    expect(api.get).toHaveBeenCalledTimes(reads);
+    expect(callbacks.signal.aborted).toBe(true);
+    expect(document.getElementById('game-galaxy-ui')).toBeNull();
+    expect(window.galaxy3d).toBeUndefined();
+  });
+  it('keeps independent scene errors through camera movement and clears only recovered contexts', async () => {
+    const renderer = { getRenderStats: () => ({ backend: 'webgpu' }), setStars: vi.fn(),
+      fitCameraToStars: vi.fn(), enterSystemView: vi.fn(), exitSystemView: vi.fn(),
+      setGalaxyFleets: vi.fn(), resize: vi.fn(), destroy: vi.fn() };
+    const factory = vi.fn().mockResolvedValue(renderer);
+    cleanups.push(mountGameGalaxy({ session, domain, createRenderer: factory }));
+    window.dispatchEvent(new CustomEvent('gq:authenticated'));
+    await vi.waitFor(() => expect(window.galaxy3d).toBe(renderer));
+    const callbacks = factory.mock.calls[0][1];
+    const get = vi.spyOn(API, 'get').mockResolvedValue({ success: true, buildings: [] });
+    try {
+      const data = { focusPlanet: {}, systemPayload: { galaxy: 1, system: 10 } };
+      const first = await callbacks.loadColonyData(3, data);
+      callbacks.onViewChange({ level: 'colony', planetPosition: 3 });
+      first.onError(new Error('Snapshot unavailable'));
+      callbacks.onViewChange({ level: 'colony', planetPosition: 3 });
+      const status = document.getElementById('game-renderer-status');
+      expect(status.hidden).toBe(false);
+      expect(status.getAttribute('role')).toBe('alert');
+      expect(status.textContent).toBe('Snapshot unavailable');
+      callbacks.onError(new Error('Camera operation failed'));
+      first.onSnapshotLoaded();
+      expect(status.hidden).toBe(false);
+      expect(status.textContent).toBe('Camera operation failed');
+      first.onError(new Error('Snapshot unavailable again'));
+      callbacks.onViewChange({ level: 'building', planetPosition: 3 });
+      expect(status.hidden).toBe(false);
+      expect(status.textContent).toBe('Snapshot unavailable again');
+      const second = await callbacks.loadColonyData(3, data);
+      second.onError(new Error('Current snapshot failed'));
+      first.onSnapshotLoaded();
+      first.onError(new Error('Late obsolete snapshot'));
+      expect(status.textContent).toBe('Current snapshot failed');
+      callbacks.onViewChange({ level: 'planet', planetPosition: 3 });
+      expect(status.hidden).toBe(true);
+      second.onError(new Error('Late departed snapshot'));
+      expect(status.hidden).toBe(true);
+      expect(status.getAttribute('role')).toBe('status');
+    } finally {
+      get.mockRestore();
+    }
   });
   it('connects canonical planet context to canvas selection and gates private actions to owned colonies', async () => {
     const renderer = { getRenderStats: () => ({ backend: 'webgpu' }), setStars: vi.fn(),

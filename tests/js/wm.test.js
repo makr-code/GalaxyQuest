@@ -111,6 +111,79 @@ describe('WM lifecycle', () => {
     }
   });
 
+  it('selects background windows and restores drafts without rendering, but minimizes the active task', () => {
+    const WM = loadWmScript();
+    const render = vi.fn((root) => { root.innerHTML = '<input value="4.5">'; });
+    for (const id of ['task_first', 'task_second']) {
+      WM.register(id, { title: id, w: 360, h: 200, onRender: render });
+      WM.open(id);
+    }
+    const first = document.getElementById('wm-win-task_first');
+    const firstTask = document.getElementById('wm-task-task_first');
+    const secondTask = document.getElementById('wm-task-task_second');
+    const input = first.querySelector('input');
+    input.value = '7.25';
+    expect(firstTask.getAttribute('aria-controls')).toBe(first.id);
+    expect(firstTask.getAttribute('aria-pressed')).toBe('false');
+    expect(secondTask.getAttribute('aria-pressed')).toBe('true');
+    expect(firstTask.title).toContain('Fokus');
+    firstTask.click();
+    expect(WM.isMinimized('task_first')).toBe(false);
+    expect(first.classList.contains('wm-focused')).toBe(true);
+    expect(firstTask.getAttribute('aria-pressed')).toBe('true');
+    expect(secondTask.getAttribute('aria-pressed')).toBe('false');
+    firstTask.click();
+    expect(WM.isMinimized('task_first')).toBe(true);
+    expect(first.classList.contains('wm-focused')).toBe(false);
+    expect(firstTask.getAttribute('aria-pressed')).toBe('false');
+    expect(firstTask.title).toContain('Wiederherstellen');
+    firstTask.click();
+    expect(WM.isMinimized('task_first')).toBe(false);
+    expect(first.classList.contains('wm-focused')).toBe(true);
+    expect(first.querySelector('input')).toBe(input);
+    expect(input.value).toBe('7.25');
+    expect(render).toHaveBeenCalledTimes(2);
+    WM.setTitle('task_first', 'Changed');
+    expect(firstTask.title).toBe('Changed: Minimieren');
+    WM.close('task_first');
+    expect(document.getElementById('wm-task-task_first')).toBeNull();
+  });
+
+  it('preserves task multi-selection without minimizing or focusing another window', () => {
+    const WM = loadWmScript();
+    for (const id of ['task_first', 'task_second']) {
+      WM.register(id, { title: id, w: 360, h: 200 });
+      WM.open(id);
+    }
+    const task = document.getElementById('wm-task-task_first');
+    for (const modifier of ['ctrlKey', 'metaKey']) {
+      task.dispatchEvent(new MouseEvent('click', { bubbles: true, [modifier]: true }));
+      expect(WM.isMinimized('task_first')).toBe(false);
+      expect(task.getAttribute('aria-pressed')).toBe('false');
+      expect(document.getElementById('wm-task-task_second').getAttribute('aria-pressed')).toBe('true');
+    }
+  });
+
+  it('reveals an inactive grouped window through its task instead of minimizing a hidden tab', () => {
+    const WM = loadWmScript();
+    const render = vi.fn();
+    for (const id of ['task_first', 'task_second']) {
+      WM.register(id, { title: id, w: 360, h: 200, onRender: render });
+      WM.open(id);
+    }
+    const group = WM.createDockGroup(['task_first', 'task_second']);
+    const second = document.getElementById('wm-win-task_second');
+    const task = document.getElementById('wm-task-task_second');
+    expect(second.classList.contains('wm-dock-group-hidden')).toBe(true);
+    expect(task.getAttribute('aria-pressed')).toBe('false');
+    task.click();
+    expect(WM.listDockGroups().find((item) => item.id === group).activeId).toBe('task_second');
+    expect(second.classList.contains('wm-dock-group-hidden')).toBe(false);
+    expect(WM.isMinimized('task_second')).toBe(false);
+    expect(task.getAttribute('aria-pressed')).toBe('true');
+    expect(render).toHaveBeenCalledTimes(2);
+  });
+
   it('minimap window registers and opens with canvas body', () => {
     const WM = loadWmScript();
 

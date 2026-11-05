@@ -53,6 +53,11 @@ describe('Shared galaxy camera controls', () => {
     raw = {
       renderer: { domElement: canvas }, getSpaceView: () => space,
       setFlightScene: vi.fn((scene) => scene.sceneGraph ? space.setSystem(scene) : true),
+      setFlightSelection: vi.fn(),
+      setFlightHover: vi.fn(),
+      setSystemVisualizationOptions: vi.fn(() => true),
+      setSpatialLabelMode: vi.fn((mode) => mode === 'dom' || mode === 'webgpu'),
+      setSpatialLabelCallbacks: vi.fn(),
       setStars: vi.fn(), setSpatialLabelStars: vi.fn(), cancelCameraFlight: vi.fn(() => space.stop()),
       setGalaxyFleets: vi.fn((fleets) => space.setGalaxyFleets(fleets)), getRenderStats: () => ({ backend: 'webgpu' }),
       getSharedZoomBackend: () => ({ addFrameHook: (hook) => {
@@ -111,6 +116,10 @@ describe('Shared galaxy camera controls', () => {
       key: '1:10:*', fleetIds: [7, 8], position: null, x: expect.any(Number), y: expect.any(Number),
     })]);
     adapter.enterSystemView(star, payload);
+    [...frameHooks].forEach((hook) => hook(1 / 60));
+    expect(onProjection.mock.lastCall[0]).toEqual([expect.objectContaining({
+      key: '1:10:3', fleetIds: [7, 8], position: 3,
+    })]);
     advanceFlight();
     expect(onProjection.mock.lastCall[0]).toEqual([expect.objectContaining({
       key: '1:10:3', fleetIds: [7, 8], position: 3,
@@ -129,6 +138,100 @@ describe('Shared galaxy camera controls', () => {
     adapter.observeFleetEndpoints(() => [mission], onProjection);
     adapter.destroy();
     expect(frameHooks.size).toBe(0);
+  });
+  it('switches spatial labels and routes HTML badge activation through existing galaxy actions', () => {
+    expect(adapter.setSpatialLabelMode('dom')).toBe(true);
+    expect(raw.setSpatialLabelMode).toHaveBeenCalledWith('dom');
+    const callbacks = raw.setSpatialLabelCallbacks.mock.calls[0][0];
+    callbacks.onActivate({ kind: 'system', data: star });
+    expect(options.onClick).toHaveBeenCalledExactlyOnceWith(star);
+    callbacks.onDoubleActivate({ kind: 'system', data: star });
+    expect(options.onDoubleClick).toHaveBeenCalledExactlyOnceWith(star);
+
+    adapter.enterSystemView(star, payload);
+    callbacks.onActivate({ kind: 'planet', data: { position: 3, name: 'Home' } });
+    expect(options.onClick).toHaveBeenLastCalledWith({ position: 3, name: 'Home', __kind: 'planet' });
+  });
+  it('opens a system badge even while another system payload is still loaded', () => {
+    adapter.enterSystemView(star, payload);
+    const callbacks = raw.setSpatialLabelCallbacks.mock.calls[0][0];
+    const nextStar = { ...star, system_index: 20 };
+    callbacks.onDoubleActivate({ kind: 'system', data: nextStar });
+    expect(options.onDoubleClick).toHaveBeenCalledExactlyOnceWith(nextStar);
+  });
+  it('uses the loaded planet habitation state for repeated badge navigation into a colony', async () => {
+    adapter.enterSystemView(star, payload);
+    const callbacks = raw.setSpatialLabelCallbacks.mock.calls[0][0];
+    const label = { kind: 'planet', data: { position: 3, name: 'Home' } };
+    callbacks.onDoubleActivate(label);
+    await vi.waitFor(() => expect(state().level).toBe('planet'));
+    callbacks.onDoubleActivate(label);
+    await vi.waitFor(() => expect(state().level).toBe('colony'));
+    expect(options.loadColonyData).toHaveBeenCalledOnce();
+    expect(options.onError).not.toHaveBeenCalled();
+  });
+  it('sets and clears the system planet selection marker from canvas clicks', () => {
+    adapter.enterSystemView(star, payload);
+    advanceFlight();
+
+    const body = space.bodies.find((entry) => entry.userData.data.position === 3);
+    const projected = body.getWorldPosition(new Vector3()).project(space.camera);
+    const x = (projected.x + 1) * 400;
+    const y = (1 - projected.y) * 300;
+    pointer('pointerdown', x, y);
+    pointer('pointerup', x, y);
+    expect(raw.setFlightSelection).toHaveBeenLastCalledWith({ kind: 'planet', position: 3 });
+
+    pointer('pointerdown', 0, 0);
+    pointer('pointerup', 0, 0);
+    expect(raw.setFlightSelection).toHaveBeenLastCalledWith(null);
+  });
+  it('navigates from system to an owned colony using only double-clicks', async () => {
+    adapter.enterSystemView(star, payload);
+    advanceFlight();
+    const body = space.bodies.find((entry) => entry.userData.data.position === 3);
+    const doubleClickPlanet = () => {
+      const projected = body.getWorldPosition(new Vector3()).project(space.camera);
+      canvas.dispatchEvent(new MouseEvent('dblclick', {
+        clientX: (projected.x + 1) * 400,
+        clientY: (1 - projected.y) * 300,
+        button: 0,
+        bubbles: true,
+      }));
+    };
+
+    doubleClickPlanet();
+    expect(state()).toMatchObject({ level: 'planet', planetPosition: 3 });
+    await vi.waitFor(() => expect(state().level).toBe('planet'));
+
+    doubleClickPlanet();
+    await vi.waitFor(() => expect(state().level).toBe('colony'));
+    expect(options.loadColonyData).toHaveBeenCalledOnce();
+    expect(options.loadColonyData).toHaveBeenCalledWith(
+      3, expect.objectContaining({ systemPayload: expect.any(Object) }), expect.any(AbortSignal),
+    );
+  });
+  it('shows a hover marker over system planets and clears it on leave or click', () => {
+    adapter.enterSystemView(star, payload);
+    advanceFlight();
+
+    const body = space.bodies.find((entry) => entry.userData.data.position === 3);
+    const projected = body.getWorldPosition(new Vector3()).project(space.camera);
+    const x = (projected.x + 1) * 400;
+    const y = (1 - projected.y) * 300;
+    pointer('pointermove', x, y);
+    expect(raw.setFlightHover).toHaveBeenLastCalledWith({ kind: 'planet', position: 3 });
+
+    canvas.dispatchEvent(new Event('pointerleave'));
+    expect(raw.setFlightHover).toHaveBeenLastCalledWith(null);
+    pointer('pointermove', x, y);
+    pointer('pointerdown', x, y);
+    pointer('pointerup', x, y);
+    expect(raw.setFlightHover).toHaveBeenLastCalledWith(null);
+  });
+  it('forwards visualization options to the shared renderer', () => {
+    expect(adapter.setSystemVisualizationOptions({ orbits: false, selection: true })).toBe(true);
+    expect(raw.setSystemVisualizationOptions).toHaveBeenCalledWith({ orbits: false, selection: true });
   });
   it('orbits with one touch and pans/pinches with two without selecting on release', () => {
     const start = state();
@@ -283,6 +386,50 @@ describe('Shared galaxy camera controls', () => {
     adapter.exitSystemView();
     adapter.fitCameraToStars();
     expect(state().level).toBe('galaxy');
+  });
+  it('returns to the system and disposes a removed focused planet instead of retaining a stale approach', async () => {
+    adapter.enterSystemView(star, payload);
+    adapter.focusPlanet(3);
+    await vi.waitFor(() => expect(options.createZoomRuntime).toHaveBeenCalledOnce());
+    const runtime = await options.createZoomRuntime.mock.results[0].value;
+    adapter.enterSystemView(star, { ...payload, planets: [payload.planets[1]] });
+    expect(state()).toMatchObject({ level: 'system', planetPosition: null });
+    expect(runtime.dispose).toHaveBeenCalledOnce();
+    expect(state().position.every(Number.isFinite)).toBe(true);
+    expect(adapter.focusPlanet(3)).toBe(false);
+    expect(options.onOverview).not.toHaveBeenCalled();
+  });
+  it('leaves a removed visible colony but retains valid focused planets on canonical refresh', async () => {
+    adapter.enterSystemView(star, payload);
+    adapter.focusColony(3);
+    await vi.waitFor(() => expect(state().level).toBe('colony'));
+    const runtime = await options.createZoomRuntime.mock.results[0].value;
+    adapter.enterSystemView(star, { ...payload, planets: structuredClone(payload.planets) });
+    expect(state().level).toBe('colony');
+    expect(runtime.dispose).not.toHaveBeenCalled();
+    adapter.enterSystemView(star, { ...payload, planets: [
+      { position: 3, generated_planet: { position: 3, name: 'No visible colony', diameter_km: 12000, semi_major_axis_au: 1 } },
+      payload.planets[1],
+    ] });
+    expect(state()).toMatchObject({ level: 'system', planetPosition: null });
+    expect(runtime.dispose).toHaveBeenCalledOnce();
+    expect(options.onError).not.toHaveBeenCalled();
+  });
+  it('cancels a pending colony entry when its planet disappears during the server read', async () => {
+    adapter.enterSystemView(star, payload);
+    let finish;
+    options.loadColonyData.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    adapter.focusColony(3);
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    const signal = options.loadColonyData.mock.calls[0][2];
+    const runtime = await options.createZoomRuntime.mock.results[0].value;
+    adapter.enterSystemView(star, { ...payload, planets: [] });
+    expect(signal.aborted).toBe(true);
+    expect(runtime.dispose).toHaveBeenCalledOnce();
+    finish({ colony: { id: 1 } });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(state()).toMatchObject({ level: 'system', planetPosition: null });
   });
   it('enters the full colony renderer by inward zoom and delegates surface return controls', async () => {
     adapter.enterSystemView(star, payload);

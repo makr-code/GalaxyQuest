@@ -41,8 +41,17 @@ const LABEL_COLORS = {
 };
 
 export class SpatialLabelRenderer {
-  constructor({ canvasFactory = () => document.createElement('canvas') } = {}) {
+  constructor({ canvasFactory = () => document.createElement('canvas'), canvas = null } = {}) {
     this.canvasFactory = canvasFactory;
+    this.canvas = null;
+    this.overlay = null;
+    this.domBadges = new Map();
+    this.badgeLabels = new WeakMap();
+    this.hoveredBadge = null;
+    this.focusedBadge = null;
+    this.activeBadge = null;
+    this.mode = 'webgpu';
+    this.callbacks = {};
     this.atlasCanvas = null;
     this.atlasContext = null;
     this.texture = null;
@@ -54,6 +63,53 @@ export class SpatialLabelRenderer {
     this.cacheKey = '';
     this.atlasDirty = false;
     this.currentLabels = [];
+    if (canvas) this.attachCanvas(canvas);
+  }
+
+  attachCanvas(canvas) {
+    if (!canvas?.parentElement || this.canvas === canvas) return false;
+    this._hideOverlay();
+    this.overlay?.remove();
+    this.canvas = canvas;
+    this.overlay = document.createElement('div');
+    this.overlay.className = 'gq-spatial-label-overlay';
+    this.overlay.setAttribute('aria-label', 'Interaktive räumliche Beschriftungen');
+    this.overlay.hidden = this.mode !== 'dom';
+    canvas.parentElement.append(this.overlay);
+    this.domBadges.clear();
+    return true;
+  }
+
+  setMode(mode) {
+    if (mode !== 'webgpu' && mode !== 'dom') return false;
+    this.mode = mode;
+    if (mode === 'webgpu') this._hideOverlay();
+    else if (this.overlay) this.overlay.hidden = this.domBadges.size === 0;
+    return true;
+  }
+
+  _hideOverlay() {
+    if (!this.overlay) return;
+    this.hoveredBadge = null;
+    this.focusedBadge = null;
+    this._syncHover();
+    if (this.overlay.contains(document.activeElement)) this.canvas?.focus({ preventScroll: true });
+    this.overlay.hidden = true;
+  }
+
+  _syncHover() {
+    const badge = this.hoveredBadge || this.focusedBadge;
+    if (badge === this.activeBadge) return;
+    this.activeBadge = badge;
+    this.callbacks.onHover?.(badge ? this.badgeLabels.get(badge) : null);
+  }
+
+  setCallbacks(callbacks = {}) {
+    this.callbacks = {
+      onActivate: typeof callbacks.onActivate === 'function' ? callbacks.onActivate : null,
+      onDoubleActivate: typeof callbacks.onDoubleActivate === 'function' ? callbacks.onDoubleActivate : null,
+      onHover: typeof callbacks.onHover === 'function' ? callbacks.onHover : null,
+    };
   }
 
   async initialize(device, format) {
@@ -165,6 +221,11 @@ export class SpatialLabelRenderer {
 
   render(pass, device, labels, { width, height }) {
     this.currentLabels = labels.slice(0, MAX_LABELS);
+    if (this.mode === 'dom') {
+      this._renderDom(this.currentLabels, width, height);
+      return;
+    }
+    this._hideOverlay();
     if (!this.pipeline || !this.currentLabels.length || width <= 0 || height <= 0) return;
     const active = this._updateAtlas(this.currentLabels);
     if (this.atlasDirty) {
@@ -202,6 +263,118 @@ export class SpatialLabelRenderer {
     pass.draw(6, active.length, 0, 0);
   }
 
+  _renderDom(labels, width, height) {
+    if (!this.overlay || !this.canvas) return;
+    if (width <= 0 || height <= 0) {
+      this._hideOverlay();
+      return;
+    }
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      this._hideOverlay();
+      return;
+    }
+    this.overlay.hidden = false;
+    const scaleX = rect.width / width;
+    const scaleY = rect.height / height;
+    const activeIds = new Set();
+    for (const label of labels) {
+      const id = String(label.id || '');
+      if (!id) continue;
+      activeIds.add(id);
+      let badge = this.domBadges.get(id);
+      const labelText = String(label.text || '');
+      const detailText = String(label.detail || '');
+      const ariaLabel = detailText ? `${labelText}: ${detailText}` : labelText || 'Objekt';
+      if (!badge) {
+        badge = document.createElement('button');
+        badge.type = 'button';
+        badge.className = 'gq-spatial-label';
+        badge.dataset.labelId = id;
+        const title = document.createElement('span');
+        title.className = 'gq-spatial-label-title';
+        const detail = document.createElement('span');
+        detail.className = 'gq-spatial-label-detail';
+        badge.append(title, detail);
+        badge.setAttribute('aria-keyshortcuts', 'Shift+Enter Escape');
+        badge.addEventListener('pointerenter', () => {
+          this.hoveredBadge = badge;
+          this._syncHover();
+        });
+        badge.addEventListener('pointerleave', () => {
+          if (this.hoveredBadge === badge) this.hoveredBadge = null;
+          this._syncHover();
+        });
+        badge.addEventListener('focus', () => {
+          this.focusedBadge = badge;
+          this._syncHover();
+        });
+        badge.addEventListener('blur', () => {
+          if (this.focusedBadge === badge) this.focusedBadge = null;
+          this._syncHover();
+        });
+        badge.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            this.canvas.focus({ preventScroll: true });
+          } else if (event.key === 'Enter' && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!event.repeat) this.callbacks.onDoubleActivate?.(this.badgeLabels.get(badge), event);
+          }
+        });
+        badge.addEventListener('click', (event) => {
+          event.stopPropagation();
+          this.callbacks.onActivate?.(this.badgeLabels.get(badge), event);
+        });
+        badge.addEventListener('dblclick', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          this.callbacks.onDoubleActivate?.(this.badgeLabels.get(badge), event);
+        });
+        this.domBadges.set(id, badge);
+        this.overlay.append(badge);
+      }
+      this.badgeLabels.set(badge, label);
+      const kind = String(label.kind || 'object');
+      if (badge.dataset.kind !== kind) badge.dataset.kind = kind;
+      const style = {
+        left: `${label.x * scaleX}px`,
+        top: `${label.y * scaleY}px`,
+        width: `${label.width * scaleX}px`,
+        minHeight: `${label.height * scaleY}px`,
+      };
+      for (const [property, value] of Object.entries(style)) {
+        if (badge.style[property] !== value) badge.style[property] = value;
+      }
+      const fontSize = `${(label.fontSize || 18) * scaleY}px`;
+      const detailFontSize = `${(label.detailFontSize || 12) * scaleY}px`;
+      if (badge.style.getPropertyValue('--badge-font-size') !== fontSize) badge.style.setProperty('--badge-font-size', fontSize);
+      if (badge.style.getPropertyValue('--badge-detail-font-size') !== detailFontSize) {
+        badge.style.setProperty('--badge-detail-font-size', detailFontSize);
+      }
+      const title = badge.querySelector('.gq-spatial-label-title');
+      if (title.textContent !== labelText) title.textContent = labelText;
+      const detail = badge.querySelector('.gq-spatial-label-detail');
+      if (detail.textContent !== detailText) detail.textContent = detailText;
+      detail.hidden = !detailText;
+      if (badge.getAttribute('aria-label') !== ariaLabel) badge.setAttribute('aria-label', ariaLabel);
+      const titleText = detailText ? `${labelText} — ${detailText}` : labelText;
+      if (badge.title !== titleText) badge.title = titleText;
+    }
+    for (const [id, badge] of this.domBadges) {
+      if (activeIds.has(id)) continue;
+      if (this.hoveredBadge === badge) this.hoveredBadge = null;
+      if (this.focusedBadge === badge) this.focusedBadge = null;
+      if (badge === document.activeElement) this.canvas.focus({ preventScroll: true });
+      badge.remove();
+      this.domBadges.delete(id);
+    }
+    this._syncHover();
+    if (this.overlay.hidden !== (labels.length === 0)) this.overlay.hidden = labels.length === 0;
+  }
+
   dispose() {
     this.instanceBuffer?.destroy();
     this.texture?.destroy();
@@ -216,5 +389,11 @@ export class SpatialLabelRenderer {
     this.cacheKey = '';
     this.atlasDirty = false;
     this.currentLabels = [];
+    this._hideOverlay();
+    this.overlay?.remove();
+    this.overlay = null;
+    this.canvas = null;
+    this.domBadges.clear();
+    this.callbacks = {};
   }
 }

@@ -25,7 +25,7 @@ set_error_handler(function ($errno, $errstr) {
 set_exception_handler(function (Throwable $e) {
     error_log("[WIREFRAME_API_EXCEPTION] " . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => 'Internal server error']);
     exit(1);
 });
 
@@ -180,10 +180,10 @@ function handleSaveWireframeDesign(\PDO $db, string $user_id): void {
             'created_at' => date('c')
         ]);
         
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         error_log('[WIREFRAME_API] Save failed: ' . $e->getMessage());
-        http_response_code(400);
-        echo json_encode(['error' => $e->getMessage()]);
+        http_response_code(503);
+        echo json_encode(['error' => 'Unable to save wireframe design']);
     }
 }
 
@@ -226,9 +226,10 @@ function handleLoadWireframeDesign(\PDO $db, string $user_id, string $design_id)
             'updated_at' => $design['updated_at']
         ]);
         
-    } catch (Exception $e) {
-        http_response_code(400);
-        echo json_encode(['error' => $e->getMessage()]);
+    } catch (Throwable $e) {
+        error_log('[WIREFRAME_API] Load failed: ' . $e->getMessage());
+        http_response_code(503);
+        echo json_encode(['error' => 'Unable to load wireframe design']);
     }
 }
 
@@ -262,8 +263,9 @@ function handleDeleteWireframeDesign(\PDO $db, string $user_id, string $design_i
         http_response_code(200);
         echo json_encode(['success' => true, 'message' => 'Design deleted']);
         
-    } catch (Exception $e) {
-        http_response_code(400);
-        echo json_encode(['error' => $e->getMessage()]);
+    } catch (Throwable $e) {
+        error_log('[WIREFRAME_API] Delete failed: ' . $e->getMessage());
+        http_response_code(503);
+        echo json_encode(['error' => 'Unable to delete wireframe design']);
     }
 }

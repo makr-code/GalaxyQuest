@@ -1,4 +1,5 @@
 import { createGameGalaxyRenderer } from '../rendering/game-galaxy-renderer.js';
+import { resolvePlanetOrbit } from '../rendering/system-visualization-layer.js';
 import { API } from '../api.js';
 import { mountFleetMap } from './game-fleet-map.js';
 
@@ -29,7 +30,7 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
   panel.setAttribute('aria-label', 'Galaxienavigation');
   const navigation = node('details');
   navigation.id = 'game-galaxy-navigation';
-  navigation.append(node('summary', 'Navigation'));
+  navigation.append(node('summary', 'Karte & Koordinaten'));
   const toolbar = node('div');
   toolbar.className = 'game-galaxy-toolbar';
   const title = node('strong', 'Galaxie');
@@ -41,23 +42,30 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
   const zoomOut = button('−', () => renderer?.nudgeZoom('out'));
   zoomOut.setAttribute('aria-label', 'Karte verkleinern');
   const form = node('form');
+  form.setAttribute('aria-label', 'Sternsystem direkt öffnen');
   const galaxy = node('input');
+  galaxy.id = 'game-galaxy-coordinate';
   galaxy.type = 'number';
   galaxy.min = '1';
   galaxy.max = '9';
   galaxy.required = true;
   galaxy.value = String(session.getColony()?.galaxy || 1);
-  galaxy.setAttribute('aria-label', 'Galaxiekoordinate');
+  galaxy.setAttribute('inputmode', 'numeric');
+  const galaxyLabel = node('label', 'Galaxie');
+  galaxyLabel.htmlFor = galaxy.id;
   const system = node('input');
+  system.id = 'game-system-coordinate';
   system.type = 'number';
   system.min = '1';
   system.required = true;
   system.value = String(session.getColony()?.system || 1);
-  system.setAttribute('aria-label', 'Systemkoordinate');
+  system.setAttribute('inputmode', 'numeric');
+  const systemLabel = node('label', 'System');
+  systemLabel.htmlFor = system.id;
   const go = node('button', 'System öffnen');
   go.type = 'submit';
   go.className = 'btn btn-secondary btn-sm';
-  form.append(galaxy, system, go);
+  form.append(galaxyLabel, galaxy, systemLabel, system, go);
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     if (form.reportValidity()) void domain.navigate(galaxy.valueAsNumber, system.valueAsNumber);
@@ -68,6 +76,20 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
   const rendererStatus = node('p');
   rendererStatus.id = 'game-renderer-status';
   rendererStatus.setAttribute('role', 'status');
+  const sceneErrors = new Map();
+  function syncSceneErrors() {
+    const messages = [...sceneErrors.values()];
+    rendererStatus.hidden = messages.length === 0;
+    rendererStatus.setAttribute('role', messages.length ? 'alert' : 'status');
+    if (messages.length) rendererStatus.textContent = messages.join('\n');
+  }
+  function setSceneError(source, message) {
+    sceneErrors.set(source, message);
+    syncSceneErrors();
+  }
+  function clearSceneError(source) {
+    if (sceneErrors.delete(source)) syncSceneErrors();
+  }
   const retry = button('3D erneut starten', () => { void startRenderer(); });
   retry.hidden = true;
   const viewStatus = node('p', 'Ansicht: Galaxie');
@@ -81,7 +103,6 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
   const pathLabels = ['Galaxie', 'System', 'Planet', 'Kolonie', 'Gebäude'];
   let currentCamera = null;
   let pathPending = false;
-  let pathError = null;
   const pathButtons = pathLevels.map((level, index) => {
     const element = button(pathLabels[index], () => { void navigatePath(level); });
     element.setAttribute('aria-label', `${pathLabels[index]} anzeigen`);
@@ -112,19 +133,12 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
     try {
       if (await renderer.returnTo(level) && !disposed) {
         canvas.focus({ preventScroll: true });
-        if (pathError !== null && rendererStatus.textContent === pathError) {
-          rendererStatus.hidden = true;
-          rendererStatus.setAttribute('role', 'status');
-          pathError = null;
-        }
+        clearSceneError('navigation');
       }
     }
     catch (error) {
       if (!disposed && error.name !== 'AbortError') {
-        pathError = error.message;
-        rendererStatus.textContent = error.message;
-        rendererStatus.setAttribute('role', 'alert');
-        rendererStatus.hidden = false;
+        setSceneError('navigation', error.message);
         window.GQLog?.error?.('[galaxy-navigation]', error.message);
       }
     } finally {
@@ -135,7 +149,8 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
   cameraTools.id = 'game-camera-help';
   cameraTools.append(node('summary', 'Kamerasteuerung'),
     node('p', 'Links ziehen: drehen. Rechts/Mitte oder Umschalt+Ziehen: verschieben. Mausrad: Zoom. '
-      + 'Doppelklick: System, Planet, Kolonie. Pfeiltasten: drehen; mit Umschalt: verschieben. '
+      + 'Doppelklick auf Stern: System; auf Planet: Planet; auf dieselbe bewohnte Welt: Kolonie. '
+      + 'Pfeiltasten: drehen; mit Umschalt: verschieben. '
       + 'Touch: ein Finger dreht, Antippen wählt aus; zwei Finger verschieben und zoomen. '
       + 'Esc: eine Ebene zurück. Pos1: Ansicht zentrieren.'));
   const cameraButtons = node('div');
@@ -148,6 +163,52 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
     button('Nach oben drehen', () => renderer?.rotateView(0, -30)),
     button('Nach unten drehen', () => renderer?.rotateView(0, 30)));
   cameraTools.append(cameraButtons);
+  const visualizationOptions = {
+    orbits: true, planes: false, distanceLine: false, apsides: false, phaseArc: false, selection: true,
+  };
+  const badgeTools = node('details');
+  badgeTools.id = 'game-spatial-badges';
+  badgeTools.append(node('summary', 'Räumliche Badges'));
+  const badgeModeLabel = node('label');
+  const badgeModeToggle = node('input');
+  badgeModeToggle.id = 'game-spatial-badges-dom-toggle';
+  badgeModeToggle.type = 'checkbox';
+  badgeModeToggle.addEventListener('change', () => {
+    renderer?.setSpatialLabelMode?.(badgeModeToggle.checked ? 'dom' : 'webgpu');
+  });
+  badgeModeLabel.htmlFor = badgeModeToggle.id;
+  badgeModeLabel.append(badgeModeToggle, document.createTextNode('Interaktive HTML-Badges'));
+  badgeTools.append(badgeModeLabel, node('p',
+    'WebGPU-Badges als fokussierbare DOM-Buttons überlagern. Klick/Enter: auswählen; '
+      + 'Doppelklick/Umschalt+Enter: annähern; Escape: Fokus zurück ins Spielfeld.'));
+  const visualizationTools = node('details');
+  visualizationTools.id = 'game-system-visualizations';
+  visualizationTools.hidden = true;
+  visualizationTools.append(node('summary', 'System-Hilfen'));
+  function addVisualizationToggle(id, text, key) {
+    const label = node('label');
+    const input = node('input');
+    input.id = id;
+    input.type = 'checkbox';
+    input.checked = visualizationOptions[key];
+    input.addEventListener('change', () => {
+    visualizationOptions[key] = input.checked;
+    renderer?.setSystemVisualizationOptions?.({ ...visualizationOptions });
+    updatePlanetContext();
+    });
+    label.htmlFor = id;
+    label.append(input, document.createTextNode(text));
+    visualizationTools.append(label);
+  }
+  addVisualizationToggle('game-system-orbits-toggle', 'Planetenbahnen', 'orbits');
+  addVisualizationToggle('game-system-planes-toggle', 'Bahnebenen', 'planes');
+  addVisualizationToggle('game-system-distance-line-toggle', 'Entfernungslinie zum Stern', 'distanceLine');
+  addVisualizationToggle('game-system-apsides-toggle', 'Nächste / fernste Bahnpunkte', 'apsides');
+  addVisualizationToggle('game-system-phase-arc-toggle', 'Bogen Periapsis bis Planetenposition', 'phaseArc');
+  addVisualizationToggle('game-system-selection-toggle', 'Auswahlmarker', 'selection');
+  function syncVisualizationTools(camera = currentCamera) {
+    visualizationTools.hidden = camera?.level !== 'system';
+  }
   const details = node('details');
   details.id = 'game-galaxy-details';
   details.open = false;
@@ -161,6 +222,9 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
   planetContext.hidden = true;
   const planetTitle = node('h3');
   const planetInfo = node('p');
+  const planetDistance = node('p');
+  planetDistance.id = 'game-planet-distance';
+  planetDistance.hidden = true;
   const planetActions = node('div');
   planetActions.className = 'game-galaxy-toolbar';
   let selectedPosition = null;
@@ -220,7 +284,7 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
     }
   });
   planetActions.append(planetFocus, colonyFocus, colonyManage, fleetOrigin, shipyard, population, fleetTarget, clearPlanet);
-  planetContext.append(planetTitle, planetInfo, planetActions);
+  planetContext.append(planetTitle, planetInfo, planetDistance, planetActions);
   function updatePlanetContext() {
     const slot = selectedPlanet();
     const body = slot?.player_planet || slot?.generated_planet;
@@ -237,6 +301,30 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
     planetInfo.textContent = colony ? `Eigene Kolonie: ${colony.name}`
       : slot.player_planet ? 'Besiedelter Planet · keine eigene Kolonie'
         : 'Unbesiedelter Planet';
+    const showSystemMeasurements = currentCamera?.level === 'system'
+      && (visualizationOptions.distanceLine || visualizationOptions.apsides || visualizationOptions.phaseArc);
+    planetDistance.hidden = !showSystemMeasurements;
+    if (showSystemMeasurements) {
+      const orbit = resolvePlanetOrbit(state.selected, { ...body, position: selectedPosition });
+      const formatAU = (value) => `${new Intl.NumberFormat('de-DE', {
+        maximumFractionDigits: 3,
+      }).format(value)} AU`;
+      const measurements = [];
+      if (visualizationOptions.distanceLine) {
+        measurements.push(`Sternabstand: ${formatAU(orbit.distanceAU)}`
+          + `${orbit.distanceEstimated ? ' · schematisch geschätzt' : ''}`);
+      }
+      if (visualizationOptions.apsides) {
+        measurements.push(`Periapsis (grün, nächster Punkt): ${formatAU(orbit.periapsisAU)}`
+          + ` · Apoapsis (orange gestrichelt, fernster Punkt): ${formatAU(orbit.apoapsisAU)}`
+          + `${orbit.apsidesEstimated ? ' · schematisch geschätzt' : ''}`);
+      }
+      if (visualizationOptions.phaseArc) {
+        measurements.push(`Phasenbogen: Periapsis bis Planetenposition`
+          + `${orbit.phaseEstimated ? ' · Position schematisch geschätzt' : ''}`);
+      }
+      planetDistance.textContent = measurements.join(' · ');
+    }
     planetFocus.disabled = state.loading;
     colonyFocus.hidden = !colony || !slot.player_planet;
     colonyManage.hidden = !colony;
@@ -260,13 +348,15 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
   list.id = 'game-galaxy-system-list';
   catalog.append(search, list);
   toolbar.append(title, home, overview, refresh, zoomIn, zoomOut, form);
-  navigation.append(toolbar, viewStatus, cameraTools, catalog);
+  navigation.append(toolbar, viewStatus, cameraTools, badgeTools, visualizationTools, catalog);
   panel.append(navigation, path, status, rendererStatus, retry, planetContext, details);
   let disposed = false;
   let active = false;
   let renderer = null;
   let unmountFleetMap = null;
   let rendererPending = false;
+  let rendererAttempt = 0;
+  let surfaceContext = null;
   const rendererAbort = new AbortController();
   let lastStars = null;
   let lastSystem = null;
@@ -349,7 +439,7 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
       if (lastStars !== null) renderer.fitCameraToStars(true, true);
       lastStars = starsKey;
     }
-    const systemKey = state.system ? `${state.system.galaxy}:${state.system.system}:${state.system.server_ts_ms}` : null;
+    const systemKey = state.system ? JSON.stringify(state.system) : null;
     if (lastSystem !== systemKey) {
       if (state.system) renderer.enterSystemView(state.selected, state.system);
       else { renderer.exitSystemView(true); renderer.fitCameraToStars(true, true); }
@@ -359,12 +449,17 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
   }
   async function startRenderer() {
     if (disposed || rendererPending || renderer) return;
+    const attempt = ++rendererAttempt;
+    const isCurrent = () => !disposed && attempt === rendererAttempt;
+    let next = null;
     rendererPending = true;
+    retry.disabled = true;
     rendererStatus.hidden = false;
+    rendererStatus.setAttribute('role', 'status');
     retry.hidden = true;
     rendererStatus.textContent = 'Starte interaktives Spielfeld ...';
     try {
-      const next = await createRenderer(host, {
+      next = await createRenderer(host, {
         externalCanvas: canvas,
         signal: rendererAbort.signal,
         async loadColonyData(position, data, signal) {
@@ -373,10 +468,13 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
             && Number(entry.system) === Number(data.systemPayload.system) && Number(entry.position) === position);
           if (!colony) throw new Error('Die Kolonieoberfläche ist nur für eigene Kolonien verfügbar.');
           const buildings = await API.get(`api/buildings.php?action=list&colony_id=${colony.id}`, { signal });
+          signal?.throwIfAborted();
+          if (!isCurrent()) throw new DOMException('Renderer changed.', 'AbortError');
           if (buildings?.success !== true || !Array.isArray(buildings.buildings)) {
             throw new Error('Ungültige Gebäudedaten für die Kolonieoberfläche.');
           }
-          let snapshotError = null;
+          const context = {};
+          surfaceContext = context;
           return {
             ...data, ...buildings, colony: { ...data.focusPlanet, ...colony },
             onOpenBuildings: (slot) => {
@@ -395,18 +493,17 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
               return { ...snapshot, buildings: updated.buildings, layout: updated.layout };
             },
             onError: (error) => {
-              snapshotError = error.message;
-              rendererStatus.textContent = error.message;
-              rendererStatus.setAttribute('role', 'alert');
-              rendererStatus.hidden = false;
+              if (!isCurrent() || surfaceContext !== context) return;
+              setSceneError('surface', error.message);
             },
             onSnapshotLoaded: () => {
-              if (snapshotError !== null && rendererStatus.textContent === snapshotError) rendererStatus.hidden = true;
-              snapshotError = null;
+              if (!isCurrent() || surfaceContext !== context) return;
+              clearSceneError('surface');
             },
           };
         },
         onClick: (star) => {
+          if (!isCurrent()) return;
           if (star.__kind === 'planet') {
             selectedPosition = Number(star.position);
             details.open = false;
@@ -417,11 +514,21 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
             else domain.select(star);
           }
         },
-        onDoubleClick: (star) => domain.navigate(star.galaxy_index, star.system_index),
-        onOverview: () => domain.overview(),
+        onDoubleClick: (star) => { if (isCurrent()) return domain.navigate(star.galaxy_index, star.system_index); },
+        onOverview: () => { if (isCurrent()) return domain.overview(); },
         onViewChange: (camera) => {
+          if (!isCurrent()) return;
           const previousCamera = currentCamera;
           updatePath(camera);
+          syncVisualizationTools(camera);
+          if (previousCamera?.level !== camera.level) {
+            clearSceneError('camera');
+            if (['colony', 'building'].includes(previousCamera?.level)
+              && !['colony', 'building'].includes(camera.level)) {
+              surfaceContext = null;
+              clearSceneError('surface');
+            }
+          }
           if (camera.level === 'galaxy') selectedPosition = null;
           else if (camera.level === 'planet' && camera.planetPosition !== null
             && (previousCamera?.level !== 'planet' || previousCamera?.planetPosition !== camera.planetPosition)) {
@@ -435,33 +542,50 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
           viewStatus.textContent = `Ansicht: ${labels[camera.level]}${camera.planetPosition === null ? '' : ` · Position ${camera.planetPosition}`}`;
           panel.dataset.cameraLevel = camera.level;
           if (['colony', 'building'].includes(camera.level)) navigation.open = false;
-          rendererStatus.hidden = true;
         },
         onError: (error) => {
-          rendererStatus.textContent = error.message;
-          rendererStatus.setAttribute('role', 'alert');
-          rendererStatus.hidden = false;
+          if (!isCurrent()) return;
+          setSceneError('camera', error.message);
           window.GQLog?.error?.('[galaxy-camera]', error.message);
         },
       });
-      if (disposed) { next.destroy(); return; }
+      if (!isCurrent()) { next.destroy(); return; }
       renderer = next;
-      window.galaxy3d = renderer;
+      renderer.setSpatialLabelMode?.(badgeModeToggle.checked ? 'dom' : 'webgpu');
+      renderer.setSystemVisualizationOptions?.({ ...visualizationOptions });
       const backend = renderer.getRenderStats().backend;
+      syncRenderer();
+      if (fleets) unmountFleetMap = mountFleetMap({ domain: fleets, galaxy: domain, renderer, session, stage });
+      window.galaxy3d = renderer;
       rendererStatus.textContent = `3D aktiv: ${backend}`;
       rendererStatus.setAttribute('role', 'status');
       rendererStatus.hidden = true;
+      sceneErrors.clear();
       panel.dataset.renderer = backend;
-      syncRenderer();
-      if (fleets) unmountFleetMap = mountFleetMap({ domain: fleets, galaxy: domain, renderer, session, stage });
     } catch (error) {
-      if (disposed) return;
+      if (!isCurrent()) return;
+      rendererAttempt++;
+      unmountFleetMap?.();
+      unmountFleetMap = null;
+      if (window.galaxy3d === next) delete window.galaxy3d;
+      renderer = null;
+      lastStars = null;
+      lastSystem = null;
+      currentCamera = null;
+      surfaceContext = null;
+      sceneErrors.clear();
+      path.hidden = true;
+      delete panel.dataset.renderer;
+      delete panel.dataset.cameraLevel;
+      next?.destroy();
       rendererStatus.textContent = error.message;
       rendererStatus.setAttribute('role', 'alert');
+      rendererStatus.hidden = false;
       window.GQLog?.error?.('[galaxy-renderer]', error.message);
       retry.hidden = false;
     } finally {
       rendererPending = false;
+      retry.disabled = false;
     }
   }
   const observer = new ResizeObserver(() => renderer?.resize());

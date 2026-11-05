@@ -997,31 +997,26 @@ function action_list_vessels(PDO $db, int $uid, int $cid): never {
         ensure_built_vessels_table($db);
     }
 
-    try {
-        $stmt = $db->prepare(
-            'SELECT bv.id,
-                    bv.blueprint_id,
-                    bv.name,
-                    bv.snapshot_stats_json,
-                    bv.hp_state_json,
-                    bv.status,
-                    bv.created_at,
-                    vb.name       AS bp_name,
-                    vh.label      AS hull_label,
-                    vh.ship_class AS hull_class,
-                    vh.tier       AS hull_tier
-             FROM built_vessels bv
-             JOIN vessel_blueprints vb ON bv.blueprint_id = vb.id
-             JOIN vessel_hulls      vh ON vb.hull_id       = vh.id
-             WHERE bv.colony_id = ? AND bv.status != \'destroyed\'
-             ORDER BY bv.id DESC'
-        );
-        $stmt->execute([$cid]);
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
-        // table not yet migrated
-        json_ok(['vessels' => []]);
-    }
+    $stmt = $db->prepare(
+        'SELECT bv.id,
+                bv.blueprint_id,
+                bv.name,
+                bv.snapshot_stats_json,
+                bv.hp_state_json,
+                bv.status,
+                bv.created_at,
+                vb.name       AS bp_name,
+                vh.label      AS hull_label,
+                vh.ship_class AS hull_class,
+                vh.tier       AS hull_tier
+         FROM built_vessels bv
+         JOIN vessel_blueprints vb ON bv.blueprint_id = vb.id
+         JOIN vessel_hulls      vh ON vb.hull_id       = vh.id
+         WHERE bv.colony_id = ? AND bv.status != \'destroyed\'
+         ORDER BY bv.id DESC'
+    );
+    $stmt->execute([$cid]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $vessels = array_map(static function (array $row): array {
         return [
@@ -1232,7 +1227,9 @@ function load_faction_tech_affinities_for_user(PDO $db, int $uid): array {
         );
         $stmt->execute([$uid]);
     } catch (PDOException $e) {
-        // Table may not exist yet (migration not applied). Degrade gracefully.
+        if ($e->getCode() !== '42S02') {
+            throw $e;
+        }
         $cache[$uid] = [];
         return $cache[$uid];
     }
@@ -1266,6 +1263,9 @@ function load_faction_tech_affinities_display(PDO $db, int $uid): array {
         );
         $stmt->execute([$uid]);
     } catch (PDOException $e) {
+        if ($e->getCode() !== '42S02') {
+            throw $e;
+        }
         return [];
     }
 

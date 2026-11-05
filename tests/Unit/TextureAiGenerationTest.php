@@ -123,6 +123,10 @@ final class TextureAiGenerationTest extends TestCase
         self::$partialWrite = false;
         self::$httpDelay = 0;
         $_SERVER = $this->previousServer;
+        $blockedPath = $this->dir . '/not-a-directory';
+        if (is_file($blockedPath) && !unlink($blockedPath)) {
+            throw new RuntimeException('Cannot remove test fixture.');
+        }
         foreach (['tmp', 'locks', ''] as $subdir) {
             $path = $this->dir . ($subdir === '' ? '' : DIRECTORY_SEPARATOR . $subdir);
             if (!is_dir($path)) {
@@ -265,7 +269,11 @@ final class TextureAiGenerationTest extends TestCase
 
     public function testMissingLockDirectoryFailsBeforeContactingBackend(): void
     {
-        $this->setProperty('lockDir', $this->dir . '/missing');
+        $blockedPath = $this->dir . '/not-a-directory';
+        if (file_put_contents($blockedPath, 'file') === false) {
+            throw new RuntimeException('Cannot create lock directory fixture.');
+        }
+        $this->setProperty('lockDir', $blockedPath);
         $result = $this->service->generateTexture(['type' => 'planet']);
         $this->assertFalse($result['success']);
         $this->assertSame([], self::$requests);

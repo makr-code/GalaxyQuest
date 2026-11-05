@@ -11,6 +11,7 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
   audio.preload = 'auto';
   let active = false;
   let revision = 0;
+  let narrationRevision = 0;
   let timer = null;
   let playbackTimer = null;
   let duckingTimer = null;
@@ -155,7 +156,9 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
   async function narrate(clip, done) {
     stopNarration();
     currentClip = { clip, done };
-    const version = ++revision;
+    const version = revision;
+    const narration = ++narrationRevision;
+    const isCurrent = () => active && version === revision && narration === narrationRevision;
     let reading = false;
     element('narration-retry').hidden = true;
     element('narration-status').textContent = muted()
@@ -165,11 +168,11 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
       if (reading) return;
       reading = true;
       timer = setTimeout(() => {
-        if (active && version === revision) done();
+        if (isCurrent()) done();
       }, Math.max(8000, clip.text.split(/\s+/).length * 430));
     };
     const unavailable = (message) => {
-      if (!active || version !== revision || reading) return;
+      if (!isCurrent() || reading) return;
       stopNarration();
       element('narration-status').textContent = 'Sprachausgabe nicht verfügbar. Der Prolog läuft als Text weiter.';
       element('narration-retry').hidden = false;
@@ -208,11 +211,11 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
         || !/^generated\/tts\/[a-f0-9]{64}\.mp3$/.test(data.audio_url)) {
         throw new Error('Die vorbereitete Sprachausgabe passt nicht zum Loretext.');
       }
-      if (!active || version !== revision) return;
+      if (!isCurrent()) return;
       audio.src = data.audio_url;
       applyAudioSettings();
       audio.onended = () => {
-        if (active && version === revision) {
+        if (isCurrent()) {
           stopNarration();
           element('narration-status').textContent = '';
           done();
@@ -221,7 +224,7 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
       audio.onerror = () => unavailable('Der Sprachclip konnte nicht abgespielt werden.');
       playbackTimer = setTimeout(() => unavailable('Das Starten des Sprachclips hat zu lange gedauert.'), 10000);
       await audio.play();
-      if (!active || version !== revision) return;
+      if (!isCurrent()) return;
       if (reading) return;
       clearTimeout(playbackTimer);
       playbackTimer = setTimeout(() => unavailable('Die Wiedergabe des Sprachclips wurde nicht beendet.'),

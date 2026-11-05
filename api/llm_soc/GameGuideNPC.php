@@ -480,19 +480,15 @@ class GameGuideNPC
      */
     public function getTutorialProgress(int $user_id): array
     {
-        try {
-            $stmt = $this->db->prepare(
-                "SELECT checkpoint_id, completed_at 
-                FROM game_guide_progress 
-                WHERE user_id = ? 
-                ORDER BY completed_at"
-            );
-            
-            $stmt->execute([$user_id]);
-            return $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (Exception $e) {
-            return [];
-        }
+        $stmt = $this->db->prepare(
+            "SELECT checkpoint_id, completed_at
+            FROM game_guide_progress
+            WHERE user_id = ?
+            ORDER BY completed_at"
+        );
+
+        $stmt->execute([$user_id]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
     /**

@@ -686,6 +686,32 @@ colony follows its system. Stale navigation requests are aborted/discarded.
 Logout removes player data and interactions and returns the same renderer to
 the public menu view. Missing WebGPU is reported explicitly; server navigation
 remains usable instead of displaying invented game state.
+Failed 3D startup rolls back partially attached camera controls and fleet-map
+hooks before offering an explicit retry. Retry applies the latest server galaxy
+and selected system, without reissuing game commands or replacing a healthy
+shared renderer. Obsolete startup callbacks are ignored, including after logout.
+If an adapter becomes available after an initial failure, retry makes the same
+canvas visible again; this is WebGPU recovery, not a switch to a legacy backend.
+Colony snapshot errors remain visible while rotating or zooming. A successful
+snapshot clears only its own error, not unrelated navigation failures. Leaving
+the surface clears its obsolete error context and ignores late surface callbacks.
+System scene updates compare the complete canonical payload, not just its server
+timestamp. Changed or removed planets reach the renderer even within the same
+timestamp; identical payloads leave the existing scene and camera untouched.
+If refreshed server data removes the focused planet or its visible colony, the
+view returns to its system and cancels/disposes the obsolete surface approach.
+Valid focused planets and colonies keep their existing view.
+Validated system-star data also replaces a stale sampled catalog entry, keeping
+map coordinates, labels and subsequent selection consistent. Catalog-only
+metadata is retained, but missing system coordinates are rejected rather than
+filled from stale data. Superseded catalog replies cannot start system reads.
+
+Registration keeps narration retries independent from pending draft operations,
+so restoring a selected mentor does not block the next step. Herald focus and
+selection made while the WebGPU models load are applied when the stage is ready;
+leaving registration also disposes stages that finish loading afterward.
+The inactive start menu fades out without enlarging the document, preventing
+horizontal overflow when resuming the registration flow on a narrow screen.
 
 The galaxy canvas fills the complete viewport, including behind UI controls.
 Only a compact command/audio dock and collapsed navigation entry stay visible.
@@ -757,15 +783,33 @@ the last confirmed data, disable further commands until a successful read,
 and explicitly instruct the player not to resubmit an accepted command.
 Logout cancels pending fleet reads/commands and removes the overlay.
 
+Spatial object badges can be switched between WebGPU rendering (the default)
+and interactive HTML buttons under "Karte & Koordinaten" > "Räumliche Badges".
+HTML badges select objects on click; double-click opens a system or approaches
+a planet. Enter selects, Shift+Enter performs the double-click action, and
+Escape returns keyboard focus to the playing field without changing the view.
+Hovering or focusing a planet badge shows the system's existing hover marker;
+leaving or hiding the badge clears it. Repeating the planet action opens a visible colony, using the loaded
+planet's habitation state. System badges remain navigable while a previous
+system is loaded during a camera transition. Keyboard focus stays on a badge
+when its content updates and returns to the galaxy canvas if the badge
+disappears or its DOM overlay is hidden. Switching modes does not move focus
+away from other UI controls.
+
 Running missions also expose clickable endpoint badges on the shared galaxy
 and system map, grouped per loaded star or planet. The compact selection shows
 canonical ships, cargo, direction and server arrival time, with map navigation,
 recall and explicit arrival processing. Badges follow the existing shared
 renderer frame hook and camera projection; off-screen, unloaded and surface-level
 endpoints are not fabricated. They indicate origin/target, not a simulated
-in-flight position or a common transit path. Target picking hides these badges
-so they cannot intercept destination clicks. Reads do not process arrivals,
+in-flight position or a common transit path. Badges track camera transitions
+instead of disappearing and reappearing around the flight. Target picking hides
+these badges so they cannot intercept destination clicks. Reads do not process arrivals,
 stale data disables commands, and logout removes markers and frame subscriptions.
+If an endpoint disappears while its marker has keyboard focus, focus returns to
+the persistent galaxy canvas rather than being lost with the removed marker.
+When a selected fleet context refreshes during a command, focus stays on the
+same available action or moves to its stable close control if that action locks.
 
 Fleet commands are point-and-click on the galaxy playing field, not a separate
 launch window. Click an owned planet and choose "Flotte hier auswählen" to
@@ -791,6 +835,47 @@ local countdown or route-clearance promise. Range, gates/nodes, scatter,
 damage and final ETA are applied by the existing server faction-drive rules,
 never recreated as a client simulation. Unknown/failed transit reads block
 dispatch with an explicit error. Manual wormhole override is not yet exposed.
+
+The first physics foundation is `src/Fleet/FleetTrajectory.php`: it computes
+Newtonian gravity in light-years, solar masses and Julian years, and advances a
+testable state with deterministic velocity-Verlet integration and a bounded
+step budget. Gravity changes acceleration and therefore course and speed;
+gravitational acceleration itself is independent of the ship's mass. For systems
+where bodies move, the solver also supports pairwise mutual gravity with
+momentum-conserving velocity-Verlet updates. It rejects overlapping bodies
+rather than hiding singular forces behind an arbitrary softening constant. This
+core also offers encounter-aware step sizing bounded by relative separation,
+relative speed and gravitational dynamical time; the deterministic step budget
+still rejects excessive integrations. Variable step sizes are an accuracy aid,
+not a guarantee of long-term energy conservation. Bodies may provide a physical
+collision radius in light-years; the solver checks the closest approach along
+each step segment so fast bodies cannot pass through one another undetected.
+Collision response (merging, bounce or damage) is deliberately outside this
+trajectory core. `systemInvariants()` reports total mass, center of mass,
+linear/angular momentum and kinetic, potential and total energy in the model's
+documented units, allowing integrator drift to be measured in tests and future
+simulation tooling. It is not yet wired into fleet dispatch or the rendered
+fleet position.
+Existing FTL drive contracts and transit times remain unchanged until a
+versioned trajectory snapshot and compatible arrival calculation are integrated.
+Powered segments additionally accept thrust in newtons, craft mass in kilograms
+and an inertial thrust direction; the solver converts SI acceleration into the
+same trajectory units and combines propulsion with gravity. Under equal thrust,
+lower mass therefore yields greater acceleration. Ship definitions do not yet
+provide authoritative masses or thrust, so this remains an explicit physics
+primitive rather than an invented fleet specification. The solver can aggregate
+fleet mass and thrust from an explicitly supplied per-ship physics catalog, and
+rejects fleets whose nonzero ship types have no physical specification. No
+catalog values are currently populated. `ship_physics_specs` is the server-side
+catalog schema for mass, thrust and maximum sublight speed; the table is
+intentionally not seeded with inferred game values. `FleetPhysicsCatalog`
+requires a complete valid record for every ship type before returning a fleet's
+specifications. Multi-body integration can also apply a constant inertial thrust
+vector per body while continuing to recompute mutual gravity; such an externally
+powered system is not expected to conserve its closed-system momentum or energy.
+The existing dispatch and arrival behavior remains unchanged until the catalog
+is populated and an explicit, arrival-compatible sublight flight contract is
+defined.
 
 The authoritative shipyard overlay is accessible from the command menu, an
 owned planet's context and fleet composition. It reads the standard catalog,
@@ -827,7 +912,9 @@ missing metrics are shown as unavailable rather than healthy zeroes. A gap
 opens the selected colony's market with its good preselected, but no quantity
 or trade is generated. Unavailable goods are explicitly reported and cannot
 silently become another purchase. Accepted trades refresh an open supply view.
-Reads remain on-demand, without polling or client growth simulation.
+Reads remain on-demand, without polling or client growth simulation. The legacy
+`set_pop_policy` mutation is rejected while on-demand economy is enabled because
+it writes the retired tick-based population model.
 The compact command/audio dock and its drawer stay above the current game-window
 stack, updated by window-focus events without polling. Selecting a game window
 closes the drawer, so navigation remains accessible without hiding that window.
@@ -839,6 +926,13 @@ minimized windows stay minimized; manually restored or closed group members are
 removed from the remembered group. Closing the last window hides this contextual
 control. The galaxy canvas, camera and point-and-click fleet overlay are not
 minimized or reset. Logout removes the control and its in-memory group.
+The existing window list in the command menu focuses a background window,
+restores a minimized one, and minimizes only the already active window. Grouped
+windows also reveal the selected tab. These actions reuse the existing content
+without rendering, fetching or submitting again. Task buttons expose focus through
+`aria-pressed` and the next action in their tooltip. Selecting a window closes the
+menu and moves keyboard focus to its title; minimizing it returns focus to
+"Kommando". Ctrl/Command selection keeps the menu open for multi-selection.
 
 Resource buttons open the same authoritative overlays: raw goods select their
 economy stock details, population and happiness open supply, and energy shows its
@@ -851,8 +945,16 @@ preselects only the colony and good; the market checks availability and still
 requires quantity and explicit confirmation. Read errors block this handoff until
 recovery. Dark Matter is a read-only account balance, not an inactive shop button.
 
-Advanced population policy commands,
-general window navigation and advanced renderer-selection integration still need migration.
+Advanced population policy commands and advanced renderer-selection integration
+still need migration.
+While fleet dispatch or its confirmation refresh is pending, map target/origin
+handoffs and repeated opening cannot replace the order or start inventory reads.
+The overlay explains the temporary lock; handoffs work again after completion.
+Explicit colony switching elsewhere retains the captured dispatch origin.
+Opening fleet composition or completing/cancelling point-and-click target
+selection focuses its stable overlay region, including across inventory renders.
+Escape then closes composition and returns focus to the canvas; the first Escape
+during target picking only cancels picking and preserves the composition draft.
 The old client-only domain controllers remain outside the authenticated boot
 until backed by canonical server commands. Rendering remains Three.js/WebGPU;
 game rules and on-demand progression remain authoritative in PHP.

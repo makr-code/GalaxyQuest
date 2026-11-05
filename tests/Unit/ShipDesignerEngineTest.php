@@ -275,6 +275,14 @@ final class ShipDesignerEngineTest extends TestCase
         $this->assertStringContainsString('insectoid', $result['signature']['silhouette']);
     }
 
+    public function testGetFactionShipsRejectsUnknownFactionInsteadOfReturningEmptySuccess(): void
+    {
+        $engine = new ShipDesignerPromptEngine($this->createMockPDO());
+
+        $this->expectException(\InvalidArgumentException::class);
+        $engine->getFactionShips('unknown_faction');
+    }
+
     public function testGetLoRAStylesForFaction(): void
     {
         $db = $this->createMockPDO();

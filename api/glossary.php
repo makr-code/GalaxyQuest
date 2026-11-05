@@ -103,9 +103,9 @@ function generate_rag_definition(PDO $db, string $termKey): void {
         cache_glossary_definition($db, $termKey, $result);
 
         json_ok($result);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         error_log('Glossary RAG error: ' . $e->getMessage());
-        json_error('Internal error: ' . $e->getMessage(), 500);
+        json_error('Glossary generation failed', 500);
     }
 }
 

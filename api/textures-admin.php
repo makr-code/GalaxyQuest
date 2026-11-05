@@ -66,9 +66,10 @@ function handle_list_textures(GQTextureAdminService $admin): void
         $textures = $admin->getCachedTextures($filter);
         http_response_code(200);
         echo json_encode(['success' => true, 'textures' => $textures]);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
+        error_log('Texture admin list failed: ' . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        echo json_encode(['success' => false, 'error' => 'Unable to list cached textures']);
     }
 }
 
@@ -91,9 +92,10 @@ function handle_regenerate_texture(GQTextureAdminService $admin): void
         $result = $admin->regenerateTexture($cacheKey, $force);
         http_response_code($result['success'] ? 200 : 500);
         echo json_encode($result);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
+        error_log('Texture admin regeneration failed: ' . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        echo json_encode(['success' => false, 'error' => 'Unable to regenerate texture']);
     }
 }
 
@@ -118,9 +120,10 @@ function handle_test_prompt(GQTextureAdminService $admin): void
         $result = $admin->testPrompt($prompt, $negativePrompt, $size, $steps);
         http_response_code($result['success'] ? 200 : 500);
         echo json_encode($result);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
+        error_log('Texture admin prompt test failed: ' . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        echo json_encode(['success' => false, 'error' => 'Unable to test texture prompt']);
     }
 }
 
@@ -138,9 +141,10 @@ function handle_batch_regenerate(GQTextureAdminService $admin): void
         $result = $admin->batchRegenerate($faction, $textureType, $dry_run);
         http_response_code($result['success'] ? 200 : 500);
         echo json_encode($result);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
+        error_log('Texture admin batch regeneration failed: ' . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        echo json_encode(['success' => false, 'error' => 'Unable to regenerate texture batch']);
     }
 }
 
@@ -163,9 +167,10 @@ function handle_clear_cache(GQTextureAdminService $admin): void
         $result = $admin->clearCache($pattern);
         http_response_code($result['success'] ? 200 : 500);
         echo json_encode($result);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
+        error_log('Texture admin cache clear failed: ' . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        echo json_encode(['success' => false, 'error' => 'Unable to clear texture cache']);
     }
 }
 
@@ -178,9 +183,10 @@ function handle_cache_stats(GQTextureAdminService $admin): void
         $stats = $admin->getCacheStats();
         http_response_code(200);
         echo json_encode(['success' => true, 'stats' => $stats]);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
+        error_log('Texture admin cache stats failed: ' . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        echo json_encode(['success' => false, 'error' => 'Unable to read texture cache statistics']);
     }
 }
 
@@ -215,17 +221,25 @@ class GQTextureAdminService
         $textures = [];
         
         if (!is_dir($this->cacheDir)) {
+            if (file_exists($this->cacheDir)) {
+                throw new RuntimeException('Texture cache path is not a directory');
+            }
             return [];
         }
 
-        $files = @glob($this->cacheDir . DIRECTORY_SEPARATOR . '*.png') ?: [];
+        $files = glob($this->cacheDir . DIRECTORY_SEPARATOR . '*.png');
+        if ($files === false) {
+            throw new RuntimeException('Unable to list cached textures');
+        }
         
         foreach ($files as $file) {
             $basename = basename($file);
             $cacheKey = substr($basename, 0, -4); // Remove .png
 
-            $stat = @stat($file);
-            if ($stat === false) continue;
+            $stat = stat($file);
+            if ($stat === false) {
+                throw new RuntimeException('Unable to read cached texture metadata');
+            }
 
             $texture = [
                 'cache_key' => $cacheKey,

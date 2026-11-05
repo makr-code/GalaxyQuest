@@ -287,6 +287,7 @@ export function resolveSpatialLabels(flight, galaxyStars, { width, height, maxLa
   }
   const labels = selected.map(({ data, ...label }) => ({
     ...label,
+    data,
     detail: formatSpatialObjectDetails(data, label.kind),
   }));
   return { level, labels, sourceStars, queriedStars, visibleCandidates: visible.length };

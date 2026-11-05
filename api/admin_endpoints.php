@@ -147,9 +147,10 @@ function trellis_admin_get_stats(): void {
             'avg_process_time' => round($avgTimeSec, 1),
             'success_rate' => round($successRate, 1),
         ]);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
+        error_log('Admin stats read failed: ' . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        echo json_encode(['error' => 'Unable to read admin statistics']);
     }
 }
 
@@ -200,9 +201,10 @@ function getQueue(): void {
             'limit' => $limit,
             'offset' => $offset,
         ]);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
+        error_log('Admin queue read failed: ' . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        echo json_encode(['error' => 'Unable to read generation queue']);
     }
 }
 
@@ -321,9 +323,10 @@ function getQuotas(): void {
             'quotas' => $quotas,
             'total' => count($quotas),
         ]);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
+        error_log('Admin quota read failed: ' . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        echo json_encode(['error' => 'Unable to read user quotas']);
     }
 }
 
@@ -386,9 +389,10 @@ function getAuditLogs(): void {
         $logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         echo json_encode(['logs' => $logs]);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
+        error_log('Admin audit log read failed: ' . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        echo json_encode(['error' => 'Unable to read audit logs']);
     }
 }
 
@@ -416,9 +420,10 @@ function exportAuditLogs(): void {
         }
         
         fclose($output);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
+        error_log('Admin audit log export failed: ' . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        echo json_encode(['error' => 'Unable to export audit logs']);
     }
 }
 
@@ -461,9 +466,10 @@ function getAnalytics(): void {
             ],
             'success_rates' => $successRates,
         ]);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
+        error_log('Admin analytics read failed: ' . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        echo json_encode(['error' => 'Unable to read admin analytics']);
     }
 }
 
@@ -506,9 +512,10 @@ function getHealth(): void {
             'worker_running' => $workerHealth,
             'worker_instances' => 1, // TODO: detect actual count
         ]);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
+        error_log('Admin health read failed: ' . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        echo json_encode(['error' => 'Unable to read system health']);
     }
 }
 

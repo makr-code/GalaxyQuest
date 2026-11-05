@@ -165,9 +165,9 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         
         json_error('Invalid request', 400);
         
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
         error_log("VesselDesigns error: " . $e->getMessage());
-        json_error($e->getMessage(), 500);
+        json_error('Vessel design service unavailable', 503);
     }
 }
 ?>

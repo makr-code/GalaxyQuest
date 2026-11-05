@@ -1325,6 +1325,10 @@ window.GQPerspectiveBloom = PerspectiveBloom;
       if (!renderer?.ready || renderer.getRenderStats?.().backend !== 'webgpu') {
         throw new Error(runtime.error || 'WebGPU ist nicht verfügbar. Servernavigation bleibt bedienbar.');
       }
+      runtime.error = null;
+      canvas.style.opacity = '1';
+      canvas.style.visibility = 'visible';
+      canvas.style.display = 'block';
       return renderer;
     },
     returnToMenu() {

@@ -18,7 +18,7 @@ body.registration-active #boot-terminal,
 body.registration-active #copyright,
 body.registration-active #affilates { display: none !important; }
 @keyframes registration-menu-exit {
-  to { opacity: 0; visibility: hidden; transform: scale(1.015); }
+  to { opacity: 0; visibility: hidden; }
 }
 @keyframes registration-scene-enter {
   from { opacity: 0; }

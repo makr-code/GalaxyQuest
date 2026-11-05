@@ -29,7 +29,7 @@ try {
     };
 } catch (Throwable $e) {
     error_log("traders_dashboard.php error: " . $e->getMessage());
-    json_error($e->getMessage(), 500);
+    json_error('Trader dashboard unavailable', 503);
 }
 
 /**

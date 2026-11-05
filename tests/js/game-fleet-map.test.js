@@ -99,6 +99,13 @@ describe('Canonical fleet endpoints on the shared map', () => {
     project([point([7, 8, 9])]);
     expect(context().querySelectorAll('article')).toHaveLength(3);
   });
+  it('returns keyboard focus to the canvas when an unselected endpoint badge disappears', () => {
+    const marker = badge();
+    marker.focus();
+    project([]);
+    expect(badge()).toBeNull();
+    expect(document.activeElement.id).toBe('starfield');
+  });
   it('recalls only explicitly and locks accepted commands until failed refresh is recovered', async () => {
     badge().click();
     failOverview = true;
@@ -119,6 +126,19 @@ describe('Canonical fleet endpoints on the shared map', () => {
     expect(context().hidden).toBe(true);
     expect(badge()).toBeNull();
     expect(api.post).toHaveBeenCalledTimes(2);
+  });
+  it('moves focus to the stable close action while recall is pending and retains it after refresh', async () => {
+    badge().click();
+    let finish;
+    api.post.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    context().querySelector('[data-fleet-action="recall-7"]').click();
+    await vi.waitFor(() => expect(domain.getState().mutating).toBe(true));
+    expect(document.activeElement.dataset.fleetAction).toBe('close');
+    expect(context().querySelector('[data-fleet-action="recall-7"]').disabled).toBe(true);
+    finish({ success: true });
+    await vi.waitFor(() => expect(domain.getState().mutating).toBe(false));
+    expect(document.activeElement.dataset.fleetAction).toBe('close');
+    expect(context().hidden).toBe(false);
   });
   it('exposes failed reads and retry without inventing markers', async () => {
     api.get.mockRejectedValueOnce(new Error('Fleet offline'));

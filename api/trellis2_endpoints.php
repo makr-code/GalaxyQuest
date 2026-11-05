@@ -28,7 +28,7 @@ set_error_handler(function ($errno, $errstr) {
 set_exception_handler(function (Throwable $e) {
     error_log("[API_EXCEPTION] " . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => 'Internal server error']);
     exit(1);
 });
 
@@ -41,7 +41,13 @@ require_once $root_dir . '/api/trellis2_asset_manager.php';
 require_once $root_dir . '/api/auth_helpers.php';
 
 // Get current user (from session or auth header)
-$user_id = getCurrentUserId();
+try {
+    $user_id = getCurrentUserId();
+} catch (GQApiKeyVerificationException $e) {
+    http_response_code(503);
+    echo json_encode(['error' => 'Authentication service unavailable']);
+    exit(1);
+}
 if (!$user_id) {
     http_response_code(401);
     echo json_encode(['error' => 'Unauthorized']);
@@ -68,17 +74,29 @@ $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $path = str_replace('/api/', '', $path);
 
 // Route matching
-if ($method === 'POST' && $path === 'vessel_designs') {
+if ($path === 'vessel_designs') {
+    only_method('POST');
+    if (isset($_SESSION['user_id'])) {
+        verify_csrf();
+    }
     handleCreateDesign($manager, $user_id);
-} elseif ($method === 'GET' && preg_match('#^vessel_designs/(\d+)$#', $path, $m)) {
+} elseif (preg_match('#^vessel_designs/(\d+)$#', $path, $m)) {
+    only_method('GET');
     handleGetDesign($manager, $user_id, (int)$m[1]);
-} elseif ($method === 'POST' && preg_match('#^vessel_designs/(\d+)/generate$#', $path, $m)) {
+} elseif (preg_match('#^vessel_designs/(\d+)/generate$#', $path, $m)) {
+    only_method('POST');
+    if (isset($_SESSION['user_id'])) {
+        verify_csrf();
+    }
     handleQueueGeneration($manager, $user_id, (int)$m[1]);
-} elseif ($method === 'GET' && preg_match('#^generation_queue/(\d+)$#', $path, $m)) {
+} elseif (preg_match('#^generation_queue/(\d+)$#', $path, $m)) {
+    only_method('GET');
     handleGetQueueStatus($manager, $user_id, (int)$m[1]);
-} elseif ($method === 'GET' && preg_match('#^asset_generations/(\d+)$#', $path, $m)) {
+} elseif (preg_match('#^asset_generations/(\d+)$#', $path, $m)) {
+    only_method('GET');
     handleGetGeneration($manager, $user_id, (int)$m[1]);
-} elseif ($method === 'GET' && $path === 'user/quota') {
+} elseif ($path === 'user/quota') {
+    only_method('GET');
     handleGetQuota($manager, $user_id);
 } else {
     http_response_code(404);
@@ -149,14 +167,7 @@ function handleCreateDesign(TRELLIS2AssetManager $manager, int $user_id): void {
  */
 function handleGetDesign(TRELLIS2AssetManager $manager, int $user_id, int $design_id): void {
     try {
-        $design = $manager->getDesign($design_id);
-        
-        // Verify ownership
-        if ((int)$design['user_id'] !== $user_id) {
-            http_response_code(403);
-            echo json_encode(['error' => 'Forbidden']);
-            exit(1);
-        }
+        $design = $manager->getDesign($design_id, $user_id);
         
         http_response_code(200);
         echo json_encode([
@@ -171,9 +182,17 @@ function handleGetDesign(TRELLIS2AssetManager $manager, int $user_id, int $desig
             'updated_at' => $design['updated_at'],
         ]);
         
-    } catch (Exception $e) {
+    } catch (OutOfBoundsException $e) {
         http_response_code(404);
         echo json_encode(['error' => 'Design not found']);
+    } catch (PDOException $e) {
+        error_log('[TRELLIS2] Design read failed: ' . $e->getMessage());
+        http_response_code(503);
+        echo json_encode(['error' => 'Design data unavailable']);
+    } catch (Exception $e) {
+        error_log('[TRELLIS2] Design read failed: ' . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['error' => 'Unable to read design']);
     }
 }
 
@@ -251,12 +270,10 @@ function handleQueueGeneration(TRELLIS2AssetManager $manager, int $user_id, int 
  */
 function handleGetQueueStatus(TRELLIS2AssetManager $manager, int $user_id, int $queue_id): void {
     try {
-        $status = $manager->getQueueStatus($queue_id);
-        
-        // Verify ownership
-        if ((int)$status['user_id'] !== $user_id) {
-            http_response_code(403);
-            echo json_encode(['error' => 'Forbidden']);
+        $status = $manager->getQueueStatus($queue_id, $user_id);
+        if (!$status) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Queue entry not found']);
             exit(1);
         }
         
@@ -271,9 +288,14 @@ function handleGetQueueStatus(TRELLIS2AssetManager $manager, int $user_id, int $
             'error_message' => $status['error_message'] ?? null,
         ]);
         
+    } catch (PDOException $e) {
+        error_log('[TRELLIS2] Queue status read failed: ' . $e->getMessage());
+        http_response_code(503);
+        echo json_encode(['error' => 'Queue status unavailable']);
     } catch (Exception $e) {
-        http_response_code(404);
-        echo json_encode(['error' => 'Queue entry not found']);
+        error_log('[TRELLIS2] Queue status read failed: ' . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['error' => 'Unable to read queue status']);
     }
 }
 
@@ -292,17 +314,10 @@ function handleGetQueueStatus(TRELLIS2AssetManager $manager, int $user_id, int $
  */
 function handleGetGeneration(TRELLIS2AssetManager $manager, int $user_id, int $generation_id): void {
     try {
-        $generation = $manager->getGenerationStatus($generation_id);
+        $generation = $manager->getGenerationStatus($generation_id, $user_id);
         if (!$generation) {
             http_response_code(404);
             echo json_encode(['error' => 'Generation not found']);
-            exit(1);
-        }
-        
-        // Verify ownership
-        if ((int)$generation['user_id'] !== $user_id) {
-            http_response_code(403);
-            echo json_encode(['error' => 'Forbidden']);
             exit(1);
         }
         
@@ -320,9 +335,14 @@ function handleGetGeneration(TRELLIS2AssetManager $manager, int $user_id, int $g
             'completed_at' => $generation['completed_at'],
         ]);
         
+    } catch (PDOException $e) {
+        error_log('[TRELLIS2] Generation read failed: ' . $e->getMessage());
+        http_response_code(503);
+        echo json_encode(['error' => 'Generation data unavailable']);
     } catch (Exception $e) {
-        http_response_code(404);
-        echo json_encode(['error' => 'Generation not found']);
+        error_log('[TRELLIS2] Generation read failed: ' . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['error' => 'Unable to read generation']);
     }
 }
 
@@ -339,23 +359,34 @@ function handleGetGeneration(TRELLIS2AssetManager $manager, int $user_id, int $g
 function handleGetQuota(TRELLIS2AssetManager $manager, int $user_id): void {
     try {
         $quota = $manager->getUserQuota($user_id);
+        $storageLimit = (float)$quota['storage_limit_gb'];
+        $storageUsed = (float)$quota['storage_used_gb'];
+        $generationLimit = (int)$quota['monthly_generation_limit'];
+        $generationsUsed = (int)$quota['monthly_generations_used'];
         
         http_response_code(200);
         echo json_encode([
-            'storage_limit_gb' => $quota['storage_limit_gb'],
-            'storage_used_gb' => $quota['storage_used_gb'],
-            'storage_remaining_gb' => max(0, $quota['storage_limit_gb'] - $quota['storage_used_gb']),
-            'storage_percent_used' => round(($quota['storage_used_gb'] / $quota['storage_limit_gb']) * 100, 1),
-            'monthly_generation_limit' => $quota['monthly_generation_limit'],
-            'monthly_generations_used' => $quota['monthly_generations_used'],
-            'monthly_remaining' => max(0, $quota['monthly_generation_limit'] - $quota['monthly_generations_used']),
+            'storage_limit_gb' => $storageLimit,
+            'storage_used_gb' => $storageUsed,
+            'storage_remaining_gb' => max(0, $storageLimit - $storageUsed),
+            'storage_percent_used' => $storageLimit > 0
+                ? round(($storageUsed / $storageLimit) * 100, 1)
+                : 0,
+            'monthly_generation_limit' => $generationLimit,
+            'monthly_generations_used' => $generationsUsed,
+            'monthly_remaining' => max(0, $generationLimit - $generationsUsed),
             'priority_level' => $quota['priority_level'],
             'design_count' => $quota['design_count'],
             'generation_count' => $quota['generation_count'],
         ]);
         
+    } catch (PDOException $e) {
+        error_log('[TRELLIS2] User quota read failed: ' . $e->getMessage());
+        http_response_code(503);
+        echo json_encode(['error' => 'Quota data unavailable']);
     } catch (Exception $e) {
-        http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        error_log('[TRELLIS2] User quota read failed: ' . $e->getMessage());
+        http_response_code(503);
+        echo json_encode(['error' => 'Quota data unavailable']);
     }
 }

@@ -114,11 +114,11 @@ SQL);
     ]);
     
     if (!$success) {
-        http_response_code(500);
+        error_log('Generation queue v3 insert failed: ' . (string)($db->errorInfo()[2] ?? 'unknown database error'));
+        http_response_code(503);
         echo json_encode([
             'ok' => false,
-            'error' => 'Failed to insert job into queue',
-            'db_error' => $db->errorInfo()[2] ?? 'unknown'
+            'error' => 'Queue service unavailable'
         ]);
         exit;
     }
@@ -135,12 +135,11 @@ SQL);
         'message' => "Job $queueId submitted to daemon (type: $jobType, mode: $mode)"
     ]);
     
-} catch (Exception $e) {
-    http_response_code(500);
+} catch (Throwable $e) {
+    error_log('Generation queue v3 submission error: ' . $e->getMessage());
+    http_response_code(503);
     echo json_encode([
         'ok' => false,
-        'error' => $e->getMessage(),
-        'file' => basename($e->getFile()),
-        'line' => $e->getLine()
+        'error' => 'Queue service unavailable'
     ]);
 }

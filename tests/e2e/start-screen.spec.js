@@ -216,7 +216,7 @@ test('registration previews mentor systems and restores a private character draf
   await expect(page.locator('#registration-name')).toHaveValue('SavedCommander');
   await expect(page.locator('#registration-background')).toHaveValue('Explorer');
   await page.setViewportSize({ width: 390, height: 844 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 test('registration surfaces setup failures and Back cancels the visible flow without late UI changes', async ({ page }) => {
@@ -380,10 +380,10 @@ test('settings, content links and the log bar work on narrow screens', async ({ 
   await expect(page.locator('#start-panel-news')).toBeVisible();
   await expect(page.locator('#start-panel-news')).toContainText('Command updates and transmissions');
   await page.keyboard.press('Escape');
-  await page.locator('#auth-console-toggle').click();
-  await expect(page.locator('#boot-terminal')).toBeVisible();
+  await page.locator('#ui-console-expand').click();
+  await expect(page.locator('#ui-console-log')).toBeVisible();
   await page.locator('#ui-console-close').click();
-  await expect(page.locator('#boot-terminal')).toBeHidden();
+  await expect(page.locator('#ui-console-log')).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
@@ -687,10 +687,11 @@ test('all other menu panels cascade, toggle and switch without leaving multiple 
     await expect(panel).toHaveCount(1);
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(await panel.evaluate((element) => element.matches(':modal'))).toBe(false);
-    const buttonBox = await trigger.boundingBox();
-    const panelBox = await panel.boundingBox();
-    expect(panelBox.x).toBeGreaterThan(buttonBox.x + buttonBox.width);
-    expect(Math.abs(panelBox.y - buttonBox.y)).toBeLessThan(2);
+    await expect.poll(async () => {
+      const buttonBox = await trigger.boundingBox();
+      const panelBox = await panel.boundingBox();
+      return panelBox.x > buttonBox.x + buttonBox.width && Math.abs(panelBox.y - buttonBox.y) < 2;
+    }).toBe(true);
   }
   await page.locator('#start-dev').click();
   await expect(page.locator('dialog[open]')).toHaveCount(0);
@@ -699,10 +700,11 @@ test('all other menu panels cascade, toggle and switch without leaving multiple 
     const trigger = page.locator(selector);
     await trigger.click();
     const panel = page.locator('dialog[open]');
-    const buttonBox = await trigger.boundingBox();
-    const panelBox = await panel.boundingBox();
-    expect(panelBox.y).toBeGreaterThanOrEqual(buttonBox.y + buttonBox.height);
-    expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(390);
+    await expect.poll(async () => {
+      const buttonBox = await trigger.boundingBox();
+      const panelBox = await panel.boundingBox();
+      return panelBox.y >= buttonBox.y + buttonBox.height && panelBox.x + panelBox.width <= 390;
+    }).toBe(true);
     await page.keyboard.press('Escape');
     await expect(trigger).toBeFocused();
   }

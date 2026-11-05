@@ -5,8 +5,9 @@ import { createSpaceEntity, normalizeSpaceEntityKind, resolveSpaceEntityModelUrl
 import { SpaceVessel } from './space-vessel.js';
 import { SpaceVesselRenderPass } from './space-vessel-render-pass.js';
 import { createSpatialStarIndex, resolveSpatialLabels } from './spatial-label-layout.js';
+import { AU_LY, SystemVisualizationLayer } from './system-visualization-layer.js';
 
-export const AU_LY = 1 / 63241.077084266;
+export { AU_LY } from './system-visualization-layer.js';
 export const KM_LY = 1 / 9460730472580.8;
 const THREE_DEG_TO_RAD = Math.PI / 180;
 
@@ -130,6 +131,16 @@ fn surfaceFbm(point: vec3<f32>) -> f32 {
     let alpha = rim * atmosphere * (0.12 + lightFacing * 0.48) * input.color.a;
     return vec4(input.color.rgb * (0.42 + lightFacing * 0.85), alpha);
   }
+  if (kind > 5.5 && kind < 6.5) {
+    let ring = 1.0 - smoothstep(0.045, 0.105, abs(radius - 0.86));
+    let pulse = 0.86 + 0.14 * sin(camera.effects.x * 2.4);
+    return vec4(input.color.rgb, ring * pulse * input.color.a);
+  }
+  if (kind > 6.5 && kind < 7.5) {
+    let ring = 1.0 - smoothstep(0.04, 0.09, abs(radius - 0.86));
+    let dash = step(0.34, fract((input.uv.x + input.uv.y * 1.7) * 18.0));
+    return vec4(input.color.rgb, ring * dash * input.color.a);
+  }
   if (kind < 0.5) {
     let glow = exp(-radius * radius * 4.5);
     return vec4(input.color.rgb, glow * input.color.a);
@@ -195,7 +206,7 @@ fn surfaceFbm(point: vec3<f32>) -> f32 {
 
 export class PerspectiveSpaceFlight {
   constructor({ radius = 50000, aspect = 1, lensFlare = null, bloom = null,
-    labelRenderer = new SpatialLabelRenderer(), vesselLoaderFactory } = {}) {
+    labelRenderer = new SpatialLabelRenderer(), vesselLoaderFactory, canvas = null } = {}) {
     this.camera = new PerspectiveCamera(58, aspect, 1e-14, radius * 20);
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(radius * 0.35, -radius * 1.1, radius * 0.75);
@@ -203,6 +214,7 @@ export class PerspectiveSpaceFlight {
     this.origin = new Vector3();
     this.root = new Group();
     this.bodies = [];
+    this.systemVisualizations = new SystemVisualizationLayer();
     this.velocity = new Vector3();
     this.acceleration = new Vector3();
     this.turnSpeed = 0;
@@ -210,6 +222,7 @@ export class PerspectiveSpaceFlight {
     this.lensFlare = lensFlare;
     this.bloom = bloom;
     this.labelRenderer = labelRenderer;
+    if (canvas) this.labelRenderer?.attachCanvas(canvas);
     this.vesselRenderPass = new SpaceVesselRenderPass({ loaderFactory: vesselLoaderFactory });
     this.device = null;
     this.spaceEntities = new Map();
@@ -452,7 +465,25 @@ export class PerspectiveSpaceFlight {
     this.lensFlare?.clearSources();
     this.root.clear();
     this.bodies = [];
+    this.systemVisualizations.clear();
     this.previousView = null;
+  }
+
+  setSystemSelection(selection) {
+    if (selection?.kind === 'planet') this.systemVisualizations.selectPlanet(selection.position);
+    else this.systemVisualizations.selectPlanet(null);
+    return true;
+  }
+
+  setSystemHover(hover) {
+    if (hover?.kind === 'planet') this.systemVisualizations.hoverPlanet(hover.position);
+    else this.systemVisualizations.hoverPlanet(null);
+    return true;
+  }
+
+  setSystemVisualizationOptions(options) {
+    this.systemVisualizations.configure(options);
+    return true;
   }
 
   setSystem(scene) {
@@ -486,6 +517,8 @@ export class PerspectiveSpaceFlight {
       return body;
     };
     addBody(this.root, 'star', star, new Vector3(), (Number(star.radius_solar) || 1) * 695700 * KM_LY);
+    const planetNodes = (system.children || []).filter((node) => node.type === 'planet' && node.data);
+    this.systemVisualizations.setSystem(star, planetNodes.map((node) => node.data));
     for (const node of system.children || []) {
       if (node.type === 'comet' || node.type === 'rogue_planet') {
         const data = node.data || {};
@@ -505,11 +538,10 @@ export class PerspectiveSpaceFlight {
       }
       if (node.type !== 'planet') continue;
       const data = node.data;
-      const orbit = Math.max(0.01, Number(data.semi_major_axis_au) || Number(data.position)) * AU_LY;
-      const angle = Number(data.position) * 2.399963229728653;
+      const orbit = this.systemVisualizations.orbits.find((item) => item.position === Number(data.position));
+      const position = new Vector3(...(orbit?.bodyPosition || [0, 0, 0]));
       const radius = (Number(data.diameter_km) || 12000) * 0.5 * KM_LY;
-      const planet = addBody(this.root, 'planet', data,
-        new Vector3(Math.cos(angle) * orbit, Math.sin(angle) * orbit, 0), radius);
+      const planet = addBody(this.root, 'planet', data, position, radius);
       const colonyId = `colony:${systemId}:${Number(data.position)}`;
       const registerColony = (suffix, seed, latitude, longitude) => {
         this._registerSystemSpaceEntity({
@@ -668,6 +700,14 @@ export class PerspectiveSpaceFlight {
     return this.galaxyLabelIndex.size;
   }
 
+  setSpatialLabelMode(mode) {
+    return this.labelRenderer?.setMode(mode) ?? false;
+  }
+
+  setSpatialLabelCallbacks(callbacks) {
+    this.labelRenderer?.setCallbacks(callbacks);
+  }
+
   getRenderBenchmark() {
     const samples = this.renderProfileSamples;
     const average = (key) => samples.length
@@ -819,7 +859,22 @@ export class PerspectiveSpaceFlight {
     this.device = device;
     this.vesselRenderPass.initialize(device,
       this.bloom?.sceneFormat || navigator.gpu.getPreferredCanvasFormat());
-    const capacity = (stars.length + this.bodies.length * 2 + 8) * 20;
+    const selected = this.systemVisualizations.getSelectedPlanet();
+    const selectedOrbit = this.systemVisualizations.getSelectedOrbit();
+    const phaseArcPointCount = this.systemVisualizations.phaseArcVisible
+      ? selectedOrbit?.phaseArcPoints.length || 0
+      : 0;
+    const orbitPointCount = this.systemVisualizations.orbitsVisible
+      ? this.systemVisualizations.orbits.reduce((count, orbit) => count + orbit.points.length, 0)
+      : 0;
+    const planeGuidePointCount = this.systemVisualizations.planesVisible
+      ? this.systemVisualizations.orbits.reduce((count, orbit) => count + orbit.planeGuides.length, 0)
+      : 0;
+    const distanceLinePointCount = this.systemVisualizations.distanceLineVisible ? 48 : 0;
+    const apsisMarkerPointCount = this.systemVisualizations.apsidesVisible && selected ? 2 : 0;
+    const capacity = (stars.length + this.bodies.length * 2 + orbitPointCount
+      + planeGuidePointCount + distanceLinePointCount + apsisMarkerPointCount
+      + phaseArcPointCount + 8) * 20;
     if (!this.instances || this.instances.length < capacity) {
       this.instanceBuffer?.destroy();
       this.instances = new Float32Array(capacity);
@@ -848,7 +903,9 @@ export class PerspectiveSpaceFlight {
       const cx = x * focal / (depth * aspect);
       const cy = y * focal / depth;
       const angularRadius = radius * focal / Math.sqrt(Math.max(1e-30, depth * depth - radius * radius));
-      const ry = kind === 0 ? Math.max(angularRadius, 2.2 / height) : angularRadius * (kind === 4 ? 2.6 : 1);
+      const ry = kind === 0 ? Math.max(angularRadius, 2.2 / height)
+        : kind === 6 || kind === 7 ? Math.max(angularRadius, 12 / height)
+          : angularRadius * (kind === 4 ? 2.6 : 1);
       const rx = ry / aspect;
       if (Math.abs(cx) > 1.1 + rx || Math.abs(cy) > 1.1 + ry || ry * height < 0.2) return;
       let trailX = 0;
@@ -873,8 +930,51 @@ export class PerspectiveSpaceFlight {
       append(position, 0, star.display_color || [0.8, 0.86, 1], 0, 0,
         Math.min(0.85, 0.35 + (Number(star.display_opacity) || 0.15) * 2));
     }
+    if (this.systemVisualizations.distanceLineVisible && selected) {
+      const starBody = this.bodies.find((body) => body.userData.type === 'star');
+      const targetBody = this.bodies.find((body) => body.userData.type === 'planet'
+        && Number(body.userData.data.position) === selected.position);
+      if (starBody && targetBody) {
+        const starPosition = starBody.getWorldPosition(new Vector3());
+        const targetPosition = targetBody.getWorldPosition(new Vector3());
+        for (let index = 1; index < 49; index += 1) {
+          position.lerpVectors(starPosition, targetPosition, index / 49);
+          append(position, 0, [0.75, 0.9, 1], 0, 0, 0.52);
+        }
+      }
+    }
+    for (const orbit of this.systemVisualizations.orbits) {
+      if (this.systemVisualizations.planesVisible) {
+        for (const point of orbit.planeGuides) {
+          position.fromArray(point);
+          append(position, 0, [0.2, 0.46, 0.68], 0, 0, 0.14);
+        }
+      }
+      if (this.systemVisualizations.orbitsVisible) {
+        const isSelectedOrbit = orbit.position === selected?.position;
+        const color = isSelectedOrbit ? [0.3, 0.86, 1] : [0.28, 0.58, 0.82];
+        const opacity = isSelectedOrbit ? 0.78 : 0.34;
+        for (const point of orbit.points) {
+          position.fromArray(point);
+          append(position, 0, color, 0, 0, opacity);
+        }
+      }
+    }
+    if (this.systemVisualizations.apsidesVisible && selectedOrbit) {
+      position.fromArray(selectedOrbit.periapsisPoint);
+      append(position, 0, [0.35, 0.9, 0.62], 6, 0, 0.9);
+      position.fromArray(selectedOrbit.apoapsisPoint);
+      append(position, 0, [1, 0.55, 0.25], 7, 0, 0.9);
+    }
+    if (this.systemVisualizations.phaseArcVisible && selectedOrbit) {
+      for (const point of selectedOrbit.phaseArcPoints) {
+        position.fromArray(point);
+        append(position, 0, [0.62, 0.82, 1], 0, 0, 0.82);
+      }
+    }
     const starProjectionMs = performance.now() - starProjectionStarted;
     const bodyProjectionStarted = performance.now();
+    const hovered = this.systemVisualizations.getHoveredPlanet();
     const sortedBodies = this.bodies.map((body) => ({ body, position: body.getWorldPosition(new Vector3()) }))
       .sort((left, right) => right.position.distanceToSquared(this.camera.position) - left.position.distanceToSquared(this.camera.position));
     for (const item of sortedBodies) {
@@ -903,6 +1003,13 @@ export class PerspectiveSpaceFlight {
       append(item.position, radius, color, kind, item.body.userData.surfaceSeed, 1, light.toArray(),
         item.body.userData.surfaceProfile, item.body.userData.inhabited,
         item.body.userData.atmosphere, item.body.userData.cloudiness);
+      if (type === 'planet' && selected?.position === Number(data.position)) {
+        append(item.position, radius * 1.6, [0.42, 0.88, 1], 6, 0, 0.92);
+      }
+      if (type === 'planet' && hovered?.position === Number(data.position)
+        && hovered.position !== selected?.position) {
+        append(item.position, radius * 1.9, [1, 0.68, 0.22], 7, 0, 0.88);
+      }
     }
     const bodyProjectionMs = performance.now() - bodyProjectionStarted;
     if (count) device.queue.writeBuffer(this.instanceBuffer, 0, this.instances.buffer, 0, count * 80);

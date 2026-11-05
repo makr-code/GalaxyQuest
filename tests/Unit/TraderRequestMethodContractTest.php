@@ -87,4 +87,14 @@ final class TraderRequestMethodContractTest extends TestCase
             self::assertStringContainsString("'" . $event . "'", $guard);
         }
     }
+
+    public function testTraderEventFailuresAreLoggedWithoutExposingExceptionDetails(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/traders_events.php');
+        self::assertIsString($source);
+
+        self::assertStringContainsString('error_log("traders_events.php error: " . $e->getMessage());', $source);
+        self::assertStringContainsString("json_error('Trader event service unavailable', 503);", $source);
+        self::assertStringNotContainsString('json_error($e->getMessage(), 500);', $source);
+    }
 }

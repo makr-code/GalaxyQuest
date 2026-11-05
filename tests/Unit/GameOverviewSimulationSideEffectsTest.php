@@ -43,6 +43,30 @@ final class GameOverviewSimulationSideEffectsTest extends TestCase
         );
     }
 
+    public function testOverviewLiveFallbackSettlesColonyEconomyWithoutRunningSimulationTicks(): void
+    {
+        $gameApi = file_get_contents(__DIR__ . '/../../api/game.php');
+        $projection = file_get_contents(__DIR__ . '/../../api/projection.php');
+        self::assertIsString($gameApi);
+        self::assertIsString($projection);
+
+        $overviewStart = strpos($gameApi, "case 'overview':");
+        $resourcesStart = strpos($gameApi, "case 'resources':", $overviewStart);
+        self::assertNotFalse($overviewStart);
+        self::assertNotFalse($resourcesStart);
+        $overview = substr($gameApi, $overviewStart, $resourcesStart - $overviewStart);
+        self::assertStringContainsString("only_method('GET');", $overview);
+        self::assertStringContainsString('build_live_overview_payload($db, $uid, false)', $overview);
+
+        $builderStart = strpos($projection, 'function build_live_overview_payload(');
+        $settlementOffset = strpos($projection, 'update_all_colonies($db, $uid);', $builderStart);
+        $simulationGuardOffset = strpos($projection, 'if ($runSimulationSideEffects)', $builderStart);
+        self::assertNotFalse($builderStart);
+        self::assertNotFalse($settlementOffset);
+        self::assertNotFalse($simulationGuardOffset);
+        self::assertLessThan($simulationGuardOffset, $settlementOffset);
+    }
+
     public function testSimulationTickHttpEndpointRequiresPostAndCsrf(): void
     {
         $tickApi = file_get_contents(__DIR__ . '/../../api/simulation_tick.php');

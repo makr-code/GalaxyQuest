@@ -3608,6 +3608,16 @@
       return this._native?.setSpatialLabelStars?.(stars) ?? 0;
     }
 
+    setSpatialLabelMode(mode) {
+      if (this._delegate?.setSpatialLabelMode) return this._delegate.setSpatialLabelMode(mode);
+      return this._native?.setSpatialLabelMode?.(mode) ?? false;
+    }
+
+    setSpatialLabelCallbacks(callbacks) {
+      if (this._delegate?.setSpatialLabelCallbacks) return this._delegate.setSpatialLabelCallbacks(callbacks);
+      return this._native?.setSpatialLabelCallbacks?.(callbacks);
+    }
+
     setNebulaConfiguration(options) {
       if (this._delegate?.setNebulaConfiguration) return this._delegate.setNebulaConfiguration(options);
       return this._native?.setNebulaConfiguration?.(options) ?? false;

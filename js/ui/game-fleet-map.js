@@ -45,12 +45,16 @@ export function mountFleetMap({ domain, galaxy, renderer, session, stage }) {
   function renderContext() {
     const point = points.find((entry) => entry.key === selected);
     if (!point || picking) { close(); return; }
+    const activeAction = context.contains(document.activeElement)
+      ? document.activeElement.dataset.fleetAction : null;
     const busy = state.loading || state.mutating;
     context.hidden = false;
     status.hidden = true;
+    const closeButton = button('Flottenauswahl schließen', () => close(true));
+    closeButton.dataset.fleetAction = 'close';
     context.replaceChildren(
       node('h3', `Flotten bei [${point.galaxy}:${point.system}${point.position === null ? '' : `:${point.position}`}]`),
-      button('Flottenauswahl schließen', () => close(true)),
+      closeButton,
     );
     const message = node('p', state.error || (busy ? 'Serveranfrage läuft ...' : state.message));
     message.setAttribute('role', state.error ? 'alert' : 'status');
@@ -70,13 +74,17 @@ export function mountFleetMap({ domain, galaxy, renderer, session, stage }) {
       const actions = node('div');
       actions.className = 'game-development-actions';
       for (const [prefix, label] of [['origin', 'Herkunft'], ['target', 'Ziel']]) {
-        actions.append(button(`${label} im Spielfeld`, () => {
+        const navigate = button(`${label} im Spielfeld`, () => {
           close(true);
           void galaxy.navigate(fleet[`${prefix}_galaxy`], fleet[`${prefix}_system`]);
-        }, busy));
+        }, busy);
+        navigate.dataset.fleetAction = `${prefix}-${fleet.id}`;
+        actions.append(navigate);
       }
-      actions.append(button('Flotte zurückrufen', () => { void domain.command('recall', fleet.id); },
-        busy || state.stale || returning));
+      const recall = button('Flotte zurückrufen', () => { void domain.command('recall', fleet.id); },
+        busy || state.stale || returning);
+      recall.dataset.fleetAction = `recall-${fleet.id}`;
+      actions.append(recall);
       card.append(actions);
       context.append(card);
     }
@@ -85,6 +93,11 @@ export function mountFleetMap({ domain, galaxy, renderer, session, stage }) {
       button('Fällige Ankünfte verarbeiten', () => { void domain.command('check'); }, busy || state.stale),
       node('p', 'Markierungen zeigen Herkunft und Ziel, nicht die aktuelle Flugposition oder eine gemeinsame Transitbahn. Ankünfte werden nur auf ausdrücklichen Befehl verarbeitet.'),
     );
+    if (activeAction) {
+      const replacement = [...context.querySelectorAll('button')]
+        .find((item) => item.dataset.fleetAction === activeAction);
+      (replacement && !replacement.disabled ? replacement : closeButton).focus({ preventScroll: true });
+    }
   }
   function project(next) {
     if (disposed) return;
@@ -92,8 +105,13 @@ export function mountFleetMap({ domain, galaxy, renderer, session, stage }) {
     const previousSelection = points.find((point) => point.key === selected)?.fleetIds.join(',');
     points = next;
     const keys = new Set(next.map((point) => point.key));
+    let restoreCanvasFocus = false;
     for (const [key, badge] of badges) {
-      if (!keys.has(key)) { badge.remove(); badges.delete(key); }
+      if (!keys.has(key)) {
+        restoreCanvasFocus ||= badge === document.activeElement;
+        badge.remove();
+        badges.delete(key);
+      }
     }
     for (const point of next) {
       let badge = badges.get(point.key);
@@ -119,6 +137,7 @@ export function mountFleetMap({ domain, galaxy, renderer, session, stage }) {
     else if (selected !== null && previousSelection !== points.find((point) => point.key === selected)?.fleetIds.join(',')) {
       renderContext();
     }
+    if (restoreCanvasFocus) document.getElementById('starfield')?.focus({ preventScroll: true });
   }
   function update(next) {
     state = next;

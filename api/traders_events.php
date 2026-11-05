@@ -63,7 +63,7 @@ try {
     };
 } catch (Throwable $e) {
     error_log("traders_events.php error: " . $e->getMessage());
-    json_error($e->getMessage(), 500);
+    json_error('Trader event service unavailable', 503);
 }
 
 /**

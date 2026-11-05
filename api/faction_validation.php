@@ -78,6 +78,7 @@ function dump_standing_matrix() {
 }
 
 if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
+    only_method('GET');
     $action = strtolower($_GET['action'] ?? 'verify');
     
     // Allow unauthenticated debug access (remove in production)

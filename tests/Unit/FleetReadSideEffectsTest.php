@@ -51,4 +51,48 @@ final class FleetReadSideEffectsTest extends TestCase
         self::assertStringContainsString('verify_csrf()', $checkHandler);
         self::assertStringContainsString('process_fleet_arrivals(get_db())', $checkHandler);
     }
+
+    public function testFtlReadActionsAndHelpersDoNotMutateFleetOrTravelState(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/fleet.php');
+        $gameEngine = file_get_contents(__DIR__ . '/../../api/game_engine.php');
+        self::assertIsString($source);
+        self::assertIsString($gameEngine);
+
+        foreach ([
+            ['wormholes', 'list_wormholes'],
+            ['ftl_status', 'list_ftl_status'],
+            ['ftl_map', 'list_ftl_map'],
+        ] as [$action, $function]) {
+            $caseStart = strpos($source, "case '" . $action . "':");
+            $nextCase = strpos($source, "\n    case '", $caseStart + 1);
+            self::assertNotFalse($caseStart, $action . ' action must exist.');
+            self::assertNotFalse($nextCase, $action . ' action must be bounded.');
+            $handler = substr($source, $caseStart, $nextCase - $caseStart);
+            self::assertStringContainsString("only_method('GET');", $handler, $action);
+
+            $readHelper = $this->functionBody($source, $function);
+            self::assertDoesNotMatchRegularExpression(
+                '/\b(?:INSERT\s+INTO|UPDATE\s+[a-z_]+\s+SET|DELETE\s+FROM|REPLACE\s+INTO)\b/i',
+                $readHelper,
+                $function
+            );
+        }
+
+        $coordinateHelper = $this->functionBody($gameEngine, 'get_system_3d_coords');
+        self::assertDoesNotMatchRegularExpression(
+            '/\b(?:INSERT\s+INTO|UPDATE\s+[a-z_]+\s+SET|DELETE\s+FROM|REPLACE\s+INTO)\b/i',
+            $coordinateHelper
+        );
+        self::assertStringContainsString('SELECT x_ly, y_ly, z_ly FROM star_systems', $coordinateHelper);
+    }
+
+    private function functionBody(string $source, string $function): string
+    {
+        $start = strpos($source, 'function ' . $function . '(');
+        self::assertNotFalse($start, $function . ' function must exist.');
+        $nextFunction = strpos($source, "\nfunction ", $start + 1);
+        $end = $nextFunction === false ? strlen($source) : $nextFunction;
+        return substr($source, $start, $end - $start);
+    }
 }

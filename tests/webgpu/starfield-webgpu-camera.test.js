@@ -786,6 +786,7 @@ describe('StarfieldWebGPU camera driver', () => {
       createCommandEncoder: () => ({ beginRenderPass: () => pass, finish: () => ({}) }) };
     const context = { getCurrentTexture: () => ({ createView: () => ({}) }) };
     const flight = new PerspectiveSpaceFlight({ radius: 100 });
+    flight.setSystemVisualizationOptions({ orbits: false });
     flight.renderFrame(device, context, [{ x_ly: 0, y_ly: 0, z_ly: 0, display_opacity: 0.02 }], 1280, 720);
     expect(pass.draw).toHaveBeenCalledWith(4, 1, 0, 0);
     expect(flight.instances[7]).toBeGreaterThan(0.3);
@@ -831,6 +832,11 @@ describe('StarfieldWebGPU camera driver', () => {
     expect(flight.instances[71]).toBe(1);
     expect(flight.instances[74]).toBeCloseTo(0.64);
     expect(flight.instances[75]).toBeCloseTo(0.73);
+
+    flight.setSystemVisualizationOptions({ orbits: true });
+    flight.renderFrame(device, context, [], 1280, 720);
+    expect(flight.renderedInstances).toBeGreaterThan(4);
+    expect(pass.draw).toHaveBeenLastCalledWith(4, flight.renderedInstances, 0, 0);
 
     flight.setGalaxyLabelStars(Array.from({ length: 120 }, (_, index) => ({
       galaxy_index: 1, system_index: index + 1, name: `Nearby ${index + 1}`,

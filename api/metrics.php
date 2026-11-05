@@ -16,6 +16,12 @@
 
 declare(strict_types=1);
 
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
+    http_response_code(405);
+    header('Allow: GET');
+    exit('Method Not Allowed');
+}
+
 header('Content-Type: text/plain; charset=utf-8');
 
 // ─── Database Connection ──────────────────────────────────────────────────

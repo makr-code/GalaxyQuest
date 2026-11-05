@@ -200,6 +200,34 @@ describe('Cinematic draft registration', () => {
     expect(request.mock.calls.some(([action]) => action === 'register_prepare')).toBe(false);
   });
 
+  it('restores a previously selected mentor without narration leaving navigation busy', async () => {
+    const original = request.getMockImplementation();
+    request.mockImplementation((action, input) => action === 'register_mentor_drafts'
+      ? Promise.resolve({ drafts: mentorDrafts.map((candidate) => ({ ...candidate, selected: candidate.mentor_code === 'vor_tak' })) })
+      : original(action, input));
+    await reachMentorRoom();
+    expect(el('choices').querySelector('[data-choice="vor_tak"]').getAttribute('aria-pressed')).toBe('true');
+    expect(el('continue').hidden).toBe(false);
+    el('continue').click();
+    await vi.waitFor(() => expect(el('title').textContent).toBe('Dein Sternsystem'));
+    expect(el('choices').querySelector('[data-tutorial-planet="2"]')).not.toBeNull();
+  });
+
+  it('keeps a pending mentor selection valid when failed narration is retried', async () => {
+    await reachMentorRoom();
+    el('choices').querySelector('[data-choice="vor_tak"]').click();
+    await vi.waitFor(() => expect(audio.onerror).toBeTypeOf('function'));
+    audio.onerror();
+    expect(el('narration-retry').hidden).toBe(false);
+    let finish;
+    request.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    el('continue').click();
+    el('narration-retry').click();
+    finish({ draft: { ...mentorDrafts[1], selected: true } });
+    await vi.waitFor(() => expect(el('title').textContent).toBe('Dein Sternsystem'));
+    expect(el('choices').querySelector('[data-tutorial-planet="2"]')).not.toBeNull();
+  });
+
   it('persists species and character privately, never requests activation or credentials', async () => {
     await reachCharacter();
     expect(fetch).toHaveBeenCalledWith('api/registration_narration.php', expect.objectContaining({

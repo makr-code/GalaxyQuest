@@ -116,10 +116,18 @@ SQL);
         'error_message' => $job['error_message'],
     ]);
     
+} catch (PDOException $e) {
+    error_log('Generation queue status database error: ' . $e->getMessage());
+    http_response_code(503);
+    echo json_encode([
+        'ok' => false,
+        'error' => 'Queue status unavailable'
+    ]);
 } catch (Exception $e) {
+    error_log('Generation queue status error: ' . $e->getMessage());
     http_response_code(500);
     echo json_encode([
         'ok' => false,
-        'error' => $e->getMessage()
+        'error' => 'Unable to read queue status'
     ]);
 }

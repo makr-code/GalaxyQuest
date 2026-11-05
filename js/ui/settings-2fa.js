@@ -6,7 +6,7 @@
  *
  * Endpoints (api/auth.php):
  *   GET  ?action=totp_status       → { success, enabled }
- *   GET  ?action=totp_begin_setup  → { success, uri, secret }
+ *   POST ?action=totp_begin_setup → { success, uri, secret }
  *   POST ?action=totp_confirm_setup { code, csrf }
  *   POST ?action=totp_disable       { code, csrf }
  */

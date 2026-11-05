@@ -41,7 +41,7 @@ if (!defined('TRADERS_LIB_MODE')) {
         };
     } catch (Throwable $e) {
         error_log("traders.php error: " . $e->getMessage());
-        json_error($e->getMessage(), 500);
+        json_error('Trader service unavailable', 503);
     }
 }
 

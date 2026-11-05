@@ -20,11 +20,15 @@ final class GenerationQueueV2ReadSideEffectsTest extends TestCase
 
         $statusHandler = substr($source, $statusStart, $invalidRequestStart - $statusStart);
         self::assertStringContainsString("if (\$method === 'GET' && \$queueId)", $statusHandler);
+        self::assertStringContainsString("only_method('GET')", $statusHandler);
         self::assertStringContainsString('$uid = require_auth()', $statusHandler);
         self::assertStringContainsString('WHERE id = ? AND user_id = ?', $statusHandler);
         self::assertStringContainsString("\$progress = \$status === 'completed' ? 100 : 0", $statusHandler);
         self::assertStringNotContainsString('UPDATE generation_queue', $statusHandler);
         self::assertStringNotContainsString('tryFindGeneratedGLB(', $statusHandler);
+        self::assertStringContainsString("error_log(\"GenerationQueue v2 database error:", $source);
+        self::assertStringContainsString("json_error('Queue service unavailable', 503);", $source);
+        self::assertStringNotContainsString('json_error($e->getMessage(), 500);', $source);
     }
 
     public function testJobCreationRequiresAuthenticationAndCsrf(): void
@@ -70,6 +74,10 @@ final class GenerationQueueV2ReadSideEffectsTest extends TestCase
         self::assertStringContainsString('WHERE q.id = ? AND q.user_id = ?', $statusHandler);
         self::assertStringNotContainsString('UPDATE generation_queue', $statusHandler);
         self::assertStringNotContainsString('tryFindGeneratedGLB(', $statusHandler);
+        self::assertStringContainsString('error_log("GenerationQueue error: " . $e->getMessage());', $source);
+        self::assertStringContainsString("json_error('Generation queue service unavailable', 503);", $source);
+        self::assertStringNotContainsString('json_error($e->getMessage(), 500);', $source);
+        self::assertStringNotContainsString("'Database error: ' . \$e->getMessage()", $source);
         self::assertStringContainsString("fetch('/api/auth.php?action=csrf'", $client);
         self::assertStringContainsString("'X-CSRF-Token': csrfData.token", $client);
     }
@@ -91,5 +99,8 @@ final class GenerationQueueV2ReadSideEffectsTest extends TestCase
         self::assertStringContainsString('$userId = require_auth()', $status);
         self::assertStringContainsString('WHERE id = ? AND user_id = ?', $status);
         self::assertStringContainsString('$stmt->execute([(int)$queueId, $userId])', $status);
+        self::assertStringContainsString("http_response_code(503);", $status);
+        self::assertStringContainsString("'error' => 'Queue status unavailable'", $status);
+        self::assertStringNotContainsString("'error' => \$e->getMessage()", $status);
     }
 }

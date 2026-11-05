@@ -35,4 +35,20 @@ final class FactionReadSideEffectsTest extends TestCase
         self::assertStringContainsString("only_method('POST')", $startQuestHandler);
         self::assertStringContainsString('ensure_precursor_beacon_quest_seed(', $startQuestHandler);
     }
+
+    public function testQuestSeedBackfillDoesNotHideDatabaseFailures(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/factions.php');
+        self::assertIsString($source);
+
+        $start = strpos($source, 'function ensure_precursor_beacon_quest_seed(');
+        $end = strpos($source, "\nfunction ", $start + 1);
+        self::assertNotFalse($start);
+        self::assertNotFalse($end);
+
+        $seed = substr($source, $start, $end - $start);
+        self::assertStringContainsString('INSERT IGNORE INTO faction_quests', $seed);
+        self::assertStringNotContainsString('catch (Throwable', $seed);
+        self::assertStringNotContainsString('catch (Exception', $seed);
+    }
 }

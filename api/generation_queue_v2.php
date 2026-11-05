@@ -178,10 +178,12 @@ function createProceduralGLB(): string {
 if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
     try {
         $method = $_SERVER['REQUEST_METHOD'];
+        only_method('GET', 'POST');
         $queueId = $_GET['queue_id'] ?? $_POST['queue_id'] ?? null;
         
         // POST: Create new generation job
         if ($method === 'POST') {
+            only_method('POST');
             $uid = require_auth();
             verify_csrf();
             $db = get_db();
@@ -250,13 +252,14 @@ SQL);
                 ]);
             } catch (\Exception $e) {
                 error_log("DB insert failed: " . $e->getMessage());
-                json_error('Database error: ' . $e->getMessage(), 500);
+                json_error('Unable to queue generation job', 500);
             }
             return;
         }
         
         // GET: Get job status
         if ($method === 'GET' && $queueId) {
+            only_method('GET');
             $uid = require_auth();
             $db = get_db();
             
@@ -296,8 +299,11 @@ SQL);
         
         json_error('Invalid request', 400);
         
+    } catch (\PDOException $e) {
+        error_log("GenerationQueue v2 database error: " . $e->getMessage());
+        json_error('Queue service unavailable', 503);
     } catch (\Exception $e) {
         error_log("GenerationQueue v2 error: " . $e->getMessage());
-        json_error($e->getMessage(), 500);
+        json_error('Unable to process generation queue request', 500);
     }
 }

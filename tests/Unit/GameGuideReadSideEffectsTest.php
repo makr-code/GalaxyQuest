@@ -46,4 +46,21 @@ final class GameGuideReadSideEffectsTest extends TestCase
         self::assertStringNotContainsString('INSERT ', substr($endpoint, $greetingStart, $greetingEnd - $greetingStart));
         self::assertStringNotContainsString('mkdir(', substr($guide, 0, strpos($guide, 'private function loadConfig')));
     }
+
+    public function testTutorialProgressReadDoesNotHideDatabaseFailuresAsEmptyProgress(): void
+    {
+        $guide = file_get_contents(__DIR__ . '/../../api/llm_soc/GameGuideNPC.php');
+        self::assertIsString($guide);
+
+        $start = strpos($guide, 'public function getTutorialProgress(');
+        $end = strpos($guide, "\n    /**", $start + 1);
+        self::assertNotFalse($start);
+        self::assertNotFalse($end);
+
+        $read = substr($guide, $start, $end - $start);
+        self::assertStringContainsString('SELECT checkpoint_id, completed_at', $read);
+        self::assertStringContainsString('return $stmt->fetchAll(PDO::FETCH_ASSOC);', $read);
+        self::assertStringNotContainsString('catch (Exception', $read);
+        self::assertStringNotContainsString('return [];', $read);
+    }
 }

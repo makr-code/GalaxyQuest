@@ -32,7 +32,22 @@ final class EmpireReadSideEffectsTest extends TestCase
                 ships_json TEXT DEFAULT "{}",
                 "returning" INTEGER DEFAULT 0
             );
-            CREATE TABLE diplomacy (id INTEGER PRIMARY KEY, user_id INTEGER, standing INTEGER DEFAULT 0);
+            CREATE TABLE diplomacy (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER,
+                faction_id INTEGER,
+                standing INTEGER DEFAULT 0
+            );
+            CREATE TABLE npc_factions (
+                id INTEGER PRIMARY KEY,
+                base_diplomacy INTEGER DEFAULT 0
+            );
+            CREATE TABLE wars (
+                id INTEGER PRIMARY KEY,
+                attacker_user_id INTEGER,
+                defender_user_id INTEGER,
+                status TEXT DEFAULT "active"
+            );
             CREATE TABLE espionage_agents (
                 id INTEGER PRIMARY KEY,
                 user_id INTEGER,
@@ -53,18 +68,36 @@ final class EmpireReadSideEffectsTest extends TestCase
             );
             INSERT INTO colonies (user_id, metal, crystal, deuterium, population)
             VALUES (7, 1000, 1000, 1000, 500);
+            INSERT INTO npc_factions (id, base_diplomacy) VALUES (1, 10), (2, -10);
+            INSERT INTO diplomacy (user_id, faction_id, standing) VALUES (7, 1, -5), (7, 2, 20);
         ');
 
         $scores = \calc_empire_scores($db, 7);
 
         self::assertSame(15, $scores['economy']);
         self::assertSame(5, $scores['growth']);
+        self::assertSame(10, $scores['diplomacy']);
         self::assertSame(
             $scores['economy'] + $scores['military'] + $scores['research'] + $scores['growth']
                 + $scores['stability'] + $scores['diplomacy'] + $scores['espionage'],
             $scores['total']
         );
         self::assertSame(0, (int) $db->query('SELECT COUNT(*) FROM empire_category_scores')->fetchColumn());
+
+        $db->exec("INSERT INTO wars (attacker_user_id, defender_user_id) VALUES (7, 9)");
+        self::assertSame(30, \calc_stability_score($db, 7));
+    }
+
+    public function testStabilityScoreUsesCanonicalWarSchemaAndPropagatesReadFailures(): void
+    {
+        require_once __DIR__ . '/../../scripts/project_user_overview.php';
+
+        $db = new \PDO('sqlite::memory:');
+        $db->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+        $db->exec('CREATE TABLE colonies (user_id INTEGER, energy_balance INTEGER)');
+
+        $this->expectException(\PDOException::class);
+        \calc_stability_score($db, 7);
     }
 
     public function testEmpireGetActionsUsePureCalculationInsteadOfPersistenceHelper(): void

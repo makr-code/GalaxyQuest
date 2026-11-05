@@ -40,4 +40,40 @@ final class ShipyardReadSideEffectsTest extends TestCase
         self::assertNotFalse($ack);
         self::assertGreaterThan($invalidate, $ack);
     }
+
+    public function testVesselListPropagatesDatabaseFailuresInsteadOfReturningAnEmptySuccess(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/shipyard.php');
+        self::assertIsString($source);
+
+        $list = $this->functionBody($source, 'action_list_vessels');
+        self::assertStringContainsString('ensure_built_vessels_table($db);', $list);
+        self::assertDoesNotMatchRegularExpression('/catch\s*\(\s*PDOException\b/', $list);
+        self::assertStringNotContainsString("json_ok(['vessels' => []]);", $list);
+    }
+
+    public function testFactionAffinityReadersOnlyIgnoreAMissingMigrationTable(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/shipyard.php');
+        self::assertIsString($source);
+
+        foreach ([
+            'load_faction_tech_affinities_for_user',
+            'load_faction_tech_affinities_display',
+        ] as $functionName) {
+            $body = $this->functionBody($source, $functionName);
+            self::assertStringContainsString("if (\$e->getCode() !== '42S02')", $body);
+            self::assertStringContainsString('throw $e;', $body);
+        }
+    }
+
+    private function functionBody(string $source, string $functionName): string
+    {
+        $start = strpos($source, 'function ' . $functionName . '(');
+        self::assertNotFalse($start, $functionName . ' must exist.');
+        $next = preg_match('/^[ \t]*function\s+/m', $source, $matches, PREG_OFFSET_CAPTURE, $start + 1)
+            ? $matches[0][1]
+            : strlen($source);
+        return substr($source, $start, $next - $start);
+    }
 }

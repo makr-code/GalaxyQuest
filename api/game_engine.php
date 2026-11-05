@@ -245,12 +245,8 @@ function has_player_system_visibility_table(PDO $db): bool {
         return $cached;
     }
 
-    try {
-        $stmt = $db->query("SHOW TABLES LIKE 'player_system_visibility'");
-        $cached = (bool)$stmt->fetchColumn();
-    } catch (Throwable $e) {
-        $cached = false;
-    }
+    $stmt = $db->query("SHOW TABLES LIKE 'player_system_visibility'");
+    $cached = (bool)$stmt->fetchColumn();
 
     return $cached;
 }
@@ -310,10 +306,7 @@ function resolve_system_visibility(PDO $db, int $userId, int $galaxy, int $syste
 
     // Check expiry for temporary records
     if ($row['expires_at'] !== null && strtotime($row['expires_at']) < time()) {
-        // Expired active entry → demote to stale (keep intel_json)
-        $db->prepare(
-            'UPDATE player_system_visibility SET level = \'stale\', expires_at = NULL WHERE user_id = ? AND galaxy = ? AND `system` = ?'
-        )->execute([$userId, $galaxy, $system]);
+        // Expiry is projected at read time; persist cleanup only from a write path.
         $row['level'] = 'stale';
     }
 

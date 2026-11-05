@@ -8,6 +8,10 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/helpers.php';
 
+final class GQApiKeyVerificationException extends RuntimeException
+{
+}
+
 /**
  * Get current user ID from the session or an active API key.
  */
@@ -47,8 +51,9 @@ function verifyAPIKey(string $apiKey): ?int {
             
             return (int)$result['user_id'];
         }
-    } catch (Exception $e) {
-        // Silently fail
+    } catch (Throwable $e) {
+        error_log('API key verification failed: ' . $e->getMessage());
+        throw new GQApiKeyVerificationException('API key verification unavailable', 0, $e);
     }
     
     return null;

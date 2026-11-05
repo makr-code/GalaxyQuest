@@ -41,7 +41,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         
     } catch (\Exception $e) {
         error_log("Generation Queue Monitor error: " . $e->getMessage());
-        json_error($e->getMessage(), 500);
+        json_error('Unable to read generation queue monitor data', 500);
     }
 }
 

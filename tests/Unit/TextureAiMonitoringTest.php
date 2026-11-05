@@ -77,7 +77,7 @@ final class TextureAiMonitoringTest extends TestCase
             throw new RuntimeException('Cannot locate monitoring handlers.');
         }
         // Execute real handlers and service, replacing only HTTP and response boundaries.
-        eval('namespace ' . __NAMESPACE__ . '; use \RuntimeException; use \JsonException; use \Exception; '
+        eval('namespace ' . __NAMESPACE__ . '; use \RuntimeException; use \JsonException; use \Exception; use \Throwable; '
             . substr($source, $start));
     }
 

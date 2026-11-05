@@ -257,19 +257,13 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             $newQueueId = bin2hex(random_bytes(8));
             
             // Create generation queue entry
-            try {
-                $stmt = $db->prepare(<<<'SQL'
-                    INSERT INTO generation_queue
-                    (user_id, vessel_design_id, prompt_text, priority, status)
-                    VALUES (?, ?, ?, ?, 'queued')
-                SQL);
-                $stmt->execute([$uid, $designId, $prompt, $priority]);
-                $queueIdFromDb = $db->lastInsertId();
-            } catch (\Exception $e) {
-                error_log("Failed to create generation queue: " . $e->getMessage());
-                json_error('Database error: ' . $e->getMessage(), 500);
-                return;
-            }
+            $stmt = $db->prepare(<<<'SQL'
+                INSERT INTO generation_queue
+                (user_id, vessel_design_id, prompt_text, priority, status)
+                VALUES (?, ?, ?, ?, 'queued')
+            SQL);
+            $stmt->execute([$uid, $designId, $prompt, $priority]);
+            $queueIdFromDb = $db->lastInsertId();
             
             json_ok([
                 'success' => true,
@@ -338,9 +332,9 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         
         json_error('Invalid request', 400);
         
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
         error_log("GenerationQueue error: " . $e->getMessage());
-        json_error($e->getMessage(), 500);
+        json_error('Generation queue service unavailable', 503);
     }
 }
 

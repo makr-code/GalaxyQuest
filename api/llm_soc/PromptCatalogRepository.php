@@ -84,15 +84,11 @@ WHERE active = 1
 ORDER BY profile_key ASC
 SQL;
 
-        try {
-            $stmt = $db->query($sql);
-            if (!$stmt) {
-                return [];
-            }
-            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (Throwable $e) {
-            return [];
+        $stmt = $db->query($sql);
+        if (!$stmt) {
+            throw new RuntimeException('Failed to load LLM prompt profiles from the database.');
         }
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         $out = [];
         foreach ($rows as $row) {

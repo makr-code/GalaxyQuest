@@ -109,25 +109,22 @@ final class TRELLIS2AssetManager {
     /**
      * Load existing design from database
      */
-    public function getDesign(int $design_id): array {
-        $stmt = $this->db->prepare(
-            'SELECT * FROM vessel_designs WHERE id = ? AND is_deleted = 0'
-        );
-        $stmt->execute([$design_id]);
+    public function getDesign(int $design_id, ?int $user_id = null): array {
+        $query = 'SELECT * FROM vessel_designs WHERE id = ? AND is_deleted = 0';
+        $params = [$design_id];
+        if ($user_id !== null) {
+            $query .= ' AND user_id = ?';
+            $params[] = $user_id;
+        }
+
+        $stmt = $this->db->prepare($query);
+        $stmt->execute($params);
         $design = $stmt->fetch(\PDO::FETCH_ASSOC);
         
         if (!$design) {
-            throw new \RuntimeException("Design {$design_id} not found");
+            throw new \OutOfBoundsException("Design {$design_id} not found");
         }
-        
-        // Load JSON from filesystem
-        if (file_exists($design['design_json_path'])) {
-            $design['json_state'] = json_decode(
-                file_get_contents($design['design_json_path']),
-                true
-            );
-        }
-        
+
         return $design;
     }
     
@@ -203,23 +200,48 @@ final class TRELLIS2AssetManager {
     /**
      * Get generation queue position and estimated completion
      */
-    public function getQueueStatus(int $queue_id): array {
+    public function getQueueStatus(int $queue_id, int $user_id): array {
         $stmt = $this->db->prepare(
-            'SELECT 
-                id, status, priority, created_at, estimated_completion_ms,
-                ROW_NUMBER() OVER (ORDER BY priority DESC, created_at ASC) AS queue_position,
-                COUNT(*) OVER () AS total_in_queue
-             FROM generation_queue
-             WHERE id = ? AND status IN ("queued", "processing")'
+            'SELECT
+                queue.id, queue.status, queue.priority, queue.created_at,
+                queue.estimated_completion_ms, queue.generation_id, queue.error_message,
+                CASE
+                    WHEN queue.status = \'queued\' THEN 1 + (
+                        SELECT COUNT(*)
+                        FROM generation_queue AS ahead
+                        WHERE ahead.status = \'queued\'
+                          AND (
+                              ahead.priority > queue.priority
+                              OR (
+                                  ahead.priority = queue.priority
+                                  AND (
+                                      ahead.created_at < queue.created_at
+                                      OR (
+                                          ahead.created_at = queue.created_at
+                                          AND ahead.id < queue.id
+                                      )
+                                  )
+                              )
+                          )
+                    )
+                    ELSE 0
+                END AS queue_position,
+                (
+                    SELECT COUNT(*)
+                    FROM generation_queue AS active
+                    WHERE active.status IN (\'queued\', \'processing\')
+                ) AS total_in_queue
+             FROM generation_queue AS queue
+             WHERE queue.id = ? AND queue.user_id = ?'
         );
-        $stmt->execute([$queue_id]);
+        $stmt->execute([$queue_id, $user_id]);
         return $stmt->fetch(\PDO::FETCH_ASSOC) ?? [];
     }
     
     /**
      * Get generation status (from asset_generations table)
      */
-    public function getGenerationStatus(int $generation_id): array {
+    public function getGenerationStatus(int $generation_id, int $user_id): array {
         $stmt = $this->db->prepare(
             'SELECT 
                 id, user_id, generation_uuid, status, glb_path, glb_file_size,
@@ -227,9 +249,9 @@ final class TRELLIS2AssetManager {
                 generation_time_ms, completed_at, error_message,
                 created_at
              FROM asset_generations
-             WHERE id = ? AND is_deleted = 0'
+             WHERE id = ? AND user_id = ? AND is_deleted = 0'
         );
-        $stmt->execute([$generation_id]);
+        $stmt->execute([$generation_id, $user_id]);
         return $stmt->fetch(\PDO::FETCH_ASSOC) ?? [];
     }
     
@@ -343,13 +365,34 @@ final class TRELLIS2AssetManager {
      * Get user design list with latest generation status
      */
     public function getUserDesigns(int $user_id, int $limit = 50, int $offset = 0): array {
+        $limit = max(1, min(100, $limit));
+        $offset = max(0, $offset);
         $stmt = $this->db->prepare(
-            'SELECT * FROM v_user_designs_with_status
-             WHERE user_id = ?
-             ORDER BY created_at DESC
+            'SELECT
+                design.id,
+                design.user_id,
+                design.design_name,
+                design.species_code,
+                design.created_at,
+                design.updated_at,
+                generation.id AS generation_id,
+                generation.status AS generation_status,
+                generation.glb_path,
+                generation.thumbnail_path,
+                generation.completed_at
+             FROM vessel_designs AS design
+             LEFT JOIN asset_generations AS generation
+                ON design.latest_generation_id = generation.id
+                AND generation.user_id = design.user_id
+                AND generation.is_deleted = 0
+             WHERE design.user_id = ? AND design.is_deleted = 0
+             ORDER BY design.created_at DESC
              LIMIT ? OFFSET ?'
         );
-        $stmt->execute([$user_id, $limit, $offset]);
+        $stmt->bindValue(1, $user_id, \PDO::PARAM_INT);
+        $stmt->bindValue(2, $limit, \PDO::PARAM_INT);
+        $stmt->bindValue(3, $offset, \PDO::PARAM_INT);
+        $stmt->execute();
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
     
@@ -416,10 +459,25 @@ final class TRELLIS2AssetManager {
      */
     public function getUserQuota(int $user_id): array {
         $stmt = $this->db->prepare(
-            'SELECT * FROM v_user_storage_usage WHERE user_id = ?'
+            'SELECT
+                COALESCE(usage.storage_limit_gb, 5.0) AS storage_limit_gb,
+                COALESCE(usage.storage_used_gb, 0) AS storage_used_gb,
+                COALESCE(quota.monthly_generation_limit, 100) AS monthly_generation_limit,
+                COALESCE(quota.monthly_generations_used, 0) AS monthly_generations_used,
+                COALESCE(quota.priority_level, \'free\') AS priority_level,
+                usage.design_count,
+                usage.generation_count
+             FROM v_user_storage_usage AS usage
+             LEFT JOIN user_asset_quotas AS quota ON quota.user_id = usage.user_id
+             WHERE usage.user_id = ?'
         );
         $stmt->execute([$user_id]);
-        return $stmt->fetch(\PDO::FETCH_ASSOC) ?? [];
+        $quota = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($quota === false) {
+            throw new \RuntimeException('Quota data unavailable');
+        }
+
+        return $quota;
     }
     
     /**
@@ -445,13 +503,21 @@ final class TRELLIS2AssetManager {
     /**
      * Get generation history for a design
      */
-    public function getDesignGenerations(int $design_id): array {
+    public function getDesignGenerations(int $design_id, int $user_id): array {
         $stmt = $this->db->prepare(
-            'SELECT * FROM asset_generations 
-             WHERE vessel_design_id = ? AND is_deleted = 0
-             ORDER BY completed_at DESC'
+            'SELECT generation.*
+             FROM asset_generations AS generation
+             INNER JOIN vessel_designs AS design
+                ON design.id = generation.vessel_design_id
+                AND design.user_id = generation.user_id
+                AND design.is_deleted = 0
+             WHERE design.id = ?
+               AND design.user_id = ?
+               AND generation.user_id = ?
+               AND generation.is_deleted = 0
+             ORDER BY generation.completed_at DESC'
         );
-        $stmt->execute([$design_id]);
+        $stmt->execute([$design_id, $user_id, $user_id]);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
 }

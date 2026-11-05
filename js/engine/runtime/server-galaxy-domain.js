@@ -38,6 +38,7 @@ export function createGalaxyDomain({ api, session }) {
       let stars = state.stars;
       if (reload || state.galaxy !== Number(galaxy) || !stars.length) {
         const data = await api.get(`api/galaxy.php?action=stars&galaxy=${Number(galaxy)}&from=1&max_points=9000`, { signal });
+        if (disposed || version !== revision) return;
         if (data?.success !== true || Number(data.galaxy) !== Number(galaxy)
             || !Array.isArray(data.stars) || data.stars.some((star) => !validStar(star)
               || Number(star.galaxy_index) !== Number(galaxy))) {
@@ -49,13 +50,18 @@ export function createGalaxyDomain({ api, session }) {
       let selected = null;
       if (system !== null) {
         payload = await api.get(`api/galaxy.php?action=system&galaxy=${Number(galaxy)}&system=${Number(system)}&format=json`, { signal });
+        if (disposed || version !== revision) return;
         if (payload?.success !== true || Number(payload.galaxy) !== Number(galaxy)
             || Number(payload.system) !== Number(system) || !payload.star_system || !Array.isArray(payload.planets)) {
           throw new Error('Ungültige Systemdaten vom Server.');
         }
+        const catalogStar = stars.find((star) => Number(star.system_index) === Number(system));
         selected = { ...payload.star_system, galaxy_index: Number(galaxy), system_index: Number(system) };
         if (!validStar(selected)) throw new Error('Systemposition fehlt in den Serverdaten.');
-        if (!stars.some((star) => Number(star.system_index) === Number(system))) stars = [...stars, selected];
+        selected = { ...catalogStar, ...selected };
+        stars = catalogStar
+          ? stars.map((star) => star === catalogStar ? selected : star)
+          : [...stars, selected];
       }
       if (disposed || version !== revision) return;
       state = { galaxy: Number(galaxy), stars, selected, system: payload, loading: false, error: '' };

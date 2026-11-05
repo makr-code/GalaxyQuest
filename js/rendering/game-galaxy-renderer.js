@@ -169,6 +169,7 @@ export async function createGameGalaxyRenderer(host, options) {
   function setLevel(next, target, min, max) {
     stopCameraMove();
     renderer.cancelCameraFlight();
+    if (next !== 'system') renderer.setFlightHover?.(null);
     level = next;
     pivot.copy(target);
     minimum = min;
@@ -255,7 +256,7 @@ export async function createGameGalaxyRenderer(host, options) {
     let best = null;
     let distance = 24;
     const candidates = system ? view().bodies.filter((body) => body.userData.type === 'planet')
-      .map((body) => ({ data: { ...body.userData.data, __kind: 'planet' },
+      .map((body) => ({ data: { ...body.userData.data, inhabited: body.userData.inhabited, __kind: 'planet' },
         local: body.getWorldPosition(new Vector3()), radius: body.userData.radius }))
       : stars.map((star) => ({ data: star, local: new Vector3(Number(star.x_ly), Number(star.y_ly), Number(star.z_ly))
         .sub(view().origin), radius: 0 }));
@@ -315,11 +316,49 @@ export async function createGameGalaxyRenderer(host, options) {
       zoomRuntime?.selectAt(event.clientX, event.clientY);
       return;
     }
-    const object = pick(event);
-    if (!object) return;
+    selectObject(pick(event));
+  }
+  function selectObject(object) {
+    if (!object) {
+      renderer.setFlightSelection?.(null);
+      renderer.setFlightHover?.(null);
+      return;
+    }
     if (!system) selectedStar = object;
+    renderer.setFlightSelection?.(object.__kind === 'planet'
+      ? { kind: 'planet', position: Number(object.position) } : null);
+    renderer.setFlightHover?.(null);
     options.onClick?.(object);
   }
+  function activatePlanet(position) {
+    const body = planet(position);
+    if (!body) return;
+    if (['planet', 'colony'].includes(level) && planetPosition === Number(position) && body.userData.inhabited) {
+      focusColony(position);
+    } else {
+      focusPlanet(position);
+    }
+  }
+  renderer.setSpatialLabelCallbacks?.({
+    onHover(label) {
+      if (disposed) return;
+      renderer.setFlightHover?.(level === 'system' && label?.kind === 'planet' && planet(label.data?.position)
+        ? { kind: 'planet', position: Number(label.data.position) } : null);
+    },
+    onActivate(label) {
+      if (disposed || !label?.data) return;
+      const object = label.kind === 'planet' ? { ...label.data, __kind: 'planet' } : label.data;
+      selectObject(object);
+    },
+    onDoubleActivate(label) {
+      if (disposed || !label?.data) return;
+      if (label.kind === 'system') {
+        options.onDoubleClick?.(label.data);
+      } else if (label.kind === 'planet') {
+        activatePlanet(Number(label.data.position));
+      }
+    },
+  });
   function touchPose() {
     const [a, b] = [...touches.values()];
     return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, distance: Math.hypot(a.x - b.x, a.y - b.y) };
@@ -382,13 +421,22 @@ export async function createGameGalaxyRenderer(host, options) {
     canvas.focus({ preventScroll: true });
     stopCameraMove();
     renderer.cancelCameraFlight();
+    renderer.setFlightHover?.(null);
     pointer = { id: event.pointerId, x: event.clientX, y: event.clientY,
       startX: event.clientX, startY: event.clientY, moved: false,
       button: event.button, pan: event.button !== 0 || event.shiftKey };
     canvas.setPointerCapture(event.pointerId);
   });
   listen('pointermove', (event) => {
-    if (!pointer || pointer.id !== event.pointerId) return;
+    if (!pointer) {
+      if (event.pointerType !== 'touch' && system && level === 'system') {
+        const object = pick(event);
+        renderer.setFlightHover?.(object?.__kind === 'planet'
+          ? { kind: 'planet', position: Number(object.position) } : null);
+      }
+      return;
+    }
+    if (pointer.id !== event.pointerId) return;
     const dx = event.clientX - pointer.x;
     const dy = event.clientY - pointer.y;
     if (Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY) > 3) pointer.moved = true;
@@ -409,15 +457,16 @@ export async function createGameGalaxyRenderer(host, options) {
   });
   listen('pointercancel', () => { pointer = null; });
   listen('lostpointercapture', () => { pointer = null; });
+  listen('pointerleave', () => {
+    if (!pointer) renderer.setFlightHover?.(null);
+  });
   listen('contextmenu', (event) => event.preventDefault());
   listen('dblclick', (event) => {
     if (event.button !== 0) return;
     const object = pick(event);
     if (!object) return;
     if (!system) options.onDoubleClick?.(object);
-    else if (['planet', 'colony'].includes(level) && planetPosition === Number(object.position) && object.inhabited) {
-      focusColony(object.position);
-    } else focusPlanet(object.position);
+    else activatePlanet(object.position);
   });
   function zoom(direction, amount = 0.22, event = null) {
     if (['colony', 'building'].includes(level)) { zoomRuntime?.nudgeZoom(direction); return; }
@@ -511,11 +560,17 @@ export async function createGameGalaxyRenderer(host, options) {
     getRenderStats: () => ({ ...renderer.getRenderStats(), systemMode: !!system,
       systemPlanets: system?.planets.length || 0, cameraControl: cameraState(), colonySurface: zoomRuntime?.getStats() || null }),
     focusPlanet, focusColony, resetView, back, returnTo,
+    setSystemVisualizationOptions(options) {
+      return renderer.setSystemVisualizationOptions?.(options) ?? false;
+    },
+    setSpatialLabelMode(mode) {
+      return renderer.setSpatialLabelMode?.(mode) ?? false;
+    },
     refreshColony: (colonyId) => zoomRuntime?.refreshColony(colonyId),
     observeFleetEndpoints(getFleets, onProjection) {
       function project() {
         const points = new Map();
-        if (!disposed && !removeCameraFrame && ['galaxy', 'system'].includes(level)) {
+        if (!disposed && ['galaxy', 'system'].includes(level)) {
           const space = view();
           space.camera.updateMatrixWorld(true);
           const rect = canvas.getBoundingClientRect();
@@ -571,6 +626,8 @@ export async function createGameGalaxyRenderer(host, options) {
         && Number(previousSystem?.system) === Number(payload.system);
       if (!sameSystem) { stopZoom(); systemPose = null; }
       system = payload;
+      renderer.setFlightSelection?.(null);
+      renderer.setFlightHover?.(null);
       const children = payload.planets.flatMap((slot) => {
         const body = slot.generated_planet || slot.player_planet
           ? { ...slot.generated_planet, ...slot.player_planet } : null;
@@ -580,6 +637,15 @@ export async function createGameGalaxyRenderer(host, options) {
       });
       renderer.setFlightScene({ stage: 'system', target: star,
         sceneGraph: { type: 'galaxy', children: [{ type: 'system', data: star, children }] } });
+      if (sameSystem && planetPosition !== null) {
+        const focused = planet();
+        if (!focused || ((colonyPending || ['colony', 'building'].includes(level)) && !focused.userData.inhabited)) {
+          frameSystem();
+          enteringSystem = false;
+          notify();
+          return;
+        }
+      }
       const space = view();
       const target = space.resolveTarget({ kind: 'system' });
       const preserveCamera = (Number(previousSystem?.galaxy) === Number(payload.galaxy)
@@ -603,6 +669,8 @@ export async function createGameGalaxyRenderer(host, options) {
       returningToGalaxy = !!system;
       stopZoom();
       system = null;
+      renderer.setFlightSelection?.(null);
+      renderer.setFlightHover?.(null);
       enteringSystem = false;
       const space = view();
       space.clearSystem();
@@ -612,6 +680,7 @@ export async function createGameGalaxyRenderer(host, options) {
     nudgeZoom: zoom,
     resize() { renderer.resize(); },
     destroy() {
+      if (disposed) return;
       disposed = true;
       [...endpointObservers].forEach((remove) => remove());
       const capturedTouches = [...touches.keys()];

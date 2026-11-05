@@ -490,6 +490,7 @@
         if (!this._perspectiveFlight && scene) {
           this._perspectiveFlight = new window.GQPerspectiveSpaceFlight({
             radius: 1 / this._starScale, lensFlare: this._lensFlare, bloom: this._bloom,
+            canvas: this._canvas,
           });
           this._perspectiveFlight.setGalaxyLabelStars(this._spatialLabelStars || []);
           this.camera = this._perspectiveFlight.camera;
@@ -515,6 +516,21 @@
       }
       this._flightSceneGraph = scene?.sceneGraph || null;
       return this.setRegistrationScene(scene);
+    }
+    setFlightSelection(selection) {
+      return this._perspectiveFlight?.setSystemSelection(selection) ?? false;
+    }
+    setFlightHover(hover) {
+      return this._perspectiveFlight?.setSystemHover(hover) ?? false;
+    }
+    setSystemVisualizationOptions(options) {
+      return this._perspectiveFlight?.setSystemVisualizationOptions(options) ?? false;
+    }
+    setSpatialLabelMode(mode) {
+      return this._perspectiveFlight?.setSpatialLabelMode(mode) ?? false;
+    }
+    setSpatialLabelCallbacks(callbacks) {
+      this._perspectiveFlight?.setSpatialLabelCallbacks(callbacks);
     }
     navigateTo(target, options = {}) {
       if (!this._perspectiveFlight) return false;

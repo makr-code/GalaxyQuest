@@ -7,6 +7,10 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/helpers.php';
+only_method('GET');
+require_admin();
+
 header('Content-Type: application/json; charset=utf-8');
 
 // Get TRELLIS2 endpoint
@@ -80,7 +84,6 @@ if ($response !== false) {
 // ───────────────────────────────────────────────────────────────────
 
 try {
-    require_once __DIR__ . '/helpers.php';
     $db = get_db();
     
     $stmt = $db->query(<<<'SQL'

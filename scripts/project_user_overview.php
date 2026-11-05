@@ -288,17 +288,12 @@ function calc_growth_score(PDO $db, int $uid): int
  */
 function calc_stability_score(PDO $db, int $uid): int
 {
-    $warCount = 0;
-    try {
-        $stmt = $db->prepare(
-            "SELECT COUNT(*) FROM wars
-             WHERE (attacker_id = ? OR defender_id = ?) AND status = 'active'"
-        );
-        $stmt->execute([$uid, $uid]);
-        $warCount = (int)$stmt->fetchColumn();
-    } catch (Throwable $ignored) {
-        // wars table may not exist in all environments
-    }
+    $stmt = $db->prepare(
+        "SELECT COUNT(*) FROM wars
+         WHERE (attacker_user_id = ? OR defender_user_id = ?) AND status = 'active'"
+    );
+    $stmt->execute([$uid, $uid]);
+    $warCount = (int)$stmt->fetchColumn();
 
     $stmt2 = $db->prepare(
         'SELECT COALESCE(AVG(energy_balance), 0) FROM colonies WHERE user_id = ?'
@@ -318,7 +313,10 @@ function calc_stability_score(PDO $db, int $uid): int
 function calc_diplomacy_score(PDO $db, int $uid): int
 {
     $stmt = $db->prepare(
-        'SELECT COUNT(*) FROM diplomacy WHERE user_id = ? AND standing > 0'
+        'SELECT COUNT(*)
+         FROM npc_factions f
+         LEFT JOIN diplomacy d ON d.faction_id = f.id AND d.user_id = ?
+         WHERE COALESCE(d.standing, f.base_diplomacy, 0) > 0'
     );
     $stmt->execute([$uid]);
     $positiveCount = (int)$stmt->fetchColumn();

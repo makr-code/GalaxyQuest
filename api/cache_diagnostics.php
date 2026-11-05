@@ -400,13 +400,8 @@ function generate_recommendations(array $telemetry): array {
  */
 function check_user_is_admin(int $uid): bool {
     global $db;
-    // Adjust this query based on your user/auth table schema
-    try {
-        $stmt = $db->prepare('SELECT is_admin FROM users WHERE id = ? LIMIT 1');
-        $stmt->execute([$uid]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        return (bool)($row['is_admin'] ?? false);
-    } catch (Throwable) {
-        return false;
-    }
+    $stmt = $db->prepare('SELECT is_admin FROM users WHERE id = ? LIMIT 1');
+    $stmt->execute([$uid]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return (bool)($row['is_admin'] ?? false);
 }

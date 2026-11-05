@@ -184,37 +184,32 @@ function fetch_achievements_for_user(PDO $db, int $userId): array
  */
 function fetch_faction_quests_as_achievements(PDO $db, int $userId): array
 {
-    // Gracefully return nothing if the table is missing (migration not yet run).
-    try {
-        $stmt = $db->prepare(
-            'SELECT uq.id              AS user_quest_id,
-                    uq.status,
-                    fq.id              AS id,
-                    fq.code,
-                    \'faction\'        AS category,
-                    fq.title,
-                    fq.description,
-                    fq.reward_metal, fq.reward_crystal, fq.reward_deuterium,
-                    fq.reward_dark_matter, fq.reward_rank_points,
-                    fq.reward_standing,
-                    999                AS sort_order,  -- faction quests sort after all achievements
-                    (uq.status IN (\'completed\',\'claimed\')) AS completed,
-                    (uq.status = \'claimed\')                  AS reward_claimed,
-                    1                  AS progress,
-                    1                  AS goal,
-                    uq.completed_at,
-                    \'faction_quest\'  AS source
-               FROM user_faction_quests uq
-               JOIN faction_quests fq ON fq.id = uq.faction_quest_id
-              WHERE uq.user_id = ?
-                AND uq.status IN (\'active\',\'completed\',\'claimed\')
-              ORDER BY uq.id ASC'
-        );
-        $stmt->execute([$userId]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    } catch (Throwable $_) {
-        return [];
-    }
+    $stmt = $db->prepare(
+        'SELECT uq.id              AS user_quest_id,
+                uq.status,
+                fq.id              AS id,
+                fq.code,
+                \'faction\'        AS category,
+                fq.title,
+                fq.description,
+                fq.reward_metal, fq.reward_crystal, fq.reward_deuterium,
+                fq.reward_dark_matter, fq.reward_rank_points,
+                fq.reward_standing,
+                999                AS sort_order,  -- faction quests sort after all achievements
+                (uq.status IN (\'completed\',\'claimed\')) AS completed,
+                (uq.status = \'claimed\')                  AS reward_claimed,
+                1                  AS progress,
+                1                  AS goal,
+                uq.completed_at,
+                \'faction_quest\'  AS source
+           FROM user_faction_quests uq
+           JOIN faction_quests fq ON fq.id = uq.faction_quest_id
+          WHERE uq.user_id = ?
+            AND uq.status IN (\'active\',\'completed\',\'claimed\')
+          ORDER BY uq.id ASC'
+    );
+    $stmt->execute([$userId]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
 /**

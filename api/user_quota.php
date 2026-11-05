@@ -54,7 +54,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             }
         } catch (\PDOException $e) {
             error_log("QuotaAPI error: " . $e->getMessage());
-            // Fall back to defaults if DB fails
+            json_error('Quota data unavailable', 503);
         }
     }
     

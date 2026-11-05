@@ -22,6 +22,8 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
 
+only_method('GET');
+
 // ─── Auth (read session, release lock immediately) ────────────────────────
 $uid = current_user_id();
 session_write_close(); // Release session file lock – critical for SSE

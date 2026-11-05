@@ -24,7 +24,7 @@
  *
  * TOTP 2FA:
  * GET  /api/auth.php?action=totp_status
- * GET  /api/auth.php?action=totp_begin_setup
+ * POST /api/auth.php?action=totp_begin_setup
  * POST /api/auth.php?action=totp_confirm_setup
  * POST /api/auth.php?action=totp_disable
  * POST /api/auth.php?action=totp_login_challenge
@@ -288,7 +288,11 @@ function handle_me(): void {
         );
         $fbStmt->execute([$uid]);
         $factionBadge = (int)$fbStmt->fetchColumn();
-    } catch (Throwable $_) { /* migration not yet run */ }
+    } catch (PDOException $error) {
+        if ($error->getCode() !== '42S02') {
+            throw $error;
+        }
+    }
 
     $user['unclaimed_quests'] = $achievementBadge + $factionBadge;
     json_ok(['user' => $user]);
@@ -369,7 +373,7 @@ function handle_totp_status(): void {
 }
 
 /**
- * GET /api/auth.php?action=totp_begin_setup  (requires active session)
+ * POST /api/auth.php?action=totp_begin_setup  (requires active session + CSRF)
  *
  * Generates a new random secret, stores it as PENDING (not yet activated)
  * and returns the otpauth:// URI so the frontend can render a QR code.

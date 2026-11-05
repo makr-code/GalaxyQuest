@@ -310,14 +310,6 @@ switch ($action) {
 
 function territory_factions_for_galaxy(PDO $db, int $uid, int $galaxy): array
 {
-    $factionIds = $db->query('SELECT id, base_diplomacy FROM npc_factions')->fetchAll();
-    if ($factionIds) {
-        $insert = $db->prepare('INSERT IGNORE INTO diplomacy (user_id, faction_id, standing) VALUES (?, ?, ?)');
-        foreach ($factionIds as $factionRow) {
-            $insert->execute([$uid, (int)$factionRow['id'], (int)$factionRow['base_diplomacy']]);
-        }
-    }
-
     $stmt = $db->prepare(
         'SELECT f.id, f.code, f.name, f.faction_type, f.power_level, f.color, f.icon,
                 f.home_galaxy_min, f.home_galaxy_max,

@@ -118,6 +118,14 @@ function buildShaderCatalogue() {
       ),
     },
     {
+      label: 'PerspectiveSpaceFlight — planets, orbits, and selection/hover markers',
+      type: 'render',
+      source: extractWgslConstant(
+        'js/rendering/perspective-space-flight.js',
+        'SPACE_SHADER',
+      ),
+    },
+    {
       label: 'SpaceVesselRenderPass — lit vessel mesh',
       type: 'render',
       source: extractWgslConstant(

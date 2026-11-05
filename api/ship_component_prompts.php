@@ -677,6 +677,8 @@ PROMPT;
 // ────────────────────────────────────────────────────────────────────────────
 
 if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
+    require_once __DIR__ . '/helpers.php';
+    only_method('GET');
     $action = $_GET['action'] ?? '';
     
     try {

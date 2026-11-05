@@ -27,6 +27,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   CSRF for market updates, scans, decisions, route mutations, and game ticks.
 - Trader opportunity, trader, route, and market-analysis reads now explicitly
   require GET.
+- Trader list and status handlers were traced through their helper calls:
+  supply/demand recalculation (which settles legacy production), opportunity
+  cleanup, and route processing remain behind explicit POST/background paths.
+- Alliance-war list/status and diplomatic-play trust/threat reads were traced
+  through their SQL helpers; expired peace offers remain response projections,
+  and these GET paths do not persist alliance or diplomacy state.
+- NPC controller status/summary/decision reads and their diagnostics helpers
+  remain read-only. The signed NPC worker API rejects GET before opening the
+  database or consuming replay-protection nonces; claim/completion stays POST.
+- Galaxy visibility expiry is now projected as stale by the GET helper without
+  updating `player_system_visibility`. Targeted deterministic system/planet
+  materialization remains a documented lazy-catalog behavior; system detail
+  views still record visit intel for fog-of-war.
+- Fleet and FTL list/status/map GETs were traced through their route and
+  coordinate helpers; they do not advance arrivals, consume wormhole stability,
+  mutate cooldowns, or write travel state. Arrival handling remains explicit
+  POST plus CSRF.
+- Persistent terrain manifest and tile endpoints were traced through
+  `BodyTerrain`: GETs may compute uncached terrain in memory but do not persist
+  manifests, tile rows, or legacy manifest upgrades. Cache persistence is
+  POST+CSRF; planet materialization remains within fleet arrival missions.
 - Trader dashboard queries require GET before database access.
 - The admin generation-queue monitor explicitly requires GET before admin
   authentication and database access.
@@ -53,6 +74,138 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   helpers read/transform data without persisting state.
 - The colony-economy macro GET reads the last-settled market projection only;
   the owner-scoped snapshot GET remains the explicit lazy-settlement contract.
+- Legacy economy overview and production GETs now invoke that owner-scoped
+  settlement once per colony when the on-demand economy is enabled; the
+  tick-based settlement helpers remain in the disabled legacy branch.
+- Shipyard and building list GETs were rechecked through their queue helpers:
+  expired work is not completed or advanced while reading. The vessel list no
+  longer turns arbitrary database failures into a successful empty response;
+  canonical schema checks and query errors now propagate explicitly.
+- Pirate status, recent-raid, forecast, countermeasure, and contract-list GETs
+  were traced through their helpers and remain read-only. Pirate faction ticks
+  are restricted to the explicit POST action, which verifies CSRF before
+  loading factions.
+- The colony-resources GET settles an owned colony once from `last_update` on
+  cache miss; ownership is verified before lookup, while cache hits return
+  without settlement. This remains a lazy economy read, not a simulation tick.
+- Game health and leaderboard GETs were traced through their helpers. The
+  health route's star-schema guard reads metadata only; neither route writes
+  game state or runs a simulation tick.
+- War status, active-war list, supply status, intelligence, and goal-progress
+  GETs and their shared query/projection helpers were rechecked as read-only.
+  Expired peace offers remain projected in responses, not persisted on reads.
+- The Ollama status GET only requests the local model catalog through `/api/tags`;
+  it does not invoke chat/generation or persist state.
+- Ship-component prompt and geometry/texture reference endpoints now explicitly
+  enforce GET; all responses are assembled from the in-memory prompt catalog,
+  with no file, database, or generation writes.
+- TRELLIS2 runtime monitoring now requires an authenticated admin GET before
+  making service, database, or container-stat queries; queue reporting stays
+  read-only.
+- Texture-admin cache listing and statistics were traced through their file
+  scans: they do not mutate cache files, and listing failures now return an
+  explicit error instead of appearing as an empty cache.
+- Authenticated user-quota reads no longer report free-tier defaults as a
+  successful result when the quota database query fails; they return an
+  explicit service-unavailable response.
+- TRELLIS2 queue-status reads are owner-scoped in SQL and now include terminal
+  jobs; queue position/count are calculated over the active queue, and database
+  errors no longer masquerade as missing jobs.
+- TRELLIS2 user-quota reads now select every field consumed by the endpoint,
+  apply defaults for missing quota rows, guard zero storage limits, and return
+  an explicit unavailable response for database or missing-view failures.
+- TRELLIS2 design GETs now scope the database lookup to the authenticated
+  owner before returning data and no longer read the unexposed design JSON
+  file; database failures are distinct from not-found responses.
+- TRELLIS2 asset-generation GETs now apply owner filtering in SQL and keep
+  terminal statuses readable; database errors return an explicit unavailable
+  response instead of a misleading not-found result.
+- TRELLIS2 design-list and generation-history manager reads now enforce owner
+  boundaries across joined records, filter deleted rows, and clamp pagination
+  to a bounded range without mutating state.
+- Generation queue v2/v3 polling now explicitly rejects unsupported methods
+  and returns generic service errors for database failures rather than
+  exposing exception details to clients.
+- The admin generation-queue monitor now logs internal exceptions but returns
+  a generic error response instead of exposing database exception messages.
+- Texture-AI status/queue GETs no longer create cache or lock directories
+  during service construction; directory creation is deferred to cache-miss
+  generation requests.
+- TRELLIS2 queue-status reads now select the generation ID and failure message
+  already exposed by the endpoint; implementation notes reflect the current
+  owner-scoped manager method signatures.
+- TRELLIS2 REST writes now enforce POST and session-backed CSRF before dispatch;
+  read routes enforce GET explicitly, while authenticated API-key clients retain
+  their header-based non-cookie flow.
+- Economy read handlers now explicitly require GET, while every policy,
+  production-method, and population-policy mutation requires POST plus CSRF.
+  The population-class GET validates its method before performing lazy settlement.
+- Population-policy mutation now parses the JSON body used by its browser API
+  client instead of reading form-only `$_POST` fields.
+- TOTP setup already required POST and CSRF before storing a pending secret;
+  its stale GET documentation is corrected and the route contract is tested.
+- Authentication GETs (`csrf`, `me`, dev-tools status, TOTP status, and
+  registration reads) were traced through their handlers. They do not tick or
+  mutate gameplay state; CSRF session initialization and remember-me auto-login
+  session/token rotation are intentional authentication lifecycle writes.
+  Remember-me rotation on `me` is covered by the cookie integration test.
+- Research list GETs and prerequisite evaluation were rechecked as read-only;
+  due research completion remains behind explicit POST plus CSRF.
+- Server announcement listing, user quota, and admin statistics GETs were
+  rechecked: they read database state without persisting or deleting data.
+- Situation lists and NPC-controller status/summary/decision reads were
+  rechecked as non-ticking; situation and NPC ticks remain explicit POST actions.
+- Cache-diagnostics summary, scope, hook, and system-info GETs were rechecked
+  as read-only; cache clearing and metrics resets require POST plus CSRF.
+- Generation-queue polling and admin monitor GETs were rechecked as read-only;
+  status reads remain scoped to the owning user, and the monitor is GET-only.
+- Audio catalogs, TTS status/voice listing, and the LLM profile catalog were
+  rechecked as read-only; TTS synthesis remains POST plus CSRF.
+- Leader listings, marketplace reads, advisor hints, and alliance list/detail/
+  relation/message reads do not generate, refresh, or mutate game state.
+  Marketplace refresh and advisor analysis remain explicit POST+CSRF actions.
+- Agreement and diplomatic-play list reads, faction relation/graph reads, and
+  generated diplomacy-event reads were rechecked as non-persisting GETs.
+- Message user-search/inbox and glossary definition GETs do not change state;
+  marking messages read and glossary generation remain explicit POST actions.
+- Achievement list GET reads progress without seeding or re-evaluating it; its
+  optional read-through cache fill is separate from durable game-state writes.
+- SSE event polling and Prometheus metrics collection use read-only queries and
+  now reject non-GET requests explicitly.
+- Documented and regression-tested the intentional overview GET exception:
+  only a live-cache miss settles owned colony resources from `last_update`;
+  this does not execute simulation ticks or persist the durable projection.
+- Admin user list/detail and TRELLIS2 admin stats, queue, quota, audit-log,
+  analytics, and health reads were verified as non-mutating; CSV export writes
+  only to the response stream.
+- Shipyard faction-affinity reads now degrade only when the optional v3
+  migration table is missing; other database failures propagate instead of
+  silently removing affinity data from module lists and calculations.
+- TRELLIS2 API-key verification now logs database failures and returns HTTP
+  503 instead of conflating backend failures with invalid credentials (401).
+- The `auth.php?action=me` faction-quest badge treats only a missing optional
+  migration table as empty; other database failures now propagate to the API
+  error handler rather than returning an incomplete badge as success.
+- Cache-diagnostics admin authorization no longer converts database errors to
+  a non-admin result (403); failures now reach the API error handler, while
+  successfully queried non-admin users remain forbidden.
+- The fog-of-war schema probe no longer converts arbitrary database errors
+  into the legacy full-visibility fallback. Genuine absence of the optional
+  table still retains the documented legacy behavior.
+- Galaxy owner-color schema detection now propagates database failures instead
+  of silently dropping player empire colors; an actually absent optional
+  column still uses the established default color.
+- Ship-designer catalogs, base-asset/avatar reads, and vessel/wireframe design
+  loads are GET-only and do not persist game data; base-asset read-through cache
+  filling is non-durable. The prompt-generation method documentation was aligned
+  with its POST handler.
+- Faction-validation debug reports now explicitly reject non-GET requests and
+  read the YAML source without persistent side effects.
+- Registration catalog/preview/draft-status and portrait status/image service
+  paths were traced through their repositories: they read only, do not create
+  an owner token, and project expired portrait leases without updating rows.
+- Removed an `INSERT IGNORE` diplomacy backfill from the planet-intel GET
+  helper; missing standing rows now use the existing `COALESCE` default only.
 - Building and shipyard queue completion no longer runs inside list GETs.
   The runtime invokes dedicated CSRF-protected POST actions before refreshing
   those lists; lazy colony resource settlement remains a separate contract.
@@ -73,7 +226,60 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Faction and faction-quest list GETs no longer backfill diplomacy or quest
   seed rows; existing read fallbacks and migration-seeded quest content remain.
 - Politics catalog, preset, and status GETs no longer create default profile
-  or civic rows; the status loader already provides an in-memory default.
+  or civic rows; the status loader provides an in-memory default only when no
+  profile row exists. Politics database errors now propagate to the API's
+  explicit generic error handler instead of appearing as empty/default data.
+- Empire stability-score GETs now query the canonical war participant columns.
+  The former query used nonexistent column names and swallowed the SQL failure,
+  incorrectly reporting active-war penalties as zero; required schema failures
+  now propagate instead of appearing as a valid score.
+- Empire diplomacy scores now use the same effective standing as faction
+  reads: persisted player standings override each faction's base standing, and
+  missing player rows inherit that base instead of being omitted.
+- Ship-designer faction-template GETs no longer convert missing or unreadable
+  faction specs into a successful empty response; the existing API error
+  handler now reports the invalid/unavailable faction explicitly.
+- Ship-designer base-asset GETs may populate the existing file-backed
+  read-through cache for 3600 seconds. This is a persistent cache write, not a
+  database/game-state mutation; the roadmap now records that distinction.
+- Achievement-list reads no longer hide faction-quest query failures as an
+  apparently successful list with missing quests; database errors propagate
+  through the API error handler.
+- Game-guide tutorial-progress GETs no longer translate database failures
+  into a successful empty progress list.
+- LLM prompt-catalog reads no longer hide database query failures as an
+  apparently successful file-only catalog.
+- NPC-controller status reads no longer report zero cooldown/decision counts
+  when their database queries fail.
+- Trader-dashboard GET failures are logged without returning exception details
+  to the client; the endpoint responds with a generic 503.
+- NPC-trader endpoint failures likewise return a generic 503, while periodic
+  tick and trader creation remain POST+CSRF-only.
+- Legacy generation-queue polling and creation log backend exceptions without
+  exposing database details; unavailable queue service returns HTTP 503.
+- Faction-quest seed backfill no longer suppresses database/schema failures
+  during quest actions.
+- Glossary RAG failures are logged without exposing exception details in the
+  API response.
+- Trader-event status failures are logged and returned as a generic HTTP 503,
+  rather than exposing database exception details.
+- Vessel-design endpoint failures now catch all throwables and return a generic
+  HTTP 503 without exposing backend details.
+- Generation-queue v3 submission logs database failures but returns only a
+  generic service-unavailable response.
+- NPC chat logs Ollama/backend failures without forwarding their details;
+  invalid agent types remain client errors.
+- TRELLIS2 admin read endpoints log backend exceptions and return specific but
+  non-sensitive failure messages instead of raw exception details.
+- Wireframe API handlers log exceptions and return generic operation failures,
+  never raw exception text.
+- Texture-admin handlers, including the list/cache-statistics GETs, now log
+  exceptions without returning backend details to the client.
+- Texture-AI status and queue GET handlers also map all throwables to their
+  logged, generic service-unavailable responses.
+- Production roadmap records the deferred TRELLIS2 refinement job-contract
+  mismatch: creation writes `trellis2_refinement_jobs`, but polling/finalization
+  read `trellis2_generation_queue`, and no refinement-table migration exists.
 - Read-only alliance and situation schema guards remain before request dispatch.
   Regression contracts verify guard placement and prohibit runtime DDL there;
   broader app-user DDL denial and schema-diff evidence remain open.

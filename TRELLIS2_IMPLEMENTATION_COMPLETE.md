@@ -55,7 +55,7 @@ A **4-Layer Asset Management Architecture** that:
 ```php
 class TRELLIS2AssetManager {
   ✅ createDesign()           → New design with JSON + DB record
-  ✅ getDesign()              → Load design + filesystem JSON
+  ✅ getDesign()              → Load owner-scoped design metadata
   ✅ queueGeneration()        → Prompt deduplication + queue job
   ✅ registerGeneration()     → Worker callback for completed asset
   ✅ failGeneration()         → Error handling + retry logic
@@ -63,9 +63,9 @@ class TRELLIS2AssetManager {
   ✅ deleteDesign()           → Soft delete + cleanup
   ✅ validateQuota()          → Enforce storage/generation limits
   ✅ getUserQuota()           → Show usage + remaining capacity
-  ✅ getGenerationStatus()    → Poll job progress
-  ✅ getQueueStatus()         → Show queue position + ETA
-  ✅ getDesignGenerations()   → History of all versions
+  ✅ getGenerationStatus($generation_id, $user_id) → Owner-scoped job status
+  ✅ getQueueStatus($queue_id, $user_id) → Owner-scoped status and queue position
+  ✅ getDesignGenerations($design_id, $user_id) → Owner-scoped history
 }
 ```
 
@@ -301,8 +301,8 @@ $queue_id = $manager->queueGeneration(
 // If new → queues job, returns queue_id
 
 // 4. Frontend polls status
-$status = $manager->getQueueStatus($queue_id);
-// Returns: {status: 'queued', queue_position: 5, estimated_wait_ms: 120000}
+$status = $manager->getQueueStatus($queue_id, $user_id);
+// Returns status, queue_position, total_in_queue, generation_id, and error_message.
 
 // 5. Worker picks up job from generation_queue
 // Calls TRELLIS2 API
@@ -310,7 +310,7 @@ $status = $manager->getQueueStatus($queue_id);
 // Calls: $manager->registerGeneration($queue_id, {...})
 
 // 6. Frontend fetches completed asset
-$generation = $manager->getGenerationStatus($generation_id);
+$generation = $manager->getGenerationStatus($generation_id, $user_id);
 // Returns: {
 //   status: 'complete',
 //   glb_path: 'generated/trellis2/models/abc123/model.glb',

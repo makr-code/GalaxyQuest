@@ -24,30 +24,21 @@ switch ($action) {
         $lastTick = null;
         $cooldownRemaining = 0;
 
-        try {
-            $stmt = $db->prepare('SELECT last_npc_tick FROM users WHERE id = ? LIMIT 1');
-            $stmt->execute([$uid]);
-            $lastTick = $stmt->fetchColumn() ?: null;
-            if ($lastTick) {
-                $elapsed = max(0, time() - (int) strtotime((string) $lastTick));
-                $cooldownRemaining = max(0, 300 - $elapsed);
-            }
-        } catch (Throwable $e) {
-            $lastTick = null;
-            $cooldownRemaining = 0;
+        $stmt = $db->prepare('SELECT last_npc_tick FROM users WHERE id = ? LIMIT 1');
+        $stmt->execute([$uid]);
+        $lastTick = $stmt->fetchColumn() ?: null;
+        if ($lastTick) {
+            $elapsed = max(0, time() - (int) strtotime((string) $lastTick));
+            $cooldownRemaining = max(0, 300 - $elapsed);
         }
 
         $logAvailable = npc_controller_log_table_exists($db);
 
         $recentCount = 0;
         if ($logAvailable) {
-            try {
-                $q = $db->prepare('SELECT COUNT(*) FROM npc_llm_decision_log WHERE user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)');
-                $q->execute([$uid]);
-                $recentCount = (int) $q->fetchColumn();
-            } catch (Throwable $e) {
-                $recentCount = 0;
-            }
+            $q = $db->prepare('SELECT COUNT(*) FROM npc_llm_decision_log WHERE user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)');
+            $q->execute([$uid]);
+            $recentCount = (int) $q->fetchColumn();
         }
 
         json_ok([
@@ -238,12 +229,8 @@ switch ($action) {
 }
 
 function npc_controller_log_table_exists(PDO $db): bool {
-    try {
-        $stmt = $db->query("SHOW TABLES LIKE 'npc_llm_decision_log'");
-        return (bool) $stmt->fetchColumn();
-    } catch (Throwable $e) {
-        return false;
-    }
+    $stmt = $db->query("SHOW TABLES LIKE 'npc_llm_decision_log'");
+    return (bool) $stmt->fetchColumn();
 }
 
 function npc_controller_count_logs(PDO $db, int $userId): int {
@@ -251,11 +238,7 @@ function npc_controller_count_logs(PDO $db, int $userId): int {
         return 0;
     }
 
-    try {
-        $stmt = $db->prepare('SELECT COUNT(*) FROM npc_llm_decision_log WHERE user_id = ?');
-        $stmt->execute([$userId]);
-        return (int) $stmt->fetchColumn();
-    } catch (Throwable $e) {
-        return 0;
-    }
+    $stmt = $db->prepare('SELECT COUNT(*) FROM npc_llm_decision_log WHERE user_id = ?');
+    $stmt->execute([$userId]);
+    return (int) $stmt->fetchColumn();
 }

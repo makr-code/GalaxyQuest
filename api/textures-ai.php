@@ -320,7 +320,7 @@ function handle_status(GQTextureAiService $service): void
     only_method('GET');
     try {
         $status = $service->getServiceStatus();
-    } catch (RuntimeException $e) {
+    } catch (Throwable $e) {
         error_log('texture_ai status error: ' . $e->getMessage());
         json_error('AI texture service status unavailable.', 503);
     }
@@ -332,7 +332,7 @@ function handle_queue(GQTextureAiService $service): void
     only_method('GET');
     try {
         $queue = $service->getQueueStatus();
-    } catch (RuntimeException $e) {
+    } catch (Throwable $e) {
         error_log('texture_ai queue error: ' . $e->getMessage());
         json_error('AI texture service queue unavailable.', 503);
     }
@@ -398,13 +398,6 @@ class GQTextureAiService
         $projectRoot = dirname(dirname(__FILE__));
         $this->cacheDir = $projectRoot . DIRECTORY_SEPARATOR . 'generated' . DIRECTORY_SEPARATOR . 'ai_textures';
         $this->lockDir = $this->cacheDir . DIRECTORY_SEPARATOR . 'locks';
-
-        if (!is_dir($this->cacheDir) && !@mkdir($this->cacheDir, 0775, true)) {
-            throw new RuntimeException('Cannot create AI texture cache directory');
-        }
-        if (!is_dir($this->lockDir) && !@mkdir($this->lockDir, 0775, true)) {
-            throw new RuntimeException('Cannot create AI texture lock directory');
-        }
     }
 
     /**
@@ -485,6 +478,13 @@ class GQTextureAiService
             return $this->getCachedTextureResponse($cachePath, $cacheKey);
         }
 
+        try {
+            $this->ensureGenerationDirectories();
+        } catch (RuntimeException $e) {
+            error_log('texture_ai generation error: ' . $e->getMessage());
+            return ['success' => false, 'error' => 'Texture generation failed.', 'fallback_required' => true];
+        }
+
         // Try to generate new texture
         $lockPath = $this->lockDir . DIRECTORY_SEPARATOR . $cacheKey . '.lock';
         $lockHandle = @fopen($lockPath, 'c+');
@@ -537,6 +537,20 @@ class GQTextureAiService
                 flock($slotHandle, LOCK_UN);
                 fclose($slotHandle);
             }
+        }
+    }
+
+    private function ensureGenerationDirectories(): void
+    {
+        if (!is_dir($this->cacheDir)
+            && !@mkdir($this->cacheDir, 0775, true)
+            && !is_dir($this->cacheDir)) {
+            throw new RuntimeException('Cannot create AI texture cache directory');
+        }
+        if (!is_dir($this->lockDir)
+            && !@mkdir($this->lockDir, 0775, true)
+            && !is_dir($this->lockDir)) {
+            throw new RuntimeException('Cannot create AI texture lock directory');
         }
     }
 

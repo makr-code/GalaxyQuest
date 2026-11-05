@@ -56,6 +56,7 @@ if (ON_DEMAND_ECONOMY_ENABLED) {
             json_ok($body);
         }
         if ($action === 'get_pop_classes') {
+            only_method('GET');
             $stmt = $db->prepare('SELECT id FROM colonies WHERE user_id=? AND (? IS NULL OR id=?) ORDER BY id');
             $cid = isset($_GET['colony_id']) ? (int)$_GET['colony_id'] : null;
             $stmt->execute([$uid, $cid, $cid]);
@@ -240,12 +241,12 @@ function fetch_pop_classes(PDO $db, int $colonyId): array {
     return $out;
 }
 
-function settled_economy_runtime(PDO $db, int $cid, array $runtime): array
+function settled_economy_runtime(PDO $db, int $cid, array $runtime, ?array $settlement = null): array
 {
     if (!ON_DEMAND_ECONOMY_ENABLED) {
         return $runtime;
     }
-    $snapshot = (new OnDemandEconomy($db))->settle($cid);
+    $snapshot = $settlement ?? (new OnDemandEconomy($db))->settle($cid);
     $state = $snapshot['economy'];
     foreach (['metal', 'crystal', 'deuterium', 'rare_earth', 'food'] as $good) {
         $runtime['production'][$good . '_per_hour'] = $state['production'][$good] ?? 0;
@@ -269,6 +270,8 @@ function settled_economy_runtime(PDO $db, int $cid, array $runtime): array
  * buildings with active production methods, pop classes, good stock.
  */
 function action_get_overview(PDO $db, int $uid): never {
+    only_method('GET');
+
     $colonyId = isset($_GET['colony_id']) ? (int)$_GET['colony_id'] : null;
     $colonies = fetch_user_colonies($db, $uid);
 
@@ -284,13 +287,19 @@ function action_get_overview(PDO $db, int $uid): never {
     $result = [];
     foreach ($colonies as $c) {
         $cid  = (int)$c['id'];
-        update_colony_resources($db, $cid);
-        flush_colony_production($db, $cid);
+        $settlement = null;
+        if (ON_DEMAND_ECONOMY_ENABLED) {
+            $settlement = (new OnDemandEconomy($db))->settle($cid, $uid);
+        } else {
+            update_colony_resources($db, $cid);
+            flush_colony_production($db, $cid);
+        }
         $runtimeRow = fetch_colony_runtime_row($db, $cid);
         $runtime = settled_economy_runtime(
             $db,
             $cid,
-            $runtimeRow ? build_colony_consumption_snapshot($db, $runtimeRow) : []
+            $runtimeRow ? build_colony_consumption_snapshot($db, $runtimeRow) : [],
+            $settlement
         );
         $result[] = [
             'id'         => $cid,
@@ -329,6 +338,8 @@ function action_get_overview(PDO $db, int $uid): never {
  * Includes chain_status: per Tier-3 good, whether all T2 inputs are available.
  */
 function action_get_production(PDO $db, int $uid): never {
+    only_method('GET');
+
     $colonyId = (int)($_GET['colony_id'] ?? 0);
     if (!$colonyId) json_error('colony_id required', 400);
 
@@ -337,15 +348,21 @@ function action_get_production(PDO $db, int $uid): never {
     $stmt->execute([$colonyId, $uid]);
     if (!$stmt->fetch()) json_error('Colony not found or access denied', 403);
 
-    update_colony_resources($db, $colonyId);
-    flush_colony_production($db, $colonyId);
+    $settlement = null;
+    if (ON_DEMAND_ECONOMY_ENABLED) {
+        $settlement = (new OnDemandEconomy($db))->settle($colonyId, $uid);
+    } else {
+        update_colony_resources($db, $colonyId);
+        flush_colony_production($db, $colonyId);
+    }
     $methods = fetch_production_methods($db, $colonyId);
     $goods   = fetch_colony_goods($db, $colonyId);
     $runtimeRow = fetch_colony_runtime_row($db, $colonyId);
     $runtime = settled_economy_runtime(
         $db,
         $colonyId,
-        $runtimeRow ? build_colony_consumption_snapshot($db, $runtimeRow) : []
+        $runtimeRow ? build_colony_consumption_snapshot($db, $runtimeRow) : [],
+        $settlement
     );
 
     // Fetch colony's processing buildings from buildings table
@@ -590,6 +607,8 @@ function action_set_subsidy(PDO $db, int $uid): never {
  * or for a single colony if colony_id is given.
  */
 function action_get_pop_classes(PDO $db, int $uid): never {
+    only_method('GET');
+
     $colonyId = isset($_GET['colony_id']) ? (int)$_GET['colony_id'] : null;
 
     if ($colonyId !== null) {
@@ -638,6 +657,8 @@ function action_get_pop_classes(PDO $db, int $uid): never {
  * Satisfaction index (0-100) affects production yield (-50% to +50%).
  */
 function action_get_pop_status(PDO $db, int $uid): never {
+    only_method('GET');
+
     $colonyId = isset($_GET['colony_id']) ? (int)$_GET['colony_id'] : null;
 
     if ($colonyId !== null) {
@@ -722,13 +743,21 @@ function action_get_pop_status(PDO $db, int $uid): never {
  * POST economy.php?action=set_pop_policy
  *
  * Set satisfaction drivers like wage_adjustment, culture_spending, safety_budget.
- * Recalculates satisfaction_index and employment_level on next tick.
+ * Legacy tick-based policy. Unavailable when the on-demand economy is active.
  */
 function action_set_pop_policy(PDO $db, int $uid): never {
-    $colonyId = (int)($_POST['colony_id'] ?? 0);
-    $wageAdjustment = (float)($_POST['wage_adjustment'] ?? 1.0);  // 0.5–2.0x multiplier
-    $cultureSpending = (float)($_POST['culture_spending'] ?? 0.0); // 0–1000 credits/tick
-    $safetyBudget = (float)($_POST['safety_budget'] ?? 0.0);       // 0–100% budget
+    if (ON_DEMAND_ECONOMY_ENABLED) {
+        json_error('Population policy controls are unavailable in the on-demand economy.', 503);
+    }
+
+    only_method('POST');
+    verify_csrf();
+
+    $body = get_json_body();
+    $colonyId = (int)($body['colony_id'] ?? 0);
+    $wageAdjustment = (float)($body['wage_adjustment'] ?? 1.0);  // 0.5–2.0x multiplier
+    $cultureSpending = (float)($body['culture_spending'] ?? 0.0); // 0–1000 credits/tick
+    $safetyBudget = (float)($body['safety_budget'] ?? 0.0);       // 0–100% budget
     
     // Validate
     if ($colonyId <= 0) json_error('Invalid colony_id', 400);
@@ -769,6 +798,8 @@ function action_set_pop_policy(PDO $db, int $uid): never {
  *   - Missing input goods for Tier-3+ production
  */
 function action_get_bottleneck(PDO $db, int $uid): never {
+    only_method('GET');
+
     $colonyId = isset($_GET['colony_id']) ? (int)$_GET['colony_id'] : null;
 
     $colonies = fetch_user_colonies($db, $uid);
@@ -862,6 +893,8 @@ function action_get_bottleneck(PDO $db, int $uid): never {
  * Returns shortage/starvation events log.
  */
 function action_get_shortage_events(PDO $db, int $uid): never {
+    only_method('GET');
+
     $colonyId = isset($_GET['colony_id']) ? (int)$_GET['colony_id'] : null;
     $showResolved = isset($_GET['resolved']) && $_GET['resolved'] === '1';
 
@@ -913,6 +946,8 @@ function action_get_shortage_events(PDO $db, int $uid): never {
  * Returns summary of active shortages per colony for dashboard display.
  */
 function action_get_shortage_summary(PDO $db, int $uid): never {
+    only_method('GET');
+
     $colonyId = isset($_GET['colony_id']) ? (int)$_GET['colony_id'] : null;
 
     // Get all colonies for this user

@@ -141,77 +141,41 @@ function ensure_empire_profile_row(PDO $db, int $uid): void {
 }
 
 function load_catalog(PDO $db): array {
-    try {
-        $species = $db->query(
-            'SELECT species_key, name, description, climate_preference, effects_json
-             FROM species_profiles
-             ORDER BY id ASC'
-        )->fetchAll();
+    $species = $db->query(
+        'SELECT species_key, name, description, climate_preference, effects_json
+         FROM species_profiles
+         ORDER BY id ASC'
+    )->fetchAll();
 
-        $governments = $db->query(
-            'SELECT government_key, name, description, authority_type, effects_json
-             FROM government_forms
-             ORDER BY id ASC'
-        )->fetchAll();
+    $governments = $db->query(
+        'SELECT government_key, name, description, authority_type, effects_json
+         FROM government_forms
+         ORDER BY id ASC'
+    )->fetchAll();
 
-        $civics = $db->query(
-            'SELECT civic_key, name, description, requires_government_key, effects_json
-             FROM government_civics
-             ORDER BY id ASC'
-        )->fetchAll();
+    $civics = $db->query(
+        'SELECT civic_key, name, description, requires_government_key, effects_json
+         FROM government_civics
+         ORDER BY id ASC'
+    )->fetchAll();
 
-        return [
-            'species' => $species ?: [],
-            'governments' => $governments ?: [],
-            'civics' => $civics ?: [],
-        ];
-    } catch (Throwable $e) {
-        return [
-            'species' => [],
-            'governments' => [],
-            'civics' => [],
-        ];
-    }
+    return [
+        'species' => $species ?: [],
+        'governments' => $governments ?: [],
+        'civics' => $civics ?: [],
+    ];
 }
 
 function load_user_empire_profile(PDO $db, int $uid): array {
-    try {
-        $stmt = $db->prepare(
-            'SELECT user_id, primary_species_key, government_key, ethic_axis_json, created_at, updated_at
-             FROM user_empire_profile
-             WHERE user_id = ?
-             LIMIT 1'
-        );
-        $stmt->execute([$uid]);
-        $profile = $stmt->fetch();
-        if (!$profile) {
-            return [
-                'user_id' => $uid,
-                'primary_species_key' => 'adaptive_humans',
-                'government_key' => 'stellar_republic',
-                'ethic_axis' => [],
-                'civics' => [],
-            ];
-        }
-
-        $civicsStmt = $db->prepare(
-            'SELECT civic_key, slot_index
-             FROM user_empire_civics
-             WHERE user_id = ?
-             ORDER BY slot_index ASC, id ASC'
-        );
-        $civicsStmt->execute([$uid]);
-
-        return [
-            'user_id' => (int)$profile['user_id'],
-            'primary_species_key' => (string)$profile['primary_species_key'],
-            'government_key' => (string)$profile['government_key'],
-            'ethic_axis' => decode_json_map($profile['ethic_axis_json'] ?? null),
-            'civics' => $civicsStmt->fetchAll() ?: [],
-            'created_at' => $profile['created_at'] ?? null,
-            'updated_at' => $profile['updated_at'] ?? null,
-        ];
-    } catch (Throwable $e) {
+    $stmt = $db->prepare(
+        'SELECT user_id, primary_species_key, government_key, ethic_axis_json, created_at, updated_at
+         FROM user_empire_profile
+         WHERE user_id = ?
+         LIMIT 1'
+    );
+    $stmt->execute([$uid]);
+    $profile = $stmt->fetch();
+    if (!$profile) {
         return [
             'user_id' => $uid,
             'primary_species_key' => 'adaptive_humans',
@@ -220,21 +184,35 @@ function load_user_empire_profile(PDO $db, int $uid): array {
             'civics' => [],
         ];
     }
+
+    $civicsStmt = $db->prepare(
+        'SELECT civic_key, slot_index
+         FROM user_empire_civics
+         WHERE user_id = ?
+         ORDER BY slot_index ASC, id ASC'
+    );
+    $civicsStmt->execute([$uid]);
+
+    return [
+        'user_id' => (int)$profile['user_id'],
+        'primary_species_key' => (string)$profile['primary_species_key'],
+        'government_key' => (string)$profile['government_key'],
+        'ethic_axis' => decode_json_map($profile['ethic_axis_json'] ?? null),
+        'civics' => $civicsStmt->fetchAll() ?: [],
+        'created_at' => $profile['created_at'] ?? null,
+        'updated_at' => $profile['updated_at'] ?? null,
+    ];
 }
 
 function load_user_faction_state_rows(PDO $db, int $uid): array {
-    try {
-        $stmt = $db->prepare(
-            'SELECT faction_key, approval, support, issues_json, last_updated_at
-             FROM user_faction_state
-             WHERE user_id = ?
-             ORDER BY faction_key ASC'
-        );
-        $stmt->execute([$uid]);
-        return $stmt->fetchAll() ?: [];
-    } catch (Throwable $e) {
-        return [];
-    }
+    $stmt = $db->prepare(
+        'SELECT faction_key, approval, support, issues_json, last_updated_at
+         FROM user_faction_state
+         WHERE user_id = ?
+         ORDER BY faction_key ASC'
+    );
+    $stmt->execute([$uid]);
+    return $stmt->fetchAll() ?: [];
 }
 
 function normalize_civic_keys(array $civicKeys): array {

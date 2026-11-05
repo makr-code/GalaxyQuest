@@ -298,6 +298,7 @@ test('galaxy fills the viewport while persistent UI stays minimal and panels are
   await expect(page.locator('#resource-section')).toBeHidden();
   await expect(page.locator('#taskbar-section')).toBeHidden();
   await expect(page.getByRole('button', { name: 'Heimatsystem', exact: true })).toBeHidden();
+  await expect(page.locator('#game-galaxy-navigation > summary')).toHaveText('Karte & Koordinaten');
   for (const viewport of [{ width: 1280, height: 720 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
     const geometry = () => page.evaluate(() => {
@@ -318,6 +319,8 @@ test('galaxy fills the viewport while persistent UI stays minimal and panels are
     await expect(page.locator('#resource-section')).toBeHidden();
     await openNavigation(page);
     await expect(page.getByRole('button', { name: 'Heimatsystem', exact: true })).toBeVisible();
+    await expect(page.getByLabel('Galaxie', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('System', { exact: true })).toBeVisible();
     expect(await geometry()).toEqual({ x: 0, y: 0, ...viewport, overflow: false });
     await page.locator('#game-galaxy-navigation > summary').click();
     await page.locator('#topbar-player-menu-toggle').click();
@@ -330,6 +333,69 @@ test('galaxy fills the viewport while persistent UI stays minimal and panels are
     await page.keyboard.press('Escape');
   }
 });
+
+for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+  test(`window navigation focuses and restores existing drafts without reads: ${viewport.width}`, async ({ page }) => {
+    const api = await mockSession(page);
+    const reads = [];
+    page.on('request', (request) => {
+      if (request.method() === 'GET' && /\/api\//.test(request.url())) reads.push(request.url());
+    });
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    await page.locator('#start-resume').click();
+    await openCommand(page);
+    await page.locator('[data-game-shipyard]').click();
+    const shipyard = page.locator('[data-domain="shipyard"]');
+    await shipyard.getByRole('spinbutton', { name: 'Baumenge small cargo', exact: true }).fill('7');
+    await openCommand(page);
+    await page.locator('[data-game-market]').click();
+    const market = page.locator('[data-domain="market"]');
+    await market.getByRole('spinbutton').fill('3.25');
+    await expect.poll(() => page.evaluate(() => ['market', 'shipyard'].every((name) =>
+      !window.GQGame.domains[name].getState().loading))).toBe(true);
+    await page.evaluate(() => {
+      window.__navigationCanvas = document.getElementById('starfield');
+      window.__navigationMarket = document.querySelector('[data-domain="market"] input');
+      window.__navigationShipyard = document.querySelector('[data-domain="shipyard"] input');
+    });
+    const before = reads.length;
+    await openCommand(page);
+    const shipTask = page.locator('#wm-task-shipyard');
+    const marketTask = page.locator('#wm-task-trade');
+    await expect(shipTask).toHaveAttribute('aria-pressed', 'false');
+    await expect(marketTask).toHaveAttribute('aria-pressed', 'true');
+    await shipTask.press('Enter');
+    await expect(page.locator('#wm-win-shipyard')).toHaveClass(/wm-focused/);
+    await expect(page.locator('#wm-win-shipyard .wm-title')).toBeFocused();
+    await expect(page.locator('#game-command-overlay')).toBeHidden();
+    await expect(shipyard).toBeVisible();
+    await expect(market).toBeVisible();
+    await expect(shipTask).toHaveAttribute('aria-pressed', 'true');
+    await expect(marketTask).toHaveAttribute('aria-pressed', 'false');
+    await openCommand(page);
+    await marketTask.click();
+    await expect(page.locator('#wm-win-trade .wm-title')).toBeFocused();
+    await expect(page.locator('#wm-win-trade')).toHaveClass(/wm-focused/);
+    await openCommand(page);
+    await marketTask.press('Enter');
+    await expect(market).toBeHidden();
+    await expect(page.locator('#game-command-toggle')).toBeFocused();
+    await expect(marketTask).toHaveAttribute('aria-pressed', 'false');
+    await openCommand(page);
+    await marketTask.press('Enter');
+    await expect(market).toBeVisible();
+    await expect(page.locator('#wm-win-trade .wm-title')).toBeFocused();
+    await expect(market.getByRole('spinbutton')).toHaveValue('3.25');
+    await expect(shipyard.getByRole('spinbutton', { name: 'Baumenge small cargo', exact: true })).toHaveValue('7');
+    expect(await page.evaluate(() => window.__navigationCanvas === document.getElementById('starfield')
+      && window.__navigationMarket === document.querySelector('[data-domain="market"] input')
+      && window.__navigationShipyard === document.querySelector('[data-domain="shipyard"] input'))).toBe(true);
+    expect(reads).toHaveLength(before);
+    expect(api.commands).toHaveLength(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}
 
 test('mobile canvas return preserves window drafts, stack and shared canvas without refetching', async ({ page }) => {
   const api = await mockSession(page);
@@ -402,6 +468,48 @@ test('mobile canvas return preserves window drafts, stack and shared canvas with
   await field.click();
   await expect(shipyard).toBeVisible();
   await expect(market).toHaveCount(0);
+});
+
+test('window selection does not cancel or repeat a pending trade', async ({ page }) => {
+  const api = await mockSession(page);
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  let pending = false;
+  await page.route((url) => url.pathname.endsWith('/market.php') && url.searchParams.get('action') === 'buy', async (route) => {
+    pending = true;
+    await gate;
+    await route.fallback();
+  });
+  await page.goto('/');
+  await page.locator('#start-resume').click();
+  await openCommand(page);
+  await page.locator('[data-game-shipyard]').click();
+  await expect(page.locator('[data-domain="shipyard"]')).toContainText('small cargo');
+  await openCommand(page);
+  await page.locator('[data-game-market]').click();
+  const market = page.locator('[data-domain="market"]');
+  const buy = market.getByRole('button', { name: 'Kaufen', exact: true });
+  await market.getByRole('spinbutton').fill('2.5');
+  await buy.click();
+  await expect.poll(() => pending).toBe(true);
+  try {
+    await openCommand(page);
+    await page.locator('#wm-task-shipyard').press('Enter');
+    await expect(page.locator('#wm-win-shipyard .wm-title')).toBeFocused();
+    await expect(market).toBeVisible();
+    await openCommand(page);
+    await page.locator('#wm-task-trade').press('Enter');
+    await expect(page.locator('#wm-win-trade .wm-title')).toBeFocused();
+    await expect(buy).toBeDisabled();
+    expect(api.commands).toHaveLength(0);
+  } finally {
+    release();
+  }
+  await expect(market).toContainText('Bestand: 2367.9');
+  await expect(market.getByRole('spinbutton')).toHaveValue('');
+  expect(api.commands).toEqual([
+    { kind: 'market', action: 'buy', body: { colony_id: 1, good_type: 'metal', quantity: 2.5 }, csrf: 'session-test' },
+  ]);
 });
 
 test('canvas return never cancels or repeats a pending trade and clears the hidden group on expiry', async ({ page }) => {
@@ -526,6 +634,189 @@ test('galaxy playing field navigates server systems, owned colonies, errors and 
     viewport: { width: innerWidth, height: innerHeight },
   }));
   expect(geometry.field).toMatchObject({ x: 0, y: 0, width: geometry.viewport.width, height: geometry.viewport.height });
+});
+
+test('system star updates replace stale map coordinates and survive map selection', async ({ page }) => {
+  const api = await mockSession(page);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/');
+  await page.locator('#start-resume').click();
+  await openNavigation(page);
+  await page.getByRole('button', { name: 'Heimatsystem', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.galaxy3d?.getRenderStats().systemPlanets)).toBe(2);
+  const payload = await page.evaluate(() => {
+    window.__starSyncCanvas = document.getElementById('starfield');
+    window.__staleCatalogStar = window.GQGame.domains.galaxy.getState().stars[0];
+    return window.GQGame.domains.galaxy.getState().system;
+  });
+  payload.star_system = { ...payload.star_system, name: 'Canonical renamed star', x_ly: 450, y_ly: 700, z_ly: 30 };
+  await page.route((url) => url.pathname.endsWith('/galaxy.php') && url.searchParams.get('action') === 'system',
+    (route) => route.fulfill({ json: payload }));
+  await page.getByRole('button', { name: 'Karte aktualisieren', exact: true }).click();
+  await expect(page.locator('#game-galaxy-selection h3')).toContainText('Canonical renamed star');
+  await expect.poll(() => page.evaluate(() => {
+    const raw = window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer._native;
+    return raw._spatialLabelStars.map(({ name, x_ly, y_ly, z_ly }) => ({ name, x_ly, y_ly, z_ly }));
+  })).toEqual([{ name: 'Canonical renamed star', x_ly: 450, y_ly: 700, z_ly: 30 }]);
+  await page.evaluate(() => window.GQGame.domains.galaxy.select(window.__staleCatalogStar));
+  await expect(page.locator('#game-galaxy-selection h3')).toContainText('Canonical renamed star');
+  await expect.poll(() => page.evaluate(() => window.galaxy3d.getRenderStats().cameraControl.level)).toBe('galaxy');
+  expect(await page.evaluate(() => window.GQGame.domains.galaxy.getState().selected.x_ly)).toBe(450);
+  expect(await page.evaluate(() => window.__starSyncCanvas === document.getElementById('starfield'))).toBe(true);
+  expect(api.commands).toHaveLength(0);
+});
+
+test('changed planets with an unchanged server timestamp update 3D without rebuilding identical snapshots', async ({ page }) => {
+  const api = await mockSession(page);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/');
+  await page.locator('#start-resume').click();
+  await openNavigation(page);
+  await page.getByRole('button', { name: 'Heimatsystem', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.galaxy3d?.getRenderStats().systemPlanets)).toBe(2);
+  const payload = await page.evaluate(() => window.GQGame.domains.galaxy.getState().system);
+  payload.planets[0].player_planet.name = 'Renamed colony planet';
+  payload.planets[1] = { position: 6, generated_planet: {
+    position: 6, name: 'Newly revealed planet', semi_major_axis_au: 3, diameter_km: 15000,
+  } };
+  await page.route((url) => url.pathname.endsWith('/galaxy.php') && url.searchParams.get('action') === 'system',
+    (route) => route.fulfill({ json: payload }));
+  await page.evaluate(() => {
+    const adapter = window.galaxy3d;
+    const enter = adapter.enterSystemView.bind(adapter);
+    window.__systemRebuilds = 0;
+    window.__syncCanvas = document.getElementById('starfield');
+    adapter.enterSystemView = (...args) => { window.__systemRebuilds++; return enter(...args); };
+  });
+  await page.getByRole('button', { name: 'Karte aktualisieren', exact: true }).click();
+  const bodies = () => page.evaluate(() => window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer._native
+    .getSpaceView().bodies.filter((body) => body.userData.type === 'planet')
+    .map((body) => ({ name: body.userData.data.name, position: body.userData.data.position })));
+  await expect.poll(bodies).toEqual([
+    { name: 'Renamed colony planet', position: 3 }, { name: 'Newly revealed planet', position: 6 },
+  ]);
+  const pose = await page.evaluate(() => {
+    window.__syncBody = window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer._native.getSpaceView().bodies[0];
+    return window.galaxy3d.getRenderStats().cameraControl;
+  });
+  await page.getByRole('button', { name: 'Karte aktualisieren', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.GQGame.domains.galaxy.getState().loading)).toBe(false);
+  expect(await page.evaluate(() => window.__systemRebuilds)).toBe(1);
+  expect(await page.evaluate(() => window.galaxy3d.getRenderStats().cameraControl)).toEqual(pose);
+  expect(await page.evaluate(() => window.__syncCanvas === document.getElementById('starfield')
+    && window.__syncBody === window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer._native.getSpaceView().bodies[0])).toBe(true);
+  payload.planets = [];
+  await page.getByRole('button', { name: 'Karte aktualisieren', exact: true }).click();
+  await expect.poll(bodies).toEqual([]);
+  expect(api.commands).toHaveLength(0);
+});
+
+test('removing the focused colony planet during refresh leaves no obsolete surface or camera context', async ({ page }) => {
+  const api = await mockSession(page);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/');
+  await page.locator('#start-resume').click();
+  await openNavigation(page);
+  await page.getByRole('button', { name: 'Heimatsystem', exact: true }).click();
+  await page.getByRole('button', { name: 'Kolonie auf Owned planet ansehen', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.galaxy3d.getRenderStats().cameraControl.level)).toBe('colony');
+  const payload = await page.evaluate(() => {
+    window.__removedFocusCanvas = document.getElementById('starfield');
+    return window.GQGame.domains.galaxy.getState().system;
+  });
+  payload.planets = payload.planets.filter((slot) => slot.position !== 3);
+  await page.route((url) => url.pathname.endsWith('/galaxy.php') && url.searchParams.get('action') === 'system',
+    (route) => route.fulfill({ json: payload }));
+  await openNavigation(page);
+  await page.getByRole('button', { name: 'Karte aktualisieren', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.galaxy3d.getRenderStats().cameraControl.level)).toBe('system');
+  await expect(page.getByRole('region', { name: 'Colony surface simulation' })).toHaveCount(0);
+  expect(await page.evaluate(() => ({
+    position: window.galaxy3d.getRenderStats().cameraControl.planetPosition,
+    surface: window.galaxy3d.getRenderStats().colonySurface,
+    zoom: !!window.__GQ_ZOOM_ORCHESTRATOR,
+    sameCanvas: window.__removedFocusCanvas === document.getElementById('starfield'),
+  }))).toEqual({ position: null, surface: null, zoom: false, sameCanvas: true });
+  await expect(page.locator('#game-planet-context')).toBeHidden();
+  await expect(page.locator('#game-camera-path [aria-current="location"]')).toHaveAttribute('data-level', 'system');
+  await expect(page.locator('#game-galaxy-selection')).not.toContainText('Owned planet');
+  expect(api.commands).toHaveLength(0);
+});
+
+test('a partially initialized 3D view rolls back and retries on the same renderer and latest server system', async ({ page }) => {
+  const api = await mockSession(page);
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/');
+  await expect.poll(() => page.evaluate(() => window.__GQ_AUTH_GALAXY_BG_RUNTIME?.renderer?.ready)).toBe(true);
+  await page.evaluate(() => {
+    const control = window.GQAuthGalaxyBackgroundControl;
+    const acquire = control.acquireGameView.bind(control);
+    window.__recoveryCanvas = document.getElementById('starfield');
+    window.__recoveryRenderer = window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer;
+    let first = true;
+    control.acquireGameView = async () => {
+      const renderer = await acquire();
+      if (first) {
+        first = false;
+        const stats = renderer.getRenderStats;
+        renderer.getRenderStats = function () {
+          renderer.getRenderStats = stats;
+          throw new Error('Test renderer initialization failure');
+        };
+      }
+      return renderer;
+    };
+  });
+  await page.locator('#start-resume').click();
+  const status = page.locator('#game-renderer-status');
+  await expect(status).toHaveText('Test renderer initialization failure');
+  await expect(status).toBeVisible();
+  expect(await page.evaluate(() => window.galaxy3d === undefined)).toBe(true);
+  await openNavigation(page);
+  await page.getByRole('spinbutton', { name: 'Galaxiekoordinate', exact: true }).fill('2');
+  await page.getByRole('spinbutton', { name: 'Systemkoordinate', exact: true }).fill('20');
+  await page.getByRole('button', { name: 'System öffnen', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.GQGame.domains.galaxy.getState().system?.system)).toBe(20);
+  await page.getByRole('button', { name: '3D erneut starten', exact: true }).click();
+  await expect(status).toHaveText('3D aktiv: webgpu');
+  await expect(page.locator('#game-galaxy-ui')).toHaveAttribute('data-renderer', 'webgpu');
+  await expect.poll(() => page.evaluate(() => window.galaxy3d?.getRenderStats().systemPlanets)).toBe(2);
+  expect(await page.evaluate(() => window.__recoveryCanvas === document.getElementById('starfield')
+    && window.__recoveryRenderer === window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer
+    && window.GQGame.domains.galaxy.getState().system.system === 20)).toBe(true);
+  expect(api.commands).toHaveLength(0);
+  expect(errors).toEqual([]);
+});
+
+test('server navigation stays usable without an adapter and explicit retry restores the hidden shared canvas', async ({ page }) => {
+  const api = await mockSession(page);
+  await page.addInitScript(() => {
+    const gpu = navigator.gpu;
+    if (!gpu) return;
+    const request = gpu.requestAdapter.bind(gpu);
+    window.__allowTestGpu = false;
+    gpu.requestAdapter = (...args) => window.__allowTestGpu ? request(...args) : Promise.resolve(null);
+  });
+  await page.goto('/');
+  await expect(page.locator('#start-galaxy-source')).toContainText('WebGPU is unavailable');
+  await page.evaluate(() => { window.__recoveryCanvas = document.getElementById('starfield'); });
+  await page.locator('#start-resume').click();
+  await expect(page.locator('#game-renderer-status')).toContainText('WebGPU is unavailable');
+  await openNavigation(page);
+  await page.getByRole('button', { name: 'Heimatsystem', exact: true }).click();
+  await expect(page.locator('#game-galaxy-selection')).toContainText('Owned planet');
+  await page.evaluate(() => { window.__allowTestGpu = true; });
+  await page.getByRole('button', { name: '3D erneut starten', exact: true }).click();
+  await expect(page.locator('#game-renderer-status')).toHaveText('3D aktiv: webgpu');
+  await expect(page.locator('#starfield')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => {
+    const canvas = document.getElementById('starfield');
+    const style = getComputedStyle(canvas);
+    return window.__recoveryCanvas === canvas && style.visibility === 'visible'
+      && Number(style.opacity) === 1 && window.galaxy3d.getRenderStats().systemPlanets === 2;
+  })).toBe(true);
+  expect(api.commands).toHaveLength(0);
 });
 
 test('game retains menu WebGPU renderer and device and actually renders galaxy and server planets', async ({ page }) => {
@@ -1025,6 +1316,14 @@ test('surface refresh failures stay explicit and accepted builds refresh even wh
   expect(api.commands).toHaveLength(1);
   api.recoverSurface();
   await page.locator('#wm-host-buildings .wm-btn-min').click();
+  await page.locator('#starfield').focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('+');
+  await expect(page.locator('#game-renderer-status')).toBeVisible();
+  await expect(page.locator('#game-renderer-status')).toContainText('Surface snapshot unavailable');
+  await expect(page.locator('#game-renderer-status')).toHaveAttribute('role', 'alert');
+  const moved = await city();
+  expect(moved.orbit).not.toEqual(initial.orbit);
   await page.getByRole('button', { name: 'Refresh snapshot', exact: true }).click();
   await expect.poll(async () => (await city()).buildings[0].upgrading).toBe(true);
   await expect(page.getByRole('region', { name: 'Colony surface simulation' })).toContainText('Server snapshot');
@@ -1036,7 +1335,7 @@ test('surface refresh failures stay explicit and accepted builds refresh even wh
   await expect(buildings.getByRole('alert')).toContainText('Auftrag bestätigt');
   await expect.poll(async () => (await city()).buildings[0].level).toBe(3);
   expect((await city()).buildings[0].upgrading).toBe(false);
-  expect((await city()).span).toBe(initial.span);
+  expect((await city()).span).toBe(moved.span);
   expect(api.commands.map(({ action }) => action)).toEqual(['upgrade', 'finish']);
 });
 
@@ -1257,7 +1556,7 @@ test('point-and-click selects stationed ships and destination on the galaxy with
   await page.locator('#start-resume').click();
   await openNavigation(page);
   await page.getByRole('button', { name: 'Heimatsystem', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => window.galaxy3d.getRenderStats().cameraControl.level)).toBe('system');
+  await expect.poll(() => page.evaluate(() => window.galaxy3d?.getRenderStats().cameraControl.level)).toBe('system');
   await page.locator('#game-galaxy-navigation > summary').click();
   await page.locator('#game-galaxy-details > summary').click();
   async function clickPlanet(position) {
@@ -1286,12 +1585,14 @@ test('point-and-click selects stationed ships and destination on the galaxy with
   await expect(command.getByRole('form', { name: 'Flottenstart' })).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(page.locator('#wm-galaxy-section')).not.toHaveClass(/fleet-target-picking/);
+  await expect(command).toBeFocused();
   await expect(command.getByRole('spinbutton', { name: 'small cargo (4 verfügbar)', exact: true })).toHaveValue('2');
   await command.getByRole('button', { name: 'Ziel im Spielfeld wählen', exact: true }).click();
   await page.mouse.move(200, 450);
   await page.mouse.wheel(0, 400);
   await clickPlanet(5);
   await expect(command).toContainText('Ziel [1:10:5]');
+  await expect(command).toBeFocused();
   await expect(command).toContainText('Herkunft: Home [1:10:3]');
   await expect(page.locator('#wm-galaxy-section')).not.toHaveClass(/fleet-target-picking/);
   expect(api.commands).toHaveLength(0);
@@ -1301,8 +1602,10 @@ test('point-and-click selects stationed ships and destination on the galaxy with
     body: { origin_colony_id: 1, mission: 'survey', target_galaxy: 1, target_system: 10,
       target_position: 5, ships: { small_cargo: 2 }, cargo: { metal: 0, crystal: 0, deuterium: 0 } } }]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await command.getByRole('button', { name: 'Flottensteuerung schließen', exact: true }).click();
+  await command.focus();
+  await page.keyboard.press('Escape');
   await expect(command).toBeHidden();
+  await expect(page.locator('#starfield')).toBeFocused();
   expect(await page.evaluate(() => {
     const rect = document.getElementById('starfield').getBoundingClientRect();
     return { width: rect.width, height: rect.height };
@@ -1342,6 +1645,58 @@ test('planet context prefills a canonical fleet launch without changing origin a
   await expect(fleets).toContainText('survey');
   expect(api.commands).toHaveLength(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('pending fleet dispatch refuses map handoffs without replacing its order or reloading inventory', async ({ page }) => {
+  const api = await mockSession(page);
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  let sending = false;
+  let inventoryReads = 0;
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/shipyard.php') && url.searchParams.get('action') === 'list') inventoryReads++;
+  });
+  await page.route((url) => url.pathname.endsWith('/fleet.php') && url.searchParams.get('action') === 'send',
+    async (route) => {
+      sending = true;
+      await pending;
+      await route.fallback();
+    });
+  await page.goto('/');
+  await page.locator('#start-resume').click();
+  await openNavigation(page);
+  await page.getByRole('button', { name: 'Heimatsystem', exact: true }).click();
+  await page.getByRole('button', { name: 'Uncolonized planet ansehen', exact: true }).click();
+  const context = page.getByRole('region', { name: 'Planetenauswahl', exact: true });
+  await context.getByRole('button', { name: 'Flotte zu diesem Planeten', exact: true }).click();
+  const command = page.getByRole('region', { name: 'Flottensteuerung', exact: true });
+  await expect(command).toContainText('4 verfügbar');
+  await command.getByRole('spinbutton', { name: 'small cargo (4 verfügbar)', exact: true }).fill('2');
+  await page.getByRole('button', { name: 'System anzeigen', exact: true }).click();
+  await page.locator('#game-galaxy-details > summary').click();
+  await page.getByRole('button', { name: 'Owned planet ansehen', exact: true }).click();
+  await command.getByRole('button', { name: 'Flotte serverseitig starten', exact: true }).click();
+  await expect.poll(() => sending).toBe(true);
+  const readsBefore = inventoryReads;
+  try {
+    await context.getByRole('button', { name: 'Flotte zu diesem Planeten', exact: true }).click();
+    await expect(command.getByRole('alert')).toContainText('erst danach geändert');
+    await context.getByRole('button', { name: 'Flotte hier auswählen', exact: true }).click();
+    await expect(command).toContainText('Ziel [1:10:5]');
+    await expect(command.getByRole('spinbutton', { name: 'small cargo (4 verfügbar)', exact: true })).toHaveValue('2');
+    await expect(command).toBeFocused();
+    expect(inventoryReads).toBe(readsBefore);
+    expect(api.commands).toHaveLength(0);
+  } finally {
+    release();
+  }
+  await expect(command).toContainText('Auftrag serverseitig bestätigt');
+  await expect(command.getByRole('alert')).toHaveCount(0);
+  expect(api.commands).toHaveLength(1);
+  expect(api.commands[0].body).toMatchObject({ origin_colony_id: 1, target_position: 5, ships: { small_cargo: 2 } });
+  await context.getByRole('button', { name: 'Flotte zu diesem Planeten', exact: true }).click();
+  await expect(command).toContainText('Ziel [1:10:3]');
 });
 
 test('fleet launch preserves rejected drafts, clears accepted quantities on refresh failure and resets on origin change', async ({ page }) => {

@@ -31,4 +31,14 @@ final class GlossaryGenerationMethodContractTest extends TestCase
         self::assertLessThan($getGuard, $postGuard);
         self::assertStringContainsString('$body[\'term\']', $source);
     }
+
+    public function testRagGenerationLogsExceptionsWithoutReturningTheirDetails(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/glossary.php');
+        self::assertIsString($source);
+
+        self::assertStringContainsString("error_log('Glossary RAG error: ' . \$e->getMessage());", $source);
+        self::assertStringContainsString("json_error('Glossary generation failed', 500);", $source);
+        self::assertStringNotContainsString("json_error('Internal error: ' . \$e->getMessage(), 500);", $source);
+    }
 }

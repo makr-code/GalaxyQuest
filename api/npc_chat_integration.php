@@ -58,7 +58,13 @@ try {
             );
 
             if (!($result['ok'] ?? false)) {
-                json_error($result['error'] ?? 'Failed to generate response', $result['status'] ?? 500);
+                $error = (string) ($result['error'] ?? '');
+                if (str_starts_with($error, 'Unknown agent type:')) {
+                    json_error('Unknown agent type', 400);
+                }
+
+                error_log('NPC chat generation failed: ' . $error);
+                json_error('NPC response service unavailable', 503);
             }
 
             http_response_code(200);
@@ -165,12 +171,7 @@ try {
         default:
             json_error('Unknown action: ' . $action, 400);
     }
-} catch (Exception $e) {
+} catch (Throwable $e) {
     error_log("NPC chat error: " . $e->getMessage());
-    http_response_code(500);
-    echo json_encode([
-        'ok' => false,
-        'error' => $e->getMessage(),
-        'status' => 500,
-    ]);
+    json_error('NPC chat service unavailable', 503);
 }

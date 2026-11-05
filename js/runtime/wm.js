@@ -708,6 +708,7 @@ const WMCore = (() => {
       tabIds.forEach(function (id) {
         var win = _wins.get(id);
         if (win && win.el) win.el.classList.toggle('wm-dock-group-hidden', id !== tabIds[0]);
+        _syncTaskBtn(id);
       });
       _syncDockGroupUi(groupId);
       return groupId;
@@ -740,6 +741,7 @@ const WMCore = (() => {
       group.tabs.forEach(function (id) {
         var win = _wins.get(id);
         if (win && win.el) win.el.classList.toggle('wm-dock-group-hidden', id !== sid);
+        _syncTaskBtn(id);
       });
       _syncDockGroupUi(gid);
       return true;
@@ -1320,6 +1322,7 @@ const WMCore = (() => {
       if (tb) {
         var labelEl = tb.querySelector('.wm-task-label');
         if (labelEl) labelEl.textContent = title;
+        _syncTaskBtn(id);
       }
     }
 
@@ -1560,6 +1563,7 @@ const WMCore = (() => {
       win.el.classList.add('wm-focused');
       var taskBtn = document.getElementById('wm-task-' + id);
       if (taskBtn) taskBtn.classList.add('wm-task-active');
+      _wins.forEach(function (_, windowId) { _syncTaskBtn(windowId); });
       _recordFocusHistory(id);
       _syncAllDockGroupUis();
       window.dispatchEvent(new CustomEvent('wm:focus-changed', { detail: { id: id } }));
@@ -1732,9 +1736,11 @@ const WMCore = (() => {
       _closeContextMenu();
       win.minimized = true;
       win.el.classList.add('wm-minimized');
+      win.el.classList.remove('wm-focused');
       _focusHistory = _focusHistory.filter(function (x) { return x !== String(id); });
       var taskBtn = document.getElementById('wm-task-' + id);
       if (taskBtn) taskBtn.classList.remove('wm-task-active');
+      _syncTaskBtn(id);
       // If this window is the active tab in a dock group, promote next visible tab
       _dockGroups.forEach(function (group) {
         if (group.activeId !== id) return;
@@ -2833,6 +2839,20 @@ const WMCore = (() => {
     }
 
     // ── Internal: taskbar button ──────────────────────────────────────────
+    function _syncTaskBtn(id) {
+      var win = _wins.get(id);
+      var btn = document.getElementById('wm-task-' + id);
+      if (!win || !btn) return;
+      var focused = !win.minimized && !win.el.classList.contains('wm-dock-group-hidden')
+        && win.el.classList.contains('wm-focused');
+      var action = win.minimized ? _labels.restore : (focused ? _labels.minimize : _labels.focus);
+      var title = btn.querySelector('.wm-task-label').textContent;
+      btn.classList.toggle('wm-task-active', focused);
+      btn.setAttribute('aria-pressed', String(focused));
+      btn.setAttribute('aria-controls', win.el.id);
+      btn.title = title + ': ' + action;
+    }
+
     function _addTaskBtn(id, title) {
       var taskbar = document.getElementById('wm-taskbar');
       if (!taskbar) return;
@@ -2850,7 +2870,14 @@ const WMCore = (() => {
           }
           var win = _wins.get(btnId);
           if (!win) return;
-          if (win.minimized) _restore(btnId); else _minimize(btnId);
+          if (win.minimized) _restore(btnId);
+          else if (win.el.classList.contains('wm-focused') && !win.el.classList.contains('wm-dock-group-hidden')) _minimize(btnId);
+          else {
+            _dockGroups.forEach(function (group) {
+              if (group.tabs.indexOf(btnId) >= 0) activateDockTab(group.id, btnId);
+            });
+            _focus(btnId);
+          }
         });
         btn.addEventListener('contextmenu', function (e) {
           e.preventDefault();
@@ -2865,6 +2892,7 @@ const WMCore = (() => {
       var spacer = document.getElementById('wm-taskbar-spacer');
       if (spacer) taskbar.insertBefore(btn, spacer);
       else taskbar.appendChild(btn);
+      _syncTaskBtn(id);
     }
 
     function _syncFullscreenWindows() {

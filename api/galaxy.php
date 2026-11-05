@@ -149,13 +149,9 @@ function galaxy_users_has_empire_color(PDO $db): bool {
     if ($cache !== null) {
         return $cache;
     }
-    try {
-        $stmt = $db->query("SHOW COLUMNS FROM users LIKE 'empire_color'");
-        $row = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : false;
-        $cache = is_array($row) && !empty($row);
-    } catch (Throwable $e) {
-        $cache = false;
-    }
+    $stmt = $db->query("SHOW COLUMNS FROM users LIKE 'empire_color'");
+    $row = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : false;
+    $cache = is_array($row) && !empty($row);
     return $cache;
 }
 
