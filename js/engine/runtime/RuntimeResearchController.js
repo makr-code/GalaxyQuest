@@ -75,18 +75,27 @@
         const cost = row.next_cost;
         const missing = Array.isArray(row.missing_prereqs) ? row.missing_prereqs : [];
         const missingText = missing.map((m) => m.tech + ' L' + m.required_level).join(', ');
-        let researchProgressPct = 0;
-        let researchTone = 'is-good';
+        let researchProgressPct = null;
         if (busy && row.research_start && row.research_end) {
           const now = Date.now();
           const startMs = new Date(row.research_start).getTime();
           const endMs = new Date(row.research_end).getTime();
           const totalMs = endMs - startMs;
-          if (totalMs > 0) {
+          if (Number.isFinite(startMs) && Number.isFinite(endMs) && totalMs > 0) {
             researchProgressPct = Math.min(100, Math.round(Math.max(0, (now - startMs) / totalMs * 100)));
-            researchTone = researchProgressPct < 30 ? 'is-critical' : (researchProgressPct < 70 ? 'is-warning' : 'is-good');
           }
         }
+        const researchTone = researchProgressPct === null
+          ? ''
+          : (researchProgressPct < 30 ? 'is-critical' : (researchProgressPct < 70 ? 'is-warning' : 'is-good'));
+        const researchProgressHtml = researchProgressPct === null ? '' : `
+          <div class="entity-bars" style="margin-top:0.2rem;">
+            <div class="entity-bar-row" title="Research progress ${researchProgressPct}%">
+              <span class="entity-bar-label">Res</span>
+              <div class="bar-wrap"><div class="bar-fill bar-integrity ${researchTone}" style="width:${researchProgressPct}%"></div></div>
+              <span class="entity-bar-value">${researchProgressPct}%</span>
+            </div>
+          </div>`;
         return `
         <div class="item-card research-card ${locked ? 'item-card-locked' : ''}">
           <div class="item-card-header">
@@ -104,14 +113,7 @@
           </div>
           ${locked && missing.length ? `<div class="item-prereq-hint" title="Prerequisites">Requires: ${esc(missingText)}</div>` : ''}
           ${busy
-            ? `<div class="item-timer">\u23F1 <span data-end="${esc(row.research_end)}">${countdown(row.research_end)}</span></div>
-              <div class="entity-bars" style="margin-top:0.2rem;">
-                <div class="entity-bar-row" title="Research progress ${researchProgressPct}%">
-                  <span class="entity-bar-label">Res</span>
-                  <div class="bar-wrap"><div class="bar-fill bar-integrity ${researchTone}" style="width:${researchProgressPct}%"></div></div>
-                  <span class="entity-bar-value">${researchProgressPct}%</span>
-                </div>
-              </div>`
+            ? `<div class="item-timer">\u23F1 <span data-end="${esc(row.research_end)}">${countdown(row.research_end)}</span></div>${researchProgressHtml}`
             : unlocked ? `<button class="btn btn-primary btn-sm research-btn" data-type="${esc(row.type)}">Research</button>` : '<button class="btn btn-secondary btn-sm" disabled>Locked</button>'}
         </div>`;
       },

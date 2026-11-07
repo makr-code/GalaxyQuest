@@ -908,32 +908,33 @@
           timerDiv.dom.appendChild(etaSpan);
           card.add(timerDiv);
 
-          let buildProgressPct = 0;
-          let buildTone = 'is-good';
+          let buildProgressPct = null;
           if (entry.started_at && entry.eta) {
             const now = Date.now();
             const startMs = new Date(entry.started_at).getTime();
             const endMs = new Date(entry.eta).getTime();
             const totalMs = endMs - startMs;
-            if (totalMs > 0) {
+            if (Number.isFinite(startMs) && Number.isFinite(endMs) && totalMs > 0) {
               buildProgressPct = Math.min(100, Math.round(Math.max(0, (now - startMs) / totalMs * 100)));
-              buildTone = buildProgressPct < 30 ? 'is-critical' : (buildProgressPct < 70 ? 'is-warning' : 'is-good');
             }
           }
 
-          const barsDiv = new GQUI.Div().setClass('entity-bars');
-          barsDiv.dom.style.marginTop = '0.2rem';
-          const barRow = new GQUI.Div().setClass('entity-bar-row');
-          barRow.dom.title = `Build progress ${buildProgressPct}%`;
-          const barLabel = new GQUI.Span().setClass('entity-bar-label').setTextContent('Build');
-          const barWrap = new GQUI.Div().setClass('bar-wrap');
-          const barFill = new GQUI.Div().setClass(`bar-fill bar-integrity ${buildTone}`);
-          barFill.dom.style.width = `${buildProgressPct}%`;
-          barWrap.add(barFill);
-          const barValue = new GQUI.Span().setClass('entity-bar-value').setTextContent(`${buildProgressPct}%`);
-          barRow.add(barLabel, barWrap, barValue);
-          barsDiv.add(barRow);
-          card.add(barsDiv);
+          if (buildProgressPct !== null) {
+            const buildTone = buildProgressPct < 30 ? 'is-critical' : (buildProgressPct < 70 ? 'is-warning' : 'is-good');
+            const barsDiv = new GQUI.Div().setClass('entity-bars');
+            barsDiv.dom.style.marginTop = '0.2rem';
+            const barRow = new GQUI.Div().setClass('entity-bar-row');
+            barRow.dom.title = `Build progress ${buildProgressPct}%`;
+            const barLabel = new GQUI.Span().setClass('entity-bar-label').setTextContent('Build');
+            const barWrap = new GQUI.Div().setClass('bar-wrap');
+            const barFill = new GQUI.Div().setClass(`bar-fill bar-integrity ${buildTone}`);
+            barFill.dom.style.width = `${buildProgressPct}%`;
+            barWrap.add(barFill);
+            const barValue = new GQUI.Span().setClass('entity-bar-value').setTextContent(`${buildProgressPct}%`);
+            barRow.add(barLabel, barWrap, barValue);
+            barsDiv.add(barRow);
+            card.add(barsDiv);
+          }
         } else {
           const waitDiv = new GQUI.Div().setClass('small text-muted')
             .setTextContent('Waiting for free shipyard slot.');

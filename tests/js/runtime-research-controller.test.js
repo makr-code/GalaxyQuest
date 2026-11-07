@@ -220,6 +220,18 @@ describe('buildCardHtml — busy (in-progress) state', () => {
     expect(html).toContain(`data-end="${end}"`);
   });
 
+  it('omits progress when research timestamps are invalid', () => {
+    const ctrl = makeController();
+    const html = ctrl.buildCardHtml(row('energy_tech', {
+      research_start: 'not-a-date',
+      research_end: 'also-not-a-date',
+    }));
+
+    expect(html).toContain('item-timer');
+    expect(html).not.toContain('Research progress');
+    expect(html).not.toContain('>0%</span>');
+  });
+
   it('does not show research-btn when busy', () => {
     const ctrl = makeController();
     const start = new Date(Date.now() - 10_000).toISOString();

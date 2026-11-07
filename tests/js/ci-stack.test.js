@@ -128,8 +128,8 @@ describe('CI smoke workflow ordering and cleanup', () => {
   });
   it('runs ThemisDB as a non-root user with a writable data directory', () => {
     const dockerfile = readFileSync(path.resolve('docker/themisdb/Dockerfile'), 'utf8');
-    expect(dockerfile).toContain('useradd --system --uid 10001 --gid themisdb');
-    expect(dockerfile).toContain('--owner=themisdb --group=themisdb --mode=0750 /data');
+    expect(dockerfile).toContain('useradd --uid 10001 --gid themisdb');
+    expect(dockerfile).toContain('--owner=themisdb --group=themisdb --mode=0750 /data /logs');
     expect(dockerfile).toMatch(/\nUSER themisdb\s*$/);
   });
   it('serves the local bundle and hashed assets when Compose mounts the source tree', () => {

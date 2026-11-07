@@ -564,6 +564,7 @@ describe('RuntimeShipyardController – hangar canvas integration', () => {
     const controller = createShipyardController({
       wm,
       api: {
+        finishShipyard: vi.fn().mockResolvedValue({ success: true }),
         ships: vi.fn().mockResolvedValue({ success: true, ships: [], blueprints: [], queue: [] }),
         shipyardHulls: vi.fn().mockResolvedValue({ hulls: sampleHulls }),
         shipyardVessels: vi.fn().mockResolvedValue({ vessels: [] }),
@@ -598,6 +599,7 @@ describe('RuntimeShipyardController – hangar canvas integration', () => {
     const controller = createShipyardController({
       wm,
       api: {
+        finishShipyard: vi.fn().mockResolvedValue({ success: true }),
         ships: vi.fn().mockResolvedValue({ success: true, ships: [], blueprints: [], queue: [] }),
         shipyardHulls: vi.fn().mockResolvedValue({ hulls: sampleHulls }),
         shipyardVessels: vi.fn().mockResolvedValue({ vessels: [] }),

@@ -50,7 +50,7 @@
           .join('');
         const vesselListHtml = vesselChips ? `<div class="fleet-vessel-list">${vesselChips}</div>` : '';
 
-        let progressPct = 0;
+        let progressPct = null;
         let progressTone = 'is-good';
         let progressHtml = '';
 
@@ -60,18 +60,17 @@
           const arrMs = new Date(fleet.arrival_time).getTime();
           const totalMs = arrMs - depMs;
 
-          if (totalMs > 0) {
+          if (Number.isFinite(depMs) && Number.isFinite(arrMs) && totalMs > 0) {
             progressPct = Math.min(100, Math.round(Math.max(0, ((now - depMs) / totalMs) * 100)));
             progressTone = progressPct < 30 ? 'is-critical' : (progressPct < 70 ? 'is-warning' : 'is-good');
+            progressHtml = `<div class="entity-bars" style="margin:0 4px 0 0;">
+              <div class="entity-bar-row" title="Fleet transit progress ${progressPct}%">
+                <span class="entity-bar-label" style="font-size:0.7rem;">Transit</span>
+                <div class="bar-wrap" style="min-width:60px;"><div class="bar-fill bar-integrity ${progressTone}" style="width:${progressPct}%;height:6px;"></div></div>
+                <span class="entity-bar-value" style="font-size:0.7rem;">${progressPct}%</span>
+              </div>
+            </div>`;
           }
-
-          progressHtml = `<div class="entity-bars" style="margin:0 4px 0 0;">
-            <div class="entity-bar-row" title="Fleet transit progress ${progressPct}%">
-              <span class="entity-bar-label" style="font-size:0.7rem;">Transit</span>
-              <div class="bar-wrap" style="min-width:60px;"><div class="bar-fill bar-integrity ${progressTone}" style="width:${progressPct}%;height:6px;"></div></div>
-              <span class="entity-bar-value" style="font-size:0.7rem;">${progressPct}%</span>
-            </div>
-          </div>`;
         }
 
         const stealthSec = Number(fleet.stealth_remaining_s || 0);
@@ -118,7 +117,7 @@
           arrivalTimeRaw: esc(String(fleet.arrival_time || '')),
           departureTimeRaw: esc(String(fleet.departure_time || '')),
           arrivalCountdown: esc(countdown(fleet.arrival_time)),
-          progressPct: esc(String(progressPct)),
+          progressPct: progressPct === null ? '' : esc(String(progressPct)),
           progressHtml,
           fleetHealthHtml,
           vesselListHtml,

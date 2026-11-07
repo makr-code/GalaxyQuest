@@ -1156,6 +1156,8 @@ labelled numeric inputs. The species/faction transit panel highlights the
 last confirmed drive readiness while retaining its server-status wording.
 Map target picking, quantity limits, draft retention and launch commands are
 unchanged; no generic flight time or local capacity estimate is introduced.
+The fleet-domain compatibility panel does not assign default ship health;
+its health bar is unavailable unless a valid 0–100 measurement is present.
 The system details list uses planet icon cards with orbital positions and
 explicit own-colony markers. Map focus, colony approach and management use
 labelled icon actions; foreign worlds do not gain ownership-only actions.
@@ -1359,6 +1361,9 @@ Escape returns keyboard focus to the playing field without changing the view.
 The mouse wheel also works over HTML badges, zooming toward the labelled
 system or planet rather than picking the empty space behind its offset label.
 It uses the same zoom limits and planet/colony transitions as the canvas.
+The colony building-detail renderer shows health only when the building data
+contains a valid 0–100 measurement; otherwise it reports the value as
+unavailable instead of assuming full health.
 Selected planet badges have a persistent highlighted border and expose
 `aria-pressed`; selection updates from either canvas or badge actions.
 Selected planets receive label priority, but off-screen or occluded objects

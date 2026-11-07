@@ -104,7 +104,6 @@ class FleetController {
     const shipId = `ship_${Date.now()}`;
     ship.id = shipId;
     ship.status = ship.status || 'active';
-    ship.health = ship.health || 100;
 
     fleets[fleetId].ships.push(ship);
     fleets[fleetId].isDirty = true;
@@ -317,7 +316,13 @@ class FleetCalculations {
 
     return fleet.ships.reduce((total, ship) => {
       const baseStrength = this._getShipBaseStrength(ship.class);
-      const healthFactor = (ship.health || 100) / 100;
+      const healthValue = ship.health;
+      const health = healthValue === null || healthValue === undefined || healthValue === ''
+        ? NaN
+        : Number(healthValue);
+      const healthFactor = Number.isFinite(health) && health >= 0 && health <= 100
+        ? health / 100
+        : 1;
       return total + (baseStrength * healthFactor);
     }, 0);
   }

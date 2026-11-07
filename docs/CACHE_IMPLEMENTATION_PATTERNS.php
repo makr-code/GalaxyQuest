@@ -153,18 +153,18 @@ function example_politics_catalog_cached(): void {
     // 3. Cache miss: return catalog
     $catalog = [
         'species' => [
-            ['species_key' => 'adaptive_humans', 'name' => 'Adaptive Humans', ...],
-            ['species_key' => 'silicon_collective', 'name' => 'Silicon Collective', ...],
+            ['species_key' => 'adaptive_humans', 'name' => 'Adaptive Humans'],
+            ['species_key' => 'silicon_collective', 'name' => 'Silicon Collective'],
             // ... more species
         ],
         'governments' => [
-            ['government_key' => 'stellar_republic', 'name' => 'Stellar Republic', ...],
-            ['government_key' => 'synthetic_consensus', 'name' => 'Synthetic Consensus', ...],
+            ['government_key' => 'stellar_republic', 'name' => 'Stellar Republic'],
+            ['government_key' => 'synthetic_consensus', 'name' => 'Synthetic Consensus'],
             // ... more governments
         ],
         'civics' => [
-            ['civic_key' => 'meritocracy', 'name' => 'Meritocracy', ...],
-            ['civic_key' => 'militarism', 'name' => 'Militarism', ...],
+            ['civic_key' => 'meritocracy', 'name' => 'Meritocracy'],
+            ['civic_key' => 'militarism', 'name' => 'Militarism'],
             // ... more civics
         ],
     ];

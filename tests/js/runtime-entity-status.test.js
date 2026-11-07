@@ -36,6 +36,31 @@ describe('RuntimeBuildingsController status bars', () => {
     expect(html).not.toContain('Building integrity');
     expect(html).not.toContain('Building shields');
   });
+
+  it('omits upgrade progress when timestamps are missing or invalid', () => {
+    const { createBuildingsController } = window.GQRuntimeBuildingsController;
+    const controller = createBuildingsController({
+      getBuildingUiMeta: () => ({ cat: 'Other', icon: '', desc: 'Building' }),
+      fmtName: (value) => String(value),
+      fmt: String,
+      esc: String,
+      countdown: () => 'time remaining',
+    });
+    const html = controller.buildCardsHtml({
+      Other: [{
+        type: 'habitat',
+        level: 1,
+        meta: { cat: 'Other', icon: '', desc: 'Building' },
+        next_cost: {},
+        upgrade_start: 'not-a-date',
+        upgrade_end: 'also-not-a-date',
+      }],
+    }, '');
+
+    expect(html).toContain('item-timer');
+    expect(html).not.toContain('Upgrade progress');
+    expect(html).not.toContain('>0%</span>');
+  });
 });
 
 describe('RuntimeColonyWarnings status alerts', () => {

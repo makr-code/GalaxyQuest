@@ -272,33 +272,41 @@
             </div>
           </div>
           ${rounds.length ? (() => {
-            const maxAtkInt = Math.max(1, ...rounds.map((rd) => Number(rd.attacker_integrity_remaining || 0)));
-            const maxDefInt = Math.max(1, ...rounds.map((rd) => Number(rd.defender_integrity_remaining || 0)));
+            const readIntegrity = (value) => {
+              if (value === null || value === undefined || value === '') return null;
+              const parsed = Number(value);
+              return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+            };
+            const maxAtkInt = Math.max(0, ...rounds.map((round) =>
+              readIntegrity(round.attacker_integrity_remaining) ?? 0));
+            const maxDefInt = Math.max(0, ...rounds.map((round) =>
+              readIntegrity(round.defender_integrity_remaining) ?? 0));
             return `
             <div style="padding:0.65rem; border:1px solid #45556d; border-radius:10px; background:#121b2a;">
               <div><strong>Round Flow</strong></div>
+              <div class="text-muted">Integrity is an aggregate relative index, not per-ship hit points.</div>
               <div class="small" style="margin-top:0.35rem; display:grid; gap:0.35rem;">
                 ${rounds.map((round) => {
-                  const atkInt = Number(round.attacker_integrity_remaining || 0);
-                  const defInt = Number(round.defender_integrity_remaining || 0);
-                  const atkIntPct = Math.round((atkInt / maxAtkInt) * 100);
-                  const defIntPct = Math.round((defInt / maxDefInt) * 100);
-                  const atkIntTone = atkIntPct < 30 ? 'is-critical' : (atkIntPct < 60 ? 'is-warning' : 'is-good');
-                  const defIntTone = defIntPct < 30 ? 'is-critical' : (defIntPct < 60 ? 'is-warning' : 'is-good');
+                  const atkInt = readIntegrity(round.attacker_integrity_remaining);
+                  const defInt = readIntegrity(round.defender_integrity_remaining);
+                  const atkIntPct = atkInt === null ? null : (maxAtkInt > 0 ? Math.round((atkInt / maxAtkInt) * 100) : 0);
+                  const defIntPct = defInt === null ? null : (maxDefInt > 0 ? Math.round((defInt / maxDefInt) * 100) : 0);
+                  const atkIntTone = atkIntPct === null ? '' : (atkIntPct < 30 ? 'is-critical' : (atkIntPct < 60 ? 'is-warning' : 'is-good'));
+                  const defIntTone = defIntPct === null ? '' : (defIntPct < 30 ? 'is-critical' : (defIntPct < 60 ? 'is-warning' : 'is-good'));
                   return `
                   <div style="padding:0.45rem 0.55rem; border:1px solid #314154; border-radius:8px; background:#0d1420;">
                     <div style="font-weight:700; color:#eef4ff;">Round ${fmt(round.round || 0)}${round.decisive ? ' \u25CF Decisive' : ''}</div>
                     <div style="margin:0.25rem 0;">Pressure A/D: ${fmt(round.attacker_pressure || 0)} / ${fmt(round.defender_pressure || 0)}</div>
-                    <div class="entity-bar-row" title="Attacker integrity ${fmt(atkInt)}" style="margin-bottom:0.15rem;">
+                    ${atkInt === null ? '' : `<div class="entity-bar-row" title="Attacker integrity remaining ${fmt(atkInt)}; relative to the highest reported round value" style="margin-bottom:0.15rem;">
                       <span class="entity-bar-label" style="min-width:2.4rem;">A-Int</span>
                       <div class="bar-wrap"><div class="bar-fill bar-integrity ${atkIntTone}" style="width:${atkIntPct}%"></div></div>
                       <span class="entity-bar-value">${fmt(atkInt)}</span>
-                    </div>
-                    <div class="entity-bar-row" title="Defender integrity ${fmt(defInt)}">
+                    </div>`}
+                    ${defInt === null ? '' : `<div class="entity-bar-row" title="Defender integrity remaining ${fmt(defInt)}; relative to the highest reported round value">
                       <span class="entity-bar-label" style="min-width:2.4rem;">D-Int</span>
                       <div class="bar-wrap"><div class="bar-fill bar-shield ${defIntTone}" style="width:${defIntPct}%"></div></div>
                       <span class="entity-bar-value">${fmt(defInt)}</span>
-                    </div>
+                    </div>`}
                     <div style="margin-top:0.25rem;">Swing: ${esc(fmtName(String(round.swing || 'neutral')))}${round.outcome ? ' | Outcome: ' + esc(fmtName(String(round.outcome))) : ''}</div>
                   </div>`;
                 }).join('')}

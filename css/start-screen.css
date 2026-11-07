@@ -262,16 +262,25 @@ body.auth-page #auth-section {
 .start-reduced-motion .start-dialog[open] { animation: none; }
 .start-reduced-motion .start-button { transition: none; }
 
+.auth-page #terminal-section {
+  position: relative;
+  z-index: 99999;
+  display: flex;
+  justify-content: flex-end;
+  box-sizing: border-box;
+  padding: 0 16px 16px;
+}
 .auth-page #boot-terminal:not(.wm-window):not(.wm-window-adapted),
 .auth-page #boot-terminal.ui-console-panel {
-  position: fixed;
-  inset: auto 16px 16px auto;
-  z-index: 99999;
-  width: min(560px, calc(100vw - 32px));
-  height: auto;
+  position: relative !important;
+  inset: auto !important;
+  width: min(560px, calc(100vw - 32px)) !important;
+  height: auto !important;
   max-height: none;
   overflow: visible;
   padding: 6px 8px;
+  box-sizing: border-box;
+  margin: 0;
   border: 1px solid rgba(116, 167, 220, 0.3);
   border-left: 2px solid rgba(144, 202, 255, 0.72);
   border-radius: 4px;
@@ -388,7 +397,7 @@ body.auth-page #auth-section {
   .auth-page #boot-terminal:not(.wm-window):not(.wm-window-adapted),
   .auth-page #boot-terminal.ui-console-panel {
     inset: auto 8px max(8px, env(safe-area-inset-bottom)) auto;
-    width: calc(100vw - 16px);
+    width: min(560px, calc(100vw - 32px)) !important;
     padding: 7px 8px;
   }
   .auth-page #boot-terminal .ui-console-head { flex-wrap: wrap; gap: 6px; }

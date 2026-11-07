@@ -80,7 +80,7 @@ THEMISDB_DUAL_WRITE=1
 THEMISDB_BASE_URL=http://themisdb:8080
 ```
 
-The custom ThemisDB image runs as UID/GID `10001` and owns `/data`. Before upgrading
+The custom ThemisDB image runs as UID/GID `10001` and owns `/data` and `/logs`. Before upgrading
 an existing named volume that was initialized by the previous root-running image,
 stop the service and migrate ownership without changing its contents:
 

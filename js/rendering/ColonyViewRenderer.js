@@ -327,7 +327,14 @@ class ColonyViewRenderer extends ViewRenderer {
     ctx.font = '12px Arial';
     ctx.fillText(`Type: ${building.type}`, 20, 60);
     ctx.fillText(`Level: ${building.level || 1}`, 20, 80);
-    ctx.fillText(`Health: ${building.health || 100}%`, 20, 100);
+    const healthValue = building.health;
+    const health = healthValue === null || healthValue === undefined || healthValue === ''
+      ? NaN
+      : Number(healthValue);
+    const healthLabel = Number.isFinite(health) && health >= 0 && health <= 100
+      ? `${Math.round(health)}%`
+      : 'Unavailable';
+    ctx.fillText(`Health: ${healthLabel}`, 20, 100);
     ctx.fillText(`Production: ${building.production || 0}`, 20, 120);
   }
 

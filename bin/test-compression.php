@@ -183,7 +183,12 @@ foreach ([
 ] as $testCase) {
     $results[$testCase['name']] = [];
     
-    echo color("Testing {$testCase['name']} Payload ({$testCase['payload']['planets']|count} planets, {$testCase['payload']['fleets_in_system']|count} fleets)\n", '1;33');
+    echo color(sprintf(
+        'Testing %s Payload (%d planets, %d fleets)' . "\n",
+        $testCase['name'],
+        count($testCase['payload']['planets']),
+        count($testCase['payload']['fleets_in_system'])
+    ), '1;33');
     echo "\n";
     
     // 1. Raw JSON

@@ -209,6 +209,37 @@ describe('RuntimeShipyardController – tabbed layout', () => {
     const queueBtn = root.querySelector('.ui-tab-btn[data-tab-target="queue"]');
     expect(queueBtn.textContent).toContain('1');
   });
+
+  it('omits build progress when queue timestamps are invalid', async () => {
+    const queue = [
+      {
+        id: 2,
+        ship_type: 'corvette',
+        label: 'Corvette',
+        quantity: 1,
+        status: 'running',
+        position: 1,
+        eta: 'not-a-date',
+        started_at: 'also-not-a-date',
+        cost: {},
+      },
+    ];
+    const { controller, root } = makeController({
+      api: {
+        ships: vi.fn().mockResolvedValue({ success: true, ships: [], blueprints: [], queue }),
+        shipyardHulls: vi.fn().mockResolvedValue({ hulls: [] }),
+        shipyardVessels: vi.fn().mockResolvedValue({ vessels: [] }),
+        resources: vi.fn().mockResolvedValue({ success: true, resources: {} }),
+      },
+    });
+
+    await controller.render();
+
+    const queuePanel = root.querySelector('.ui-tab-panel[data-tab-id="queue"]');
+    expect(queuePanel.querySelector('.item-timer')).not.toBeNull();
+    expect(queuePanel.querySelector('.entity-bars')).toBeNull();
+    expect(queuePanel.textContent).not.toContain('0%');
+  });
 });
 
 // ── Hull picker ────────────────────────────────────────────────────────────────

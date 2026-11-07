@@ -86,30 +86,41 @@
           const ev = currentColony.active_event;
           if (!ev) return '';
           const meta = {
-            solar_flare: { icon: 'ÔÿÇ´©Å', label: 'Solar Flare', cls: 'event-solar', desc: 'Energy production ÔêÆ30%', duration: 60 },
-            mineral_vein: { icon: 'ÔøÅ´©Å', label: 'Mineral Vein', cls: 'event-mineral', desc: 'Metal production +20%', duration: 60 },
-            disease: { icon: '­ƒªá', label: 'Disease Outbreak', cls: 'event-disease', desc: 'Happiness ÔêÆ25 (until Hospital Lv3)', duration: 120 },
-            archaeological_find: { icon: '­ƒÅ║', label: 'Archaeological Find', cls: 'event-unknown', desc: '+500 Dark Matter discovered', duration: 30 },
-          }[ev.type] || { icon: 'ÔÜá´©Å', label: ev.type, cls: 'event-unknown', desc: '', duration: 60 };
-          const mins = Number(ev.ends_in_min || 0);
-          const timeLeft = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
+            solar_flare: { icon: 'ÔÿÇ´©Å', label: 'Solar Flare', cls: 'event-solar', desc: 'Energy production ÔêÆ30%' },
+            mineral_vein: { icon: 'ÔøÅ´©Å', label: 'Mineral Vein', cls: 'event-mineral', desc: 'Metal production +20%' },
+            disease: { icon: '­ƒªá', label: 'Disease Outbreak', cls: 'event-disease', desc: 'Happiness ÔêÆ25 (until Hospital Lv3)' },
+            archaeological_find: { icon: '­ƒÅ║', label: 'Archaeological Find', cls: 'event-unknown', desc: '+500 Dark Matter discovered' },
+          }[ev.type] || { icon: 'ÔÜá´©Å', label: ev.type, cls: 'event-unknown', desc: '' };
+          const rawMins = ev.ends_in_min;
+          const parsedMins = rawMins === null || rawMins === undefined || rawMins === ''
+            ? NaN
+            : Number(rawMins);
+          const mins = Number.isFinite(parsedMins) && parsedMins >= 0 ? parsedMins : null;
+          const timeLeft = mins === null
+            ? 'time unavailable'
+            : (mins >= 60 ? `${Math.floor(mins / 60)}h ${Math.floor(mins % 60)}m` : `${Math.floor(mins)}m`);
 
-          let eventProgressPct = 0;
-          let eventTone = 'is-good';
-          const eventDurationMins = meta.duration || 60;
-          if (mins < eventDurationMins) {
-            eventProgressPct = Math.min(100, Math.round((1 - (mins / eventDurationMins)) * 100));
-            eventTone = eventProgressPct < 30 ? 'is-good' : (eventProgressPct < 70 ? 'is-warning' : 'is-critical');
-          }
-
-          return `<div class="colony-event-banner ${esc(meta.cls)}"><span class="ce-icon">${meta.icon}</span><span class="ce-label"><strong>${esc(meta.label)}</strong> ÔÇö ${esc(meta.desc)}</span><span class="ce-timer">ends in ${esc(timeLeft)}</span>
+          const startedAt = Date.parse(ev.started_at || '');
+          const expiresAt = Date.parse(ev.expires_at || '');
+          const eventDurationMins = (expiresAt - startedAt) / 60000;
+          const eventProgressPct = mins !== null
+            && Number.isFinite(eventDurationMins)
+            && eventDurationMins > 0
+            ? Math.min(100, Math.max(0, Math.round((1 - (mins / eventDurationMins)) * 100)))
+            : null;
+          const eventTone = eventProgressPct === null
+            ? ''
+            : (eventProgressPct < 30 ? 'is-good' : (eventProgressPct < 70 ? 'is-warning' : 'is-critical'));
+          const eventProgressHtml = eventProgressPct === null ? '' : `
             <div class="entity-bars" style="margin-top:0.3rem;">
-              <div class="entity-bar-row" title="Event progress ${eventProgressPct}%">
-                <span class="entity-bar-label" style="font-size:0.75rem;">Prog</span>
+              <div class="entity-bar-row" title="Event elapsed ${eventProgressPct}%">
+                <span class="entity-bar-label" style="font-size:0.75rem;">Elapsed</span>
                 <div class="bar-wrap"><div class="bar-fill bar-integrity ${eventTone}" style="width:${eventProgressPct}%; height:6px;"></div></div>
                 <span class="entity-bar-value" style="font-size:0.75rem;">${eventProgressPct}%</span>
               </div>
-            </div></div>`;
+            </div>`;
+
+          return `<div class="colony-event-banner ${esc(meta.cls)}"><span class="ce-icon">${meta.icon}</span><span class="ce-label"><strong>${esc(meta.label)}</strong> ÔÇö ${esc(meta.desc)}</span><span class="ce-timer">ends in ${esc(timeLeft)}</span>${eventProgressHtml}</div>`;
         })()}
         <div class="colony-capacity-row">${Object.entries(classCaps).map(([key, value]) => `<span class="colony-cap-chip">${esc(buildingZoneLabel(key))}: ${esc(String(value))}</span>`).join('')}</div>
         <div class="colony-grid" style="grid-template-columns:repeat(${grid.cols}, minmax(0, 1fr));">

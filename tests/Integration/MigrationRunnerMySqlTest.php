@@ -1472,10 +1472,20 @@ final class MigrationRunnerMySqlTest extends TestCase
         return eval(rtrim($listSource) . ';');
     }
 
+    private function requireNpcAiWithoutGlobalErrorHandlers(): void
+    {
+        $handlersWereInitialized = defined('GQ_API_ERROR_HANDLERS_READY');
+        require_once __DIR__ . '/../../api/npc_ai.php';
+        if (!$handlersWereInitialized) {
+            restore_error_handler();
+            restore_exception_handler();
+        }
+    }
+
     public function testWormholeRoutesAndRegenerationUseCanonicalStorageWithoutDdl(): void
     {
         require_once __DIR__ . '/../../api/galaxy_seed.php';
-        require_once __DIR__ . '/../../api/npc_ai.php';
+        $this->requireNpcAiWithoutGlobalErrorHandlers();
         $list = $this->loadWormholeFleetHelpers();
         $runner = $this->prepareWormholeFixture();
         $this->assertSame([], $runner->runUp());
@@ -2511,6 +2521,7 @@ final class MigrationRunnerMySqlTest extends TestCase
             } catch (RuntimeException $error) {
                 $this->assertStringContainsString('faction_standing_adjustments.id', $error->getMessage());
             }
+            $this->db->exec('DROP TABLE IF EXISTS npc_quest_generation_log');
             $this->db->exec('DROP TABLE user_faction_quests');
             $this->db->exec('DROP TABLE faction_quests');
             try {
@@ -2814,7 +2825,7 @@ final class MigrationRunnerMySqlTest extends TestCase
 
     public function testNpcFtlMigrationAndRuntimeUseMembershipAndPreserveOtherAccounts(): void
     {
-        require_once __DIR__ . '/../../api/npc_ai.php';
+        $this->requireNpcAiWithoutGlobalErrorHandlers();
         $this->db->exec(
             'CREATE TABLE users (id INT PRIMARY KEY, control_type VARCHAR(24), ftl_drive_type VARCHAR(30)) ENGINE=InnoDB;
              CREATE TABLE npc_factions (id INT PRIMARY KEY, code VARCHAR(32)) ENGINE=InnoDB;'

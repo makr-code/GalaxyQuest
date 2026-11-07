@@ -221,6 +221,22 @@ class FleetUI {
     try {
       const fleet = this.controller.getFleet(this.selectedFleetId);
       const ships = fleet.ships || [];
+      const healthCell = (ship) => {
+        const health = ship.health === null || ship.health === undefined || ship.health === ''
+          ? NaN
+          : Number(ship.health);
+        if (!Number.isFinite(health) || health < 0 || health > 100) {
+          return '<span class="text-muted">Unavailable</span>';
+        }
+        const percent = Math.round(health);
+        return `
+          <div class="health-bar" role="progressbar" aria-label="${ship.type || 'Ship'} health"
+               aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}">
+            <div class="health-fill" style="width: ${percent}%"></div>
+          </div>
+          <span>${percent}%</span>
+        `;
+      };
 
       if (ships.length === 0) {
         return `
@@ -254,10 +270,7 @@ class FleetUI {
                     </span>
                   </td>
                   <td>
-                    <div class="health-bar">
-                      <div class="health-fill" style="width: ${ship.health || 100}%"></div>
-                    </div>
-                    ${ship.health || 100}%
+                    ${healthCell(ship)}
                   </td>
                   <td>
                     <button class="btn-icon" data-action="remove-ship" 
@@ -330,8 +343,7 @@ class FleetUI {
           this.controller.addShip(fleetId, {
             type: 'Corvette',
             class: 'corvette',
-            status: 'active',
-            health: 100
+            status: 'active'
           });
           this._showNotification('Ship added!', 'success');
         } catch (error) {
@@ -357,8 +369,8 @@ class FleetUI {
           name: `Fleet ${Date.now()}`,
           colonyId: 'colony_1',
           ships: [
-            { type: 'Fighter', class: 'fighter', health: 100 },
-            { type: 'Corvette', class: 'corvette', health: 100 }
+            { type: 'Fighter', class: 'fighter' },
+            { type: 'Corvette', class: 'corvette' }
           ]
         });
         this.selectedFleetId = fleetId;

@@ -79,18 +79,27 @@
           html += `<div class="building-category"><h4 class="building-cat-title">${cat}</h4><div class="card-grid">`;
           for (const building of items) {
             const busy = !!building.upgrade_end;
-            let upgradeProgressPct = 0;
-            let upgradeTone = 'is-good';
+            let upgradeProgressPct = null;
             if (busy && building.upgrade_start && building.upgrade_end) {
               const now = Date.now();
               const startMs = new Date(building.upgrade_start).getTime();
               const endMs = new Date(building.upgrade_end).getTime();
               const totalMs = endMs - startMs;
-              if (totalMs > 0) {
+              if (Number.isFinite(startMs) && Number.isFinite(endMs) && totalMs > 0) {
                 upgradeProgressPct = Math.min(100, Math.round(Math.max(0, (now - startMs) / totalMs * 100)));
-                upgradeTone = upgradeProgressPct < 30 ? 'is-critical' : (upgradeProgressPct < 70 ? 'is-warning' : 'is-good');
               }
             }
+            const upgradeTone = upgradeProgressPct === null
+              ? ''
+              : (upgradeProgressPct < 30 ? 'is-critical' : (upgradeProgressPct < 70 ? 'is-warning' : 'is-good'));
+            const upgradeProgressHtml = upgradeProgressPct === null ? '' : `
+              <div class="entity-bars" style="margin-top:0.2rem;">
+                <div class="entity-bar-row" title="Upgrade progress ${upgradeProgressPct}%">
+                  <span class="entity-bar-label">Upgr</span>
+                  <div class="bar-wrap"><div class="bar-fill bar-integrity ${upgradeTone}" style="width:${upgradeProgressPct}%"></div></div>
+                  <span class="entity-bar-value">${upgradeProgressPct}%</span>
+                </div>
+              </div>`;
             const cost = building.next_cost;
             const integrityPct = readPercent(
               building.integrity_pct
@@ -129,14 +138,7 @@
                 ${cost.deuterium ? `<span class="cost-deut">­ƒöÁ ${fmt(cost.deuterium)}</span>` : ''}
               </div>
               ${busy
-                ? `<div class="item-timer">ÔÅ│ ETA <span data-end="${esc(building.upgrade_end)}">${countdown(building.upgrade_end)}</span></div>
-                <div class="entity-bars" style="margin-top:0.2rem;">
-                  <div class="entity-bar-row" title="Upgrade progress ${upgradeProgressPct}%">
-                    <span class="entity-bar-label">Upgr</span>
-                    <div class="bar-wrap"><div class="bar-fill bar-integrity ${upgradeTone}" style="width:${upgradeProgressPct}%"></div></div>
-                    <span class="entity-bar-value">${upgradeProgressPct}%</span>
-                  </div>
-                </div>`
+                ? `<div class="item-timer">ÔÅ│ ETA <span data-end="${esc(building.upgrade_end)}">${countdown(building.upgrade_end)}</span></div>${upgradeProgressHtml}`
                 : `<button class="btn btn-primary btn-sm upgrade-btn" data-type="${esc(building.type)}">Ôåæ Upgrade</button>`}
             </div>`;
           }
