@@ -11,7 +11,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/helpers.php';
-require_once __DIR__ . '/npc_ai.php';
+require_once __DIR__ . '/simulation_runtime.php';
 
 $uid = require_auth();
 $action = strtolower((string) ($_GET['action'] ?? 'status'));
@@ -165,28 +165,37 @@ switch ($action) {
         only_method('POST');
         verify_csrf();
 
-        $beforeRaids = pirates_count_recent_raids($db, $uid, 24);
+        $result = simulation_runtime_with_scope_lock(
+            $db,
+            'user',
+            (string)$uid,
+            static function () use ($db, $uid): array {
+                $beforeRaids = pirates_count_recent_raids($db, $uid, 24);
 
-        $pirateStmt = $db->prepare(
-            'SELECT *
-             FROM npc_factions
-             WHERE faction_type = "pirate"
-             ORDER BY aggression DESC, power_level DESC, id ASC'
+                $pirateStmt = $db->prepare(
+                    'SELECT *
+                     FROM npc_factions
+                     WHERE faction_type = "pirate"
+                     ORDER BY aggression DESC, power_level DESC, id ASC'
+                );
+                $pirateStmt->execute();
+                $pirateFactions = $pirateStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+                foreach ($pirateFactions as $faction) {
+                    npc_faction_tick($db, $uid, $faction);
+                }
+
+                $afterRaids = pirates_count_recent_raids($db, $uid, 24);
+
+                return [
+                    'executed' => true,
+                    'factions_processed' => count($pirateFactions),
+                    'new_raids_last_24h_delta' => max(0, $afterRaids - $beforeRaids),
+                ];
+            }
         );
-        $pirateStmt->execute();
-        $pirateFactions = $pirateStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-        foreach ($pirateFactions as $faction) {
-            npc_faction_tick($db, $uid, $faction);
-        }
-
-        $afterRaids = pirates_count_recent_raids($db, $uid, 24);
-
-        json_ok([
-            'message' => 'Pirate simulation tick executed.',
-            'factions_processed' => count($pirateFactions),
-            'new_raids_last_24h_delta' => max(0, $afterRaids - $beforeRaids),
-        ]);
+        json_ok($result);
         break;
 
     case 'set_defense_budget':

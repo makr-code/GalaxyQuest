@@ -8,8 +8,304 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] — Sprint 1.2: Technische Schulden abbauen
 
+### Changed — Start-page galaxy flight tour
+
+- The read-only start-page flight now circles the system, star, selected planet,
+  and moon before continuing, then performs lateral fly-bys past deterministic
+  preview asteroids and a clearly marked preview survey ship.
+- Asteroids and the ship are created only in the flight-tour scene; they do not
+  represent or mutate live galaxy or player-fleet state.
+- Camera orbit and fly-by maneuvers remain part of the existing abortable,
+  resumable spatial navigation path; completed maneuvers now persist the
+  camera's actual final position so a resumed tour cannot snap back to the
+  pre-orbit arrival point.
+- Tour approaches now frame bodies and ships by apparent size and route around
+  intervening bodies; interactive planet zoom distances remain unchanged.
+- Persisted planet-ring profiles now reach both the start-page flight preview
+  and the regular in-game system payload, and are drawn as inclined,
+  composition-tinted annuli in the active WebGPU scene.
+- The in-game system payload now includes up to two deterministic asteroid-belt
+  descriptors for suitable planetary gaps. The WebGPU renderer samples each
+  belt with a 512-particle scene-wide cap and distance-based LOD; belts remain
+  visual data and do not create resource-bearing celestial-body records.
+
+### Fixed — Renderer ownership and disposal
+
+- Fleet endpoint frame observers now invalidate captured callbacks before
+  attempting hook removal. Stale callbacks cannot publish after remove/dispose,
+  even when removal fails. A failing initial projection rolls back its hook
+  registration and reports cleanup failures together. Failed removal remains
+  retryable through the returned disposer or repeated adapter destruction.
+  Per-frame projection failures disable the observer and are reported once.
+
+- Galaxy camera-move frame hooks now invalidate captured callbacks before
+  attempting removal. Superseded or disposed moves cannot mutate camera state,
+  even when hook removal fails. Invalid frame deltas and pose/update failures stop
+  the move and report the error rather than repeating on subsequent frames.
+
+- Colony bridge camera controls and snapshot refresh now require a live colony or
+  building view outside transitions. UI events arriving during exit or after a
+  renderer replacement/disposal are ignored rather than reaching stale instances.
+
+- Owner abort signals now close initialized colony zoom runtimes and cancel
+  pending flights without another frame. Disposal and initialization failure
+  remove the abort listener; abort cleanup errors use the configured error
+  callback. Explicit galaxy teardown disposes before aborting the owner signal,
+  preserving synchronous cleanup error propagation.
+
+- Colony bridge back/ancestor navigation now invalidates pending surface loads,
+  preventing late responses from reopening a departed view. Refused overlapping
+  approaches preserve the accepted flight and revision. Surface entry requires a
+  confirmed planet prerequisite and an idle transition; return payloads are only
+  committed after successful entry. Browser and GPU-ownership regressions cover
+  cancellation and fresh retry.
+
+- Active camera flights now reject invalid frame times instead of hanging or
+  producing invalid poses. Driver position/target/control updates run before
+  flight success is committed; their failures reject the pending promise even
+  on the final frame. Reentrant disposal/replacement stops further camera writes.
+  Missing active driver contexts now report an explicit error.
+
+- Planet/building flight setup now validates inputs and control points before
+  replacing a running flight. Failed setup preserves its pending promise,
+  progress and callbacks; non-finite endpoints, duration and blur are rejected.
+  Setup target providers cannot resurrect disposed flights or overwrite a newer
+  reentrant flight. Options/colliders are snapshotted while live targets remain live.
+
+- Camera flight callback failures now reject the waiting transition and propagate
+  to the frame caller, including failures on the completion frame. Flight success
+  waits for all frame calculations and effects. Completion/failure releases target,
+  collider and effect references; callbacks no longer leak into subsequent flights.
+  Reentrant cancellation/replacement stops the retired frame's remaining effects.
+
+- Replacing an active renderer now detaches it from rendering and navigation,
+  clears camera state and cancels pending flights without publishing a stale
+  entry. Building depth uses its surface registration. Cleanup attempts remain
+  independent on errors; invalid registrations preserve the live view.
+  The colony bridge reports cancelled entry as unsuccessful. Real renderer
+  GPU-ownership tests and browser wrapper remount cycles cover replacement.
+
+- Pending scene preloads and view transitions now verify cached renderer identity
+  after initialization, outgoing exit and incoming entry. Replaced instances
+  cannot consume late scene data or become active again; replacement registrations
+  remain usable, including after a retired initialization fails.
+  Camera/colony fixtures now use actual registry registrations.
+
+- Full view transitions now stop after disposal triggered by exit notifications,
+  transition-source setup, navigation binding or backend activation. Closing
+  during these callbacks cannot rebind/enter a disposed view or start a camera
+  flight after its cancellation, leaving a navigation promise pending.
+  Browser wrapper cycles also cover closing from exit notifications.
+
+- Live building-detail transitions now use transition-error cleanup for camera
+  and event callback failures, releasing the shared surface under its actual
+  colony registry level and allowing a fresh retry. Invalid/foreign building
+  targets are validated before mutation and preserve the usable surface.
+  Disposal from an exit callback cannot republish building depth.
+
+- Renderer navigation bindings now belong to a specific view entry. Retained
+  handlers cannot navigate or emit slot selections after exit/re-entry, during
+  a transition or after disposal. Failed incoming initialization preserves the
+  current view's valid bindings; live building-detail navigation still reuses
+  the colony surface without additional GPU allocations.
+
+- Renderer-triggered building, landing and back navigation now routes rejected
+  transitions through the orchestrator's configured `onError` callback, wired
+  to the colony bridge and game-view recovery. DOM callbacks no longer leave
+  transition failures unobserved. Direct zoom calls keep rejecting to callers;
+  without an error callback renderer navigation also retains its rejection.
+
+- Orchestrator event dispatch now notifies a stable listener snapshot and
+  reports aggregated callback failures instead of silently swallowing them.
+  Its owned RAF loop disposes and surfaces render/cleanup failures rather than
+  continuing indefinitely; disposal during a frame cannot schedule another RAF.
+
+- Orchestrator initialization is shared across concurrent/repeated callers,
+  preventing duplicate backend initialization and frame hooks. Factory-created
+  backends are owned and disposed, including when creation resolves after
+  teardown; injected backends remain borrowed. Disposal clears backend/canvas/
+  option references and cannot restart a late RAF loop.
+
+- Zoom-level renderers now dispose only renderer instances they created; shared
+  orchestrator backends remain owned by the bootstrap caller.
+- Registry replacement and cleanup dispose cached views, attempt all cleanup
+  operations, and report aggregated failures. Cancelled asynchronous renderer
+  initialization can no longer republish an already-disposed shared instance.
+- `GQAudioManager.dispose()` now idempotently stops active media, detaches its
+  event listeners, clears delayed SFX and fade work, stops procedural
+  oscillators, and closes its owned `AudioContext`; cleanup failures are
+  surfaced as an aggregate error.
+- Audio teardown now removes media sources and reloads the elements to release
+  their buffers, deduplicates external TTS tracking, and shares pending context
+  shutdown (including failures) between all disposal callers.
+- CI now runs browser lifecycle regressions with real media and audio contexts
+  over eight cycles, checking native listener removal via Chromium DevTools;
+  sixteen zoom cycles also check borrowed-backend ownership, frame hooks and
+  RAF cancellation without requiring a GPU.
+- In-game galaxy teardown now clears spatial-label callbacks, releases mouse
+  and touch captures, and attempts all cleanup and menu-return steps even if
+  an observer or zoom renderer fails. Observer unsubscribe is idempotent.
+- Colony zoom removes its published global even when disposal fails; rendering
+  and cleanup failures are reported together. CI also exercises eight mounts
+  of the actual galaxy adapter and spatial scene with an injected renderer,
+  checking native canvas listeners and frame hooks, including failed teardown.
+- Colony surface exit/disposal now releases a pointer capture owned by an
+  unfinished drag. Resource-contract tests run the real planet/surface classes
+  through six game-bridge lifecycles and require exactly-once destruction of
+  every allocated buffer/texture without destroying the borrowed device.
+- A native WebGPU counterpart is wired into the shader-validation workflow on
+  `develop`/`main` zoom changes, with missing adapters treated as CI failures.
+  Native GPU execution remains unverified on local machines without an adapter.
+- Planet and colony disposal now use synchronous view cleanup instead of
+  discarding an asynchronous exit promise. Stream, input and GPU destruction
+  failures are aggregated after all remaining cleanup attempts; failed terrain
+  cache destruction no longer prevents later entries from being released.
+- Failed input cleanup during colony departure bypasses the animation and
+  completes teardown immediately, reporting the original failure.
+- Pending planet/colony entries no longer reactivate a view after a newer
+  entry, exit or disposal. Late colony initialization cannot restore disposed
+  scene resources; disposal rejects subsequent initialization and entry.
+- Superseded colony departure animations settle their waiting callers without
+  clearing newer view resources or leaving overwritten animation promises pending.
+- Scene preloading and zoom transitions now share pending level initialization.
+  Failed initialization evicts and disposes the partial renderer immediately,
+  preserving the registration for a fresh retry and the previously active view.
+  Cleanup failures are reported together with the initialization error.
+- Exited views are no longer rendered while the next view's entry is pending.
+  Failed exits, entries and camera flights release failed cached instances,
+  clear active zoom/camera state and preserve registrations for retry.
+  Partial colony HUD, input and GPU resources are disposed immediately;
+  cleanup and backend-reset failures are aggregated with the transition error.
+- The game adapter now restores system camera controls when zoom setup fails
+  or a failed transition leaves no active view. Recovery still frames the
+  system if zoom disposal fails, reporting both causes afterward.
+  Data-loading failures preserve an existing usable view, and obsolete
+  ancestor-navigation failures cannot reset a newer planet selection.
+  The Chromium lifecycle gate also checks recovery and a fresh zoom mount.
+- Rendering failures now attempt both disposal and system return before reporting
+  all failures together. A throwing return callback no longer hides the original
+  render error; a throwing error reporter propagates both causes.
+  Pending camera flights and colony entries settle during this cleanup even
+  when system recovery fails, and disposed frame hooks cannot report twice.
+- Terrain requests now recheck cancellation after CSRF body decoding and before
+  posting, preventing late token responses from starting work after disposal.
+  Terrain disposal releases manifest, token, LOD planning and CPU caches before
+  aborting the request, so cancellation errors cannot retain those resources.
+- Superseded colony snapshot responses are discarded before body decoding and
+  checked again afterward. Legacy building fallback failures and unsuccessful
+  responses now update the HUD and existing error channel instead of failing
+  silently; late fallback failures cannot alter a re-entered view.
+- Terminal planet/colony disposal now clears retained scene snapshots,
+  navigation callbacks, terrain/material references and colony CPU geometry,
+  including when GPU cleanup fails. Terrain streams release their view callback
+  and the bridge clears its current payload. Normal exit retains reusable scene
+  data; disposed renderers reject new data and navigation bindings.
+
 ### Changed — Read paths without queue completion side effects
 
+- Selecting an owned colony as a fleet origin now enters 3D target picking
+  immediately. The mission and ship/cargo composition remain an explicit
+  confirmation step, and dispatch continues through the server-authoritative
+  fleet API.
+- Fleet dispatch now shows a three-step progress indicator, clearer target
+  picking instructions, and a direct keyboard coordinate-entry alternative.
+  Launch remains disabled until a complete destination is selected.
+- Fleet composition includes local actions to select all currently available
+  ships or clear the ship selection. These only edit the draft; dispatch still
+  requires the explicit server-checked launch action.
+- Per-ship plus/minus controls now adjust draft quantities within the loaded
+  inventory limit and expose labeled, touch-sized actions.
+- Each ship type also has an individual maximum-selection action, allowing
+  focused composition without selecting every available ship type.
+- The launch action remains disabled until a complete destination and at least
+  one valid ship are selected. Missing ship selection is explained inline and
+  blocked before an unnecessary API request; server validation remains final.
+- Mission selection now displays concise, mission-specific guidance for
+  transport, attack, espionage, colonization, harvesting, and surveys, while
+  leaving mission eligibility and outcomes to server rules.
+- Fleet origin can now be changed from the command overlay by picking another
+  owned colony in the 3D scene. The flow resumes target selection after the
+  origin change, supports Escape cancellation, and sends no command while
+  picking.
+- The planned route now includes the selected system and planet names for
+  3D-picked destinations alongside coordinates. Editing coordinates clears
+  the display name to avoid showing stale location details.
+- Origin picking now also offers an accessible list of the player's own
+  colonies, labeled with names and coordinates, as an alternative to selecting
+  the colony in the 3D scene.
+- Target picking now lists planets from the currently open star system as
+  accessible, touch-sized actions. Players can use the list or direct 3D
+  picking; coordinates remain available for other systems.
+- Fleet target picking now omits system entries without a positive safe-integer
+  planet position and ignores invalid direct scene selections. Malformed
+  location data can no longer create an unusable fleet destination.
+- The in-system target picker now offers a direct, keyboard-accessible switch to
+  coordinate entry. It preserves any existing destination draft and focuses
+  the galaxy field without issuing a fleet command.
+- The route preview now keeps a one-action destination-clear control available
+  for partially entered coordinates as well as complete targets. Clearing the
+  target leaves the selected ships, mission, and cargo unchanged.
+- Origin picking now has a visible cancel action in addition to Escape.
+  Cancelling returns keyboard focus to the origin control; target-picker
+  cancellation likewise restores focus to its route action.
+- The fleet-command step indicator now tracks live coordinate validity:
+  incomplete or out-of-range destinations keep the target step active, and
+  only a valid destination advances to fleet review.
+- While the target picker navigates to another star system, it now replaces
+  the old system's planet actions with an explicit loading status. This avoids
+  presenting stale destinations during the server read.
+- Target-picking instructions now distinguish double-clicking a system in the
+  3D scene from single-selection in the system list, matching the actual
+  navigation controls.
+- If system navigation fails during target picking, old-system planet actions
+  remain hidden and the picker surfaces the server error with coordinate-entry
+  and alternate-system guidance.
+- The fleet-order progress indicator now correctly marks origin selection as
+  the active step when changing the origin mid-draft.
+- The 3D destination picker is now placed inside the route's destination card
+  and changes its label to "change destination" once a target has been chosen.
+- A selected destination can be explicitly removed from the draft without
+  discarding the origin or fleet composition; dispatch stays disabled until a
+  new complete destination is selected.
+- Origin changes are now initiated directly from the route's origin card, so
+  source and destination controls both sit with their corresponding endpoint.
+- The fleet draft summary now shows the total number of valid selected ships
+  and flags invalid quantities without estimating cargo capacity or clearance.
+- Each ship card now shows its selected quantity against available stock and
+  flags invalid quantities locally, including after quick-selection actions.
+- Each ship type now has a dedicated clear-selection action that can also
+  recover invalid quantities without affecting other selected types or cargo.
+- Cargo can now be cleared from the draft with one local action while keeping
+  the route, mission, and selected ships unchanged.
+- Each cargo resource can now be cleared independently, including to recover
+  from an invalid value without changing the other resources.
+- Invalid cargo quantities now disable launch with an inline explanation and
+  recover immediately when corrected; server validation remains authoritative.
+- Invalid quantities for any ship type now also disable launch even when other
+  ships are valid, with a specific inline inventory/integer correction hint.
+- Ship quantity inputs now expose invalid state and link to a precise,
+  screen-reader-readable range or whole-number hint.
+- Cargo inputs now expose invalid values accessibly and link to a concise
+  non-negative-number hint that clears as soon as the value is corrected.
+- Clearing all cargo now also synchronizes each resource's clear-button state.
+- The mission selector now references its live mission-specific description
+  for assistive technologies.
+- Target coordinate entry now validates the same integer ranges as the server,
+  marks invalid fields accessibly, and blocks dispatch until corrected.
+- Partial coordinate targets now explain that galaxy, system, and position
+  must all be provided before dispatch can be enabled.
+- Missing coordinate fields in a partially entered target are now marked
+  invalid and linked to that completion hint.
+- Selecting an origin from the accessible colony list now focuses the 3D scene
+  for the following target-picking step.
+- Starting target picking from the route card now also focuses the 3D scene;
+  cancelling returns focus to the command overlay.
+- Cancelling origin or target picking now returns keyboard focus to the
+  corresponding route action.
+- The origin picker now distinguishes an empty owned-colony list from session
+  data that is not currently available.
+- Changing the origin now preserves the destination, mission, and cargo draft
+  while clearing ship quantities tied to the previous colony's inventory.
 - Multi-mode generation queue status GETs no longer scan generated files or
   persist completion state. Queue creation requires authentication and CSRF;
   status reads require authentication and are scoped to the owning user.
@@ -54,6 +350,125 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Game guide reads now require authentication and GET; write actions require
   POST plus CSRF. Greeting reads and guide construction no longer initialize
   database rows or cache directories.
+- Game guide direct-help eligibility now reads its persisted usage counter;
+  NPC behavior-script and context readers treat only missing optional tables
+  as fallbacks and propagate other database errors.
+- Tutorial checkpoint writes and contextual NPC quest generation no longer
+  report success or empty results when database operations fail; optional NPC
+  trigger reads fall back only when their table is absent. The existing
+  contextual-trigger column/query mismatches against the canonical schema
+  remain an open feature/schema task.
+- Autonomous fleet-command hostility checks now propagate database errors
+  instead of interpreting failed alliance/war lookups as safe territory.
+- NPC PvE decision cooldown checks now propagate database failures and fail
+  closed on malformed decision timestamps instead of bypassing the cooldown.
+- NPC async-queue schema probes no longer collapse database errors into
+  "queue unavailable" (and a synchronous LLM fallback); metadata is checked
+  per supplied connection rather than cached across connections.
+- NPC trader ticks check their optional schema before consuming the global
+  cooldown; only a genuinely missing table is skipped. Worker nonce-table
+  probes now propagate backend failures rather than misreporting missing
+  schema.
+- NPC faction ticks no longer turn behavior-script database failures into an
+  LLM or default-action fallback.
+- Planetary event ticks only consume their cooldown after successful processing;
+  inserting an event, its one-time reward, and its player message is atomic, and
+  duplicate event attempts do not grant duplicate rewards. The message insert
+  now matches the canonical `messages` schema.
+- Global faction-event expiry/revert or activation, state updates, faction
+  modifiers, and broadcast messages now share one transaction/savepoint, so a
+  failed phase cannot leave a partially applied galaxy-wide event.
+- Daily faction-quest generation no longer hides faction/template/insert
+  failures or consumes its 24-hour cooldown after a partial run. The whole
+  generation batch now rolls back atomically on failure; quest-template YAML
+  fallback is limited to a missing optional template table.
+- NPC behavior context and contextual quest checks now query canonical user,
+  diplomacy, colony, and battle-report data instead of obsolete inventory,
+  standing, threat, or trade-offer columns. Contextual quest writes use the
+  canonical quest shape and commit with their audit log atomically. Amount
+  scaling no longer inflates standing or rank-point rewards. Trade-route
+  disruption remains disabled because no persisted disruption event exists;
+  contextual triggers remain unwired pending lifecycle acceptance.
+- The global NPC-account tick now writes its cooldown only after every selected
+  NPC account succeeds. A failed account query is no longer treated as an empty
+  successful tick.
+- Per-user NPC, trader, and wormhole cooldowns are now recorded only after their
+  corresponding core work succeeds. Trader route and decision handlers rethrow
+  database errors instead of marking routes failed or silently skipping decisions.
+  Trader route processing and wormhole regeneration now commit their state and
+  cooldown together, rolling back partial work on failure.
+- Scenario-engine ticks now commit scenario resolution/seeding/start and the
+  hourly cooldown atomically. Database errors in scenario reads, conditions,
+  starts, and effects propagate to simulation metrics instead of being treated
+  as ineligible scenarios or logged-and-continued success.
+- Scenario YAML read/parse failures now abort and roll back the tick rather than
+  silently skipping a scenario and consuming the hourly cooldown. Non-database
+  failures in scenario resolution, starts, conditions, and effects also propagate.
+- Simulation subsystem run timestamps are now written only after a successful
+  subsystem execution, and global/user simulation cooldowns advance only when
+  every subsystem in that tick succeeds.
+- The simulation tick CLI now rejects unknown, duplicate, malformed, and
+  contradictory options before loading application configuration or connecting
+  to the database. Isolated help and valid global/user options remain supported.
+- Simulation workers now report `GET_LOCK()` errors explicitly: only a `0`
+  result means another worker owns the lock; `NULL` and unexpected values fail
+  the tick before any simulation operation runs.
+- The simulation tick HTTP endpoint now rejects unknown scopes, malformed
+  user IDs, conflicting global/user options, and non-boolean `force` values
+  with HTTP 400 instead of silently coercing them into a different request.
+- Failed simulation subsystems now produce an HTTP 500 or CLI exit code 2
+  rather than a success-shaped response. Lock/cooldown skips remain normal
+  results, and public responses no longer include raw subsystem exception text.
+- The global simulation no longer reprocesses unread "Pirate Raid!" messages as
+  new raids. NPC faction ticks already apply raid effects before sending those
+  notifications; repeated interpretation could apply additional random damage.
+  Resolution is disabled until a dedicated idempotent raid queue exists.
+- War attrition is disabled until an authoritative war-party troop inventory
+  exists. The previous tick recorded fixed placeholder losses without reading
+  or changing actual combat units, so it now performs no writes instead of
+  reporting fictitious attrition.
+- Global NPC accounts, faction events, scenarios, colony events, and wormhole
+  maintenance now run as one `npc_world` subsystem under the global simulation
+  lock. Per-user NPC ticks no longer invoke those shared world mutations.
+- The NPC controller's manual `run_once` action now uses the per-user
+  simulation lock and reports busy-lock skips instead of claiming the tick ran;
+  both settings panels show skipped runs as informational notices.
+- NPC player account actions now commit per account with a matching completion
+  marker. If a later account fails, a normal global retry skips accounts already
+  committed during the three-minute cooldown; forced runs still bypass it.
+- Successful global and per-user simulation cooldowns now start when execution
+  completes, rather than at tick start, so long ticks cannot consume their own
+  cooldown while they are still running.
+- The live overview payload builder no longer exposes a legacy switch that
+  could run simulation, achievement, or faction-pressure mutations. Those
+  actions remain on explicit tick/mutation paths.
+- Manual pirate-faction ticks now use the per-user simulation advisory lock;
+  lock contention is returned as an unexecuted skip and shown informationally.
+- The administrative trader full-cycle action now shares the global simulation
+  advisory lock, preventing overlap with scheduled trader route processing.
+- The separate trader action tick now shares that global lock, preventing its
+  route transitions and trader decisions from overlapping other global ticks.
+- All individual administrative trader mutation events now share the same lock;
+  successful responses identify execution, while lock contention returns a
+  skipped result without running the mutation.
+- The on-demand fleet-arrival sweep now uses its own advisory lock to prevent
+  parallel requests from processing the same due-fleet set simultaneously.
+- Fleet recalls and arrival processing now lock and recheck the same fleet row
+  transactionally, preventing a recall from racing with a stale due-arrival
+  snapshot.
+- Situation progress ticks now lock active rows inside a transaction before
+  calculating progress, preventing concurrent requests from applying elapsed
+  time more than once.
+- Situation approach changes and manual resolution now lock the same row while
+  validating status and applying updates, preventing stale concurrent writes
+  against an in-flight progress tick or resolution.
+- Ship-build completion now locks its colony row and commits queue completion,
+  ship creation, and starting the next queue item atomically, preventing
+  concurrent actions from granting the same completed build twice.
+- Combat previews now include due ship builds through a read-only projection
+  instead of completing the authoritative shipyard queue as a side effect.
+- Manual autonomous leader actions now share the per-user simulation advisory
+  lock; lock contention is reported as a skip instead of running concurrently.
 - Game guide browser requests now use the same-origin session cookie and fetch
   a CSRF token when one is not already available; legacy bearer-token headers
   are no longer sent.
@@ -195,6 +610,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Galaxy owner-color schema detection now propagates database failures instead
   of silently dropping player empire colors; an actually absent optional
   column still uses the established default color.
+- Politics status no longer masks arbitrary database failures as neutral
+  species, government, civic, faction, or unrest effects. Only missing
+  optional tables retain the documented neutral fallback.
+- The SSE world-event reader ignores only a genuinely missing optional
+  migration table; other database failures reach the stream's existing
+  poll-error logger instead of silently omitting world events.
+- Prometheus metrics collection logs backend failure details server-side and
+  emits a generic error comment plus `trellis2_database_connected 0`, not the
+  raw exception message.
 - Ship-designer catalogs, base-asset/avatar reads, and vessel/wireframe design
   loads are GET-only and do not persist game data; base-asset read-through cache
   filling is non-durable. The prompt-generation method documentation was aligned
@@ -405,6 +829,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `SIMULATION_TICK_ON_READ_ENABLED` setting was removed.
 - Explicit HTTP/CLI simulation triggers and lazy colony-resource settlement
   remain separate paths.
+
+### Fixed — Simulation tick failure propagation
+
+- War, attrition, legacy population-satisfaction, pirate-raid and production
+  ticks now roll back partial database changes and propagate failures to the
+  simulation runtime instead of reporting failed work as successful.
+- War-goal progress and war-schema probes no longer hide database failures;
+  schema availability is checked against the current connection.
+- The per-user NPC cooldown is written only after every global subsystem
+  succeeds; global subsystem exceptions now reach the simulation failure path.
+
+### Changed — Daily NPC quest schema alignment
+
+- Added an append-only migration for daily quest offer state, template
+  references, generator metadata, and nullable-user global generation logs.
+- Daily quest generation now stores canonical requirements and rewards, maps
+  supported templates to the quest engine's enum, expires unstarted offers
+  after 24 hours, and propagates log/database failures.
+- Faction quest discovery and start actions exclude expired offers. The
+  generator remains intentionally unwired to automatic production ticks pending
+  explicit trigger and end-to-end acceptance.
 
 ### Added — Simulation tick metrics
 

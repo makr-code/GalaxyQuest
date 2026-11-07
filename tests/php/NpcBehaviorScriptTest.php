@@ -85,6 +85,23 @@ YAML;
         $this->assertTrue($this->script->evaluateConditions($context));
     }
 
+    public function testUnknownResourceConditionsFailClosed(): void
+    {
+        $yaml = <<<'YAML'
+behavior: "test"
+conditions:
+  - type: "resource_available"
+    resource: "credits"
+    min_value: 0
+actions: []
+fallback: "none"
+YAML;
+
+        $this->script->parse($yaml);
+
+        $this->assertFalse($this->script->evaluateConditions(['resources' => []]));
+    }
+
     public function testEvaluateConditionsFail(): void
     {
         $yaml = <<<'YAML'

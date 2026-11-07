@@ -289,6 +289,10 @@
           try {
             const startedAt = Date.now();
             const tickRes = await api.piratesRunTick();
+            if (tickRes?.executed === false) {
+              showToast('Pirate simulation tick skipped because another simulation is running.', 'info');
+              return;
+            }
             const finishedAt = Date.now();
 
             this.state.lastTickResult = {

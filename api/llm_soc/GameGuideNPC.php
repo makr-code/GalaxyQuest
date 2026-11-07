@@ -461,18 +461,14 @@ class GameGuideNPC
      */
     public function recordCheckpointCompletion(int $user_id, string $checkpoint): void
     {
-        try {
-            $stmt = $this->db->prepare(
-                "INSERT INTO game_guide_progress 
-                (user_id, checkpoint_id, completed_at) 
-                VALUES (?, ?, NOW())
-                ON DUPLICATE KEY UPDATE completed_at = NOW()"
-            );
-            
-            $stmt->execute([$user_id, $checkpoint]);
-        } catch (Exception $e) {
-            error_log("Checkpoint recording failed: " . $e->getMessage());
-        }
+        $stmt = $this->db->prepare(
+            "INSERT INTO game_guide_progress
+            (user_id, checkpoint_id, completed_at)
+            VALUES (?, ?, NOW())
+            ON DUPLICATE KEY UPDATE completed_at = NOW()"
+        );
+
+        $stmt->execute([$user_id, $checkpoint]);
     }
 
     /**
@@ -496,21 +492,16 @@ class GameGuideNPC
      */
     private function getDirectHelpUsageCount(int $user_id, string $help_type): int
     {
-        try {
-            $stmt = $this->db->prepare(
-                "SELECT COUNT(*) as count 
-                FROM npc_action_log 
-                WHERE user_id = ? 
-                AND action_type = ? 
-                AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)"
-            );
-            
-            $stmt->execute([$user_id, 'guide_action_' . $help_type]);
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-            return $result['count'] ?? 0;
-        } catch (Exception $e) {
-            return 0;
-        }
+        $stmt = $this->db->prepare(
+            'SELECT times_used
+             FROM game_guide_help_usage
+             WHERE user_id = ? AND help_type = ?
+             LIMIT 1'
+        );
+        $stmt->execute([$user_id, $help_type]);
+        $timesUsed = $stmt->fetchColumn();
+
+        return $timesUsed === false ? 0 : (int)$timesUsed;
     }
 
     /**

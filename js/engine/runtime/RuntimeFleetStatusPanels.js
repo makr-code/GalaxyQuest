@@ -83,12 +83,20 @@
         let gateHealthHtml = '';
         if (driveType === 'syl_nar') {
           const allGates = Array.isArray(ftlData.gates) ? ftlData.gates : [];
-          const gateCount = allGates.filter((g) => g.is_active && g.health > 0).length;
+          const gatesWithHealth = allGates.flatMap((gate) => {
+            const health = gate?.health === null || gate?.health === undefined || gate?.health === ''
+              ? NaN
+              : Number(gate.health);
+            return Number.isFinite(health) && health >= 0 && health <= 100
+              ? [{ ...gate, health: Math.round(health) }]
+              : [];
+          });
+          const gateCount = gatesWithHealth.filter((gate) => gate.is_active && gate.health > 0).length;
           extraInfo = ` | ${gateCount} gate(s) active | Survey to build new gates`;
-          if (allGates.length) {
+          if (gatesWithHealth.length) {
             gateHealthHtml = `<div class="entity-bars" style="margin-top:0.45rem;">`
-              + allGates.map((g) => {
-                const hp = Math.max(0, Math.min(100, Number(g.health ?? 100)));
+              + gatesWithHealth.map((g) => {
+                const hp = g.health;
                 const tone = hp < 30 ? 'is-critical' : (hp < 60 ? 'is-warning' : 'is-good');
                 const active = g.is_active ? '' : ' <span class="text-muted" style="font-size:0.7rem;">(Offline)</span>';
                 const label = `G${Number(g.galaxy_a || 0)}:${Number(g.system_a || 0)}<->G${Number(g.galaxy_b || 0)}:${Number(g.system_b || 0)}`;

@@ -1883,6 +1883,74 @@ function generate_planets(array $star, int $galaxyIdx, int $systemIdx, ?string $
 }
 
 /**
+ * Deterministic visual asteroid belts assigned to sufficiently wide planetary gaps.
+ *
+ * Belts are public system-rendering data, not physical resource bodies.
+ */
+function generate_asteroid_belts(array $planets, int $galaxyIdx, int $systemIdx): array
+{
+    $orbitingPlanets = array_values(array_filter($planets, static function (array $planet): bool {
+        return strtolower((string)($planet['planet_class'] ?? '')) !== PC_COMET_BELT
+            && is_numeric($planet['semi_major_axis_au'] ?? null)
+            && (float)$planet['semi_major_axis_au'] > 0.0;
+    }));
+    usort($orbitingPlanets, static fn(array $left, array $right): int =>
+        (float)$left['semi_major_axis_au'] <=> (float)$right['semi_major_axis_au']
+    );
+
+    $candidates = [];
+    for ($index = 0, $count = count($orbitingPlanets) - 1; $index < $count; $index++) {
+        $innerPlanet = $orbitingPlanets[$index];
+        $outerPlanet = $orbitingPlanets[$index + 1];
+        $innerOrbit = (float)$innerPlanet['semi_major_axis_au'];
+        $outerOrbit = (float)$outerPlanet['semi_major_axis_au'];
+        $gap = $outerOrbit - $innerOrbit;
+        if ($gap < max(0.5, $innerOrbit * 0.2) || $outerOrbit / $innerOrbit < 1.35) {
+            continue;
+        }
+        $innerRadius = $innerOrbit + $gap * 0.32;
+        $outerRadius = $outerOrbit - $gap * 0.32;
+        if ($outerRadius - $innerRadius < 0.1) continue;
+
+        $innerPosition = (int)($innerPlanet['position'] ?? $index + 1);
+        $outerPosition = (int)($outerPlanet['position'] ?? $index + 2);
+        $assignmentSeed = 68101 + $innerPosition * 37 + $outerPosition * 71;
+        if (gen_rand($galaxyIdx, $systemIdx, $assignmentSeed) >= 0.38) continue;
+
+        $candidates[] = [
+            'inner_position' => $innerPosition,
+            'outer_position' => $outerPosition,
+            'inner_radius_au' => $innerRadius,
+            'outer_radius_au' => $outerRadius,
+            'seed' => (int)floor(gen_rand($galaxyIdx, $systemIdx, $assignmentSeed + 1) * 2147483647),
+            'inclination_deg' => round(gen_rand_range(-3.0, 3.0, $galaxyIdx, $systemIdx, $assignmentSeed + 2), 4),
+            'ascending_node_deg' => round(gen_rand_range(0.0, 360.0, $galaxyIdx, $systemIdx, $assignmentSeed + 3), 4),
+        ];
+    }
+
+    usort($candidates, static fn(array $left, array $right): int =>
+        $left['seed'] <=> $right['seed']
+    );
+    $belts = [];
+    foreach (array_slice($candidates, 0, 2) as $candidate) {
+        $innerRadius = $candidate['inner_radius_au'];
+        $outerRadius = $candidate['outer_radius_au'];
+        $belts[] = [
+            'id' => sprintf('g%d-s%d-asteroid-belt-%d-%d', $galaxyIdx, $systemIdx,
+                $candidate['inner_position'], $candidate['outer_position']),
+            'body_type' => 'asteroid_belt',
+            'seed' => $candidate['seed'],
+            'semi_major_axis_au' => round(($innerRadius + $outerRadius) / 2.0, 5),
+            'inner_radius_au' => round($innerRadius, 5),
+            'outer_radius_au' => round($outerRadius, 5),
+            'inclination_deg' => $candidate['inclination_deg'],
+            'ascending_node_deg' => $candidate['ascending_node_deg'],
+        ];
+    }
+    return $belts;
+}
+
+/**
  * Derive resource richness multipliers and deposit amounts from planet class.
  * richness 0.1–2.0 (1.0 = standard), deposit -1 = unlimited (gas giant deuterium).
  */

@@ -66,4 +66,23 @@ final class SimulationRuntimeMetricsTest extends TestCase
         self::assertFalse($result['ok']);
         self::assertSame(1, $result['error_count']);
     }
+
+    public function testSubsystemRunTimestampIsWrittenOnlyAfterSuccessfulRun(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/simulation_runtime.php');
+        self::assertIsString($source);
+        self::assertMatchesRegularExpression(
+            '/if \(\$supportsStateTracking && \$result\[\'ok\'\]\)\s*\{\s*try \{\s*app_state_set_int\(\$db, \$stateKey, \$startedAtUnix\);/',
+            $source
+        );
+    }
+
+    public function testGlobalAndUserCooldownsRequireEverySubsystemToSucceed(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/simulation_runtime.php');
+        self::assertIsString($source);
+        self::assertSame(2, substr_count($source, '$allTicksSucceeded = true;'));
+        self::assertSame(2, substr_count($source, 'if ($allTicksSucceeded && $supportsStateTracking)'));
+        self::assertStringNotContainsString('$hasSuccessfulTick', $source);
+    }
 }

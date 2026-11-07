@@ -125,21 +125,19 @@ ORDER BY id DESC
 LIMIT 1
 SQL;
 
-    try {
-        $stmt = $db->prepare($sql);
-        $stmt->execute([$userId, $factionId]);
-        $last = $stmt->fetchColumn();
-        if (!$last) {
-            return true;
-        }
-        $ts = strtotime((string) $last);
-        if ($ts === false) {
-            return true;
-        }
-        return (time() - $ts) >= $cooldown;
-    } catch (Throwable $e) {
+    $stmt = $db->prepare($sql);
+    $stmt->execute([$userId, $factionId]);
+    $last = $stmt->fetchColumn();
+    if (!$last) {
         return true;
     }
+
+    $ts = strtotime((string) $last);
+    if ($ts === false) {
+        return false;
+    }
+
+    return (time() - $ts) >= $cooldown;
 }
 
 function npc_pve_get_standing(PDO $db, int $userId, int $factionId): int {

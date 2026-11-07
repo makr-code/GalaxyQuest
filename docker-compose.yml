@@ -14,6 +14,9 @@ services:
         condition: service_started
     environment:
       APP_ENV: ${APP_ENV:-dev}
+      BLOG_SOURCE: ${BLOG_SOURCE:-}
+      BLOG_WORDPRESS_REST_URL: ${BLOG_WORDPRESS_REST_URL:-}
+      BLOG_WORDPRESS_SITE_URL: ${BLOG_WORDPRESS_SITE_URL:-}
       DB_HOST: db
       DB_PORT: 3306
       DB_NAME: galaxyquest

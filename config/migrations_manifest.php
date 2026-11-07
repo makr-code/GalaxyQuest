@@ -142,4 +142,10 @@ return [
     'migrate_economy_on_demand_v1.sql',
     'migrate_body_terrain_v1.sql',
     'migrate_registration_play_v1.sql',
+    'migrate_npc_daily_quests_v2.sql',
+    'migrate_developer_blog_v1.sql',
+    'migrate_developer_blog_v2.sql',
+    'migrate_developer_blog_v3.sql',
+    'migrate_developer_blog_v4.sql',
+    'migrate_battle_report_fleet_link_v1.sql',
 ];

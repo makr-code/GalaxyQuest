@@ -273,6 +273,9 @@ jobs:
       - name: Install Playwright Chromium browser
         run: npx playwright install chromium --with-deps
 
+      - name: Verify browser lifecycle resource cleanup
+        run: npx playwright test tests/e2e/lifecycle-resources.spec.js tests/e2e/game-view-lifecycle.spec.js --project=chromium --workers=1 --reporter=list
+
       - name: Start application stack (web + db, AI services disabled)
         run: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --wait web db
         timeout-minutes: 10
@@ -308,6 +311,11 @@ jobs:
             --password=User!23456 \
             --email=default_user@local.test
 
+      - name: Verify developer blog withdrawal and narration recovery
+        env:
+          GQ_BASE_URL: http://localhost:8081
+        run: npx playwright test tests/e2e/developer-blog.spec.js --project=chromium --workers=1 --reporter=list
+
       - name: Run view-flow smoke test
         env:
           GQ_BASE_URL: http://localhost:8081
@@ -321,7 +329,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-smoke-report
-          path: playwright-report/
+          path: |
+            playwright-report/
+            test-results/
           retention-days: 7
 
       - name: Capture isolated stack logs on failure

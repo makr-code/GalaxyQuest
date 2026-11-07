@@ -20,6 +20,7 @@ require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/market_analysis.php';
+require_once __DIR__ . '/simulation_runtime.php';
 
 // When included as a library (e.g. from npc_ai.php), skip HTTP dispatch.
 if (!defined('TRADERS_LIB_MODE')) {
@@ -300,55 +301,62 @@ function action_market_analysis(PDO $db): never {
 /**
  * POST /api/traders.php?action=process_trader_tick
  * 
- * Execute periodic trader actions (transitions, acquisitions, deliveries).
- * Called periodically via background job.
+ * Execute trader actions under the same global lock as the full trader cycle.
  */
 function action_process_trader_tick(PDO $db): never {
     only_method('POST');
     verify_csrf();
 
     try {
-        $db->beginTransaction();
-        
-        $stats = [
-            'routes_processed' => 0,
-            'routes_completed' => 0,
-            'routes_failed' => 0,
-            'new_opportunities' => 0,
-            'traders_made_decisions' => 0,
-            'total_profit_generated' => 0.0,
-            'duration_ms' => 0,
-        ];
-        
-        $t0 = microtime(true);
-        
-        // 1. Advance routes through their lifecycle
-        $transitionStats = process_route_transitions($db);
-        $stats = array_merge($stats, $transitionStats);
-        
-        // 2. Recalculate supply/demand
-        recalculate_supply_demand($db);
-        
-        // 3. Find and update trade opportunities
-        $newOpps = find_and_rank_opportunities($db);
-        $stats['new_opportunities'] = $newOpps;
-        
-        // 4. Let traders make decisions (acquire new routes if profitable)
-        $decisions = execute_trader_decisions($db);
-        $stats['traders_made_decisions'] = $decisions;
-        
-        $db->commit();
-        
-        $stats['duration_ms'] = (int)((microtime(true) - $t0) * 1000);
-        
-        json_ok([
-            'status' => 'ok',
-            'message' => 'Trader tick completed',
-            'timestamp' => date('Y-m-d H:i:s'),
-            'stats' => $stats,
-        ]);
+        $result = simulation_runtime_with_scope_lock(
+            $db,
+            'global',
+            '',
+            static function () use ($db): array {
+                try {
+                    $db->beginTransaction();
+
+                    $stats = [
+                        'routes_processed' => 0,
+                        'routes_completed' => 0,
+                        'routes_failed' => 0,
+                        'new_opportunities' => 0,
+                        'traders_made_decisions' => 0,
+                        'total_profit_generated' => 0.0,
+                        'duration_ms' => 0,
+                    ];
+
+                    $t0 = microtime(true);
+
+                    $transitionStats = process_route_transitions($db);
+                    $stats = array_merge($stats, $transitionStats);
+                    recalculate_supply_demand($db);
+                    $stats['new_opportunities'] = find_and_rank_opportunities($db);
+                    $stats['traders_made_decisions'] = execute_trader_decisions($db);
+
+                    $db->commit();
+                    $stats['duration_ms'] = (int)((microtime(true) - $t0) * 1000);
+
+                    return [
+                        'executed' => true,
+                        'status' => 'ok',
+                        'message' => 'Trader tick completed',
+                        'timestamp' => date('Y-m-d H:i:s'),
+                        'stats' => $stats,
+                    ];
+                } catch (Throwable $e) {
+                    if ($db->inTransaction()) {
+                        $db->rollBack();
+                    }
+                    throw $e;
+                }
+            }
+        );
+        json_ok($result);
     } catch (Throwable $e) {
-        if ($db->inTransaction()) $db->rollBack();
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
         error_log("trader_tick error: " . $e->getMessage());
         json_error("Trader tick failed: " . $e->getMessage(), 500);
     }
@@ -481,6 +489,8 @@ function process_route_transitions(PDO $db): array {
             } elseif (($final['status'] ?? '') === 'failed') {
                 $stats['routes_failed']++;
             }
+        } catch (PDOException $error) {
+            throw $error;
         } catch (Throwable $e) {
             error_log("Route transition error #{$route['id']}: " . $e->getMessage());
             // Mark route as failed and continue
@@ -824,6 +834,8 @@ function execute_trader_decisions(PDO $db): int {
             if (execute_trader_strategy($db, $trader)) {
                 $traderDecisions++;
             }
+        } catch (PDOException $error) {
+            throw $error;
         } catch (Throwable $e) {
             error_log("Trader decision error (trader {$trader['id']}): " . $e->getMessage());
         }

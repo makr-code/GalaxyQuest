@@ -6,6 +6,10 @@ export function mountGameOverview(session, user) {
   const select = el('game-colony-select');
   const status = el('game-data-status');
   const refresh = el('topbar-title-btn');
+  const setStatus = (message, state) => {
+    status.textContent = message;
+    status.dataset.state = state;
+  };
   const resources = {
     metal: 'metal', crystal: 'crystal', deuterium: 'deuterium', food: 'food',
     'rare-earth': 'rare_earth', population: 'population', happiness: 'happiness', energy: 'energy',
@@ -29,24 +33,30 @@ export function mountGameOverview(session, user) {
       el(`res-${id}`).textContent = number(colony?.[key]);
     }
     el('res-dark-matter').textContent = number(state?.user_meta?.dark_matter);
-    status.textContent = !state ? '' : colony ? 'Serverdaten geladen.' : 'Keine Kolonie vorhanden.';
+    setStatus(!state ? '' : colony ? 'Serverdaten geladen.' : 'Keine Kolonie vorhanden.', !state ? 'idle' : colony ? 'ready' : 'empty');
   }
   async function reload() {
     if (pending) return;
     pending = true;
     refresh.disabled = true;
-    status.textContent = 'Serverdaten werden aktualisiert ...';
+    refresh.setAttribute('aria-busy', 'true');
+    refresh.classList.add('is-refreshing');
+    setStatus('Serverdaten werden aktualisiert ...', 'loading');
     try {
       await session.refresh();
     } catch (error) {
       if (!disposed) {
-        status.textContent = `Aktualisierung fehlgeschlagen: ${error.message}`;
+        setStatus(`Aktualisierung fehlgeschlagen: ${error.message}`, 'error');
         window.GQLog?.error?.('[game-overview]', error.message);
         window.dispatchEvent(new CustomEvent('gq:game-data-error', { detail: { error } }));
       }
     } finally {
       pending = false;
-      if (!disposed) refresh.disabled = false;
+      if (!disposed) {
+        refresh.disabled = false;
+        refresh.removeAttribute('aria-busy');
+        refresh.classList.remove('is-refreshing');
+      }
     }
   }
   const choose = () => session.selectColony(select.value);
@@ -60,11 +70,13 @@ export function mountGameOverview(session, user) {
     select.removeEventListener('change', choose);
     refresh.removeEventListener('click', reload);
     refresh.disabled = false;
+    refresh.removeAttribute('aria-busy');
+    refresh.classList.remove('is-refreshing');
     for (const id of [...Object.keys(resources), 'dark-matter']) el(`res-${id}`).textContent = '\u2014';
     select.replaceChildren();
     select.disabled = true;
     el('commander-name').textContent = '';
     el('topbar-coords').textContent = '';
-    status.textContent = '';
+    setStatus('', 'idle');
   };
 }

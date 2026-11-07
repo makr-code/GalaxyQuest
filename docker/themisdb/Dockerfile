@@ -14,3 +14,9 @@ RUN apt-get update \
         libpugixml1v5 \
         libmimalloc2.0 \
     && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --system --gid 10001 themisdb \
+    && useradd --system --uid 10001 --gid themisdb --no-create-home --home-dir /data --shell /usr/sbin/nologin themisdb \
+    && install -d --owner=themisdb --group=themisdb --mode=0750 /data
+
+USER themisdb

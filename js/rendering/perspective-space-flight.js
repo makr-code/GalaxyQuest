@@ -10,6 +10,8 @@ import { AU_LY, SystemVisualizationLayer } from './system-visualization-layer.js
 export { AU_LY } from './system-visualization-layer.js';
 export const KM_LY = 1 / 9460730472580.8;
 const THREE_DEG_TO_RAD = Math.PI / 180;
+const ASTEROID_BELT_MAX_COUNT = 2;
+const ASTEROID_BELT_PARTICLE_BUDGET = 512;
 
 const SPECTRAL_COLORS = {
   O: [0.68, 0.81, 1], B: [0.75, 0.88, 1], A: [0.9, 0.93, 1], F: [1, 1, 0.95],
@@ -52,6 +54,100 @@ function surfaceColor(body, fallback) {
 function layerStrength(body, key, fallback) {
   const value = Number(body?.texture?.[key]);
   return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : fallback;
+}
+
+function seededUnit(seed) {
+  let state = (Number(seed) >>> 0) || 0x6d2b79f5;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function createAsteroidBeltParticles(data, count) {
+  const random = seededUnit(data.seed);
+  const innerRadius = Number(data.inner_radius_au);
+  const outerRadius = Number(data.outer_radius_au);
+  const inclination = THREE_DEG_TO_RAD * Math.max(-15, Math.min(15, Number(data.inclination_deg) || 0));
+  const node = THREE_DEG_TO_RAD * (Number(data.ascending_node_deg) || 0);
+  const cosNode = Math.cos(node);
+  const sinNode = Math.sin(node);
+  const cosInclination = Math.cos(inclination);
+  const sinInclination = Math.sin(inclination);
+  const innerSquared = innerRadius ** 2;
+  const radialSpan = outerRadius ** 2 - innerSquared;
+  const particles = [];
+
+  for (let index = 0; index < count; index += 1) {
+    const angle = random() * Math.PI * 2;
+    const radius = Math.sqrt(innerSquared + random() * radialSpan);
+    const x = radius * Math.cos(angle);
+    const y = radius * Math.sin(angle);
+    const position = new Vector3(
+      x * cosNode - y * cosInclination * sinNode,
+      x * sinNode + y * cosInclination * cosNode,
+      y * sinInclination,
+    ).multiplyScalar(AU_LY);
+    particles.push({
+      position,
+      radius: Math.max(1e-15, radius * AU_LY * (0.0005 + random() * 0.001)),
+      seed: random() * 10000,
+      opacity: 0.32 + random() * 0.4,
+    });
+  }
+  return particles;
+}
+
+function cameraFrameDistance(camera, radius, screenFraction) {
+  const focal = 1 / Math.tan(camera.fov * THREE_DEG_TO_RAD * 0.5);
+  return radius * Math.sqrt(1 + (focal / screenFraction) ** 2);
+}
+
+function collisionFreeWaypoints(start, destination, obstacles) {
+  const waypoints = [destination.clone()];
+  const maximumDetours = obstacles.length * 2;
+  for (let detour = 0; detour < maximumDetours; detour += 1) {
+    let collision = null;
+    for (let segmentIndex = 0; segmentIndex < waypoints.length; segmentIndex += 1) {
+      const segmentStart = segmentIndex === 0 ? start : waypoints[segmentIndex - 1];
+      const segmentEnd = waypoints[segmentIndex];
+      const direction = segmentEnd.clone().sub(segmentStart);
+      const lengthSquared = direction.lengthSq();
+      if (lengthSquared < 1e-30) continue;
+      for (const obstacle of obstacles) {
+        const projection = obstacle.center.clone().sub(segmentStart).dot(direction) / lengthSquared;
+        if (projection <= 0.015 || projection >= 0.985) continue;
+        const closest = segmentStart.clone().addScaledVector(direction, projection);
+        const clearance = obstacle.radius * 1.08;
+        if (closest.distanceToSquared(obstacle.center) >= clearance * clearance) continue;
+        const order = segmentIndex + projection;
+        if (!collision || order < collision.order) {
+          collision = { segmentIndex, projection, order, obstacle, closest, direction };
+        }
+      }
+    }
+    if (!collision) break;
+
+    const { obstacle, closest, direction } = collision;
+    direction.normalize();
+    const lateral = closest.sub(obstacle.center);
+    if (lateral.lengthSq() < 1e-24) {
+      lateral.crossVectors(direction, new Vector3(0, 0, 1));
+      if (lateral.lengthSq() < 1e-24) lateral.crossVectors(direction, new Vector3(0, 1, 0));
+    }
+    lateral.normalize();
+    const bypassDistance = obstacle.radius * 1.5;
+    const sideDistance = obstacle.radius * 1.45;
+    const before = obstacle.center.clone()
+      .addScaledVector(direction, -bypassDistance).addScaledVector(lateral, sideDistance);
+    const after = obstacle.center.clone()
+      .addScaledVector(direction, bypassDistance).addScaledVector(lateral, sideDistance);
+    waypoints.splice(collision.segmentIndex, 0, before, after);
+  }
+  return waypoints;
 }
 
 const SPACE_SHADER = `
@@ -108,9 +204,26 @@ fn surfaceFbm(point: vec3<f32>) -> f32 {
   return value;
 }
 @fragment fn fs_main(input: Output) -> @location(0) vec4<f32> {
+  let kind = input.material.x;
+  if (kind > 7.5 && kind < 8.5) {
+    let planeNormal = normalize(input.light.xyz);
+    var majorAxis = vec2(-planeNormal.y, planeNormal.x);
+    if (dot(majorAxis, majorAxis) < 0.0001) { majorAxis = vec2(1.0, 0.0); }
+    majorAxis = normalize(majorAxis);
+    let minorAxis = vec2(-majorAxis.y, majorAxis.x);
+    let projectedThickness = max(abs(planeNormal.z), 0.025);
+    let planePoint = vec2(dot(input.uv, majorAxis),
+      dot(input.uv, minorAxis) / projectedThickness);
+    let ringRadius = length(planePoint);
+    if (ringRadius > 1.0 || ringRadius < input.material.y || length(input.uv) < input.material.z) {
+      discard;
+    }
+    let grooves = 0.64 + 0.36 * (0.5 + 0.5 * sin(ringRadius * 190.0 + input.material.w * 31.0));
+    let ringAlpha = clamp(input.motion.z, 0.08, 0.95) * grooves * input.color.a;
+    return vec4(input.color.rgb * (0.62 + 0.38 * abs(planeNormal.z)), ringAlpha);
+  }
   let radius = length(input.uv);
   if (radius > 1.0) { discard; }
-  let kind = input.material.x;
   if (kind > 3.5 && kind < 4.5) {
     let limb = radius * 2.6;
     let direction = normalize(camera.right.xyz * input.uv.x + camera.up.xyz * input.uv.y + camera.backward.xyz * 0.001);
@@ -140,6 +253,12 @@ fn surfaceFbm(point: vec3<f32>) -> f32 {
     let ring = 1.0 - smoothstep(0.04, 0.09, abs(radius - 0.86));
     let dash = step(0.34, fract((input.uv.x + input.uv.y * 1.7) * 18.0));
     return vec4(input.color.rgb, ring * dash * input.color.a);
+  }
+  if (kind > 8.5 && kind < 9.5) {
+    if (radius > 1.0) { discard; }
+    let grain = 0.72 + fract(sin(input.material.y * 12.9898) * 43758.5453) * 0.28;
+    let edge = 1.0 - smoothstep(0.48, 1.0, radius);
+    return vec4(input.color.rgb * grain, edge * input.color.a);
   }
   if (kind < 0.5) {
     let glow = exp(-radius * radius * 4.5);
@@ -214,6 +333,7 @@ export class PerspectiveSpaceFlight {
     this.origin = new Vector3();
     this.root = new Group();
     this.bodies = [];
+    this.asteroidBelts = [];
     this.systemVisualizations = new SystemVisualizationLayer();
     this.velocity = new Vector3();
     this.acceleration = new Vector3();
@@ -465,6 +585,7 @@ export class PerspectiveSpaceFlight {
     this.lensFlare?.clearSources();
     this.root.clear();
     this.bodies = [];
+    this.asteroidBelts = [];
     this.systemVisualizations.clear();
     this.previousView = null;
   }
@@ -496,7 +617,10 @@ export class PerspectiveSpaceFlight {
     this.camera.position.add(shift);
     if (this.flight) {
       this.flight.destination.add(shift);
+      this.flight.finalDestination?.add(shift);
       this.flight.focus.add(shift);
+      this.flight.waypoints?.forEach((waypoint) => waypoint.add(shift));
+      if (this.flight.orbit) this.flight.orbit.center.add(shift);
     }
     this.origin.copy(origin);
     this.clearSystem();
@@ -517,10 +641,35 @@ export class PerspectiveSpaceFlight {
       return body;
     };
     addBody(this.root, 'star', star, new Vector3(), (Number(star.radius_solar) || 1) * 695700 * KM_LY);
-    const planetNodes = (system.children || []).filter((node) => node.type === 'planet' && node.data);
+    const systemChildren = Array.isArray(system.children) ? system.children : [];
+    const beltNodes = systemChildren
+      .filter((node) => node?.type === 'asteroid_belt' && node.data
+        && Number.isFinite(Number(node.data.inner_radius_au))
+        && Number.isFinite(Number(node.data.outer_radius_au))
+        && Number(node.data.inner_radius_au) > 0
+        && Number(node.data.outer_radius_au) <= 1000
+        && Number(node.data.outer_radius_au) > Number(node.data.inner_radius_au))
+      .sort((left, right) => {
+        const leftId = String(left.data.id || '');
+        const rightId = String(right.data.id || '');
+        return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
+      })
+      .slice(0, ASTEROID_BELT_MAX_COUNT);
+    const beltParticleCount = Math.floor(ASTEROID_BELT_PARTICLE_BUDGET / Math.max(1, beltNodes.length));
+    this.asteroidBelts = beltNodes.map((node) => ({
+      id: String(node.data.id || ''),
+      innerRadiusAu: Number(node.data.inner_radius_au),
+      outerRadiusAu: Number(node.data.outer_radius_au),
+      particles: createAsteroidBeltParticles(node.data, beltParticleCount),
+    }));
+    const planetNodes = systemChildren.filter((node) => node.type === 'planet' && node.data);
     this.systemVisualizations.setSystem(star, planetNodes.map((node) => node.data));
-    for (const node of system.children || []) {
-      if (node.type === 'comet' || node.type === 'rogue_planet') {
+    for (const node of systemChildren) {
+      if (node.type === 'ship' && scene.flightTour === true && node.data?.preview_only === true) {
+        this._registerSystemSpaceEntity({ ...node.data, space_entity: 'vessel' });
+        continue;
+      }
+      if (node.type === 'comet' || node.type === 'rogue_planet' || node.type === 'asteroid') {
         const data = node.data || {};
         const position = new Vector3(Number(data.local_x) || 0, Number(data.local_y) || 0,
           Number(data.local_z) || 0).multiplyScalar(AU_LY);
@@ -542,6 +691,23 @@ export class PerspectiveSpaceFlight {
       const position = new Vector3(...(orbit?.bodyPosition || [0, 0, 0]));
       const radius = (Number(data.diameter_km) || 12000) * 0.5 * KM_LY;
       const planet = addBody(this.root, 'planet', data, position, radius);
+      const ringSystem = data.ring_system || data.rings;
+      if (ringSystem && typeof ringSystem === 'object') {
+        const innerRadius = Number(ringSystem.inner_radius_planet_r);
+        const outerRadius = Number(ringSystem.outer_radius_planet_r);
+        if (Number.isFinite(innerRadius) && Number.isFinite(outerRadius)
+          && innerRadius >= 1.1 && outerRadius > innerRadius) {
+          const opticalDepth = Number(ringSystem.optical_depth);
+          const tiltDeg = Number(ringSystem.tilt_deg);
+          planet.userData.ringSystem = {
+            innerRadius,
+            outerRadius,
+            opticalDepth: Number.isFinite(opticalDepth) ? Math.max(0, Math.min(1, opticalDepth)) : 0.35,
+            tiltRad: (Number.isFinite(tiltDeg) ? tiltDeg : 0) * THREE_DEG_TO_RAD,
+            composition: String(ringSystem.composition || 'mixed_ice_dust').toLowerCase(),
+          };
+        }
+      }
       const colonyId = `colony:${systemId}:${Number(data.position)}`;
       const registerColony = (suffix, seed, latitude, longitude) => {
         this._registerSystemSpaceEntity({
@@ -621,7 +787,16 @@ export class PerspectiveSpaceFlight {
     return true;
   }
 
-  resolveTarget(target) {
+  _asteroidBeltLodCount(belt) {
+    const ratio = this.camera.position.length() / (belt.outerRadiusAu * AU_LY);
+    const count = belt.particles.length;
+    if (ratio > 120) return Math.max(12, Math.floor(count * 0.0625));
+    if (ratio > 40) return Math.max(24, Math.floor(count * 0.125));
+    if (ratio > 12) return Math.max(48, Math.floor(count * 0.25));
+    return count;
+  }
+
+  resolveTarget(target, { safeFraming = false } = {}) {
     const kind = target.kind || 'point';
     if (kind === 'point') {
       const point = new Vector3(Number(target.x_ly), Number(target.y_ly), Number(target.z_ly));
@@ -631,45 +806,123 @@ export class PerspectiveSpaceFlight {
       if (!direction.lengthSq()) this.camera.getWorldDirection(direction);
       return { destination: point, focus: point.clone().add(direction), tolerance: 1e-12 };
     }
+    if (kind === 'ship') {
+      const ship = this.spaceEntities.get(String(target.id || ''));
+      if (!ship || ship.kind !== 'vessel') return null;
+      const focus = ship.position.clone().sub(this.origin);
+      const radius = ship.scale;
+      const direction = this.camera.position.clone().sub(focus).normalize();
+      if (!direction.lengthSq()) direction.set(0, -0.8, 0.6);
+      const passDistance = safeFraming ? cameraFrameDistance(this.camera, radius, 0.24) : radius * 10;
+      const destination = focus.clone().addScaledVector(direction, passDistance);
+      if (target.flyby === true) {
+        const side = direction.clone().cross(new Vector3(0, 0, 1));
+        if (side.lengthSq() < 1e-12) side.set(0, 1, 0);
+        destination.copy(focus).addScaledVector(direction, safeFraming ? -passDistance * 1.6 : -radius * 8)
+          .addScaledVector(side.normalize(), safeFraming ? passDistance * 0.7 : radius * 3.5);
+      }
+      return {
+        destination,
+        focus,
+        tolerance: Math.max(1e-14, radius * 0.004),
+        collisionEntity: ship,
+      };
+    }
     const type = kind === 'system' ? 'star' : kind === 'surface' ? 'planet' : kind;
     const body = this.bodies.find((candidate) => candidate.userData.type === type
-      && (type === 'star' || Number(candidate.userData.data.position) === Number(target.position))
+      && (type === 'star'
+        || (target.bodyId && String(candidate.userData.data.body_id) === String(target.bodyId))
+        || Number(candidate.userData.data.position) === Number(target.position))
       && (type !== 'moon' || candidate.userData.parentPosition === Number(target.parentPosition)));
     if (!body) return null;
     const focus = body.getWorldPosition(new Vector3());
     const radius = body.userData.radius;
-    let distance = radius * (kind === 'surface' ? 1.12 : 3.2);
+    const screenFraction = kind === 'surface' ? 0.3 : 0.24;
+    let distance = safeFraming
+      ? cameraFrameDistance(this.camera, radius * (type === 'star' ? 2.6 : 1.12), screenFraction)
+      : radius * (kind === 'surface' ? 1.12 : 3.2);
     if (kind === 'system') {
-      distance = Math.max(radius * 12, ...this.bodies
-        .filter((candidate) => candidate.userData.type === 'planet')
-        .map((candidate) => candidate.position.length() * 2.4));
+      if (safeFraming) {
+        const systemExtent = Math.max(...this.bodies.map((candidate) => {
+          const position = candidate.getWorldPosition(new Vector3()).sub(focus);
+          const visualRadius = candidate.userData.radius
+            * (candidate.userData.type === 'star' ? 2.6 : 1.12);
+          return position.length() + visualRadius;
+        }));
+        distance = Math.max(radius * 12, cameraFrameDistance(this.camera, systemExtent, 0.48));
+      } else {
+        distance = Math.max(radius * 12, ...this.bodies
+          .filter((candidate) => candidate.userData.type === 'planet')
+          .map((candidate) => candidate.position.length() * 2.4));
+      }
     }
     const direction = this.camera.position.clone().sub(focus).normalize();
     if (direction.lengthSq() === 0) direction.set(0, -0.8, 0.6);
-    return { destination: focus.clone().addScaledVector(direction, distance), focus, tolerance: Math.max(1e-14, radius * 0.004) };
+    const destination = focus.clone().addScaledVector(direction, distance);
+    if (target.flyby === true) {
+      const side = direction.clone().cross(new Vector3(0, 0, 1));
+      if (side.lengthSq() < 1e-12) side.set(0, 1, 0);
+      const passDistance = safeFraming
+        ? cameraFrameDistance(this.camera, radius * (type === 'star' ? 2.6 : 1.12), 0.24)
+        : radius * 8;
+      destination.copy(focus).addScaledVector(direction, safeFraming ? -passDistance * 1.6 : -passDistance)
+        .addScaledVector(side.normalize(), safeFraming ? passDistance * 0.7 : radius * 3.5);
+    }
+    return {
+      destination,
+      focus,
+      tolerance: Math.max(1e-14, radius * 0.004),
+      collisionBody: body,
+    };
   }
 
-  navigate(target, { durationSec = 18, signal } = {}) {
-    const destination = this.resolveTarget(target);
+  navigate(target, { durationSec = 18, orbitDurationSec = 0, orbitRevolutions = 0.65, signal } = {}) {
+    const destination = this.resolveTarget(target, { safeFraming: true });
     if (!destination || signal?.aborted) return false;
     this.stop();
-    const distance = this.camera.position.distanceTo(destination.destination);
+    const obstacles = [
+      ...this.bodies
+        .filter((body) => target.flyby === true || body !== destination.collisionBody)
+        .map((body) => ({
+          center: body.getWorldPosition(new Vector3()),
+          radius: body.userData.radius * (body.userData.type === 'star' ? 2.6 : 1.08),
+        })),
+      ...[...this.spaceEntities.values()]
+        .filter((entity) => entity.kind === 'vessel' && entity !== destination.collisionEntity)
+        .map((entity) => ({ center: entity.position.clone().sub(this.origin), radius: entity.scale })),
+    ];
+    const waypoints = collisionFreeWaypoints(this.camera.position, destination.destination, obstacles);
+    const firstDestination = waypoints[0] || destination.destination;
+    const distance = this.camera.position.distanceTo(firstDestination);
     const ratio = Math.max(2, distance / destination.tolerance);
     const omega = (Math.log(ratio) + Math.log(Math.max(2, Math.log(ratio))) + 2) / Math.max(2, durationSec);
     return new Promise((resolve) => {
       const abort = () => this.stop();
       signal?.addEventListener('abort', abort, { once: true });
-      this.flight = { ...destination, omega, peakSpeed: Math.max(1e-15, distance * omega / Math.E),
+      this.flight = {
+        ...destination,
+        destination: firstDestination.clone(),
+        finalDestination: destination.destination.clone(),
+        waypoints,
+        waypointIndex: 0,
+        omega,
+        peakSpeed: Math.max(1e-15, distance * omega / Math.E),
+        orbitDurationSec: Math.max(0, Number(orbitDurationSec) || 0),
+        orbitRevolutions: Math.max(0, Number(orbitRevolutions) || 0),
+        orbit: null,
         finish: (arrived) => { signal?.removeEventListener('abort', abort); resolve(arrived); } };
       this.telemetry.arrived = false;
     });
   }
 
   getFlightCoordinates() {
-    if (!this.flight) return null;
+    const current = this.camera.position.clone().add(this.origin).toArray();
+    const destination = this.flight?.orbit
+      ? this.flight.destination
+      : this.flight?.finalDestination || this.flight?.destination;
     return {
-      start: this.camera.position.clone().add(this.origin).toArray(),
-      destination: this.flight.destination.clone().add(this.origin).toArray(),
+      start: current,
+      destination: destination?.clone().add(this.origin).toArray() || current.slice(),
     };
   }
 
@@ -755,6 +1008,38 @@ export class PerspectiveSpaceFlight {
     const desiredTurnSpeed = Math.min(0.8, Math.sqrt(2.4 * angularDistance), angularDistance * 4);
     this.turnSpeed += Math.max(-1.2 * dt, Math.min(1.2 * dt, desiredTurnSpeed - this.turnSpeed));
     this.camera.quaternion.rotateTowards(orientation, dt * this.turnSpeed);
+    if (flight.orbit) {
+      const orbit = flight.orbit;
+      orbit.elapsed = Math.min(orbit.duration, orbit.elapsed + dt);
+      const progress = orbit.elapsed / orbit.duration;
+      const eased = progress * progress * (3 - 2 * progress);
+      const angle = Math.PI * 2 * flight.orbitRevolutions * eased;
+      const position = orbit.radial.clone().applyAxisAngle(orbit.axis, angle)
+        .multiplyScalar(orbit.radius).add(orbit.center);
+      this.velocity.copy(position).sub(this.camera.position).divideScalar(dt);
+      this.acceleration.copy(this.velocity).sub(previousVelocity).divideScalar(dt);
+      this.camera.position.copy(position);
+      flight.destination.copy(position);
+      const speed = this.velocity.length();
+      this.telemetry = {
+        phase: 'orbit',
+        speed,
+        speedNorm: Math.min(1, speed / flight.peakSpeed),
+        acceleration: this.acceleration.length(),
+        angularSpeed: previousOrientation.angleTo(this.camera.quaternion) / dt,
+        distance: position.distanceTo(orbit.center),
+        arrived: false,
+      };
+      this.camera.updateMatrixWorld(true);
+      if (progress >= 1) this.stop(true);
+      return;
+    }
+    if (flight.waypointIndex < flight.waypoints.length - 1
+      && this.camera.position.distanceTo(flight.destination) <= flight.tolerance
+      && this.velocity.length() <= flight.tolerance * flight.omega * 2) {
+      flight.waypointIndex += 1;
+      flight.destination.copy(flight.waypoints[flight.waypointIndex]);
+    }
     const forward = this.camera.getWorldDirection(new Vector3());
     const alignment = Math.max(0.08, forward.dot(aim));
     const step = dt * alignment;
@@ -774,7 +1059,29 @@ export class PerspectiveSpaceFlight {
     this.camera.updateMatrixWorld(true);
     if (distance <= flight.tolerance && speed <= flight.tolerance * flight.omega * 2
       && this.camera.quaternion.angleTo(orientation) < 0.01) {
-      this.stop(true);
+      if (flight.orbitDurationSec > 0 && flight.orbitRevolutions > 0) {
+        const radial = this.camera.position.clone().sub(flight.focus);
+        const radius = radial.length();
+        if (radius > 0) {
+          radial.normalize();
+          const axis = radial.clone().cross(new Vector3(0, 0, 1));
+          if (axis.lengthSq() < 1e-12) axis.set(0, 1, 0);
+          else axis.normalize();
+          flight.orbit = {
+            elapsed: 0,
+            duration: flight.orbitDurationSec,
+            center: flight.focus.clone(),
+            radial,
+            axis,
+            radius,
+          };
+          this.velocity.set(0, 0, 0);
+        } else {
+          this.stop(true);
+        }
+      } else {
+        this.stop(true);
+      }
     }
   }
 
@@ -872,7 +1179,8 @@ export class PerspectiveSpaceFlight {
       : 0;
     const distanceLinePointCount = this.systemVisualizations.distanceLineVisible ? 48 : 0;
     const apsisMarkerPointCount = this.systemVisualizations.apsidesVisible && selected ? 2 : 0;
-    const capacity = (stars.length + this.bodies.length * 2 + orbitPointCount
+    const asteroidBeltParticleCount = this.asteroidBelts.reduce((total, belt) => total + belt.particles.length, 0);
+    const capacity = (stars.length + this.bodies.length * 2 + asteroidBeltParticleCount + orbitPointCount
       + planeGuidePointCount + distanceLinePointCount + apsisMarkerPointCount
       + phaseArcPointCount + 8) * 20;
     if (!this.instances || this.instances.length < capacity) {
@@ -904,6 +1212,7 @@ export class PerspectiveSpaceFlight {
       const cy = y * focal / depth;
       const angularRadius = radius * focal / Math.sqrt(Math.max(1e-30, depth * depth - radius * radius));
       const ry = kind === 0 ? Math.max(angularRadius, 2.2 / height)
+        : kind === 9 ? Math.max(angularRadius, 0.8 / height)
         : kind === 6 || kind === 7 ? Math.max(angularRadius, 12 / height)
           : angularRadius * (kind === 4 ? 2.6 : 1);
       const rx = ry / aspect;
@@ -972,6 +1281,17 @@ export class PerspectiveSpaceFlight {
         append(position, 0, [0.62, 0.82, 1], 0, 0, 0.82);
       }
     }
+    for (const belt of this.asteroidBelts) {
+      const lodCount = this._asteroidBeltLodCount(belt);
+      const stride = Math.max(1, Math.floor(belt.particles.length / lodCount));
+      let emitted = 0;
+      for (let index = 0; index < belt.particles.length && emitted < lodCount; index += stride) {
+        const particle = belt.particles[index];
+        append(particle.position, particle.radius, [0.78, 0.7, 0.55], 9,
+          particle.seed, particle.opacity);
+        emitted += 1;
+      }
+    }
     const starProjectionMs = performance.now() - starProjectionStarted;
     const bodyProjectionStarted = performance.now();
     const hovered = this.systemVisualizations.getHoveredPlanet();
@@ -993,6 +1313,25 @@ export class PerspectiveSpaceFlight {
         const corona = [Math.min(1, color[0] * 1.15 + 0.12),
           Math.min(1, color[1] * 1.08 + 0.1), Math.min(1, color[2] * 1.05 + 0.08)];
         append(item.position, radius, corona, 4);
+      }
+      if (type === 'planet' && item.body.userData.ringSystem) {
+        const ring = item.body.userData.ringSystem;
+        const azimuth = (item.body.userData.surfaceSeed / 10000) * Math.PI * 2;
+        const ringNormal = new Vector3(
+          Math.sin(ring.tiltRad) * Math.cos(azimuth),
+          Math.sin(ring.tiltRad) * Math.sin(azimuth),
+          Math.cos(ring.tiltRad),
+        ).transformDirection(this.camera.matrixWorldInverse);
+        const ringColor = ring.composition.includes('water_ice') ? [0.83, 0.9, 1]
+          : ring.composition.includes('silicate') ? [0.78, 0.67, 0.49] : [0.82, 0.79, 0.7];
+        const outerRadius = radius * ring.outerRadius;
+        append(item.position, outerRadius, ringColor, 8,
+          ring.innerRadius / ring.outerRadius,
+          Math.min(0.82, 0.22 + ring.opticalDepth * 0.6),
+          ringNormal.toArray(),
+          radius / outerRadius,
+          false,
+          ring.opticalDepth);
       }
       if (type === 'planet' && item.body.userData.atmosphere > 0.04) {
         const tint = surfaceColor({ texture: { palette: { base: data.texture?.palette?.accent } } }, [0.38, 0.68, 0.92]);

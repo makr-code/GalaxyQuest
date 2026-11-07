@@ -1,3 +1,5 @@
+import { formatSpatialCombatStatus } from './spatial-label-layout.js';
+
 const LABEL_SHADER = `
 @group(0) @binding(0) var labelSampler: sampler;
 @group(0) @binding(1) var labelTexture: texture_2d<f32>;
@@ -29,9 +31,9 @@ struct Output {
 }`;
 
 const ATLAS_WIDTH = 1024;
-const ATLAS_HEIGHT = 384;
+const ATLAS_HEIGHT = 768;
 const CELL_WIDTH = 256;
-const CELL_HEIGHT = 96;
+const CELL_HEIGHT = 192;
 const MAX_LABELS = (ATLAS_WIDTH / CELL_WIDTH) * (ATLAS_HEIGHT / CELL_HEIGHT);
 const LABEL_COLORS = {
   system: { background: 'rgba(5, 18, 30, 0.86)', border: '#6ecbf4', text: '#eaf8ff' },
@@ -109,6 +111,7 @@ export class SpatialLabelRenderer {
       onActivate: typeof callbacks.onActivate === 'function' ? callbacks.onActivate : null,
       onDoubleActivate: typeof callbacks.onDoubleActivate === 'function' ? callbacks.onDoubleActivate : null,
       onHover: typeof callbacks.onHover === 'function' ? callbacks.onHover : null,
+      onWheel: typeof callbacks.onWheel === 'function' ? callbacks.onWheel : null,
     };
   }
 
@@ -160,7 +163,8 @@ export class SpatialLabelRenderer {
 
   _updateAtlas(labels) {
     const active = labels.slice(0, MAX_LABELS);
-    const key = active.map((label) => `${label.id}:${label.text}:${label.detail || ''}:${Math.round(label.fontSize)}:${label.kind}`).join('|');
+    const key = active.map((label) => `${label.id}:${label.text}:${label.detail || ''}:${Math.round(label.fontSize)}:${label.kind}:`
+      + (label.metrics || []).map((metric) => `${metric.key}:${metric.percent}`).join(',')).join('|');
     active.forEach((label, index) => {
       const column = index % (ATLAS_WIDTH / CELL_WIDTH);
       const row = Math.floor(index / (ATLAS_WIDTH / CELL_WIDTH));
@@ -195,21 +199,44 @@ export class SpatialLabelRenderer {
       let text = String(label.text || '');
       while (text.length > 3 && ctx.measureText(text).width > boxWidth - 16) text = `${text.slice(0, -2)}…`;
       const detail = String(label.detail || '');
-      if (detail) {
+      const metrics = Array.isArray(label.metrics) ? label.metrics.slice(0, 3) : [];
+      if (detail || metrics.length) {
         const detailFontSize = Math.max(10, Math.round(label.detailFontSize || fontSize * 0.62));
         ctx.textBaseline = 'alphabetic';
-        const contentHeight = fontSize + detailFontSize + 3;
+        const contentHeight = fontSize + (detail ? detailFontSize + 3 : 0) + (metrics.length ? metrics.length * 11 + 3 : 0);
         const titleY = y + (boxHeight - contentHeight) / 2 + fontSize;
         ctx.font = `600 ${fontSize}px system-ui, sans-serif`;
         ctx.fillText(text, left + CELL_WIDTH / 2, titleY, boxWidth - 14);
-        ctx.font = `500 ${detailFontSize}px system-ui, sans-serif`;
-        let detailText = detail;
-        while (detailText.length > 3 && ctx.measureText(detailText).width > boxWidth - 16) {
-          detailText = `${detailText.slice(0, -2)}…`;
+        let nextY = titleY + 3;
+        if (detail) {
+          ctx.font = `500 ${detailFontSize}px system-ui, sans-serif`;
+          let detailText = detail;
+          while (detailText.length > 3 && ctx.measureText(detailText).width > boxWidth - 16) {
+            detailText = `${detailText.slice(0, -2)}…`;
+          }
+          ctx.globalAlpha = 0.82;
+          ctx.fillText(detailText, left + CELL_WIDTH / 2, titleY + detailFontSize + 3, boxWidth - 14);
+          ctx.globalAlpha = 1;
+          nextY += detailFontSize + 3;
         }
-        ctx.globalAlpha = 0.82;
-        ctx.fillText(detailText, left + CELL_WIDTH / 2, titleY + detailFontSize + 3, boxWidth - 14);
-        ctx.globalAlpha = 1;
+        for (const metric of metrics) {
+          const rowY = nextY + 6;
+          const barX = x + 37;
+          const barWidth = Math.max(12, boxWidth - 76);
+          ctx.font = '600 9px system-ui, sans-serif';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = style.text;
+          ctx.fillText(metric.short, x + 7, rowY, 26);
+          ctx.fillStyle = 'rgba(190, 220, 235, 0.22)';
+          ctx.fillRect(barX, rowY - 2, barWidth, 4);
+          ctx.fillStyle = metric.color || style.border;
+          ctx.fillRect(barX, rowY - 2, barWidth * metric.percent / 100, 4);
+          ctx.fillStyle = style.text;
+          ctx.textAlign = 'right';
+          ctx.fillText(`${metric.percent}%`, x + boxWidth - 7, rowY, 28);
+          nextY += 11;
+        }
       } else {
         ctx.textBaseline = 'middle';
         ctx.fillText(text, left + CELL_WIDTH / 2, top + CELL_HEIGHT / 2, boxWidth - 14);
@@ -285,7 +312,10 @@ export class SpatialLabelRenderer {
       let badge = this.domBadges.get(id);
       const labelText = String(label.text || '');
       const detailText = String(label.detail || '');
-      const ariaLabel = detailText ? `${labelText}: ${detailText}` : labelText || 'Objekt';
+      const metrics = Array.isArray(label.metrics) ? label.metrics.slice(0, 3) : [];
+      const statusText = formatSpatialCombatStatus(metrics).replaceAll('%', 'Prozent').replaceAll(' · ', ', ');
+      const ariaParts = [detailText, statusText].filter(Boolean);
+      const ariaLabel = ariaParts.length ? `${labelText}: ${ariaParts.join('; ')}` : labelText || 'Objekt';
       if (!badge) {
         badge = document.createElement('button');
         badge.type = 'button';
@@ -295,8 +325,17 @@ export class SpatialLabelRenderer {
         title.className = 'gq-spatial-label-title';
         const detail = document.createElement('span');
         detail.className = 'gq-spatial-label-detail';
-        badge.append(title, detail);
+        const metricList = document.createElement('span');
+        metricList.className = 'gq-spatial-label-metrics';
+        metricList.setAttribute('aria-hidden', 'true');
+        badge.append(title, detail, metricList);
         badge.setAttribute('aria-keyshortcuts', 'Shift+Enter Escape');
+        badge.addEventListener('wheel', (event) => {
+          if (!this.callbacks.onWheel) return;
+          event.preventDefault();
+          event.stopPropagation();
+          this.callbacks.onWheel(this.badgeLabels.get(badge), event);
+        }, { passive: false });
         badge.addEventListener('pointerenter', () => {
           this.hoveredBadge = badge;
           this._syncHover();
@@ -339,6 +378,12 @@ export class SpatialLabelRenderer {
       this.badgeLabels.set(badge, label);
       const kind = String(label.kind || 'object');
       if (badge.dataset.kind !== kind) badge.dataset.kind = kind;
+      if (kind === 'planet') {
+        const pressed = String(label.selected === true);
+        if (badge.getAttribute('aria-pressed') !== pressed) badge.setAttribute('aria-pressed', pressed);
+      } else {
+        badge.removeAttribute('aria-pressed');
+      }
       const style = {
         left: `${label.x * scaleX}px`,
         top: `${label.y * scaleY}px`,
@@ -359,8 +404,38 @@ export class SpatialLabelRenderer {
       const detail = badge.querySelector('.gq-spatial-label-detail');
       if (detail.textContent !== detailText) detail.textContent = detailText;
       detail.hidden = !detailText;
+      const metricList = badge.querySelector('.gq-spatial-label-metrics');
+      const existingRows = new Map([...metricList.children].map((row) => [row.dataset.metric, row]));
+      for (const metric of metrics) {
+        let row = existingRows.get(metric.key);
+        if (!row) {
+          row = document.createElement('span');
+          row.className = 'gq-spatial-label-metric';
+          row.dataset.metric = metric.key;
+          const labelNode = document.createElement('span');
+          labelNode.className = 'gq-spatial-label-metric-name';
+          const track = document.createElement('span');
+          track.className = 'gq-spatial-label-meter';
+          const fill = document.createElement('span');
+          fill.className = 'gq-spatial-label-meter-fill';
+          track.append(fill);
+          const value = document.createElement('span');
+          value.className = 'gq-spatial-label-metric-value';
+          row.append(labelNode, track, value);
+          metricList.append(row);
+        }
+        existingRows.delete(metric.key);
+        row.querySelector('.gq-spatial-label-metric-name').textContent = metric.short;
+        const fill = row.querySelector('.gq-spatial-label-meter-fill');
+        fill.style.width = `${metric.percent}%`;
+        fill.style.backgroundColor = metric.color || '#eaf8ff';
+        row.querySelector('.gq-spatial-label-metric-value').textContent = `${metric.percent}%`;
+        row.title = `${metric.label}: ${metric.current} von ${metric.maximum}`;
+      }
+      for (const row of existingRows.values()) row.remove();
+      metricList.hidden = metrics.length === 0;
       if (badge.getAttribute('aria-label') !== ariaLabel) badge.setAttribute('aria-label', ariaLabel);
-      const titleText = detailText ? `${labelText} — ${detailText}` : labelText;
+      const titleText = [labelText, detailText, statusText].filter(Boolean).join(' — ');
       if (badge.title !== titleText) badge.title = titleText;
     }
     for (const [id, badge] of this.domBadges) {

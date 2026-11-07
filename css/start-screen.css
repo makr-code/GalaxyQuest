@@ -104,11 +104,11 @@ body.auth-page #auth-section {
 }
 
 .start-button {
-  border: 1px solid #6ca9d629;
-  border-left: 2px solid #90caff66;
+  border: 1px solid var(--command-border, #6ca9d629);
+  border-left: 2px solid var(--command-accent, #90caff66);
   padding: 13px 20px;
-  background: linear-gradient(90deg, #19334d70, #0d1d3030);
-  color: #e0eeff;
+  background: var(--command-surface, linear-gradient(90deg, #19334d70, #0d1d3030));
+  color: var(--command-text, #e0eeff);
   text-align: left;
   font: inherit;
   font-size: 1.15rem;
@@ -134,7 +134,7 @@ body.auth-page #auth-section {
 }
 
 .start-button-small { font-size: .8rem; }
-.start-button:hover { border-color: #a8d7ff; background-color: #28567770; transform: translateX(5px); }
+.start-button:hover { border-color: var(--command-hover-border, #a8d7ff); background-color: var(--command-hover-bg, #28567770); transform: translateX(5px); }
 .start-menu button:focus-visible, .start-dialog :focus-visible { outline: 2px solid #a8d7ff; outline-offset: 4px; }
 .start-button:disabled { opacity: .5; cursor: wait; }
 .start-session-status { font-size: .78rem; color: #8faac5; max-width: 380px; }

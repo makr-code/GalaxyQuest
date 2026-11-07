@@ -6,6 +6,9 @@ function validFleet(fleet) {
   return fleet && ['id', 'origin_colony_id', 'origin_galaxy', 'origin_system', 'origin_position',
     'target_galaxy', 'target_system', 'target_position'].every((key) => positiveInt(fleet[key]))
     && Number(fleet.origin_galaxy) <= 9 && Number(fleet.target_galaxy) <= 9
+    && (typeof fleet.hull_damage_pct === 'number' && Number.isSafeInteger(fleet.hull_damage_pct)
+      || typeof fleet.hull_damage_pct === 'string' && /^(?:0|[1-9]\d*)$/.test(fleet.hull_damage_pct))
+    && Number(fleet.hull_damage_pct) >= 0 && Number(fleet.hull_damage_pct) <= 100
     && typeof fleet.mission === 'string' && fleet.mission.length > 0
     && [0, 1, '0', '1'].includes(fleet.returning)
     && fleet.ships && typeof fleet.ships === 'object' && !Array.isArray(fleet.ships)

@@ -23,6 +23,8 @@ describe('Start music player', () => {
       playNextInPlaylist: vi.fn(async () => true),
       setMusicTrack: vi.fn(async (url, autoplay) => { state.musicUrl = url; state.musicPlaying = autoplay; return true; }),
       setMusicVolume: vi.fn((volume) => { state.musicVolume = volume; }),
+      setMusicDuckingEnabled: vi.fn((value) => { state.musicDuckingEnabled = value; }),
+      setMusicDuckingStrength: vi.fn((value) => { state.musicDuckingStrength = value; }),
     };
   });
   afterEach(() => {
@@ -46,6 +48,29 @@ describe('Start music player', () => {
     expect(document.querySelector('#start-music-title').textContent).toBe('Stellar Ascension trance v1');
   });
 
+  it('exposes persisted speech ducking controls and reflects external changes', async () => {
+    player = initializeStartMusicPlayer();
+    const enabled = document.getElementById('topbar-player-ducking');
+    const strength = document.getElementById('topbar-player-ducking-strength');
+    expect(enabled.disabled).toBe(true);
+    player.setManager(manager);
+    expect(enabled.checked).toBe(true);
+    expect(strength.value).toBe('55');
+    enabled.click();
+    await vi.waitFor(() => expect(strength.disabled).toBe(true));
+    expect(manager.setMusicDuckingEnabled).toHaveBeenCalledWith(false);
+    enabled.click();
+    await vi.waitFor(() => expect(strength.disabled).toBe(false));
+    strength.value = '70';
+    strength.dispatchEvent(new Event('input'));
+    await vi.waitFor(() => expect(manager.setMusicDuckingStrength).toHaveBeenCalledWith(0.7));
+    state.musicDuckingStrength = 0.3;
+    window.dispatchEvent(new Event('gq:audio-state'));
+    expect(strength.value).toBe('30');
+    player.destroy();
+    enabled.click();
+    expect(manager.setMusicDuckingEnabled).toHaveBeenCalledTimes(2);
+  });
   it('plays, pauses without rewinding, mutes and switches both directions', async () => {
     player = initializeStartMusicPlayer();
     player.setManager(manager);
@@ -116,6 +141,29 @@ describe('Start music player', () => {
     await vi.waitFor(() => expect(document.querySelector('#start-music-volume').value).toBe('23'));
     expect(manager.setMusicVolume).toHaveBeenCalledWith(0.23);
     expect(document.querySelector('#topbar-player-current').textContent).toBe('Second Track');
+  });
+
+  it('keeps live sliders enabled while applying every input update', () => {
+    player = initializeStartMusicPlayer();
+    player.setManager(manager);
+    const volume = document.querySelector('#topbar-player-volume');
+    const strength = document.querySelector('#topbar-player-ducking-strength');
+
+    volume.value = '21';
+    volume.dispatchEvent(new Event('input'));
+    expect(volume.disabled).toBe(false);
+    volume.value = '43';
+    volume.dispatchEvent(new Event('input'));
+    expect(volume.disabled).toBe(false);
+    expect(manager.setMusicVolume.mock.calls).toEqual([[0.21], [0.43]]);
+
+    strength.value = '35';
+    strength.dispatchEvent(new Event('input'));
+    expect(strength.disabled).toBe(false);
+    strength.value = '72';
+    strength.dispatchEvent(new Event('input'));
+    expect(strength.disabled).toBe(false);
+    expect(manager.setMusicDuckingStrength.mock.calls).toEqual([[0.35], [0.72]]);
   });
 
   it('keeps a paused track paused when selected and reports failures on both players', async () => {

@@ -879,6 +879,9 @@
       const sourceOwner = String(payload.sourceOwner ?? payload.owner ?? '').trim();
       const sourceType = String(payload.sourceType ?? payload.installType ?? payload.type ?? '').trim().toLowerCase();
       const weaponKind = String(payload.weaponKind ?? payload.kind ?? '').trim().toLowerCase();
+      const sourceFleetId = this._normalizeWeaponFireEntityId(payload.sourceFleetId ?? payload.sourceEntityId);
+      const targetFleetId = this._normalizeWeaponFireEntityId(payload.targetFleetId ?? payload.targetEntityId);
+      const targetSlotPosition = this._normalizeWeaponFirePosition(payload.targetSlotPosition);
       const targetPos = this._normalizeWeaponFireTargetPos(payload.targetPos ?? payload.target_pos ?? null);
       const targetDebrisId = this._normalizeWeaponFireDebrisId(
         payload.targetDebrisId
@@ -895,6 +898,9 @@
         sourceOwner,
         sourceType,
         weaponKind,
+        sourceFleetId,
+        targetFleetId,
+        targetSlotPosition,
         targetPos,
         targetDebrisId,
         ts: performance.now(),
@@ -3135,18 +3141,18 @@
       }
     }
 
-    _triggerInstallationWeaponFire(fxEntry, elapsed, activeState, cadenceScale = 1) {
+    _triggerInstallationWeaponFire(fxEntry, elapsed, activeState, cadenceScale = 1, targetOverride = null) {
       const cadence = this._installationWeaponFxCadence(fxEntry.kind, activeState) * Math.max(0.1, Number(cadenceScale) || 1);
       const shotDuration = this._installationWeaponFxShotDuration(fxEntry.kind, activeState);
       fxEntry.fireUntil = Math.max(Number(fxEntry.fireUntil || 0), elapsed + shotDuration);
       fxEntry.nextFireAt = elapsed + cadence;
 
       // Add to BeamEffect pool (Phase FX-3 instanced rendering)
-      if (this.beamEffect && fxEntry.worldFrom && fxEntry.worldTo) {
+      if (this.beamEffect && fxEntry.worldFrom && (targetOverride || fxEntry.worldTo)) {
         const beamRecord = {
           id: String(fxEntry?.weapon?.id || `beam_${fxEntry?.kind}_${Date.now()}`),
           from: fxEntry.worldFrom,
-          to: fxEntry.worldTo,
+          to: targetOverride || fxEntry.worldTo,
           coreColor: Number(fxEntry?.weapon?.coreColor ?? 0x66ccff),
           color: Number(fxEntry?.weapon?.glowColor ?? fxEntry?.weapon?.coreColor ?? 0x66ccff),
           glowRadius: 0.4,
@@ -3210,10 +3216,22 @@
         
         // Filter by source owner (null = all)
         if (ev.sourceOwner && ev.sourceOwner !== String(installEntry.owner || '').trim()) return;
+
+        let targetOverride = null;
+        if (ev.targetFleetId) {
+          const targetEntry = (this.systemFleetEntries || []).find((candidate) => (
+            String(candidate?.fleet?.id ?? candidate?.fleet?.fleet_id ?? '') === String(ev.targetFleetId)
+            && this._ownersLikelyHostile(installEntry.owner, candidate?.fleet?.owner)
+          ));
+          const anchor = targetEntry?.group || targetEntry?.mesh;
+          if (!anchor?.getWorldPosition) return;
+          targetOverride = new THREE.Vector3();
+          anchor.getWorldPosition(targetOverride);
+        }
         
         // Fire!
         const state = String(installEntry.animState || installEntry.mesh.userData?.animState || 'active');
-        this._triggerInstallationWeaponFire(fxEntry, elapsed, state, 0.7);
+        this._triggerInstallationWeaponFire(fxEntry, elapsed, state, 0.7, targetOverride);
       });
     }
 
@@ -3232,7 +3250,7 @@
     }
 
     // ============================================================================
-    // Phase 2 Stubs: Ship/Debris/Wormhole Weapon Fire (Future Implementation)
+    // Multi-entity weapon fire
     // ============================================================================
 
     /**
@@ -3256,6 +3274,7 @@
 
         // Filter by source owner (null = all)
         if (ev.sourceOwner && ev.sourceOwner !== String(fleetEntry.fleet.owner || '').trim()) return;
+        if (ev.sourceFleetId && ev.sourceFleetId !== String(fleetEntry.fleet.id ?? fleetEntry.fleet.fleet_id ?? '')) return;
         if (!this._shipMatchesWeaponFireSource(fleetEntry, ev)) return;
         
         // Filter by weapon kind if specified
@@ -3287,8 +3306,8 @@
 
     /**
      * Trigger weapon fire from a ship.
-     * Uses dynamic target selection across hostile fleets/installations/debris,
-     * with optional `targetPos` hints from the event payload.
+     * Resolves explicit fleet/body-slot targets first; legacy events may still
+     * use dynamic target selection when they contain no target identity.
      * 
      * @param {object} fleetEntry - Ship entry with mesh and fleet data
      * @param {object} ev - Event payload
@@ -3307,7 +3326,14 @@
       fleetEntry.mesh.getWorldPosition(shipWorldPos);
 
       const targetHint = this._normalizeWeaponFireTargetPos(ev?.targetPos ?? ev?.target_pos ?? null);
-      const resolvedTarget = this._resolveShipWeaponTarget(fleetEntry, shipWorldPos, targetHint, 220);
+      const resolvedTarget = this._resolveShipWeaponTarget(
+        fleetEntry,
+        shipWorldPos,
+        targetHint,
+        220,
+        ev?.targetFleetId ?? null,
+        ev?.targetSlotPosition ?? null
+      );
       if (!resolvedTarget) return;
 
       const cadence = this._installationWeaponFxCadence(ev.weaponKind || 'laser', state);
@@ -3336,11 +3362,48 @@
       return a !== b;
     }
 
-    _resolveShipWeaponTarget(fleetEntry, shipWorldPos, targetHint = null, maxRange = 220) {
+    _resolveShipWeaponTarget(
+      fleetEntry,
+      shipWorldPos,
+      targetHint = null,
+      maxRange = 220,
+      targetFleetId = null,
+      targetSlotPosition = null
+    ) {
       const shipOwner = String(fleetEntry?.fleet?.owner || '').trim();
       const hintVec = Array.isArray(targetHint) ? new THREE.Vector3(targetHint[0], targetHint[1], targetHint[2]) : null;
       const range = Math.max(40, Number(maxRange) || 220);
       const tmpPos = new THREE.Vector3();
+
+      if (targetSlotPosition) {
+        const targetEntry = (this.systemPlanetEntries || []).find((entry) => (
+          Number(entry?.slot?.position || entry?.body?.position || 0) === Number(targetSlotPosition)
+        ));
+        if (!targetEntry) return hintVec ? { type: 'hint', world: hintVec.clone() } : null;
+        const targetWorld = this._getSystemPlanetWorldPosition(targetEntry, tmpPos);
+        if (shipWorldPos.distanceTo(targetWorld) > range) {
+          return hintVec ? { type: 'hint', world: hintVec.clone() } : null;
+        }
+        return { type: 'planet', world: targetWorld.clone() };
+      }
+
+      if (targetFleetId) {
+        const targetEntry = (this.systemFleetEntries || []).find((candidate) => (
+          candidate !== fleetEntry
+          && String(candidate?.fleet?.id ?? candidate?.fleet?.fleet_id ?? '') === String(targetFleetId)
+          && this._ownersLikelyHostile(shipOwner, candidate?.fleet?.owner)
+        ));
+        if (targetEntry) {
+          const anchor = targetEntry.group || targetEntry.mesh;
+          if (anchor?.getWorldPosition) {
+            anchor.getWorldPosition(tmpPos);
+            if (shipWorldPos.distanceTo(tmpPos) <= range) {
+              return { type: 'fleet', world: tmpPos.clone() };
+            }
+          }
+        }
+        return hintVec ? { type: 'hint', world: hintVec.clone() } : null;
+      }
 
       let best = null;
       let bestScore = Number.POSITIVE_INFINITY;
@@ -3505,6 +3568,18 @@
       if (rawId == null) return null;
       const asString = String(rawId).trim();
       return asString ? rawId : null;
+    }
+
+    _normalizeWeaponFireEntityId(rawId) {
+      if (typeof rawId === 'number' && (!Number.isSafeInteger(rawId) || rawId < 0)) return null;
+      if ((typeof rawId !== 'string' && typeof rawId !== 'number') || String(rawId).length > 256) return null;
+      const id = String(rawId).trim();
+      return id ? id : null;
+    }
+
+    _normalizeWeaponFirePosition(rawPosition) {
+      const position = Number(rawPosition);
+      return Number.isSafeInteger(position) && position > 0 ? position : null;
     }
 
     _debrisMatchesSourcePosition(debris, sourcePosition) {

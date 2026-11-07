@@ -561,6 +561,15 @@ describe('StarfieldWebGPU camera driver', () => {
     expect(layout.labels.find((label) => label.text === 'Neris').detail).toContain('Gas giant');
     expect(layout.labels.find((label) => label.text === 'Neris').detail).toContain('AU');
     expect(layout.labels.find((label) => label.text === 'Iona').detail).toContain('Ice dwarf moon');
+    expect(layout.labels.find((label) => label.text === 'Neris').selected).toBe(false);
+    flight.systemVisualizations.selectPlanet(planet.userData.data.position);
+    flight.setSystemVisualizationOptions({ selection: false });
+    layout = resolveSpatialLabels(flight, [], { width: 1280, height: 720, maxLabels: 1 });
+    expect(layout.labels).toHaveLength(1);
+    expect(layout.labels[0]).toMatchObject({ text: 'Neris', selected: true, priority: 4 });
+    flight.systemVisualizations.selectPlanet(null);
+    layout = resolveSpatialLabels(flight, [], { width: 1280, height: 720 });
+    expect(layout.labels.find((label) => label.text === 'Neris').selected).toBe(false);
     flight.dispose();
   });
 

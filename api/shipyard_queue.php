@@ -124,6 +124,56 @@ function spawn_built_vessels(PDO $db, int $colonyId, int $ownerId, int $blueprin
 }
 
 function complete_ship_build_queue(PDO $db, int $colonyId): void {
+    ship_build_queue_with_colony_lock(
+        $db,
+        $colonyId,
+        static function () use ($db, $colonyId): void {
+            complete_ship_build_queue_locked($db, $colonyId);
+        }
+    );
+}
+
+/**
+ * @param callable(): void $operation
+ */
+function ship_build_queue_with_colony_lock(PDO $db, int $colonyId, callable $operation): void
+{
+    $ownsTransaction = !$db->inTransaction();
+    static $savepointSequence = 0;
+    $savepoint = 'ship_build_queue_' . ++$savepointSequence;
+
+    if ($ownsTransaction) {
+        $db->beginTransaction();
+    } else {
+        $db->exec('SAVEPOINT ' . $savepoint);
+    }
+
+    try {
+        $lock = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+        $colony = $db->prepare('SELECT id FROM colonies WHERE id = ?' . $lock);
+        $colony->execute([$colonyId]);
+        if ($colony->fetchColumn() === false) {
+            throw new RuntimeException('Cannot process ship queue for a missing colony.');
+        }
+
+        $operation();
+        if ($ownsTransaction) {
+            $db->commit();
+        } else {
+            $db->exec('RELEASE SAVEPOINT ' . $savepoint);
+        }
+    } catch (Throwable $error) {
+        if (!$ownsTransaction) {
+            $db->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+            $db->exec('RELEASE SAVEPOINT ' . $savepoint);
+        } else {
+            $db->rollBack();
+        }
+        throw $error;
+    }
+}
+
+function complete_ship_build_queue_locked(PDO $db, int $colonyId): void {
     ensure_ship_build_queue_table($db);
 
     $dueStmt = $db->prepare(

@@ -331,6 +331,10 @@
         root.querySelector('#ai-tick-btn')?.addEventListener('click', async () => {
           const response = await api.aiTick();
           if (!response.success) return;
+          if (response.executed === false) {
+            showToast('Leader AI skipped because another simulation is running.', 'info');
+            return;
+          }
           const actions = response.actions || [];
           showToast(actions.length ? `AI: ${actions[0]}` : 'AI: No actions taken.', 'info');
           wm.refresh('leaders');

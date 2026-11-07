@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS developer_blog_posts (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(160) NOT NULL,
+    body MEDIUMTEXT NOT NULL,
+    author_id INT NOT NULL,
+    published_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_blog_published (published_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

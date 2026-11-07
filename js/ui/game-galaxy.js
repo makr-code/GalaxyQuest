@@ -2,6 +2,7 @@ import { createGameGalaxyRenderer } from '../rendering/game-galaxy-renderer.js';
 import { resolvePlanetOrbit } from '../rendering/system-visualization-layer.js';
 import { API } from '../api.js';
 import { mountFleetMap } from './game-fleet-map.js';
+import { createGameIcon, decorateGameAction } from './game-ui-visuals.js';
 
 function node(tag, text) {
   const element = document.createElement(tag);
@@ -180,7 +181,8 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
   badgeModeLabel.append(badgeModeToggle, document.createTextNode('Interaktive HTML-Badges'));
   badgeTools.append(badgeModeLabel, node('p',
     'WebGPU-Badges als fokussierbare DOM-Buttons überlagern. Klick/Enter: auswählen; '
-      + 'Doppelklick/Umschalt+Enter: annähern; Escape: Fokus zurück ins Spielfeld.'));
+      + 'Doppelklick/Umschalt+Enter: annähern; Mausrad: zum Objekt zoomen; '
+      + 'Escape: Fokus zurück ins Spielfeld.'));
   const visualizationTools = node('details');
   visualizationTools.id = 'game-system-visualizations';
   visualizationTools.hidden = true;
@@ -220,19 +222,30 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
   planetContext.id = 'game-planet-context';
   planetContext.setAttribute('aria-label', 'Planetenauswahl');
   planetContext.hidden = true;
+  const fleetTargetPicker = node('section');
+  fleetTargetPicker.id = 'game-fleet-target-picker';
+  fleetTargetPicker.setAttribute('aria-label', 'Zielplaneten im ausgewählten System');
+  fleetTargetPicker.hidden = true;
   const planetTitle = node('h3');
   const planetInfo = node('p');
+  planetInfo.className = 'game-planet-ownership';
   const planetDistance = node('p');
   planetDistance.id = 'game-planet-distance';
   planetDistance.hidden = true;
   const planetActions = node('div');
-  planetActions.className = 'game-galaxy-toolbar';
+  planetActions.className = 'game-planet-action-grid';
+  planetActions.setAttribute('aria-label', 'Planetaktionen');
   let selectedPosition = null;
   let selectedSystem = null;
   let pickingFleetTarget = false;
+  let pickingFleetOrigin = false;
+  function fleetTargetPosition(slot) {
+    const position = Number(slot?.position ?? slot?.player_planet?.position ?? slot?.generated_planet?.position);
+    return Number.isSafeInteger(position) && position > 0 ? position : null;
+  }
   function selectedPlanet() {
-    return state.system?.planets.find((slot) =>
-      Number(slot.position ?? slot.player_planet?.position ?? slot.generated_planet?.position) === selectedPosition);
+    if (selectedPosition === null) return undefined;
+    return state.system?.planets.find((slot) => fleetTargetPosition(slot) === selectedPosition);
   }
   function ownedColony(position) {
     return session.getState()?.colonies.find((entry) => Number(entry.galaxy) === state.galaxy
@@ -259,11 +272,22 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
     updatePlanetContext();
     canvas.focus({ preventScroll: true });
   });
-  const fleetTarget = button('Flotte zu diesem Planeten', () => {
-    if (disposed || state.loading || !selectedPlanet()) return;
+  function requestFleetTarget(position) {
+    const targetPosition = Number(position);
+    const slot = state.system?.planets.find((entry) =>
+      fleetTargetPosition(entry) === targetPosition && (entry.player_planet || entry.generated_planet));
+    if (disposed || state.loading || !Number.isSafeInteger(targetPosition) || targetPosition < 1 || !slot) return;
+    const body = slot?.player_planet || slot?.generated_planet;
+    const targetName = [state.selected?.name, body?.name || body?.planet_class]
+      .filter((name) => typeof name === 'string' && name.trim())
+      .join(' · ');
     session.events.emit('fleet:target-requested', {
-      galaxy: Number(state.system.galaxy), system: Number(state.system.system), position: selectedPosition,
+      galaxy: Number(state.system.galaxy), system: Number(state.system.system), position: targetPosition,
+      targetName,
     });
+  }
+  const fleetTarget = button('Flotte zu diesem Planeten', () => {
+    if (!disposed && !state.loading && selectedPlanet()) requestFleetTarget(selectedPosition);
   });
   const fleetOrigin = button('Flotte hier auswählen', () => {
     const colony = ownedColony(selectedPosition);
@@ -283,8 +307,31 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
       session.events.emit('population:open-requested', { colonyId: Number(colony.id) });
     }
   });
-  planetActions.append(planetFocus, colonyFocus, colonyManage, fleetOrigin, shipyard, population, fleetTarget, clearPlanet);
-  planetContext.append(planetTitle, planetInfo, planetDistance, planetActions);
+  for (const [control, icon] of [
+    [planetFocus, 'locate'], [colonyFocus, 'planet'], [colonyManage, 'buildings'],
+    [fleetOrigin, 'fleet'], [shipyard, 'shipyard'], [population, 'population'],
+    [fleetTarget, 'fleet'], [clearPlanet, 'close'],
+  ]) {
+    const label = control.textContent;
+    control.textContent = '';
+    decorateGameAction(control, icon, label);
+  }
+  const planetHeading = node('div');
+  planetHeading.className = 'game-planet-context-heading';
+  planetHeading.append(createGameIcon('planet'), planetTitle);
+  const actionGroup = (label, controls) => {
+    const group = node('section');
+    group.className = 'game-planet-action-group';
+    group.setAttribute('aria-label', label);
+    group.append(node('h4', label), ...controls);
+    return group;
+  };
+  planetActions.append(
+    actionGroup('Ansicht', [planetFocus, clearPlanet]),
+    actionGroup('Flotte', [fleetTarget, fleetOrigin]),
+    actionGroup('Kolonie', [colonyFocus, colonyManage, shipyard, population]),
+  );
+  planetContext.append(planetHeading, planetInfo, planetDistance, planetActions);
   function updatePlanetContext() {
     const slot = selectedPlanet();
     const body = slot?.player_planet || slot?.generated_planet;
@@ -297,6 +344,7 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
     });
     if (!body) return;
     const colony = ownedColony(selectedPosition);
+    planetContext.dataset.ownership = colony ? 'own' : slot.player_planet ? 'settled' : 'unsettled';
     planetTitle.textContent = `${body.name || body.planet_class || 'Planet'} · Position ${selectedPosition}`;
     planetInfo.textContent = colony ? `Eigene Kolonie: ${colony.name}`
       : slot.player_planet ? 'Besiedelter Planet · keine eigene Kolonie'
@@ -349,7 +397,7 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
   catalog.append(search, list);
   toolbar.append(title, home, overview, refresh, zoomIn, zoomOut, form);
   navigation.append(toolbar, viewStatus, cameraTools, badgeTools, visualizationTools, catalog);
-  panel.append(navigation, path, status, rendererStatus, retry, planetContext, details);
+  panel.append(navigation, path, status, rendererStatus, retry, fleetTargetPicker, planetContext, details);
   let disposed = false;
   let active = false;
   let renderer = null;
@@ -362,18 +410,65 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
   let lastSystem = null;
   let displayedSelection = null;
   let state = domain.getState();
+  function renderFleetTargetPicker() {
+    fleetTargetPicker.hidden = !pickingFleetTarget
+      || (!state.system && !state.loading && !state.error);
+    if (fleetTargetPicker.hidden) return;
+    const planets = (state.loading || state.error || !state.system ? [] : state.system.planets || []).flatMap((slot) => {
+      const body = slot.player_planet || slot.generated_planet;
+      const position = fleetTargetPosition(slot);
+      if (!body || position === null) return [];
+      const label = `${body.name || body.planet_class || 'Planet'} · Position ${position}`;
+      const select = button(label, () => requestFleetTarget(position));
+      select.disabled = state.loading;
+      select.setAttribute('aria-label', `Flottenziel wählen: ${label}`);
+      return [select];
+    });
+    const heading = node('h3', 'Ziel in diesem Sternsystem wählen');
+    const hint = node('p', state.error
+      ? `Systemziele nicht verfügbar: ${state.error} Koordinaten eingeben oder ein anderes System öffnen.`
+      : state.loading
+        ? 'Planeten des ausgewählten Sternsystems werden geladen.'
+        : !state.system
+          ? 'Öffne ein Sternsystem im Spielfeld oder in der Systemliste.'
+          : planets.length
+            ? 'Wähle einen Planeten aus der Liste oder direkt im 3D-Spielfeld.'
+            : 'Für dieses System sind keine Planeten zur Auswahl geladen.');
+    hint.setAttribute('role', state.error ? 'alert' : 'status');
+    const coordinates = button('Ziel per Koordinaten eingeben', () => {
+      session.events.emit('fleet:target-coordinate-requested');
+    });
+    fleetTargetPicker.replaceChildren(heading, hint, ...planets, coordinates);
+  }
   function renderList() {
     const query = search.value.trim().toLocaleLowerCase();
     const matches = state.stars.filter((star) => !query || String(star.name || '').toLocaleLowerCase().includes(query)
-      || String(star.system_index).includes(query)).slice(0, 40);
-    list.replaceChildren(...matches.map((star) => button(`${star.name || 'System'} [${star.galaxy_index}:${star.system_index}]`, () => {
-      void domain.navigate(star.galaxy_index, star.system_index);
-    })));
-    list.append(node('p', `${matches.length} angezeigt; Suche begrenzt auf geladene Serverdaten.`));
+      || String(star.system_index).includes(query));
+    const cards = matches.slice(0, 40).map((star) => {
+      const control = button('', () => {
+        if (!disposed && !state.loading) void domain.navigate(star.galaxy_index, star.system_index);
+      });
+      control.classList.add('game-system-catalog-card');
+      control.disabled = state.loading;
+      control.title = `${star.name || 'System'} [${star.galaxy_index}:${star.system_index}]`;
+      const name = node('strong', star.name || 'System');
+      const coordinates = node('span', `[${star.galaxy_index}:${star.system_index}]`);
+      control.append(createGameIcon('star'), name, coordinates);
+      if (Number(star.galaxy_index) === Number(state.selected?.galaxy_index)
+        && Number(star.system_index) === Number(state.selected?.system_index)) {
+        control.setAttribute('aria-current', 'location');
+      }
+      return control;
+    });
+    const count = node('p', `${cards.length} von ${matches.length} Treffern angezeigt; Suche begrenzt auf ${state.stars.length} geladene Serverdaten.`);
+    count.setAttribute('role', 'status');
+    list.replaceChildren(...cards, count);
+    if (!matches.length) list.append(node('p', 'Keine passenden geladenen Sternsysteme.'));
   }
   search.addEventListener('input', renderList);
   function update(next) {
     state = next;
+    renderFleetTargetPicker();
     const systemKey = state.system ? `${state.system.galaxy}:${state.system.system}` : null;
     if (systemKey !== selectedSystem) selectedPosition = null;
     selectedSystem = systemKey;
@@ -403,6 +498,7 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
       }));
       if (state.system) {
         const planets = node('ul');
+        planets.className = 'game-system-planets';
         planets.setAttribute('aria-label', 'Systemplaneten');
         for (const slot of state.system.planets) {
           const body = slot.player_planet || slot.generated_planet;
@@ -411,17 +507,39 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
           const colony = ownedColony(position);
           const item = node('li');
           item.dataset.position = String(position);
-          item.append(node('span', `${position}: ${body.name || body.planet_class || 'Planet'}`));
+          const heading = node('div');
+          heading.className = 'game-system-planet-heading';
+          const location = node('span', `Position ${position}`);
+          location.className = 'game-development-level';
+          heading.append(createGameIcon('planet'), location,
+            node('strong', body.name || body.planet_class || 'Planet'));
+          item.append(heading);
+          if (colony) {
+            const ownership = node('span', `Kolonie · ${colony.name}`);
+            ownership.className = 'game-system-ownership';
+            item.dataset.owned = 'true';
+            item.append(ownership);
+          }
           const label = body.name || `Planet ${position}`;
-          item.append(button(`${label} ansehen`, () => renderer?.focusPlanet(position)));
+          const actions = node('div');
+          actions.className = 'game-system-planet-actions';
+          const focus = button('', () => renderer?.focusPlanet(position));
+          decorateGameAction(focus, 'locate', `${label} ansehen`);
+          actions.append(focus);
           if (slot.player_planet && colony) {
-            item.append(button(`Kolonie auf ${label} ansehen`, () => renderer?.focusColony(position)));
+            const surface = button('', () => renderer?.focusColony(position));
+            decorateGameAction(surface, 'planet', `Kolonie auf ${label} ansehen`);
+            actions.append(surface);
           }
           if (colony) {
-            item.append(button(`${colony.name} verwalten`, () => {
+            const manage = button('', () => {
               openBuildings(colony);
-            }));
+            });
+            decorateGameAction(manage, 'buildings', `${colony.name} verwalten`);
+            actions.append(manage);
           }
+          actions.setAttribute('aria-label', `Aktionen für ${label}`);
+          item.append(actions);
           planets.append(item);
         }
         selection.append(node('p', `Sichtbarkeit: ${state.system.visibility?.level || 'Serverdaten'}`), planets);
@@ -508,9 +626,12 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
             selectedPosition = Number(star.position);
             details.open = false;
             updatePlanetContext();
-            if (pickingFleetTarget && selectedPlanet() && !state.loading) fleetTarget.click();
+            if (pickingFleetOrigin && !state.loading) {
+              const colony = ownedColony(selectedPosition);
+              if (colony) session.events.emit('fleet:origin-requested', { colonyId: Number(colony.id) });
+            } else if (pickingFleetTarget && selectedPlanet() && !state.loading) fleetTarget.click();
           } else if (!domain.getState().system) {
-            if (pickingFleetTarget) void domain.navigate(star.galaxy_index, star.system_index);
+            if (pickingFleetTarget || pickingFleetOrigin) void domain.navigate(star.galaxy_index, star.system_index);
             else domain.select(star);
           }
         },
@@ -600,6 +721,7 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
   });
   const unsubscribeFleetPicking = session.events.on('fleet:target-picking', ({ active }) => {
     pickingFleetTarget = active;
+    renderFleetTargetPicker();
     stage.classList.toggle('fleet-target-picking', active);
     if (active) {
       navigation.open = false;
@@ -607,6 +729,22 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
       canvas.focus({ preventScroll: true });
     }
   });
+  const unsubscribeFleetOriginPicking = session.events.on('fleet:origin-picking', ({ active }) => {
+    pickingFleetOrigin = active;
+    stage.classList.toggle('fleet-origin-picking', active);
+    if (active) {
+      navigation.open = false;
+      details.open = false;
+      canvas.focus({ preventScroll: true });
+    }
+  });
+  const cancelOriginPicking = (event) => {
+    if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || !pickingFleetOrigin) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    session.events.emit('fleet:origin-picking', { active: false });
+  };
+  window.addEventListener('keydown', cancelOriginPicking, true);
   const homeButton = document.getElementById('topbar-home-btn');
   const goHome = () => { void domain.home(); };
   homeButton?.addEventListener('click', goHome);
@@ -643,7 +781,10 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
     unsubscribeOverview();
     unsubscribeMutation();
     unsubscribeFleetPicking();
+    unsubscribeFleetOriginPicking();
+    window.removeEventListener('keydown', cancelOriginPicking, true);
     stage.classList.remove('fleet-target-picking');
+    stage.classList.remove('fleet-origin-picking');
     unmountFleetMap?.();
     if (window.galaxy3d === renderer) delete window.galaxy3d;
     renderer?.destroy();

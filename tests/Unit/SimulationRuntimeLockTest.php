@@ -62,7 +62,6 @@ final class SimulationRuntimeLockTest extends TestCase
     public static function unavailableLocks(): iterable
     {
         yield 'held by another worker' => [0];
-        yield 'database returned null' => [null];
     }
 
     #[DataProvider('unavailableLocks')]
@@ -83,6 +82,30 @@ final class SimulationRuntimeLockTest extends TestCase
             'scope' => 'global',
             'reason' => 'lock_busy',
         ], $result);
+    }
+
+    /** @return iterable<string, array{mixed}> */
+    public static function invalidLockResults(): iterable
+    {
+        yield 'database returned null' => [null];
+        yield 'database returned unexpected integer' => [2];
+        yield 'database returned unexpected string' => ['error'];
+    }
+
+    #[DataProvider('invalidLockResults')]
+    public function testInvalidLockResultFailsWithoutRunningOperation(mixed $acquired): void
+    {
+        $db = $this->database($acquired);
+
+        $this->expectException(RuntimeException::class);
+        \simulation_runtime_with_scope_lock(
+            $db,
+            'global',
+            '',
+            static function (): array {
+                self::fail('Operation must not execute when lock acquisition is indeterminate.');
+            }
+        );
     }
 
     public function testLockReleaseFailureIsReportedAfterSuccessfulOperation(): void

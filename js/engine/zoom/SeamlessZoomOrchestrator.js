@@ -196,13 +196,17 @@ class SeamlessZoomOrchestrator {
    * @param {Function}          [opts.onExitLevel]
    * @param {Function}          [opts.onSlotClick]
    * @param {Function}          [opts.onPlanetClick]
+   * @param {Function}          [opts.onError] renderer-triggered navigation failures
    * @param {'webgpu'|'webgl2'|'auto'} [opts.rendererHint='webgpu']
    */
   constructor(canvas, opts = {}) {
     this._canvas     = canvas;
     this._opts       = opts || {};
     this._registry   = new RendererRegistryCtor();
+    this._initializations = new WeakMap();
     this._backend    = null;   // IGraphicsRenderer — set after initialize()
+    this._ownsBackend = false;
+    this._backendInitialization = null;
     this._flight     = new CameraFlightPathCtor();
     this._active     = null;   // currently active IZoomLevelRenderer
     this._activeLevel = null;
@@ -210,6 +214,7 @@ class SeamlessZoomOrchestrator {
     this._surfaceReturnLevel = ZOOM_LEVEL.PLANET_APPROACH;
     this._planetCameraState = null;
     this._transition = false;  // guard flag
+    this._navigationGeneration = 0;
     this._disposed = false;
     this._rafId      = 0;
     this._removeFrameHook = null;
@@ -236,6 +241,19 @@ class SeamlessZoomOrchestrator {
    */
   async initialize() {
     if (this._disposed) return;
+    if (!this._backendInitialization) {
+      this._backendInitialization = this._initializeBackend();
+    }
+    const pending = this._backendInitialization;
+    try {
+      await pending;
+    } catch (error) {
+      if (this._backendInitialization === pending) this._backendInitialization = null;
+      throw error;
+    }
+  }
+
+  async _initializeBackend() {
     if (this._opts._backend) {
       // Allow test injection without touching RendererFactory.
       this._backend = this._opts._backend;
@@ -263,10 +281,16 @@ class SeamlessZoomOrchestrator {
     if (this._opts.requireSharedBackend) {
       throw new Error('SeamlessZoomOrchestrator requires the shared Galaxy WebGPU renderer');
     }
-    this._backend = await RendererFactoryApi.create(
+    const backend = await RendererFactoryApi.create(
       this._canvas,
       { hint: this._opts.rendererHint || 'webgpu' },
     );
+    if (this._disposed) {
+      backend.dispose();
+      return;
+    }
+    this._backend = backend;
+    this._ownsBackend = true;
     this._startLoop();
   }
 
@@ -279,7 +303,22 @@ class SeamlessZoomOrchestrator {
    * @param {{ webgpu: Function, threejs: Function }} classes
    */
   register(level, classes) {
-    this._registry.register(level, classes);
+    const active = this._active;
+    const activeLevel = this._activeLevel === ZOOM_LEVEL.COLONY_BUILDING
+      ? ZOOM_LEVEL.COLONY_SURFACE : this._activeLevel;
+    const errors = [];
+    try { this._registry.register(level, classes); } catch (error) { errors.push(error); }
+    if (active && level === activeLevel && !this._registry.isCurrent(level, active)) {
+      this._active = null;
+      this._activeLevel = null;
+      this._lastCameraState = null;
+      this._planetCameraState = null;
+      ++this._navigationGeneration;
+      try { this._flight.dispose(); } catch (error) { errors.push(error); }
+      try { this._backend?.setZoomSceneActive?.(false); } catch (error) { errors.push(error); }
+    }
+    if (errors.length > 1) throw new AggregateError(errors, 'Zoom renderer replacement and cleanup failed');
+    if (errors.length) throw errors[0];
   }
 
   /**
@@ -308,10 +347,10 @@ class SeamlessZoomOrchestrator {
     if (!target) return false;
 
     if (!target._initialised) {
-      await target.initialize(this._canvas, backend);
-      target._initialised = true;
+      await this._initializeLevel(level, target, backend);
     }
     if (this._disposed) { target.dispose(); return false; }
+    if (!this._registry.isCurrent(level, target)) { target.dispose(); return false; }
 
     if (typeof target.setSceneData === 'function') {
       target.setSceneData(data);
@@ -320,7 +359,43 @@ class SeamlessZoomOrchestrator {
     return false;
   }
 
+  async _initializeLevel(level, target, backend) {
+    let pending = this._initializations.get(target);
+    if (!pending) {
+      pending = (async () => {
+        try {
+          await target.initialize(this._canvas, backend);
+          target._initialised = true;
+        } catch (error) {
+          try {
+            if (this._registry.isCurrent(level, target)) this._registry.release(level, target);
+            else target.dispose();
+          } catch (cleanupError) {
+            throw new AggregateError([error, cleanupError], 'Zoom level initialization and cleanup failed');
+          }
+          throw error;
+        }
+      })();
+      this._initializations.set(target, pending);
+    }
+    try {
+      await pending;
+    } finally {
+      if (this._initializations.get(target) === pending) this._initializations.delete(target);
+    }
+  }
+
   // ── Main API ──────────────────────────────────────────────────────────────
+
+  _navigate(level, payload, opts) {
+    return this.zoomTo(level, payload, opts).catch((error) => {
+      if (this._disposed) return;
+      if (typeof this._opts.onError !== 'function') throw error;
+      try { this._opts.onError(error); } catch (reportingError) {
+        throw new AggregateError([error, reportingError], 'Zoom navigation failure reporting failed');
+      }
+    });
+  }
 
   /**
    * Transition to the given zoom level.
@@ -345,51 +420,82 @@ class SeamlessZoomOrchestrator {
   async zoomTo(level, payload, opts = {}) {
     if (this._transition || this._disposed) return;
     this._transition = true;
+    let next = null;
+    let previous = null;
+    let previousLevel = null;
+    let transitionStarted = false;
+    let previousExited = false;
+    let instanceLevel = level;
 
     try {
       // Building detail is a camera state of the live surface, not another scene.
-      if (level === ZOOM_LEVEL.COLONY_BUILDING
+      const enteringBuilding = level === ZOOM_LEVEL.COLONY_BUILDING
           && [ZOOM_LEVEL.COLONY_SURFACE, ZOOM_LEVEL.COLONY_BUILDING].includes(this._activeLevel)
-          && typeof this._active?.enterBuilding === 'function') {
-        this._active.enterBuilding(payload);
-        if (this._activeLevel !== level) this._emit('exitLevel', this._activeLevel);
-        this._activeLevel = level;
-        this._emit('enterLevel', level, payload);
-        return;
-      }
-      if (level === ZOOM_LEVEL.COLONY_SURFACE && payload == null
+          && typeof this._active?.enterBuilding === 'function';
+      const leavingBuilding = level === ZOOM_LEVEL.COLONY_SURFACE && payload == null
           && this._activeLevel === ZOOM_LEVEL.COLONY_BUILDING
-          && typeof this._active?.leaveBuilding === 'function') {
-        this._active.leaveBuilding();
-        this._emit('exitLevel', this._activeLevel);
+          && typeof this._active?.leaveBuilding === 'function';
+      if (enteringBuilding || leavingBuilding) {
+        next = this._active;
+        instanceLevel = ZOOM_LEVEL.COLONY_SURFACE;
+        if (enteringBuilding) next.validateBuilding?.(payload);
+        transitionStarted = true;
+        if (enteringBuilding) next.enterBuilding(payload);
+        else next.leaveBuilding();
+        if (this._disposed || this._active !== next) return;
+        if (this._activeLevel !== level) this._emit('exitLevel', this._activeLevel);
+        if (this._disposed || this._active !== next) return;
         this._activeLevel = level;
         this._emit('enterLevel', level, payload);
         return;
       }
-      const next = this._registry.resolve(level, this._backend);
+      next = this._registry.resolve(level, this._backend);
       let planetCameraState = null;
 
       // Initialise the renderer on first use if it hasn't been already.
       if (!next._initialised) {
-        await next.initialize(this._canvas, this._backend);
-        next._initialised = true;
+        await this._initializeLevel(level, next, this._backend);
       }
       if (this._disposed) { next.dispose(); return; }
+      if (!this._registry.isCurrent(level, next)) { next.dispose(); return; }
 
+      previous = this._active;
+      previousLevel = this._activeLevel;
+      transitionStarted = true;
+      const navigationGeneration = ++this._navigationGeneration;
       // Exit old level.
-      if (this._active) {
-        await this._active.exit(level);
+      if (previous) {
+        await previous.exit(level);
         if (this._disposed) return;
-        this._emit('exitLevel', this._activeLevel);
+      }
+      previousExited = true;
+      this._active = null;
+      this._activeLevel = null;
+      if (previous) this._emit('exitLevel', previousLevel);
+      if (this._disposed) return;
+      if (!this._registry.isCurrent(level, next)) {
+        this._backend?.setZoomSceneActive?.(false);
+        return;
       }
 
       // Enter new level.
-      next.setTransitionSource?.(this._active, this._lastCameraState);
+      next.setTransitionSource?.(previous, this._lastCameraState);
+      if (this._disposed) return;
+      if (!this._registry.isCurrent(level, next)) {
+        this._backend?.setZoomSceneActive?.(false);
+        return;
+      }
       if (typeof next.setNavigationHandlers === 'function') {
+        const guardNavigation = action => (...args) => {
+          if (this._disposed || this._transition || this._active !== next
+              || navigationGeneration !== this._navigationGeneration
+              || !this._registry.isCurrent(level, next)) return;
+          return action(...args);
+        };
         next.setNavigationHandlers({
-          slotClick: (slot) => this._emit('slotClick', slot),
-          building: (slot) => this.zoomTo(ZOOM_LEVEL.COLONY_BUILDING, slot),
-          back: () => this.zoomTo(
+          slotClick: guardNavigation((slot) => this._emit('slotClick', slot)),
+          building: guardNavigation((slot) => this._navigate(ZOOM_LEVEL.COLONY_BUILDING, slot)),
+          back: guardNavigation(() => this._navigate(
             this._activeLevel === ZOOM_LEVEL.COLONY_BUILDING
               ? ZOOM_LEVEL.COLONY_SURFACE
               : level === ZOOM_LEVEL.COLONY_SURFACE
@@ -399,30 +505,41 @@ class SeamlessZoomOrchestrator {
                 : ZOOM_LEVEL.SYSTEM,
             null,
             { skipCameraFlight: true }
-          ),
-          surface: (data) => this.zoomTo(ZOOM_LEVEL.COLONY_SURFACE, data),
+          )),
+          surface: guardNavigation((data) => this._navigate(ZOOM_LEVEL.COLONY_SURFACE, data)),
         });
       }
-      if (level === ZOOM_LEVEL.COLONY_SURFACE && this._activeLevel !== level
-          && this._activeLevel !== ZOOM_LEVEL.COLONY_BUILDING) {
-        this._surfaceReturnLevel = Number.isFinite(this._activeLevel)
-          ? this._activeLevel
+      if (this._disposed) return;
+      if (!this._registry.isCurrent(level, next)) {
+        this._backend?.setZoomSceneActive?.(false);
+        return;
+      }
+      if (level === ZOOM_LEVEL.COLONY_SURFACE && previousLevel !== level
+          && previousLevel !== ZOOM_LEVEL.COLONY_BUILDING) {
+        this._surfaceReturnLevel = Number.isFinite(previousLevel)
+          ? previousLevel
           : ZOOM_LEVEL.PLANET_APPROACH;
       }
       if (level === ZOOM_LEVEL.PLANET_APPROACH
-          && this._activeLevel !== level
-          && this._activeLevel !== ZOOM_LEVEL.COLONY_SURFACE
-          && this._activeLevel !== ZOOM_LEVEL.COLONY_BUILDING) {
-        this._planetReturnLevel = Number.isFinite(this._activeLevel)
-          ? this._activeLevel
+          && previousLevel !== level
+          && previousLevel !== ZOOM_LEVEL.COLONY_SURFACE
+          && previousLevel !== ZOOM_LEVEL.COLONY_BUILDING) {
+        this._planetReturnLevel = Number.isFinite(previousLevel)
+          ? previousLevel
           : ZOOM_LEVEL.SYSTEM;
       }
-      await next.enter(this._activeLevel, payload);
+      await next.enter(previousLevel, payload);
       if (this._disposed) { next.dispose(); return; }
+      if (!this._registry.isCurrent(level, next)) {
+        next.dispose();
+        this._backend?.setZoomSceneActive?.(false);
+        return;
+      }
 
       this._active      = next;
       this._activeLevel = level;
       this._backend?.setZoomSceneActive?.(level >= ZOOM_LEVEL.PLANET_APPROACH);
+      if (this._disposed || this._active !== next) return;
       // The incoming renderer must receive the flight camera, not an already
       // exited outgoing level. Keep the final pose after the flight completes.
       if (!opts.skipCameraFlight && SeamlessZoomOrchestrator._requiresCameraFlight(level)) {
@@ -447,7 +564,7 @@ class SeamlessZoomOrchestrator {
       } else {
         this._lastCameraState = null;
       }
-      if (this._disposed) return;
+      if (this._disposed || this._active !== next || !this._registry.isCurrent(level, next)) return;
       if (level === ZOOM_LEVEL.PLANET_APPROACH) {
         const cameraTo = opts.cameraTo || { x: 0, y: 0, z: 15 };
         const target = opts.cameraTarget ?? payload?.cameraTarget ?? { x: 0, y: 0, z: 0 };
@@ -462,6 +579,27 @@ class SeamlessZoomOrchestrator {
       }
       this._planetCameraState = planetCameraState;
       this._emit('enterLevel', level, payload);
+    } catch (error) {
+      if (!transitionStarted) throw error;
+      const errors = [error];
+      const attempt = (cleanup) => {
+        try { cleanup(); } catch (cleanupError) { errors.push(cleanupError); }
+      };
+      this._active = null;
+      this._activeLevel = null;
+      this._lastCameraState = null;
+      this._planetCameraState = null;
+      attempt(() => {
+        if (this._registry.isCurrent(instanceLevel, next)) this._registry.release(instanceLevel, next);
+        else next.dispose();
+      });
+      if (previous && previous !== next && !previousExited) {
+        attempt(() => this._registry.release(previousLevel, previous));
+      }
+      attempt(() => this._flight.dispose());
+      attempt(() => this._backend?.setZoomSceneActive?.(false));
+      if (errors.length > 1) throw new AggregateError(errors, 'Zoom transition and cleanup failed');
+      throw error;
     } finally {
       this._transition = false;
     }
@@ -501,12 +639,17 @@ class SeamlessZoomOrchestrator {
    */
   tick(dt) {
     if (this._disposed) return;
+    const navigationGeneration = this._navigationGeneration;
     // Fly-in in progress: use interpolated camera state.
     const flightState = this._flight.tick(dt);
+    if (this._disposed || navigationGeneration !== this._navigationGeneration) return;
     if (flightState) this._lastCameraState = flightState;
     const cs = flightState || this._opts.getCameraState?.(this._activeLevel)
       || this._lastCameraState || this._getFallbackCameraState();
-    if (this._active) {
+    if (this._disposed || navigationGeneration !== this._navigationGeneration) return;
+    const instanceLevel = this._activeLevel === ZOOM_LEVEL.COLONY_BUILDING
+      ? ZOOM_LEVEL.COLONY_SURFACE : this._activeLevel;
+    if (this._active && this._registry.isCurrent(instanceLevel, this._active)) {
       this._active.render(dt, cs);
     }
   }
@@ -536,20 +679,39 @@ class SeamlessZoomOrchestrator {
   // ── Disposal ──────────────────────────────────────────────────────────────
 
   dispose() {
+    if (this._disposed) return;
     this._disposed = true;
-    this._flight.dispose();
-    this._backend?.setZoomSceneActive?.(false);
     this._running = false;
+    const errors = [];
+    const attempt = (operation) => {
+      try {
+        operation();
+      } catch (error) {
+        errors.push(error);
+      }
+    };
+    attempt(() => this._flight.dispose());
+    attempt(() => this._backend?.setZoomSceneActive?.(false));
     if (this._rafId) {
-      cancelAnimationFrame(this._rafId);
+      attempt(() => cancelAnimationFrame(this._rafId));
       this._rafId = 0;
     }
-    this._removeFrameHook?.();
+    attempt(() => this._removeFrameHook?.());
     this._removeFrameHook = null;
-    this._registry.clear();
+    attempt(() => this._registry.clear());
+    if (this._ownsBackend) attempt(() => this._backend?.dispose());
+    this._ownsBackend = false;
+    this._backend = null;
+    this._canvas = null;
+    this._opts = {};
     this._active = null;
+    this._activeLevel = null;
+    this._lastCameraState = null;
     this._planetCameraState = null;
     this._listeners.clear();
+    if (errors.length) {
+      throw new AggregateError(errors, 'SeamlessZoomOrchestrator.dispose: cleanup failed');
+    }
   }
 
   // ── Internal helpers ──────────────────────────────────────────────────────
@@ -557,9 +719,11 @@ class SeamlessZoomOrchestrator {
   _emit(event, ...args) {
     const arr = this._listeners.get(event);
     if (!arr) return;
-    for (const fn of arr) {
-      try { fn(...args); } catch (_) {}
+    const errors = [];
+    for (const fn of [...arr]) {
+      try { fn(...args); } catch (error) { errors.push(error); }
     }
+    if (errors.length) throw new AggregateError(errors, `Zoom event ${event} failed`);
   }
 
   /** Minimal fallback camera state when no flight is active. */
@@ -573,17 +737,23 @@ class SeamlessZoomOrchestrator {
   }
 
   _startLoop() {
-    if (this._running || this._removeFrameHook || typeof requestAnimationFrame !== 'function') return;
+    if (this._disposed || this._running || this._removeFrameHook || typeof requestAnimationFrame !== 'function') return;
     this._running = true;
     this._lastTs = 0;
     const frame = (ts) => {
       if (!this._running) return;
+      this._rafId = 0;
       const dtMs = this._lastTs ? Math.max(0, ts - this._lastTs) : 16.67;
       this._lastTs = ts;
       try {
         this.tick(dtMs / 1000);
-      } catch (_) {}
-      this._rafId = requestAnimationFrame(frame);
+      } catch (error) {
+        try { this.dispose(); } catch (cleanupError) {
+          throw new AggregateError([error, cleanupError], 'Zoom rendering and disposal failed');
+        }
+        throw error;
+      }
+      if (this._running && !this._disposed) this._rafId = requestAnimationFrame(frame);
     };
     this._rafId = requestAnimationFrame(frame);
   }

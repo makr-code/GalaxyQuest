@@ -26,6 +26,10 @@ export async function createGameColonyZoom({ renderer, canvas, getCameraState, o
   let current = null;
   let approachPending = null;
   const levels = { system: 1, planet: 2, colony: 3, building: 5 };
+  function activeSurface() {
+    if (disposed || zoom._transition || ![levels.colony, levels.building].includes(zoom._activeLevel)) return null;
+    return zoom._active;
+  }
   class SharedSystemLevel {
     async initialize() {}
     async enter() {}
@@ -41,17 +45,20 @@ export async function createGameColonyZoom({ renderer, canvas, getCameraState, o
         return backend.addFrameHook((dt) => {
           if (disposed) return;
           try { hook(dt); } catch (error) {
-            backend.setZoomSceneActive(false);
-            zoom.dispose();
-            disposed = true;
-            if (window.__GQ_ZOOM_ORCHESTRATOR === zoom) delete window.__GQ_ZOOM_ORCHESTRATOR;
-            onReturn();
-            onError(error);
+            const errors = [error];
+            try { dispose(); } catch (cleanupError) { errors.push(cleanupError); }
+            try { onReturn(); } catch (returnError) { errors.push(returnError); }
+            const failure = errors.length === 1 ? error
+              : new AggregateError(errors, 'Colony rendering and recovery failed');
+            try { onError(failure); } catch (reportingError) {
+              throw new AggregateError([failure, reportingError], 'Colony failure reporting failed');
+            }
           }
         });
       },
     },
     getCameraState: () => getCameraState(),
+    onError: report,
   });
   zoom.register(levels.system, { webgpu: SharedSystemLevel });
   zoom.register(levels.planet, { webgpu: Planet });
@@ -61,16 +68,39 @@ export async function createGameColonyZoom({ renderer, canvas, getCameraState, o
     if (level === levels.system) onReturn();
     else onLevel(Object.keys(levels).find((key) => levels[key] === level));
   });
-  await zoom.initialize();
-  if (signal?.aborted) { zoom.dispose(); signal.throwIfAborted(); }
+  signal?.addEventListener('abort', abort, { once: true });
+  try {
+    await zoom.initialize();
+    signal?.throwIfAborted();
+  } catch (error) {
+    try { dispose(); } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Colony initialization and cleanup failed');
+    }
+    throw error;
+  }
   window.__GQ_ZOOM_ORCHESTRATOR = zoom;
+  function abort() {
+    try { dispose(); } catch (error) { onError(error); }
+  }
   function report(error) {
     if (!disposed && error.name !== 'AbortError') onError(error);
   }
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    signal?.removeEventListener('abort', abort);
+    revision++;
+    current = null;
+    approachPending = null;
+    try {
+      zoom.dispose();
+    } finally {
+      if (window.__GQ_ZOOM_ORCHESTRATOR === zoom) delete window.__GQ_ZOOM_ORCHESTRATOR;
+    }
+  }
   async function approach(data, from = null) {
-    if (disposed) return false;
+    if (disposed || zoom._transition) return false;
     const version = ++revision;
-    current = data;
     const pending = zoom.zoomTo(levels.planet, data, {
       skipCameraFlight: !from || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true,
       cameraFrom: from?.position, cameraTo: getCameraState().position, flyDuration: 1200,
@@ -79,6 +109,8 @@ export async function createGameColonyZoom({ renderer, canvas, getCameraState, o
     try { await pending; }
     finally { if (approachPending === pending) approachPending = null; }
     if (disposed || version !== revision) return false;
+    if (zoom._activeLevel !== levels.planet) return false;
+    current = data;
     return true;
   }
   return {
@@ -86,13 +118,14 @@ export async function createGameColonyZoom({ renderer, canvas, getCameraState, o
     async returnTo(level) {
       if (disposed || zoom._transition || !['colony', 'planet'].includes(level)) return false;
       const target = levels[level];
-      if (zoom._activeLevel < target) return false;
+      if (zoom._activeLevel == null || zoom._activeLevel < target) return false;
+      const version = ++revision;
       if (zoom._activeLevel === levels.building) await zoom.zoomTo(levels.colony, null);
-      if (disposed) return false;
+      if (disposed || version !== revision) return false;
       if (target === levels.planet && zoom._activeLevel === levels.colony) {
         await zoom.zoomTo(levels.planet, current, { skipCameraFlight: true });
       }
-      return !disposed && zoom._activeLevel === target;
+      return !disposed && version === revision && zoom._activeLevel === target;
     },
     async surface(loadData) {
       if (disposed) return false;
@@ -100,17 +133,19 @@ export async function createGameColonyZoom({ renderer, canvas, getCameraState, o
       const data = await loadData();
       if (disposed || version !== revision) return false;
       await approachPending;
-      if (disposed || version !== revision) return false;
+      if (disposed || version !== revision || zoom._transition) return false;
       if (zoom._activeLevel !== levels.planet) {
         await zoom.zoomTo(levels.planet, data, { skipCameraFlight: true });
-        if (disposed || version !== revision) return false;
+        if (disposed || version !== revision || zoom._activeLevel !== levels.planet) return false;
       }
-      current = data;
       await zoom.zoomTo(levels.colony, data);
-      return !disposed && version === revision;
+      if (disposed || version !== revision || zoom._activeLevel !== levels.colony) return false;
+      current = data;
+      return true;
     },
     back() {
-      if (disposed) return;
+      if (disposed || zoom._transition) return;
+      ++revision;
       if (zoom._activeLevel === levels.building) {
         void zoom.zoomTo(levels.colony, null).catch(report);
       } else if (zoom._activeLevel === levels.colony) {
@@ -120,16 +155,15 @@ export async function createGameColonyZoom({ renderer, canvas, getCameraState, o
       }
     },
     reset() {
-      zoom._active?.resetView?.();
+      activeSurface()?.resetView?.();
     },
-    rotateView: (dx, dy) => zoom._active?.rotateView?.(dx, dy),
-    panView: (dx, dy) => zoom._active?.panView?.(dx, dy),
-    zoomBy: (amount) => zoom._active?.zoomBy?.(amount),
-    selectAt: (x, y) => zoom._active?.selectAt?.(x, y),
-    nudgeZoom: (direction) => zoom._active?.nudgeZoom?.(direction),
+    rotateView: (dx, dy) => activeSurface()?.rotateView?.(dx, dy),
+    panView: (dx, dy) => activeSurface()?.panView?.(dx, dy),
+    zoomBy: (amount) => activeSurface()?.zoomBy?.(amount),
+    selectAt: (x, y) => activeSurface()?.selectAt?.(x, y),
+    nudgeZoom: (direction) => activeSurface()?.nudgeZoom?.(direction),
     refreshColony(colonyId) {
-      if (disposed || ![levels.colony, levels.building].includes(zoom._activeLevel)) return;
-      return zoom._active.refreshSnapshot(colonyId);
+      return activeSurface()?.refreshSnapshot(colonyId);
     },
     getStats() {
       const surface = zoom._activeLevel >= levels.colony ? zoom._active : null;
@@ -138,12 +172,6 @@ export async function createGameColonyZoom({ renderer, canvas, getCameraState, o
         snapshot: surface?._snapshotState || '', selected: surface?._selected?.type || null,
         target: surface?._camera?.target, orbit: surface?._orbit, span: surface?._camera?.span };
     },
-    dispose() {
-      if (disposed) return;
-      disposed = true;
-      revision++;
-      zoom.dispose();
-      if (window.__GQ_ZOOM_ORCHESTRATOR === zoom) delete window.__GQ_ZOOM_ORCHESTRATOR;
-    },
+    dispose,
   };
 }

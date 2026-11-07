@@ -1,27 +1,27 @@
 /**
- * CombatVfxBridge.js — Event producer that bridges fleet & combat game events
- * to the renderer's installation weapon-fire VFX pipeline.
+ * CombatVfxBridge.js — Bridges resolved battle summaries to renderer weapon VFX.
  *
- * Listens for fleet lifecycle events from two sources (in parallel):
+ * Listens for fleet lifecycle and resolved-battle events from two sources:
  *
  *   1. Window CustomEvents dispatched by the SSE handlers (legacy path):
  *      • gq:fleet-arrived           — fleet reached target
  *      • gq:fleet-incoming-attack   — enemy fleet inbound
  *      • gq:fleet-returning         — fleet returning home
+ *      • gq:battle-resolved         — server-resolved round summary
  *
  *   2. Engine EventBus events (canonical path, preferred when an EventBus is
  *      available).  Register a bus via CombatVfxBridge.connectEventBus(bus).
  *      • sse:fleet_arrived
  *      • sse:incoming_attack
  *      • sse:fleet_returning
+ *      • sse:battle_resolved
  *
- * When a combat situation is detected, produces a time-windowed burst of
- *   gq:combat:weapon-fire  CustomEvents consumed by Galaxy3DRenderer.
+ * Fleet lifecycle notifications are not rendered as weapon discharges. A
+ * resolved battle summary schedules bounded round cues using its fleet/body IDs.
+ * These cues visualize aggregate round pressure, not individual server shots.
  *
- * The renderer matches events by sourceOwner / sourceType / weaponKind — any
- * null field matches all entries in the current system.  A broadcast payload
- * (all nulls) fires every installation weapon in the currently viewed system,
- * which is what we want for system-level battles.
+ * The renderer matches explicit source and target IDs where provided; missing
+ * target identities do not authorize a substitute target.
  *
  * Registered in window.GQGalaxyEngineBridge under the key 'combat-vfx-bridge'.
  *
@@ -34,17 +34,12 @@
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Duration in ms that weapon-fire events are emitted after a fleet_arrived attack. */
+/** Maximum duration retained for manually requested battle FX. */
 const BATTLE_DURATION_MS  = 8_000;
 
-/** Interval in ms between individual weapon-fire event pulses during a battle. */
+/** Interval in ms between manually requested weapon-fire pulses. */
 const FIRE_INTERVAL_MS    = 380;
-
-/** Number of initial warning pulses dispatched on incoming_attack (pre-arrival alert). */
-const ALERT_PULSES        = 3;
-
-/** Delay between alert pulses in ms. */
-const ALERT_PULSE_DELAY   = 260;
+const ALERT_PULSES = 3;
 const MAX_ACTIVE_BATTLES = 32;
 const MAX_SEEN_EVENTS = 1024;
 const EVENT_RETENTION_MS = 10 * 60 * 1000;
@@ -130,10 +125,12 @@ class CombatVfxBridge {
     this._onFleetArrived        = this._onFleetArrived.bind(this);
     this._onIncomingAttack      = this._onIncomingAttack.bind(this);
     this._onFleetReturning      = this._onFleetReturning.bind(this);
+    this._onBattleResolved      = this._onBattleResolved.bind(this);
 
     window.addEventListener('gq:fleet-arrived',         this._onFleetArrived);
     window.addEventListener('gq:fleet-incoming-attack', this._onIncomingAttack);
     window.addEventListener('gq:fleet-returning',       this._onFleetReturning);
+    window.addEventListener('gq:battle-resolved',       this._onBattleResolved);
 
     /** @type {Array<Function>} EventBus unsubscribe callbacks */
     this._busUnsubs = [];
@@ -168,6 +165,7 @@ class CombatVfxBridge {
       bus.on('sse:fleet_arrived',   (data) => this._onFleetArrived({ detail: data })),
       bus.on('sse:incoming_attack', (data) => this._onIncomingAttack({ detail: data })),
       bus.on('sse:fleet_returning', (data) => this._onFleetReturning({ detail: data })),
+      bus.on('sse:battle_resolved', (data) => this._onBattleResolved({ detail: data })),
     );
   }
 
@@ -229,73 +227,51 @@ class CombatVfxBridge {
     const data    = ev?.detail ?? {};
     const mission = String(data.mission || '').toLowerCase();
     if (mission !== 'attack' && mission !== 'spy') return;
-    if (!this._acceptEvent('fleet_arrived', data)) return;
-
-    const attacker = String(data.attacker || data.owner || '');
-    const target   = String(data.target   || '');
-    const sourcePosition = this._deriveSourcePosition(data, ['targetPosition', 'target_position', 'position']);
-
-    if (mission === 'attack') {
-      const epoch = this._effectEpoch;
-      // Immediate opening salvo then sustained fire window
-      // Installations ($target system) fire defensively
-      this._dispatchWeaponFire({
-        sourceOwner: null,
-        sourceType: 'installation',
-        sourcePosition,
-        weaponKind: null,
-        ts: Date.now(),
-      });
-      if (epoch !== this._effectEpoch || this._reducedEffects()) return;
-      this._startBattleFx(attacker, target, BATTLE_DURATION_MS, sourcePosition, {
-        mission,
-        attacker,
-        target,
-        fleetId: data.fleet_id,
-      });
-    } else {
-      // Spy: one silent pulse (no visible weapon FX needed, but emit for any interest)
-      this._dispatchWeaponFire({
-        sourceOwner: null,
-        sourceType: 'installation',
-        sourcePosition,
-        weaponKind: 'beam',
-        ts: Date.now(),
-      });
-    }
+    this._acceptEvent('fleet_arrived', data);
   }
 
   _onIncomingAttack(ev) {
     const data    = ev?.detail ?? {};
     const mission = String(data.mission || '').toLowerCase();
-    // Raise alert-level weapon FX on defender installations (pre-battle warning)
-    if (mission === 'spy') return;   // spy → no visible weapons
-    if (!this._acceptEvent('incoming_attack', data)) return;
-    this._alertTimers ||= new Set();
-    if (this._alertTimers.size >= MAX_ACTIVE_BATTLES) return;
-    const sourcePosition = this._deriveSourcePosition(data, ['targetPosition', 'target_position', 'position']);
+    if (mission === 'spy') return;
+    this._acceptEvent('incoming_attack', data);
+  }
 
-    let sent = 0;
+  _onBattleResolved(ev) {
+    const data = ev?.detail ?? {};
+    if (!this._acceptEvent('battle_resolved', data) || this._reducedEffects()) return;
+
+    const fleetId = this._normalizeEntityId(data.fleet_id);
+    const targetPosition = this._normalizeSourcePosition(data.target_position);
+    const role = String(data.role || '').toLowerCase();
+    const rounds = Array.isArray(data.rounds) ? data.rounds.slice(0, 6) : [];
+    if (!fleetId || !targetPosition || !['attacker', 'defender'].includes(role) || !rounds.length) return;
+
+    this._alertTimers ||= new Set();
     const epoch = this._effectEpoch;
-    const dispatchPulse = () => {
-      if (this._destroyed || epoch !== this._effectEpoch || sent >= ALERT_PULSES) return;
-      this._dispatchWeaponFire({
-        sourceOwner: null,
-        sourceType: 'installation',
-        sourcePosition,
-        weaponKind: null,
-        ts: Date.now(),
-      });
-      sent += 1;
-      if (!this._destroyed && epoch === this._effectEpoch && sent < ALERT_PULSES && !this._reducedEffects()) {
-        const timer = window.setTimeout(() => {
-          this._alertTimers.delete(timer);
-          dispatchPulse();
-        }, ALERT_PULSE_DELAY);
-        this._alertTimers.add(timer);
-      }
-    };
-    dispatchPulse();
+    rounds.forEach((round, index) => {
+      if (this._alertTimers.size >= MAX_ACTIVE_BATTLES * 6) return;
+      const pressureKey = role === 'attacker' ? 'attacker_pressure' : 'defender_pressure';
+      if (!(Number(round?.[pressureKey]) > 0)) return;
+
+      const timer = window.setTimeout(() => {
+        this._alertTimers.delete(timer);
+        if (this._destroyed || epoch !== this._effectEpoch || document.visibilityState === 'hidden') return;
+        const attacking = role === 'attacker';
+        this._dispatchWeaponFire({
+          sourceType: attacking ? 'ship' : 'installation',
+          sourceFleetId: attacking ? fleetId : null,
+          targetFleetId: attacking ? null : fleetId,
+          sourcePosition: targetPosition,
+          targetSlotPosition: targetPosition,
+          weaponKind: attacking ? 'laser' : 'beam',
+          battleReportId: data.battle_report_id,
+          round: Number(round.round) || index + 1,
+          ts: Date.now(),
+        });
+      }, index * 520);
+      this._alertTimers.add(timer);
+    });
   }
 
   _onFleetReturning(ev) {
@@ -326,8 +302,8 @@ class CombatVfxBridge {
   // ---------------------------------------------------------------------------
 
   /**
-   * Begin emitting weapon-fire events at FIRE_INTERVAL_MS for durationMs.
-   * Alternates between installation and ship weapon fire for visual variety.
+   * Begin emitting diagnostic weapon-fire events for manual adapter requests.
+   * Normal battle visuals are driven by battle_resolved events.
    * @param {string} attacker
    * @param {string} target
    * @param {number} durationMs
@@ -363,6 +339,9 @@ class CombatVfxBridge {
       this._dispatchWeaponFire({
         sourceOwner: null,
         sourceType,
+        sourceFleetId: sourceType === 'ship' ? context?.fleetId ?? null : null,
+        targetFleetId: context?.targetFleetId ?? null,
+        targetPos: context?.targetPos ?? null,
         sourcePosition,
         weaponKind,
         ts: Date.now(),
@@ -412,8 +391,12 @@ class CombatVfxBridge {
    * @param {object} payload
    * @param {string|null}  [payload.sourceOwner]  - Owner name filter (null = all)
    * @param {string|null}  [payload.sourceType]   - Entity type filter: installation|ship|debris|wormhole|beacon|gate (null = all)
+   * @param {string|number|null} [payload.sourceFleetId] - Exact source fleet for ship fire
+   * @param {string|number|null} [payload.targetFleetId] - Exact fleet target, when applicable
    * @param {number|null}  [payload.sourcePosition] - Optional system slot position hint for renderer-side narrowing
    * @param {string|null}  [payload.weaponKind]   - Weapon kind filter: beam|plasma|rail|missile|null
+   * @param {number[]|null} [payload.targetPos] - Optional world-space target position
+   * @param {number|null} [payload.targetSlotPosition] - Exact system-body slot target
    * @param {number}       [payload.ts]           - Timestamp (defaults to Date.now())
    */
   _dispatchWeaponFire(payload = {}) {
@@ -421,6 +404,14 @@ class CombatVfxBridge {
     const detail = {
       sourceOwner:  payload.sourceOwner  ?? null,
       sourceType:   payload.sourceType   ?? null,
+      sourceFleetId: this._normalizeEntityId(payload.sourceFleetId ?? payload.sourceEntityId),
+      targetFleetId: this._normalizeEntityId(payload.targetFleetId ?? payload.targetEntityId),
+      targetPos:     payload.targetPos ?? payload.target_pos ?? null,
+      targetSlotPosition: this._normalizeSourcePosition(payload.targetSlotPosition),
+      battleReportId: this._normalizeEntityId(payload.battleReportId),
+      round: Number.isSafeInteger(Number(payload.round)) && Number(payload.round) > 0
+        ? Number(payload.round)
+        : null,
       sourcePosition: this._normalizeSourcePosition(payload.sourcePosition),
       weaponKind:   payload.weaponKind   ?? null,
       ts:           payload.ts           ?? Date.now(),
@@ -434,6 +425,13 @@ class CombatVfxBridge {
 
   _battleKey(attacker, target) {
     return `${attacker}→${target}`;
+  }
+
+  _normalizeEntityId(value) {
+    if (typeof value === 'number' && (!Number.isSafeInteger(value) || value < 0)) return null;
+    if ((typeof value !== 'string' && typeof value !== 'number') || String(value).length > 256) return null;
+    const id = String(value).trim();
+    return id ? id : null;
   }
 
   setVisualOptions(options = {}) {
@@ -602,6 +600,7 @@ class CombatVfxBridge {
     window.removeEventListener('gq:fleet-arrived',         this._onFleetArrived);
     window.removeEventListener('gq:fleet-incoming-attack', this._onIncomingAttack);
     window.removeEventListener('gq:fleet-returning',       this._onFleetReturning);
+    window.removeEventListener('gq:battle-resolved',       this._onBattleResolved);
 
     this._busUnsubs.forEach((off) => off());
     this._busUnsubs = [];

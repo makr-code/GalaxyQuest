@@ -15,6 +15,28 @@ afterEach(() => {
 });
 
 describe('read-only start flight tour', () => {
+  it('visits the requested homeworld outside the star sample and skips saved routes', async () => {
+    vi.useFakeTimers();
+    const showScene = vi.fn(() => true);
+    const navigateTo = vi.fn(async () => true);
+    const readResumeState = vi.fn();
+    const fetchImpl = vi.fn(async () => ({ ok: true, json: async () => ({
+      success: true, preview_only: true, system: target,
+      planets: [{ position: 1, can_colonize: true }, { position: 3, can_colonize: false }],
+    }) }));
+    const tour = createStartFlightTour({
+      getStars: () => [], showScene, navigateTo, fetchImpl, readResumeState,
+    });
+    expect(tour.visit({ ...target, position: 3 })).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(readResumeState).not.toHaveBeenCalled();
+    expect(fetchImpl.mock.calls[0][0]).toContain('galaxy=1&system=42');
+    expect(showScene.mock.calls.find(([scene]) => scene?.stage === 'planet')[0].draft.position.position).toBe(3);
+    expect(navigateTo).toHaveBeenCalledWith(
+      { kind: 'planet', position: 3 }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    tour.stop();
+    expect(tour.visit({ ...target, position: -1 })).toBe(false);
+  });
   it('resumes saved coordinates before selecting a DB target and persists only flight coordinates', async () => {
     vi.useFakeTimers();
     const savedState = { start: [1, 2, 3], destination: [10, 20, 30] };
@@ -24,6 +46,7 @@ describe('read-only start flight tour', () => {
     const writeFlightState = vi.fn();
     const clearFlightState = vi.fn();
     const navigateTo = vi.fn(() => new Promise((resolve) => { order.push('navigate'); order.resolve = resolve; }));
+    let flightCoordinates = { start: [2, 3, 4], destination: [10, 20, 30] };
     const tour = createStartFlightTour({
       getStars: () => [],
       showScene: (scene) => {
@@ -38,7 +61,7 @@ describe('read-only start flight tour', () => {
         expect(coordinates).toEqual(savedState);
         return true;
       },
-      getFlightCoordinates: () => ({ start: [2, 3, 4], destination: [10, 20, 30] }),
+      getFlightCoordinates: () => flightCoordinates,
       writeFlightState,
       clearFlightState,
       navigateTo,
@@ -57,8 +80,9 @@ describe('read-only start flight tour', () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(writeFlightState).toHaveBeenCalledTimes(2);
     order.resolve(true);
+    flightCoordinates = { start: [12, 23, 34], destination: [12, 23, 34] };
     await vi.advanceTimersByTimeAsync(0);
-    expect(writeFlightState).toHaveBeenLastCalledWith({ start: [10, 20, 30], destination: [10, 20, 30] });
+    expect(writeFlightState).toHaveBeenLastCalledWith({ start: [12, 23, 34], destination: [12, 23, 34] });
 
     tour.stop();
     expect(clearFlightState).toHaveBeenCalledOnce();
@@ -70,6 +94,7 @@ describe('read-only start flight tour', () => {
     const scenes = [];
     const status = vi.fn();
     const navigateTo = vi.fn(async () => true);
+    let targetReads = 0;
     const fetchImpl = vi.fn(async () => ({
       ok: true,
       json: async () => ({
@@ -95,7 +120,7 @@ describe('read-only start flight tour', () => {
       }),
     }));
     const tour = createStartFlightTour({
-      getStars: () => [target],
+      getStars: () => (targetReads++ === 0 ? [target] : []),
       showScene: (scene) => { scenes.push(scene); return true; },
       navigateTo,
       onStatus: status,
@@ -106,6 +131,8 @@ describe('read-only start flight tour', () => {
       systemDurationMs: 5,
       planetDurationMs: 5,
       surfaceDurationMs: 5,
+      orbitDurationMs: 5,
+      flybyDurationMs: 5,
       retryDelayMs: 5,
     });
 
@@ -117,12 +144,22 @@ describe('read-only start flight tour', () => {
       cache: 'no-store',
     }));
     expect(navigateTo).toHaveBeenCalledWith({ kind: 'system' }, expect.objectContaining({ durationMs: 5 }));
+    expect(navigateTo).toHaveBeenCalledWith({ kind: 'star' },
+      expect.objectContaining({ orbitDurationMs: 5 }));
     expect(navigateTo).toHaveBeenCalledWith({ kind: 'planet', position: 2 }, expect.any(Object));
     expect(navigateTo).toHaveBeenCalledWith({ kind: 'moon', position: 201, parentPosition: 2 }, expect.any(Object));
+    expect(navigateTo).toHaveBeenCalledWith({
+      kind: 'asteroid', bodyId: 'tour-asteroid:1:42:1', flyby: true,
+    }, expect.objectContaining({ durationMs: 5 }));
+    expect(navigateTo).toHaveBeenCalledWith({ kind: 'ship', id: 'tour-ship:1:42', flyby: true },
+      expect.objectContaining({ durationMs: 5 }));
     expect(scenes.map((scene) => scene?.stage)).toContain('region');
     expect(scenes.map((scene) => scene?.stage)).toContain('system');
     expect(scenes.map((scene) => scene?.stage)).toContain('planet');
     expect(scenes.map((scene) => scene?.stage)).toContain('moon');
+    expect(scenes.map((scene) => scene?.stage)).toContain('star');
+    expect(scenes.map((scene) => scene?.stage)).toContain('asteroid');
+    expect(scenes.map((scene) => scene?.stage)).toContain('ship');
     expect(scenes.map((scene) => scene?.stage)).toContain('surface');
     const surfaceScene = scenes.find((scene) => scene?.stage === 'surface');
     expect(surfaceScene.sceneGraph.type).toBe('galaxy');
@@ -130,7 +167,9 @@ describe('read-only start flight tour', () => {
     expect(surfaceScene.sceneGraph.children[0].children[1].children.map((node) => node.type))
       .toContain('facility');
     expect(surfaceScene.sceneGraph.children[0].children.map((node) => node.type))
-      .toEqual(expect.arrayContaining(['comet', 'rogue_planet', 'star-installation']));
+      .toEqual(expect.arrayContaining(['comet', 'rogue_planet', 'star-installation', 'asteroid', 'ship']));
+    expect(surfaceScene.sceneGraph.children[0].children.find((node) => node.type === 'ship').data)
+      .toMatchObject({ preview_only: true, space_entity: 'vessel', id: 'tour-ship:1:42' });
     expect(surfaceScene.sceneGraph.children[0].children[1].data.texture).toEqual({
       seed: 8123, variant: 'ocean', palette: { base: '#166a88', accent: '#62cde0' }, clouds: 0.7, atmosphere: 0.65,
     });
@@ -182,7 +221,7 @@ describe('read-only start flight tour', () => {
     expect(scenes.at(-1).stage).toBe('system');
     arrive(true);
     await vi.advanceTimersByTimeAsync(0);
-    expect(scenes.at(-1).stage).toBe('planet');
+    expect(scenes.at(-1).stage).toBe('star');
     tour.stop();
     arrive(false);
     await vi.advanceTimersByTimeAsync(0);

@@ -1,15 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Vector3 } from 'three';
+import { Object3D, Vector3 } from 'three';
 import { createGameGalaxyRenderer } from '../../js/rendering/game-galaxy-renderer.js';
-import { PerspectiveSpaceFlight } from '../../js/rendering/perspective-space-flight.js';
+import { AU_LY, PerspectiveSpaceFlight } from '../../js/rendering/perspective-space-flight.js';
 import { SpaceVesselRenderPass } from '../../js/rendering/space-vessel-render-pass.js';
 
 const star = { galaxy_index: 1, system_index: 10, x_ly: 23000, y_ly: 14000, z_ly: 100 };
 const payload = {
   galaxy: 1, system: 10, planets: [
     { position: 3, player_planet: { position: 3, name: 'Home', diameter_km: 12000, semi_major_axis_au: 1 } },
-    { position: 5, generated_planet: { position: 5, diameter_km: 16000, semi_major_axis_au: 2 } },
+    { position: 5, generated_planet: { position: 5, diameter_km: 16000, semi_major_axis_au: 2,
+      ring_system: { inner_radius_planet_r: 1.7, outer_radius_planet_r: 3.9,
+        optical_depth: 0.62, tilt_deg: 11, composition: 'water_ice' } } },
   ],
+  special_bodies: [{
+    id: 'g1-s10-asteroid-belt-3-5',
+    body_type: 'asteroid_belt',
+    seed: 725341,
+    inner_radius_au: 1.3,
+    outer_radius_au: 1.8,
+    semi_major_axis_au: 1.55,
+    inclination_deg: 2,
+    ascending_node_deg: 35,
+  }],
 };
 
 describe('Shared galaxy camera controls', () => {
@@ -82,6 +94,287 @@ describe('Shared galaxy camera controls', () => {
     adapter.setStars([star]);
     adapter.fitCameraToStars();
   });
+
+  it('returns to usable system controls when zoom runtime initialization fails', async () => {
+    adapter.enterSystemView(star, payload);
+    const failure = new Error('Zoom initialization failed');
+    options.createZoomRuntime.mockRejectedValueOnce(failure);
+    adapter.focusPlanet(3);
+    await vi.waitFor(() => expect(options.onError).toHaveBeenCalledWith(failure));
+    expect(state().level).toBe('system');
+    drag();
+    expect(state().level).toBe('system');
+  });
+
+  it('returns to system and permits a fresh colony runtime after a failed entry', async () => {
+    adapter.enterSystemView(star, payload);
+    adapter.focusPlanet(3);
+    await vi.waitFor(() => expect(options.createZoomRuntime).toHaveBeenCalledOnce());
+    const runtime = await options.createZoomRuntime.mock.results[0].value;
+    const failure = new Error('Colony entry failed');
+    runtime.getStats = () => ({ level: null });
+    runtime.surface.mockRejectedValueOnce(failure);
+    adapter.focusColony(3);
+    await vi.waitFor(() => expect(options.onError).toHaveBeenCalledWith(failure));
+    expect(state().level).toBe('system');
+    expect(runtime.dispose).toHaveBeenCalledOnce();
+    adapter.focusColony(3);
+    await vi.waitFor(() => expect(state().level).toBe('colony'));
+    expect(options.createZoomRuntime).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a usable planet view when colony data loading fails before transition', async () => {
+    adapter.enterSystemView(star, payload);
+    adapter.focusPlanet(3);
+    await vi.waitFor(() => expect(options.createZoomRuntime).toHaveBeenCalledOnce());
+    const runtime = await options.createZoomRuntime.mock.results[0].value;
+    runtime.getStats = () => ({ level: 2 });
+    const failure = new Error('Colony snapshot unavailable');
+    options.loadColonyData.mockRejectedValueOnce(failure);
+    adapter.focusColony(3);
+    await vi.waitFor(() => expect(options.onError).toHaveBeenCalledWith(failure));
+    expect(state().level).toBe('planet');
+    expect(runtime.dispose).not.toHaveBeenCalled();
+  });
+
+  it('restores system controls even if recovery disposal fails and reports both errors', async () => {
+    adapter.enterSystemView(star, payload);
+    adapter.focusPlanet(3);
+    await vi.waitFor(() => expect(options.createZoomRuntime).toHaveBeenCalledOnce());
+    const runtime = await options.createZoomRuntime.mock.results[0].value;
+    const failure = new Error('Colony entry failed');
+    const cleanupFailure = new Error('Zoom cleanup failed');
+    runtime.getStats = () => ({ level: null });
+    runtime.surface.mockRejectedValueOnce(failure);
+    runtime.dispose.mockImplementationOnce(() => { throw cleanupFailure; });
+    adapter.focusColony(3);
+    await vi.waitFor(() => expect(options.onError).toHaveBeenCalledOnce());
+    expect(options.onError.mock.calls[0][0]).toMatchObject({ errors: [failure, cleanupFailure] });
+    expect(state().level).toBe('system');
+  });
+
+  it('restores system after rejected ancestor navigation without hiding the caller error', async () => {
+    adapter.enterSystemView(star, payload);
+    adapter.focusColony(3);
+    await vi.waitFor(() => expect(state().level).toBe('colony'));
+    const runtime = await options.createZoomRuntime.mock.results[0].value;
+    const failure = new Error('Return transition failed');
+    runtime.getStats = () => ({ level: null });
+    runtime.returnTo.mockRejectedValueOnce(failure);
+    await expect(adapter.returnTo('planet')).rejects.toBe(failure);
+    expect(state().level).toBe('system');
+    expect(runtime.dispose).toHaveBeenCalledOnce();
+    expect(options.onError).not.toHaveBeenCalled();
+  });
+
+  it('does not reset a newer planet when an obsolete ancestor navigation rejects', async () => {
+    adapter.enterSystemView(star, payload);
+    adapter.focusColony(3);
+    await vi.waitFor(() => expect(state().level).toBe('colony'));
+    const runtime = await options.createZoomRuntime.mock.results[0].value;
+    let reject;
+    runtime.returnTo.mockImplementationOnce(() => new Promise((_resolve, rejectPromise) => { reject = rejectPromise; }));
+    const pending = adapter.returnTo('planet');
+    adapter.focusPlanet(5);
+    const failure = new Error('Obsolete return failed');
+    reject(failure);
+    await expect(pending).rejects.toBe(failure);
+    expect(state()).toMatchObject({ level: 'planet', planetPosition: 5 });
+    expect(options.onError).not.toHaveBeenCalled();
+  });
+
+  it('restores system controls for navigation errors reported by the current zoom runtime', async () => {
+    adapter.enterSystemView(star, payload);
+    adapter.focusColony(3);
+    await vi.waitFor(() => expect(state().level).toBe('colony'));
+    const runtime = await options.createZoomRuntime.mock.results[0].value;
+    runtime.getStats = () => ({ level: null });
+    const failure = new Error('Surface back navigation failed');
+    options.createZoomRuntime.mock.calls[0][0].onError(failure);
+    expect(state().level).toBe('system');
+    expect(options.onError).toHaveBeenCalledExactlyOnceWith(failure);
+    expect(runtime.dispose).toHaveBeenCalledOnce();
+  });
+
+  describe('spatial tour camera maneuvers', () => {
+    let space;
+
+    beforeEach(() => {
+      space = new PerspectiveSpaceFlight();
+    });
+
+    afterEach(() => {
+      space.dispose();
+    });
+
+    function addBody(type, position, radius, data = {}) {
+      const body = new Object3D();
+      body.position.copy(position);
+      body.userData = { type, data, radius };
+      space.root.add(body);
+      space.bodies.push(body);
+      return body;
+    }
+
+    it('completes a damped approach before circling the target', async () => {
+      const focus = new Vector3();
+      addBody('planet', focus, 1e-5, { position: 1 });
+      space.camera.position.set(0.002, -0.001, 0.0007);
+      space.camera.lookAt(focus);
+      space.camera.updateMatrixWorld(true);
+
+      const navigation = space.navigate({ kind: 'planet', position: 1 },
+        { durationSec: 4, orbitDurationSec: 1 });
+      let sawOrbit = false;
+      let orbitStart = null;
+      let orbitEnd = null;
+      for (let frame = 0; frame < 10000 && space.flight; frame += 1) {
+        space.update(0.05);
+        if (space.telemetry.phase === 'orbit') {
+          sawOrbit = true;
+          const position = space.camera.position.clone();
+          orbitStart ||= position;
+          orbitEnd = position;
+        }
+      }
+
+      await expect(navigation).resolves.toBe(true);
+      expect(sawOrbit).toBe(true);
+      expect(orbitStart.distanceTo(orbitEnd)).toBeGreaterThan(1e-5);
+      expect(space.telemetry.arrived).toBe(true);
+      const persisted = space.getFlightCoordinates();
+      expect(persisted.destination).toEqual(persisted.start);
+      expect(persisted.start).toEqual(space.camera.position.clone().add(space.origin).toArray());
+
+      const positionBeforeNextFlight = space.camera.position.clone();
+      const absoluteTarget = positionBeforeNextFlight.clone().add(space.origin).add(new Vector3(1e-4, 0, 0));
+      const nextFlight = space.navigate({
+        kind: 'point',
+        x_ly: absoluteTarget.x,
+        y_ly: absoluteTarget.y,
+        z_ly: absoluteTarget.z,
+      }, { durationSec: 4 });
+      expect(space.camera.position.equals(positionBeforeNextFlight)).toBe(true);
+      space.stop();
+      await expect(nextFlight).resolves.toBe(false);
+    });
+
+    it('sets asteroid fly-bys on a lateral pass beyond the body instead of a stationary orbit', () => {
+      const body = addBody('asteroid', new Vector3(), 1e-8, { body_id: 'preview-asteroid' });
+      space.camera.position.set(1e-4, 0, 0);
+      const direct = space.resolveTarget({ kind: 'asteroid', bodyId: 'preview-asteroid' });
+      const flyby = space.resolveTarget({ kind: 'asteroid', bodyId: 'preview-asteroid', flyby: true });
+
+      expect(direct).not.toBeNull();
+      expect(flyby).not.toBeNull();
+      expect(flyby.destination.distanceTo(body.position)).toBeGreaterThan(direct.destination.distanceTo(body.position));
+      expect(Math.abs(flyby.destination.y)).toBeGreaterThan(0);
+    });
+
+    it('frames large bodies with a bounded apparent size', () => {
+      const body = addBody('planet', new Vector3(), 100, { position: 1 });
+      space.camera.position.set(0, -1000, 400);
+      const target = space.resolveTarget({ kind: 'planet', position: 1 }, { safeFraming: true });
+      const apparentRadius = (body.userData.radius * 1.12)
+        / Math.sqrt(target.destination.distanceToSquared(body.position) - body.userData.radius ** 2)
+        / Math.tan(space.camera.fov * Math.PI / 360);
+
+      expect(apparentRadius).toBeLessThanOrEqual(0.241);
+      expect(target.destination.distanceTo(body.position)).toBeGreaterThan(body.userData.radius * 3);
+    });
+
+    it('routes point flights around bodies on the direct path', () => {
+      const obstacles = [
+        addBody('asteroid', new Vector3(-2, 0, 0), 0.8),
+        addBody('planet', new Vector3(3, 0, 0), 1),
+      ];
+      space.camera.position.set(-10, 0, 0);
+      const navigation = space.navigate({ kind: 'point', x_ly: 10, y_ly: 0, z_ly: 0 });
+      const waypoints = [space.camera.position.clone(), ...space.flight.waypoints];
+
+      expect(waypoints.length).toBeGreaterThan(2);
+      for (let segment = 0; segment < waypoints.length - 1; segment += 1) {
+        for (let sample = 0; sample <= 20; sample += 1) {
+          const point = waypoints[segment].clone().lerp(waypoints[segment + 1], sample / 20);
+          for (const obstacle of obstacles) {
+            expect(point.distanceTo(obstacle.position)).toBeGreaterThanOrEqual(obstacle.userData.radius * 1.08);
+          }
+        }
+      }
+
+      space.stop();
+      return expect(navigation).resolves.toBe(false);
+    });
+
+    it('loads tour-only asteroids and resolves the explicitly previewed ship as a target', () => {
+      const position = { x_ly: 20.25, y_ly: 4.5, z_ly: -2 };
+      vi.spyOn(space, 'registerSpaceEntity').mockImplementation(async (descriptor) => {
+        const [x, y, z] = descriptor.route[0].map(Number);
+        space.spaceEntities.set(descriptor.id, {
+          id: descriptor.id,
+          kind: 'vessel',
+          position: new Vector3(x, y, z),
+          scale: descriptor.visual_scale_ly,
+        });
+        return true;
+      });
+      const ship = {
+        id: 'tour-ship:1:42',
+        preview_only: true,
+        route: [[position.x_ly, position.y_ly, position.z_ly], [position.x_ly, position.y_ly, position.z_ly]],
+        visual_scale_ly: 1e-8,
+      };
+      const scene = {
+        flightTour: true,
+        sceneGraph: { children: [{
+          type: 'system',
+          data: { galaxy_index: 1, system_index: 42, ...position },
+          children: [
+            { type: 'asteroid', data: { body_id: 'tour-asteroid', diameter_km: 10, local_x: 3 }, children: [] },
+            { type: 'ship', data: ship, children: [] },
+          ],
+        }] },
+      };
+
+      expect(space.setSystem(scene)).toBe(true);
+      expect(space.bodies.some((body) => body.userData.type === 'asteroid')).toBe(true);
+      expect(space.resolveTarget({ kind: 'ship', id: ship.id, flyby: true })).not.toBeNull();
+    });
+
+    it('loads valid generated ring parameters into the active WebGPU system scene', () => {
+      space.setSystem({
+        sceneGraph: { children: [{
+          type: 'system',
+          data: { galaxy_index: 1, system_index: 4, x_ly: 0, y_ly: 0, z_ly: 0, radius_solar: 1 },
+          children: [{
+            type: 'planet',
+            data: {
+              position: 2,
+              diameter_km: 12000,
+              semi_major_axis_au: 2,
+              ring_system: {
+                inner_radius_planet_r: 1.7,
+                outer_radius_planet_r: 3.9,
+                optical_depth: 0.62,
+                tilt_deg: 11,
+                composition: 'water_ice',
+              },
+            },
+            children: [],
+          }],
+        }] },
+      });
+
+      const planet = space.bodies.find((body) => body.userData.type === 'planet');
+      expect(planet.userData.ringSystem).toMatchObject({
+        innerRadius: 1.7,
+        outerRadius: 3.9,
+        opticalDepth: 0.62,
+        composition: 'water_ice',
+      });
+      expect(planet.userData.ringSystem.tiltRad).toBeCloseTo(11 * Math.PI / 180);
+    });
+  });
   afterEach(() => {
     adapter.destroy();
     space.dispose();
@@ -89,6 +382,24 @@ describe('Shared galaxy camera controls', () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     document.body.replaceChildren();
+  });
+  it.each(['Escape', 'Backspace', 'Home', '+', '-', 'ArrowLeft'])('ignores composing and already-handled %s camera keys', (key) => {
+    adapter.enterSystemView(star, payload);
+    advanceFlight();
+    const before = state();
+    const view = adapter.getRenderStats().viewLevel;
+    options.onViewChange.mockClear();
+    options.onOverview.mockClear();
+    for (const composing of [true, false]) {
+      const event = new KeyboardEvent('keydown', { key, cancelable: true, isComposing: composing });
+      if (!composing) event.preventDefault();
+      canvas.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(!composing);
+      expect(state()).toEqual(before);
+      expect(adapter.getRenderStats().viewLevel).toBe(view);
+      expect(options.onViewChange).not.toHaveBeenCalled();
+      expect(options.onOverview).not.toHaveBeenCalled();
+    }
   });
   it('rotates around the target, pans target and eye together, and never selects a dragged object', () => {
     const before = state();
@@ -139,6 +450,104 @@ describe('Shared galaxy camera controls', () => {
     adapter.destroy();
     expect(frameHooks.size).toBe(0);
   });
+  it('invalidates captured endpoint projections after remove fails', () => {
+    const failure = new Error('Endpoint hook removal failed');
+    let attempts = 0;
+    raw.getSharedZoomBackend = () => ({
+      addFrameHook(hook) {
+        frameHooks.add(hook);
+        return () => {
+          attempts++;
+          if (attempts === 1) throw failure;
+          frameHooks.delete(hook);
+        };
+      },
+    });
+    const onProjection = vi.fn();
+    const remove = adapter.observeFleetEndpoints(() => [{ id: 1 }], onProjection);
+    const frame = [...frameHooks][0];
+    onProjection.mockClear();
+    expect(() => remove()).toThrow(failure);
+    expect(frameHooks.has(frame)).toBe(true);
+    frame();
+    expect(onProjection).not.toHaveBeenCalled();
+    expect(() => remove()).not.toThrow();
+    expect(frameHooks.has(frame)).toBe(false);
+    expect(attempts).toBe(2);
+  });
+  it('invalidates all captured endpoint callbacks before destroy cleanup', () => {
+    const onProjection = vi.fn();
+    adapter.observeFleetEndpoints(() => [{ id: 1 }], onProjection);
+    const frame = [...frameHooks][0];
+    onProjection.mockClear();
+    adapter.destroy();
+    frame();
+    expect(onProjection).not.toHaveBeenCalled();
+  });
+  it('releases endpoint frame hooks when the initial projection callback throws', () => {
+    const failure = new Error('Initial endpoint callback failed');
+    const onProjection = vi.fn(() => { throw failure; });
+    expect(() => adapter.observeFleetEndpoints(() => [], onProjection)).toThrow(failure);
+    expect(frameHooks.size).toBe(0);
+    adapter.destroy();
+  });
+  it('retries failed observer cleanup on repeated destroy without reviving callbacks', () => {
+    let attempts = 0;
+    raw.getSharedZoomBackend = () => ({
+      addFrameHook(hook) {
+        frameHooks.add(hook);
+        return () => {
+          if (++attempts === 1) throw new Error('Temporary hook removal failure');
+          frameHooks.delete(hook);
+        };
+      },
+    });
+    const projection = vi.fn();
+    adapter.observeFleetEndpoints(() => [], projection);
+    const frame = [...frameHooks][0];
+    projection.mockClear();
+    expect(() => adapter.destroy()).toThrow(AggregateError);
+    expect(frameHooks.has(frame)).toBe(true);
+    frame();
+    expect(projection).not.toHaveBeenCalled();
+    expect(() => adapter.destroy()).not.toThrow();
+    expect(frameHooks.has(frame)).toBe(false);
+    expect(attempts).toBe(2);
+  });
+  it('disables a failing per-frame projection and reports it only once', () => {
+    const failure = new Error('Endpoint projection failed');
+    let removes = 0;
+    let fail = false;
+    const onProjection = vi.fn(() => { if (fail) throw failure; });
+    raw.getSharedZoomBackend = () => ({
+      addFrameHook(hook) {
+        frameHooks.add(hook);
+        return () => { removes++; frameHooks.delete(hook); };
+      },
+    });
+    const remove = adapter.observeFleetEndpoints(() => [], onProjection);
+    onProjection.mockClear();
+    const frame = [...frameHooks][0];
+    fail = true;
+    frame();
+    frame();
+    expect(onProjection).toHaveBeenCalledOnce();
+    expect(options.onError).toHaveBeenCalledOnce();
+    expect(options.onError).toHaveBeenCalledWith(failure);
+    expect(removes).toBe(1);
+    expect(frameHooks.size).toBe(0);
+    expect(() => remove()).not.toThrow();
+    adapter.destroy();
+  });
+  it('does not publish an initial projection when hook installation disposes the adapter', () => {
+    const onProjection = vi.fn();
+    raw.getSharedZoomBackend = () => ({
+      addFrameHook(hook) { adapter.destroy(); return () => frameHooks.delete(hook); },
+    });
+    expect(() => adapter.observeFleetEndpoints(() => [], onProjection)).not.toThrow();
+    expect(onProjection).not.toHaveBeenCalled();
+    expect(frameHooks.size).toBe(0);
+  });
   it('switches spatial labels and routes HTML badge activation through existing galaxy actions', () => {
     expect(adapter.setSpatialLabelMode('dom')).toBe(true);
     expect(raw.setSpatialLabelMode).toHaveBeenCalledWith('dom');
@@ -159,6 +568,68 @@ describe('Shared galaxy camera controls', () => {
     callbacks.onDoubleActivate({ kind: 'system', data: nextStar });
     expect(options.onDoubleClick).toHaveBeenCalledExactlyOnceWith(nextStar);
   });
+  it.each([0, 1, 2])('normalizes badge wheel mode %s like the canvas and zooms toward the labelled star', (deltaMode) => {
+    const callbacks = raw.setSpatialLabelCallbacks.mock.calls[0][0];
+    const before = state();
+    const deltaY = deltaMode === 0 ? -48 : deltaMode === 1 ? -3 : -0.08;
+    const event = new WheelEvent('wheel', { deltaY, deltaMode, cancelable: true });
+    callbacks.onWheel({ kind: 'system', data: star }, event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(state().distance / before.distance).toBeCloseTo(Math.exp(-48 * 0.0022));
+    expect(state().target).toEqual([star.x_ly, star.y_ly, star.z_ly]);
+    expect(options.onClick).not.toHaveBeenCalled();
+  });
+  it('uses the badge planet rather than screen picking and zooms through to its colony', async () => {
+    adapter.enterSystemView(star, payload);
+    const callbacks = raw.setSpatialLabelCallbacks.mock.calls[0][0];
+    const label = { kind: 'planet', data: { position: 3 } };
+    const body = space.bodies.find((entry) => entry.userData.data.position === 3);
+    const event = new WheelEvent('wheel', { deltaY: -800, clientX: -5000, clientY: -5000, cancelable: true });
+    callbacks.onWheel(label, event);
+    expect(state().planetPosition).toBe(3);
+    expect(state().target).toEqual(body.getWorldPosition(new Vector3()).toArray());
+    for (let index = 0; index < 30 && state().level !== 'colony'; index++) {
+      callbacks.onWheel(label, event);
+      await Promise.resolve();
+    }
+    await vi.waitFor(() => expect(state().level).toBe('colony'));
+    expect(options.loadColonyData).toHaveBeenCalledOnce();
+    const runtime = await options.createZoomRuntime.mock.results[0].value;
+    callbacks.onWheel(label, new WheelEvent('wheel', { deltaY: 100 }));
+    expect(runtime.nudgeZoom).toHaveBeenLastCalledWith('out');
+    adapter.destroy();
+    runtime.nudgeZoom.mockClear();
+    callbacks.onWheel(label, event);
+    expect(runtime.nudgeZoom).not.toHaveBeenCalled();
+    expect(options.onError).not.toHaveBeenCalled();
+  });
+  it('does not zoom for a horizontal-only wheel event on a badge', () => {
+    const before = state();
+    raw.setSpatialLabelCallbacks.mock.calls[0][0].onWheel({ kind: 'system', data: star },
+      new WheelEvent('wheel', { deltaX: 100 }));
+    expect(state()).toEqual(before);
+  });
+  it('routes badge hover to loaded system planets only and clears it on leave', () => {
+    const callbacks = raw.setSpatialLabelCallbacks.mock.calls[0][0];
+    callbacks.onHover({ kind: 'planet', data: { position: 3 } });
+    expect(raw.setFlightHover).toHaveBeenLastCalledWith(null);
+    adapter.enterSystemView(star, payload);
+    callbacks.onHover({ kind: 'planet', data: { position: 3 } });
+    expect(raw.setFlightHover).toHaveBeenLastCalledWith({ kind: 'planet', position: 3 });
+    callbacks.onHover(null);
+    expect(raw.setFlightHover).toHaveBeenLastCalledWith(null);
+    callbacks.onHover({ kind: 'system', data: star });
+    expect(raw.setFlightHover).toHaveBeenLastCalledWith(null);
+    callbacks.onHover({ kind: 'planet', data: { position: 99 } });
+    expect(raw.setFlightHover).toHaveBeenLastCalledWith(null);
+    adapter.focusPlanet(3);
+    callbacks.onHover({ kind: 'planet', data: { position: 3 } });
+    expect(raw.setFlightHover).toHaveBeenLastCalledWith(null);
+    adapter.destroy();
+    raw.setFlightHover.mockClear();
+    callbacks.onHover(null);
+    expect(raw.setFlightHover).not.toHaveBeenCalled();
+  });
   it('uses the loaded planet habitation state for repeated badge navigation into a colony', async () => {
     adapter.enterSystemView(star, payload);
     const callbacks = raw.setSpatialLabelCallbacks.mock.calls[0][0];
@@ -169,6 +640,62 @@ describe('Shared galaxy camera controls', () => {
     await vi.waitFor(() => expect(state().level).toBe('colony'));
     expect(options.loadColonyData).toHaveBeenCalledOnce();
     expect(options.onError).not.toHaveBeenCalled();
+  });
+  it('passes generated ring profiles from the in-game system payload to the active WebGPU scene', () => {
+    adapter.enterSystemView(star, payload);
+
+    const scene = raw.setFlightScene.mock.calls
+      .map(([value]) => value)
+      .find((value) => value.stage === 'system');
+    const systemNode = scene.sceneGraph.children[0];
+    const planetNode = systemNode.children.find((node) => node.type === 'planet' && node.data.position === 5);
+    const planetBody = space.bodies.find((body) => body.userData.type === 'planet'
+      && body.userData.data.position === 5);
+
+    expect(planetNode.data.ring_system).toEqual(payload.planets[1].generated_planet.ring_system);
+    expect(planetBody.userData.ringSystem).toMatchObject({
+      innerRadius: 1.7,
+      outerRadius: 3.9,
+      opticalDepth: 0.62,
+      tiltRad: expect.closeTo(11 * Math.PI / 180),
+      composition: 'water_ice',
+    });
+  });
+  it('passes deterministically generated asteroid belts through the in-game WebGPU scene with a bounded particle budget', () => {
+    adapter.enterSystemView(star, payload);
+
+    const scene = raw.setFlightScene.mock.calls
+      .map(([value]) => value)
+      .find((value) => value.stage === 'system');
+    const beltNode = scene.sceneGraph.children[0].children.find((node) => node.type === 'asteroid_belt');
+    const [belt] = space.asteroidBelts;
+    const firstParticlePositions = belt.particles.map((particle) => particle.position.toArray());
+
+    expect(beltNode.data).toEqual(payload.special_bodies[0]);
+    expect(belt.particles).toHaveLength(512);
+    expect(space.asteroidBelts.reduce((total, entry) => total + entry.particles.length, 0)).toBeLessThanOrEqual(512);
+    for (const particle of belt.particles) {
+      const radiusAu = particle.position.length() / AU_LY;
+      expect(radiusAu).toBeGreaterThanOrEqual(payload.special_bodies[0].inner_radius_au);
+      expect(radiusAu).toBeLessThanOrEqual(payload.special_bodies[0].outer_radius_au);
+    }
+
+    space.setSystem(scene);
+    expect(space.asteroidBelts[0].particles.map((particle) => particle.position.toArray()))
+      .toEqual(firstParticlePositions);
+    expect(space._asteroidBeltLodCount(belt)).toBe(512);
+
+    space.camera.position.set(80 * AU_LY, 0, 0);
+    expect(space._asteroidBeltLodCount(belt)).toBeLessThan(512);
+
+    const overBudgetScene = structuredClone(scene);
+    overBudgetScene.sceneGraph.children[0].children.push(...[2, 3, 4].map((index) => ({
+      type: 'asteroid_belt',
+      data: { ...payload.special_bodies[0], id: `extra-belt-${index}`, seed: index },
+    })));
+    space.setSystem(overBudgetScene);
+    expect(space.asteroidBelts).toHaveLength(2);
+    expect(space.asteroidBelts.reduce((total, entry) => total + entry.particles.length, 0)).toBe(512);
   });
   it('sets and clears the system planet selection marker from canvas clicks', () => {
     adapter.enterSystemView(star, payload);
@@ -347,6 +874,48 @@ describe('Shared galaxy camera controls', () => {
     advanceFlight();
     expect(state()).toEqual(stopped);
   });
+  it('invalidates captured camera frames when navigation supersedes them', () => {
+    window.matchMedia.mockReturnValue({ matches: false });
+    adapter.enterSystemView(star, payload);
+    const retiredFrame = [...frameHooks][0];
+    expect(retiredFrame).toBeTypeOf('function');
+    adapter.enterSystemView({ ...star, system_index: 11 }, { ...payload, system: 11 });
+    const afterReplacement = state();
+    retiredFrame(0.5);
+    expect(state()).toEqual(afterReplacement);
+    expect(frameHooks.size).toBe(1);
+    adapter.destroy();
+  });
+  it('invalidates a camera frame even when its remover throws during destroy', () => {
+    window.matchMedia.mockReturnValue({ matches: false });
+    const failure = new Error('Camera hook removal failed');
+    raw.getSharedZoomBackend = () => ({
+      addFrameHook(hook) { frameHooks.add(hook); return () => { throw failure; }; },
+    });
+    adapter.enterSystemView(star, payload);
+    const retiredFrame = [...frameHooks][0];
+    const before = state();
+    expect(() => adapter.destroy()).toThrow(AggregateError);
+    expect(state().transitioning).toBe(false);
+    retiredFrame(0.5);
+    expect(state()).toEqual({ ...before, transitioning: false });
+  });
+  it('removes a failed camera frame and reports its error before continuing', () => {
+    window.matchMedia.mockReturnValue({ matches: false });
+    const failure = new Error('Camera pose callback failed');
+    let fail = false;
+    options.onViewChange.mockImplementation(() => { if (fail) throw failure; });
+    adapter.enterSystemView(star, payload);
+    const frame = [...frameHooks][0];
+    fail = true;
+    frame(0.1);
+    expect(frameHooks.size).toBe(0);
+    expect(options.onError).toHaveBeenCalledOnce();
+    expect(options.onError).toHaveBeenCalledWith(failure);
+    const afterFailure = state();
+    frame(0.1);
+    expect(state()).toEqual(afterFailure);
+  });
   it('zooms relative to an off-origin planet, clamps before its surface and maintains finite orbit poses', () => {
     adapter.enterSystemView(star, payload);
     adapter.focusPlanet(3);
@@ -499,6 +1068,42 @@ describe('Shared galaxy camera controls', () => {
     expect(runtime.approach).not.toHaveBeenCalled();
     expect(options.onError).not.toHaveBeenCalled();
     expect(entry.signal.aborted).toBe(true);
+  });
+  it('attempts every view cleanup after observer and zoom failures and releases mouse capture', async () => {
+    adapter.enterSystemView(star, payload);
+    adapter.focusPlanet(3);
+    await vi.waitFor(() => expect(options.createZoomRuntime).toHaveBeenCalledOnce());
+    const runtime = await options.createZoomRuntime.mock.results[0].value;
+    await vi.waitFor(() => expect(runtime.approach).toHaveBeenCalledOnce());
+    const zoomFailure = new Error('Zoom cleanup failed');
+    const observerFailure = new Error('Observer cleanup failed');
+    let removeAttempts = 0;
+    runtime.dispose.mockImplementation(() => { throw zoomFailure; });
+    raw.getSharedZoomBackend = () => ({
+      addFrameHook: (hook) => {
+        frameHooks.add(hook);
+        return () => {
+          if (++removeAttempts === 1) throw observerFailure;
+          frameHooks.delete(hook);
+        };
+      },
+    });
+    const remove = adapter.observeFleetEndpoints(() => [], vi.fn());
+    pointer('pointerdown', 400, 300);
+    canvas.hasPointerCapture = vi.fn(() => true);
+
+    let failure;
+    try { adapter.destroy(); } catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect(failure.errors).toEqual([observerFailure, zoomFailure]);
+    expect(raw.setSpatialLabelCallbacks).toHaveBeenLastCalledWith(null);
+    expect(canvas.releasePointerCapture).toHaveBeenCalledExactlyOnceWith(1);
+    expect(window.GQAuthGalaxyBackgroundControl.returnToMenu).toHaveBeenCalledOnce();
+    expect(raw.setGalaxyFleets).toHaveBeenLastCalledWith([]);
+    expect(() => remove()).not.toThrow();
+    expect(frameHooks.size).toBe(0);
+    expect(() => adapter.destroy()).not.toThrow();
+    expect(runtime.dispose).toHaveBeenCalledOnce();
   });
   it('cancels the old planet approach when another canonical planet is selected', async () => {
     let complete;

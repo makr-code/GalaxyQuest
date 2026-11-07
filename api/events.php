@@ -98,6 +98,7 @@ $snapshot = [
     'return_fleet_ids'  => [],   // pending return fleet IDs
     'warned_attacks'    => [],   // incoming attack fleet IDs already notified
     'world_event_ids'   => [],   // world event IDs already pushed via SSE
+    'battle_report_id'  => 0,    // newest battle report seen when this stream starts
 ];
 
 $db = get_db();
@@ -112,6 +113,18 @@ function sse_event(string $type, array $data): void {
 function sse_ping(): void {
     echo ": ping\n\n";
     flush();
+}
+
+function events_battle_reports_have_fleet_link(PDO $db): bool {
+    $stmt = $db->prepare(
+        'SELECT COUNT(*)
+           FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = ?
+            AND COLUMN_NAME = ?'
+    );
+    $stmt->execute(['battle_reports', 'fleet_id']);
+    return (int)$stmt->fetchColumn() > 0;
 }
 
 // ─── Initial snapshots ────────────────────────────────────────────────────
@@ -136,6 +149,17 @@ try {
     );
     $stmt->execute([$uid]);
     $snapshot['return_fleet_ids'] = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'id');
+
+    $hasBattleFleetLink = events_battle_reports_have_fleet_link($db);
+    if ($hasBattleFleetLink) {
+        $stmt = $db->prepare(
+            'SELECT COALESCE(MAX(id), 0)
+               FROM battle_reports
+              WHERE attacker_id = ? OR defender_id = ?'
+        );
+        $stmt->execute([$uid, $uid]);
+        $snapshot['battle_report_id'] = (int)$stmt->fetchColumn();
+    }
 } catch (Throwable $e) {
     sse_event('error', ['message' => 'Snapshot init failed']);
     exit;
@@ -212,6 +236,57 @@ while (true) {
                 );
                 // Add to return fleet watch if it will return
                 $snapshot['return_fleet_ids'][] = (int)$fleet['id'];
+            }
+        }
+
+        if ($hasBattleFleetLink) {
+            $stmt = $db->prepare(
+                'SELECT br.id, br.fleet_id, br.body_id, br.report_json,
+                        cb.galaxy_index, cb.system_index, cb.position,
+                        CASE WHEN br.attacker_id = ? THEN \'attacker\' ELSE \'defender\' END AS role
+                   FROM battle_reports br
+                   LEFT JOIN celestial_bodies cb ON cb.id = br.body_id
+                  WHERE (br.attacker_id = ? OR br.defender_id = ?)
+                    AND br.id > ?
+                  ORDER BY br.id ASC
+                  LIMIT 20'
+            );
+            $stmt->execute([$uid, $uid, $uid, $snapshot['battle_report_id']]);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $battle) {
+                $reportId = (int)$battle['id'];
+                $snapshot['battle_report_id'] = max($snapshot['battle_report_id'], $reportId);
+                $fleetId = (int)($battle['fleet_id'] ?? 0);
+                if ($fleetId <= 0) {
+                    continue;
+                }
+
+                $report = json_decode((string)($battle['report_json'] ?? '{}'), true);
+                $rawRounds = is_array($report) && is_array($report['rounds'] ?? null)
+                    ? $report['rounds']
+                    : [];
+                $rounds = [];
+                foreach (array_slice($rawRounds, 0, 6) as $round) {
+                    if (!is_array($round)) {
+                        continue;
+                    }
+                    $rounds[] = [
+                        'round' => max(0, (int)($round['round'] ?? 0)),
+                        'attacker_pressure' => max(0.0, (float)($round['attacker_pressure'] ?? 0)),
+                        'defender_pressure' => max(0.0, (float)($round['defender_pressure'] ?? 0)),
+                    ];
+                }
+
+                sse_event('battle_resolved', [
+                    'event_id' => 'battle-report:' . $reportId,
+                    'battle_report_id' => $reportId,
+                    'fleet_id' => $fleetId,
+                    'body_id' => $battle['body_id'] === null ? null : (int)$battle['body_id'],
+                    'target_galaxy' => $battle['galaxy_index'] === null ? null : (int)$battle['galaxy_index'],
+                    'target_system' => $battle['system_index'] === null ? null : (int)$battle['system_index'],
+                    'target_position' => $battle['position'] === null ? null : (int)$battle['position'],
+                    'role' => (string)$battle['role'],
+                    'rounds' => $rounds,
+                ]);
             }
         }
 
@@ -322,8 +397,10 @@ while (true) {
                     }
                 }
             }
-        } catch (Throwable) {
-            // active_world_events table may not exist yet – skip silently
+        } catch (PDOException $error) {
+            if ($error->getCode() !== '42S02') {
+                throw $error;
+            }
         }
 
     } catch (Throwable $e) {

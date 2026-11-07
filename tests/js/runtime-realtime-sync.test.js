@@ -124,6 +124,26 @@ describe('RuntimeRealtimeSync — EventBus: sse:fleet_returning', () => {
   });
 });
 
+describe('RuntimeRealtimeSync — EventBus: sse:battle_resolved', () => {
+  it('forwards authoritative battle summaries to the window and EventBus', () => {
+    const bus = makeMockBus();
+    const { fakeEs, dispatched } = loadAndSetup({ eventBus: bus });
+    const payload = {
+      battle_report_id: 42,
+      fleet_id: 17,
+      role: 'attacker',
+      rounds: [{ round: 1, attacker_pressure: 100, defender_pressure: 80 }],
+    };
+
+    fakeEs.emit('battle_resolved', payload);
+
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0].type).toBe('gq:battle-resolved');
+    expect(dispatched[0].detail).toMatchObject(payload);
+    expect(bus.emit).toHaveBeenCalledWith('sse:battle_resolved', payload);
+  });
+});
+
 describe('RuntimeRealtimeSync — EventBus: sse:incoming_attack', () => {
   it('emits on EventBus when incoming_attack SSE fires', () => {
     const bus = makeMockBus();
@@ -265,41 +285,29 @@ describe('CombatVfxBridge — connectEventBus()', () => {
     dispatchSpy.mockRestore();
   });
 
-  it('derives sourcePosition from fleet_arrived payload and forwards to battle start', () => {
-    const { CombatVfxBridge, BATTLE_DURATION_MS } = require(path.join(root, 'js/engine/CombatVfxBridge.js'));
-    const bridge = Object.create(CombatVfxBridge.prototype);
-    bridge._dispatchWeaponFire = vi.fn();
-    bridge._startBattleFx = vi.fn();
-    bridge._deriveSourcePosition = CombatVfxBridge.prototype._deriveSourcePosition;
-    bridge._normalizeSourcePosition = CombatVfxBridge.prototype._normalizeSourcePosition;
-
-    bridge._onFleetArrived({ detail: { mission: 'attack', attacker: 'A', target: 'B', target_position: 11 } });
-
-    expect(bridge._dispatchWeaponFire).toHaveBeenCalledWith(expect.objectContaining({ sourcePosition: 11, sourceType: 'installation' }));
-    expect(bridge._startBattleFx).toHaveBeenCalledWith(
-      'A',
-      'B',
-      BATTLE_DURATION_MS,
-      11,
-      expect.objectContaining({ mission: 'attack', attacker: 'A', target: 'B' })
-    );
-  });
-
-  it('derives sourcePosition for incoming_attack pulses', () => {
+  it('does not present fleet arrival as a resolved battle', () => {
     const { CombatVfxBridge } = require(path.join(root, 'js/engine/CombatVfxBridge.js'));
     const bridge = Object.create(CombatVfxBridge.prototype);
     bridge._dispatchWeaponFire = vi.fn();
-    bridge._deriveSourcePosition = CombatVfxBridge.prototype._deriveSourcePosition;
-    bridge._normalizeSourcePosition = CombatVfxBridge.prototype._normalizeSourcePosition;
+    bridge._startBattleFx = vi.fn();
+
+    bridge._onFleetArrived({ detail: { mission: 'attack', attacker: 'A', target: 'B', target_position: 11 } });
+
+    expect(bridge._dispatchWeaponFire).not.toHaveBeenCalled();
+    expect(bridge._startBattleFx).not.toHaveBeenCalled();
+  });
+
+  it('does not render a weapon discharge for an incoming-attack warning', () => {
+    const { CombatVfxBridge } = require(path.join(root, 'js/engine/CombatVfxBridge.js'));
+    const bridge = Object.create(CombatVfxBridge.prototype);
+    bridge._dispatchWeaponFire = vi.fn();
 
     vi.useFakeTimers();
     bridge._onIncomingAttack({ detail: { mission: 'attack', position: 9 } });
     vi.runAllTimers();
     vi.useRealTimers();
 
-    expect(bridge._dispatchWeaponFire).toHaveBeenCalled();
-    const hasPos = bridge._dispatchWeaponFire.mock.calls.every((call) => call?.[0]?.sourcePosition === 9);
-    expect(hasPos).toBe(true);
+    expect(bridge._dispatchWeaponFire).not.toHaveBeenCalled();
   });
 
   it('uses ship-heavier pulse profile for attack missions', () => {

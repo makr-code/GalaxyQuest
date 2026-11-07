@@ -1388,6 +1388,11 @@ window.GQPerspectiveBloom = PerspectiveBloom;
       if (label) label.textContent = `READ-ONLY FLIGHT · ${String(scene.stage || 'region').toUpperCase()} · ${scene.target?.name || `System ${scene.target?.system_index || ''}`}`;
       return true;
     },
+    visitBlogTarget(target) {
+      if (!isStartMenu || !getFlightRenderer() || document.body.classList.contains('game-page')
+        || document.body.dataset.startReducedMotion === 'true') return false;
+      return runtime.flightTourController?.visit(target) ?? false;
+    },
     setFlightTourEnabled(enabled) {
       if (!isStartMenu || !runtime.flightTourController) return false;
       if (enabled && document.body.dataset.startReducedMotion === 'true') return false;

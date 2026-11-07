@@ -1,3 +1,6 @@
+import { createGameIcon } from './game-ui-visuals.js';
+import { createGameWindowView } from './game-window-view.js';
+
 function node(tag, text) {
   const element = document.createElement(tag);
   if (text !== undefined) element.textContent = text;
@@ -17,60 +20,181 @@ const format = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 const quantity = (value) => typeof value === 'number' && Number.isFinite(value) ? format.format(value) : '—';
 const label = (value) => value.replaceAll('_', ' ');
 
+function metric(icon, text, value, maximum = null) {
+  const card = node('article');
+  card.className = 'game-population-metric';
+  card.append(createGameIcon(icon), node('strong', text));
+  if (Number.isFinite(value) && Number.isFinite(maximum) && maximum > 0) {
+    const meter = node('meter');
+    meter.min = 0;
+    meter.max = maximum;
+    meter.value = Math.max(0, Math.min(maximum, value));
+    meter.setAttribute('aria-label', text);
+    card.append(meter);
+  }
+  return card;
+}
+
 export function mountPopulationWindow({ session, domain, wm }) {
   if (!wm?.register || !wm?.body) throw new Error('The game window manager is unavailable.');
+  const view = createGameWindowView(wm, 'population');
   let disposed = false;
   let lastColony = session.getColony()?.id ?? null;
+  let classTableState = { query: '', filters: {}, sort: null };
   function render() {
-    const root = wm.body('population');
-    if (disposed || !root) return;
+    if (disposed || !wm.body('population')) return;
     const state = domain.getState();
     const colony = session.getColony();
     const busy = state.loading || state.mutating;
+    const root = view.begin({ ...state, colony, busy });
     const content = node('section');
-    content.className = 'game-development';
+    content.className = 'game-development game-population';
     content.dataset.domain = 'population';
-    content.append(node('h2', 'Bevölkerung und Versorgung'),
-      node('p', colony ? `${colony.name} [${colony.galaxy}:${colony.system}:${colony.position}]` : 'Keine Kolonie ausgewählt.'),
-      button('Versorgung aktualisieren', () => { void domain.refresh(); }, busy || !colony));
-    const status = node('p', state.error || (busy ? 'Serveranfrage läuft ...' : state.message));
-    status.setAttribute('role', state.error ? 'alert' : 'status');
-    content.append(status);
+    const header = node('header');
+    header.className = 'game-population-header';
+    const heading = node('h2', 'Bevölkerung und Versorgung');
+    heading.prepend(createGameIcon('population'));
+    header.append(heading,
+      node('p', colony ? `${colony.name} [${colony.galaxy}:${colony.system}:${colony.position}]` : 'Keine Kolonie ausgewählt.'));
+    content.append(header, button('Versorgung aktualisieren', () => { void domain.refresh(); }, busy || !colony));
+    view.status(content, { ...state, colony, busy });
     if (state.error && state.data) content.append(node('p', 'Letzter bestätigter Stand. Versorgungsdaten vor weiteren Aktionen aktualisieren.'));
     if (state.data) {
       const { snapshot } = state.data;
       const { economy } = snapshot;
-      content.append(
-        node('p', `Serverstand: ${new Date(economy.settled_at * 1000).toLocaleString()} · Noch nachzuholen: ${quantity(economy.pending_seconds)} s`),
-        node('p', `Bevölkerung: ${quantity(Object.values(snapshot.pop_classes).reduce((sum, count) => sum + count, 0))} · Kapazität: ${quantity(snapshot.colony.max_population)}`),
-        node('p', `Zufriedenheit: ${quantity(economy.satisfaction)} · Bevölkerungswachstum/h: ${quantity(economy.population_growth_per_hour)}`),
-        node('p', `Arbeitsplatzbesetzung: ${quantity(economy.employment === undefined ? undefined : economy.employment * 100)} %`),
-      );
+      const timestamp = node('p', `Serverstand: ${new Date(economy.settled_at * 1000).toLocaleString()} · Noch nachzuholen: ${quantity(economy.pending_seconds)} s`);
+      timestamp.className = 'game-population-serverstand';
+      content.append(timestamp);
+      const total = Object.values(snapshot.pop_classes).reduce((sum, count) => sum + count, 0);
+      const metrics = node('section');
+      metrics.className = 'game-population-metrics';
+      metrics.setAttribute('aria-label', 'Bevölkerungskennzahlen');
+      const population = metric('population', `Bevölkerung: ${quantity(total)} · Kapazität: ${quantity(snapshot.colony.max_population)}`,
+        total, snapshot.colony.max_population);
+      if (Number.isFinite(snapshot.colony.max_population) && total > snapshot.colony.max_population) {
+        population.append(node('span', 'Über Bevölkerungskapazität'));
+        population.classList.add('game-population-deficit');
+      }
+      const growth = metric('growth', `Bevölkerungswachstum/h: ${quantity(economy.population_growth_per_hour)}`);
+      if (economy.population_growth_per_hour < 0) growth.classList.add('game-population-deficit');
+      metrics.append(population,
+        metric('happiness', `Zufriedenheit: ${quantity(economy.satisfaction)}`, economy.satisfaction, 100),
+        metric('employment', `Arbeitsplatzbesetzung: ${quantity(economy.employment === undefined ? undefined : economy.employment * 100)} %`, economy.employment, 1),
+        growth);
+      const overview = node('section');
+      overview.className = 'game-population-overview';
+      overview.setAttribute('aria-label', 'Koloniegesellschaft');
+      overview.append(node('h3', 'Koloniegesellschaft'), metrics);
+      content.append(overview);
       const classes = node('ul');
       classes.setAttribute('aria-label', 'Bevölkerungsklassen');
-      for (const [type, count] of Object.entries(snapshot.pop_classes)) classes.append(node('li', `${label(type)}: ${quantity(count)}`));
-      content.append(node('h3', 'Bevölkerungsklassen'), classes, node('h3', 'Versorgungsengpässe'));
+      classes.className = 'game-population-distribution';
+      for (const [type, count] of Object.entries(snapshot.pop_classes)) {
+        const row = node('li');
+        row.dataset.populationClass = type;
+        const percent = total > 0 ? count / total * 100 : 0;
+        row.append(node('span', `${label(type)}: ${quantity(count)}`), node('span', `${quantity(percent)} %`));
+        const track = node('span');
+        track.className = 'game-population-track';
+        track.setAttribute('aria-hidden', 'true');
+        const bar = node('span');
+        bar.style.width = `${percent}%`;
+        track.append(bar);
+        row.append(track);
+        classes.append(row);
+      }
+      if (!Object.keys(snapshot.pop_classes).length) classes.append(node('li', 'Keine Bevölkerungsklassen gemeldet.'));
+      const distribution = node('section');
+      distribution.className = 'game-population-classes';
+      distribution.append(node('h3', 'Bevölkerungsklassen'), classes);
+      const measurements = node('details');
+      measurements.className = 'game-population-class-measurements';
+      measurements.dataset.gameDisclosure = 'population-classes';
+      measurements.append(node('summary', 'Bevölkerungsklassen als Tabelle'),
+        node('p', 'Anteile beziehen sich auf die gesamte gemeldete Koloniebevölkerung, auch bei aktiven Filtern.'));
+      const table = view.widget('dataTable', measurements, {
+        caption: 'Bevölkerungsklassen · letzter Serverstand',
+        searchable: true, state: classTableState,
+        onStateChange: (next) => { classTableState = next; },
+        emptyText: 'Keine Bevölkerungsklassen gemeldet.',
+        labels: {
+          toolbar: 'Werkzeuge der Bevölkerungstabelle',
+          clearSearch: 'Tabellensuche leeren', removeFilter: (column, value) => `Filter entfernen: ${column}: ${value}`,
+          ascending: 'aufsteigend', descending: 'absteigend', clearSort: 'Sortierung aufheben',
+          sort: (column, direction) => `${column}: ${direction}`,
+          nextSort: (column, direction) => `${column} ${direction} sortieren`,
+          search: 'Bevölkerungsklassen durchsuchen', reset: 'Klassenfilter zurücksetzen', all: 'Alle Klassen',
+          noMatches: 'Keine Bevölkerungsklassen für diese Suche und Filter.',
+          results: (visible, total) => `${visible} von ${total} Bevölkerungsklassen angezeigt.`,
+        },
+        columns: [
+          { id: 'type', label: 'Klasse', rowHeader: true, sortable: true,
+            value: (entry) => label(entry.type), searchValue: (entry) => `${entry.type} ${label(entry.type)}` },
+          { id: 'count', label: 'Einwohner', numeric: true, sortable: true,
+            value: (entry) => quantity(entry.count), sortValue: (entry) => entry.count,
+            filter: {
+              label: 'Klassenbelegung',
+              options: [{ value: 'populated', label: 'Mit Einwohnern' }, { value: 'empty', label: 'Ohne Einwohner' }],
+              value: (entry) => entry.count > 0 ? 'populated' : 'empty',
+            } },
+          { id: 'share', label: 'Anteil (%)', numeric: true, sortable: true,
+            value: (entry) => quantity(entry.share), sortValue: (entry) => entry.share },
+        ],
+        items: Object.entries(snapshot.pop_classes).map(([type, count]) => ({
+          type, count, share: total > 0 ? count / total * 100 : 0,
+        })),
+      });
+      table.el.classList.add('game-population-class-table');
+      table.el.dataset.gameTable = 'population-classes';
+      distribution.append(measurements);
+      overview.append(distribution);
+      const supply = node('section');
+      supply.className = 'game-population-supply';
+      supply.setAttribute('aria-label', 'Versorgungslage');
+      const supplyHeading = node('h3', 'Versorgungsengpässe');
+      supplyHeading.prepend(createGameIcon('goods'));
+      supply.append(supplyHeading);
       const shortages = node('div');
       shortages.className = 'game-development-list';
       shortages.setAttribute('aria-label', 'Versorgungsengpässe');
       const entries = Object.entries(economy.shortages || {}).filter(([, amount]) => amount > 0);
       for (const [good, amount] of entries) {
         const card = node('article');
-        card.className = 'game-development-card';
+        card.className = 'game-development-card game-population-shortage';
         card.dataset.good = good;
         const stock = Object.hasOwn(economy.stock, good) ? economy.stock[good] : undefined;
-        card.append(node('h4', label(good)),
-          node('p', `Fehlmenge/h: ${quantity(amount)} · Bestand: ${quantity(stock)} · Produktion/h: ${quantity(economy.production?.[good])} · Verbrauch/h: ${quantity(economy.consumption?.[good])}`),
-          button(`${label(good)} im Markt öffnen`, () => {
+        const heading = node('h4');
+        heading.append(createGameIcon(good), node('span', label(good)));
+        const deficit = node('p');
+        deficit.className = 'game-population-gap';
+        deficit.append(createGameIcon('warning'), node('strong', `Fehlmenge/h: ${quantity(amount)}`));
+        const measurements = view.widget('properties', card, {
+          items: [
+            ['stock', 'Bestand', stock],
+            ['production', 'Produktion/h', economy.production?.[good]],
+            ['consumption', 'Verbrauch/h', economy.consumption?.[good]],
+          ].map(([id, label, value]) => ({
+            id, label, value: typeof value === 'number' && Number.isFinite(value) ? quantity(value) : 'Nicht verfügbar',
+          })),
+        }).el;
+        measurements.classList.add('game-supply-measurements');
+        const trade = button(`${label(good)} im Markt öffnen`, () => {
             if (disposed || !colony) return;
             wm.minimize('population');
             session.events.emit('market:open-requested', { colonyId: Number(colony.id), goodType: good });
-          }, busy || !!state.error || !colony));
+          }, busy || !!state.error || !colony);
+        trade.prepend(createGameIcon('trade'));
+        card.append(heading, deficit, measurements, trade);
         shortages.append(card);
       }
-      content.append(shortages);
-      if (economy.shortages === undefined) content.append(node('p', 'Keine Engpassmesswerte im Serverstand vorhanden.'));
-      else if (!entries.length) content.append(node('p', 'Keine positiven Engpässe im letzten abgerechneten Zeitraum gemeldet.'));
+      supply.append(shortages);
+      if (economy.shortages === undefined) view.widget('notice', supply, {
+        state: 'info', title: 'Keine Engpassmesswerte im Serverstand vorhanden.',
+      });
+      else if (!entries.length) view.widget('notice', supply, {
+        state: 'empty', title: 'Keine positiven Engpässe im letzten abgerechneten Zeitraum gemeldet.',
+      });
+      content.append(supply);
     }
     const economy = node('button', 'Wirtschaft und Politik öffnen');
     economy.type = 'button';
@@ -78,9 +202,17 @@ export function mountPopulationWindow({ session, domain, wm }) {
     economy.dataset.gameEconomy = '';
     economy.disabled = busy || !colony;
     economy.addEventListener('click', () => { wm.minimize('population'); });
-    content.append(economy,
+    economy.prepend(createGameIcon('economy'));
+    const footer = node('div');
+    footer.className = 'game-population-footer';
+    const help = node('details');
+    help.className = 'game-population-help';
+    help.dataset.gameDisclosure = 'population-help';
+    help.append(node('summary', 'Messwerte und Versorgung'),
       node('p', 'Werte und Engpassraten stammen aus der letzten serverseitigen On-Demand-Abrechnung, nicht aus einer Prognose. Marktlinks wählen nur das Gut; Menge und Kauf müssen ausdrücklich bestätigt werden. Lohn-, Kultur- und Sicherheitsregler der alten Tick-Politik sind hier nicht aktiv.'));
-    root.replaceChildren(content);
+    footer.append(economy, help);
+    content.append(footer);
+    view.commit(root, content);
   }
   wm.register('population', { title: 'Bevölkerung und Versorgung', w: 680, h: 540,
     onRender() { render(); void domain.load(); } });
@@ -113,6 +245,7 @@ export function mountPopulationWindow({ session, domain, wm }) {
     unsubscribeOpen();
     document.removeEventListener('click', open);
     wm.close('population');
+    view.destroy();
     wm.register('population', { onRender: null });
   };
 }

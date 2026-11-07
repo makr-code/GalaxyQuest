@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/npc_ai.php';
+require_once __DIR__ . '/simulation_runtime.php';
 
 $uid = require_auth();
 $action = strtolower((string) ($_GET['action'] ?? 'status'));
@@ -215,13 +216,15 @@ switch ($action) {
         verify_csrf();
 
         $before = npc_controller_count_logs($db, $uid);
-        npc_ai_tick($db, $uid, true);
+        $simulation = simulation_tick_user($db, $uid, true);
         $after = npc_controller_count_logs($db, $uid);
+        $response = simulation_runtime_public_response($simulation);
+        $response['message'] = !empty($simulation['executed'])
+            ? 'NPC tick executed.'
+            : 'NPC tick skipped: ' . (string)($simulation['reason'] ?? 'not executed') . '.';
+        $response['new_decision_logs'] = max(0, $after - $before);
 
-        json_ok([
-            'message' => 'NPC tick executed.',
-            'new_decision_logs' => max(0, $after - $before),
-        ]);
+        json_response($response, $response['success'] ? 200 : 500);
         break;
 
     default:

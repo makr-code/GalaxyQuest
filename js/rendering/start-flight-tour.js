@@ -1,3 +1,5 @@
+import { AU_LY } from './perspective-space-flight.js';
+
 function waitForStep(milliseconds, signal) {
   return new Promise((resolve) => {
     if (signal.aborted) {
@@ -29,7 +31,7 @@ function selectTarget(stars, previousKey, random) {
   return pool[Math.floor(random() * pool.length)];
 }
 
-function createDemoDraft(data, random) {
+function createDemoDraft(data, random, preferredPosition) {
   const planets = data.planets.map((planet) => {
     const position = Number(planet.position);
     return {
@@ -52,7 +54,8 @@ function createDemoDraft(data, random) {
   const candidates = colonizableWithMoons.length
     ? colonizableWithMoons
     : withMoons.length ? withMoons : colonizable.length ? colonizable : planets;
-  const selected = candidates[Math.floor(random() * candidates.length)];
+  const selected = planets.find(planet => planet.position === preferredPosition)
+    ?? candidates[Math.floor(random() * candidates.length)];
   if (!selected) return null;
   return {
     star: data.system,
@@ -62,6 +65,45 @@ function createDemoDraft(data, random) {
       system: Number(data.system.system_index),
       position: selected.position,
     },
+    preview_only: true,
+  };
+}
+
+function createDemoAsteroids(system, planets) {
+  const systemKey = `${system.galaxy_index}:${system.system_index}`;
+  const beltRadius = Math.max(2.5, ...planets.map((planet) => planet.semi_major_axis_au || 0)) * 1.25;
+  return Array.from({ length: 3 }, (_, index) => {
+    const angle = index * 2.399963229728653 + Number(system.system_index || 0) * 0.37;
+    const orbit = beltRadius * (0.92 + index * 0.08);
+    return {
+      body_id: `tour-asteroid:${systemKey}:${index + 1}`,
+      name: `Preview asteroid ${index + 1}`,
+      diameter_km: 8 + index * 5,
+      local_x: Math.cos(angle) * orbit,
+      local_y: Math.sin(angle) * orbit,
+      local_z: (index - 1) * 0.015 * orbit,
+      preview_only: true,
+    };
+  });
+}
+
+function createDemoShip(system, planets) {
+  const systemKey = `${system.galaxy_index}:${system.system_index}`;
+  const orbit = Math.max(3, ...planets.map((planet) => planet.semi_major_axis_au || 0)) * 1.5;
+  const phase = Number(system.system_index || 0) * 0.61;
+  const point = {
+    x_ly: Number(system.x_ly) + Math.cos(phase) * orbit * AU_LY,
+    y_ly: Number(system.y_ly) + Math.sin(phase) * orbit * AU_LY,
+    z_ly: Number(system.z_ly) + orbit * 0.025 * AU_LY,
+  };
+  return {
+    id: `tour-ship:${systemKey}`,
+    name: 'Preview survey vessel',
+    space_entity: 'vessel',
+    model_url: '/generated/trellis2/imported/ship/ship_generic_teaser_transfer_organic_lod0_dev.glb',
+    route: [point, point],
+    visual_scale_ly: AU_LY * 0.000001,
+    color: [0.62, 0.82, 0.98, 1],
     preview_only: true,
   };
 }
@@ -81,6 +123,8 @@ export function createStartFlightTour({
   flightDurationMs = 18000,
   planetDurationMs = 12000,
   surfaceDurationMs = 8000,
+  orbitDurationMs = 5000,
+  flybyDurationMs = 8000,
   retryDelayMs = 1200,
 } = {}) {
   if (typeof getStars !== 'function' || typeof showScene !== 'function') {
@@ -91,8 +135,8 @@ export function createStartFlightTour({
   let controller = null;
   let previousTargetKey = '';
 
-  async function navigateAndPersist(target, durationMs, signal) {
-    const navigation = navigateTo(target, { durationMs, signal });
+  async function navigateAndPersist(target, durationMs, signal, navigationOptions = {}) {
+    const navigation = navigateTo(target, { durationMs, ...navigationOptions, signal });
     if (!navigation || typeof navigation.then !== 'function') return false;
     const initialState = getFlightCoordinates();
     if (initialState) writeFlightState(initialState);
@@ -102,8 +146,9 @@ export function createStartFlightTour({
     }, 1000);
     try {
       const arrived = await navigation;
-      if (arrived === true && initialState?.destination) {
-        writeFlightState({ start: initialState.destination, destination: initialState.destination });
+      if (arrived === true) {
+        const finalPosition = getFlightCoordinates()?.start || initialState?.destination;
+        if (finalPosition) writeFlightState({ start: finalPosition, destination: finalPosition });
       }
       return arrived;
     } finally {
@@ -111,8 +156,8 @@ export function createStartFlightTour({
     }
   }
 
-  async function run(signal) {
-    const resumeState = readResumeState();
+  async function run(signal, requestedTarget = null) {
+    const resumeState = requestedTarget ? null : readResumeState();
     if (resumeState && !signal.aborted) {
       onStatus('Resuming the previous galaxy flight.');
       let poseRestored = false;
@@ -136,7 +181,8 @@ export function createStartFlightTour({
     }
 
     while (!signal.aborted) {
-      const target = selectTarget(getStars(), previousTargetKey, random);
+      const target = requestedTarget ?? selectTarget(getStars(), previousTargetKey, random);
+      requestedTarget = null;
       if (!target) {
         onStatus('Waiting for the database galaxy sample.');
         if (!await waitForStep(retryDelayMs, signal)) break;
@@ -166,10 +212,12 @@ export function createStartFlightTour({
         if (data?.success !== true || data.preview_only !== true || !data.system || !Array.isArray(data.planets)) {
           throw new Error('Invalid read-only system preview');
         }
-        const draft = createDemoDraft(data, random);
+        const draft = createDemoDraft(data, random, target.position);
         if (!draft) throw new Error('No planet is available for the visual preview');
         const planet = draft.planets.find((item) => item.position === draft.position.position);
 
+        const asteroids = createDemoAsteroids(data.system, draft.planets);
+        const ship = createDemoShip(data.system, draft.planets);
         const sceneGraph = {
           type: 'galaxy',
           children: [{
@@ -187,6 +235,8 @@ export function createStartFlightTour({
               })),
               ...(data.free_comets || []).map((body) => ({ type: 'comet', data: body, children: [] })),
               ...(data.rogue_planets || []).map((body) => ({ type: 'rogue_planet', data: body, children: [] })),
+              ...asteroids.map((body) => ({ type: 'asteroid', data: body, children: [] })),
+              { type: 'ship', data: ship, children: [] },
               ...(data.star_installations || []).map((body, index) => ({
                 type: 'star-installation',
                 data: {
@@ -201,21 +251,29 @@ export function createStartFlightTour({
           }],
         };
         const stages = [
-          ['system', flightDurationMs, `Entering ${data.system.name}.`, { kind: 'system' }],
+          ['system', flightDurationMs, `Entering ${data.system.name}.`, { kind: 'system' },
+            { orbitDurationMs }],
+          ['star', planetDurationMs, `Circling the star of ${data.system.name}.`, { kind: 'star' },
+            { orbitDurationMs }],
           ['planet', planetDurationMs, `Approaching ${planet.name || `planet ${planet.position}`}.`,
-            { kind: 'planet', position: planet.position }],
+            { kind: 'planet', position: planet.position }, { orbitDurationMs }],
           ...(planet.moons.length ? [['moon', planetDurationMs, `Passing ${planet.moons[0].name}.`,
-            { kind: 'moon', position: planet.moons[0].position, parentPosition: planet.position }]] : []),
+            { kind: 'moon', position: planet.moons[0].position, parentPosition: planet.position },
+            { orbitDurationMs }]] : []),
+          ['asteroid', flybyDurationMs, 'Flying past an asteroid in the preview belt.',
+            { kind: 'asteroid', bodyId: asteroids[0].body_id, flyby: true }, {}],
+          ['ship', flybyDurationMs, 'Flying alongside a preview survey vessel.',
+            { kind: 'ship', id: ship.id, flyby: true }, {}],
           ['surface', surfaceDurationMs, `Approaching the surface of ${planet.name || `planet ${planet.position}`}.`,
-            { kind: 'surface', position: planet.position }],
+            { kind: 'surface', position: planet.position }, {}],
         ];
-        for (const [stage, duration, message, destination] of stages) {
+        for (const [stage, duration, message, destination, navigationOptions] of stages) {
           if (signal.aborted) break;
           onStatus(message);
           if (showScene({ ...sceneBase, stage, draft, sceneGraph }) === false) {
             throw new Error(`Renderer rejected the ${stage} preview stage`);
           }
-          const arrived = await navigateAndPersist(destination, duration, signal);
+          const arrived = await navigateAndPersist(destination, duration, signal, navigationOptions);
           if (signal.aborted) break;
           if (arrived !== true) throw new Error('Spatial camera navigation is unavailable or interrupted');
         }
@@ -231,6 +289,18 @@ export function createStartFlightTour({
   }
 
   return {
+    visit(target) {
+      if (!target || !Number.isInteger(target.position) || target.position < 1
+        || ![target.galaxy_index, target.system_index, target.x_ly, target.y_ly, target.z_ly].every(Number.isFinite)) return false;
+      controller?.abort();
+      clearFlightState();
+      controller = new AbortController();
+      const current = controller;
+      void run(current.signal, target).catch(error => {
+        if (!current.signal.aborted) onStatus(`Flight tour stopped: ${error.message}`);
+      }).finally(() => { if (controller === current) controller = null; });
+      return true;
+    },
     start() {
       if (controller) return true;
       controller = new AbortController();

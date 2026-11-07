@@ -131,6 +131,7 @@ describe('Zoom level renderers shared init integration', () => {
     const backend = {
       backendType: 'webgpu',
       setStars: vi.fn(),
+      dispose: vi.fn(),
       setClusterAuras: vi.fn(),
       setFtlInfrastructure: vi.fn(),
       setGalaxyFleets: vi.fn(),
@@ -144,6 +145,77 @@ describe('Zoom level renderers shared init integration', () => {
     expect(level._starfield).toBe(backend);
     expect(window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU).toBe(backend);
     expect(ctor).not.toHaveBeenCalled();
+
+    level.dispose();
+    expect(backend.dispose).not.toHaveBeenCalled();
+  });
+
+  it('SystemLevelWebGPU does not dispose the borrowed orchestrator renderer', async () => {
+    const { canvas } = makeCanvasHost();
+    const backend = {
+      backendType: 'webgpu',
+      enterSystemView: vi.fn(),
+      exitSystemView: vi.fn(),
+      dispose: vi.fn(),
+    };
+    const level = new SystemLevelWebGPU();
+    await level.initialize(canvas, backend);
+
+    level.dispose();
+
+    expect(backend.dispose).not.toHaveBeenCalled();
+    expect(window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU).toBe(backend);
+  });
+
+  it('disposes an owned WebGPU renderer once and clears its shared reference', async () => {
+    const { canvas } = makeCanvasHost();
+    const renderer = {
+      backendType: 'webgpu',
+      init: vi.fn(async () => undefined),
+      setStars: vi.fn(),
+      setClusterAuras: vi.fn(),
+      setFtlInfrastructure: vi.fn(),
+      setGalaxyFleets: vi.fn(),
+      dispose: vi.fn(),
+    };
+    window.GQGalaxy3DRendererWebGPU = vi.fn(function () { return renderer; });
+    const level = new GalaxyLevelWebGPU();
+    await level.initialize(canvas, {});
+
+    level.dispose();
+    level.dispose();
+
+    expect(renderer.dispose).toHaveBeenCalledOnce();
+    expect(window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU).toBeUndefined();
+  });
+
+  it.each([
+    ['GalaxyLevelWebGPU', GalaxyLevelWebGPU, 'GQGalaxy3DRendererWebGPU'],
+    ['SystemLevelWebGPU', SystemLevelWebGPU, 'GQGalaxy3DRendererWebGPU'],
+  ])('%s does not publish a renderer whose asynchronous initialization was cancelled', async (_name, Level, globalName) => {
+    const { canvas } = makeCanvasHost();
+    let finishInit;
+    const renderer = {
+      backendType: 'webgpu',
+      init: vi.fn(() => new Promise((resolve) => { finishInit = resolve; })),
+      setStars: vi.fn(),
+      setClusterAuras: vi.fn(),
+      setFtlInfrastructure: vi.fn(),
+      setGalaxyFleets: vi.fn(),
+      enterSystemView: vi.fn(),
+      dispose: vi.fn(),
+    };
+    window[globalName] = vi.fn(function () { return renderer; });
+    const level = new Level();
+    const pending = level.initialize(canvas, {});
+    await vi.waitFor(() => expect(finishInit).toBeTypeOf('function'));
+
+    level.dispose();
+    finishInit();
+    await pending;
+
+    expect(renderer.dispose).toHaveBeenCalledOnce();
+    expect(window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU).toBeUndefined();
   });
 
   it('GalaxyLevelWebGPU initialize throws when native renderer is missing and no fallback opt-in is set', async () => {
@@ -261,6 +333,37 @@ describe('Zoom level renderers shared init integration', () => {
     expect(shared.opts.qualityProfile).toBe('high');
     expect(typeof shared.opts.onHover).toBe('function');
     expect(window.Galaxy3DRenderer).not.toHaveBeenCalled();
+  });
+
+  it('ThreeJS level renderers do not dispose a shared renderer they only borrow', async () => {
+    const { canvas } = makeCanvasHost();
+    const shared = { dispose: vi.fn(), setStars: vi.fn(), enterSystemView: vi.fn() };
+    window.__GQ_LEVEL_SHARED_RENDERER_THREEJS = shared;
+
+    const galaxyLevel = new GalaxyLevelThreeJS();
+    await galaxyLevel.initialize(canvas, {});
+    galaxyLevel.dispose();
+
+    const systemLevel = new SystemLevelThreeJS();
+    await systemLevel.initialize(canvas, {});
+    systemLevel.dispose();
+
+    expect(shared.dispose).not.toHaveBeenCalled();
+    expect(window.__GQ_LEVEL_SHARED_RENDERER_THREEJS).toBe(shared);
+  });
+
+  it('SystemLevelThreeJS disposes only its owned renderer and clears the shared reference', async () => {
+    const { canvas } = makeCanvasHost();
+    const renderer = { dispose: vi.fn(), enterSystemView: vi.fn() };
+    window.Galaxy3DRenderer = vi.fn(function () { return renderer; });
+    const level = new SystemLevelThreeJS();
+    await level.initialize(canvas, {});
+
+    level.dispose();
+    level.dispose();
+
+    expect(renderer.dispose).toHaveBeenCalledOnce();
+    expect(window.__GQ_LEVEL_SHARED_RENDERER_THREEJS).toBeUndefined();
   });
 
   it('SystemLevelThreeJS enter prefers sceneData systemPayload over transition payload', async () => {

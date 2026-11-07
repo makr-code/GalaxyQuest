@@ -14,42 +14,20 @@ function npc_ai_decision_queue_enabled(): bool
 
 function npc_ai_decision_queue_available(PDO $db): bool
 {
-    static $available = null;
-    if ($available !== null) {
-        return $available;
-    }
-
-    try {
-        $stmt = $db->query("SHOW TABLES LIKE 'npc_ai_decision_queue'");
-        $available = (bool) $stmt->fetchColumn();
-    } catch (Throwable $e) {
-        $available = false;
-    }
-
-    return $available;
+    $stmt = $db->query("SHOW TABLES LIKE 'npc_ai_decision_queue'");
+    return (bool) $stmt->fetchColumn();
 }
 
 function npc_ai_decision_queue_supports_worker_claim_fields(PDO $db): bool
 {
-    static $supported = null;
-    if ($supported !== null) {
-        return $supported;
-    }
-
-    try {
-        $stmt = $db->prepare(
-            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
-             WHERE TABLE_SCHEMA = DATABASE()
-               AND TABLE_NAME = 'npc_ai_decision_queue'
-               AND COLUMN_NAME IN ('claimed_by_worker_id', 'claim_token', 'claim_expires_at')"
-        );
-        $stmt->execute();
-        $supported = ((int) $stmt->fetchColumn()) === 3;
-    } catch (Throwable $e) {
-        $supported = false;
-    }
-
-    return $supported;
+    $stmt = $db->prepare(
+        "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'npc_ai_decision_queue'
+           AND COLUMN_NAME IN ('claimed_by_worker_id', 'claim_token', 'claim_expires_at')"
+    );
+    $stmt->execute();
+    return ((int) $stmt->fetchColumn()) === 3;
 }
 
 function npc_ai_decision_dedupe_key(int $userId, int $factionId): string

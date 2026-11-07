@@ -140,6 +140,10 @@ const WM = (function () {
     snapBottom:       'Snap: Unten',
     tileWithSelected: 'Mit Auswahl kacheln',
     createDockGroup:  'Gruppe erstellen',
+    windowActions:    'Fensteraktionen',
+    docking:          'An Rand heften',
+    undock:           'Vom Rand l\u00f6sen',
+    snapLayout:       'Fenster aufteilen',
   };
 
   // ── Instantiate WMCore with GQ-specific configuration ─────────────────────

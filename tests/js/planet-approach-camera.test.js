@@ -18,7 +18,8 @@ describe('settled planet approach camera', () => {
       dispose: vi.fn(),
     };
     orchestrator = new SeamlessZoomOrchestrator(document.createElement('canvas'));
-    orchestrator._registry.resolve = vi.fn(() => level);
+    orchestrator.register(ZOOM_LEVEL.PLANET_APPROACH, { threejs: class { constructor() { return level; } } });
+    orchestrator.register(ZOOM_LEVEL.GALAXY, { threejs: class { constructor() { return level; } } });
     orchestrator._flight.flyTo = vi.fn().mockResolvedValue();
     orchestrator._flight.tick = vi.fn(() => null);
   });

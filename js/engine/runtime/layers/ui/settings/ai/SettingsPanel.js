@@ -213,7 +213,11 @@
       try {
         const res = await api.npcControllerRunOnce();
         if (res.success) {
-          showToast(`NPC tick ausgefuehrt (+${Number(res.new_decision_logs || 0)} logs).`, 'success');
+          if (res.simulation?.executed === false) {
+            showToast(res.message || 'NPC tick wurde uebersprungen.', 'info');
+          } else {
+            showToast(`NPC tick ausgefuehrt (+${Number(res.new_decision_logs || 0)} logs).`, 'success');
+          }
         } else {
           showToast(res.error || 'NPC tick fehlgeschlagen.', 'error');
         }

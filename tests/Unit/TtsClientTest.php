@@ -78,6 +78,28 @@ final class TtsClientTest extends TestCase
         self::assertSame('Synthesis failed.', $result['error']);
     }
 
+    public function testDecodeStructuredValidationErrorsPreservesDetailWithoutArrayConversion(): void
+    {
+        $detail = [['loc' => ['body', 'prosody'], 'msg' => 'Input should be an object', 'type' => 'model_type']];
+        $result = _tts_decode(json_encode(['detail' => $detail]), 422, 'application/json');
+        self::assertFalse($result['ok']);
+        self::assertSame(422, $result['status']);
+        self::assertSame($detail, json_decode($result['error'], true));
+    }
+
+    public function testSynthesisPayloadAlwaysEncodesProsodyAsAnObject(): void
+    {
+        foreach ([[], ['length_scale' => 1.1]] as $prosody) {
+            $payload = tts_synthesis_payload('Nachrichten', 'de_DE-thorsten-high', 'de', $prosody);
+            $wire = json_decode(json_encode($payload, JSON_THROW_ON_ERROR));
+            self::assertInstanceOf(stdClass::class, $wire->prosody);
+            self::assertSame($prosody, (array)$wire->prosody);
+            self::assertSame('Nachrichten', $wire->text);
+            self::assertSame('de', $wire->lang);
+            self::assertFalse($wire->no_cache);
+        }
+    }
+
     public function testDecodeJsonErrorWithErrorKey(): void
     {
         $json = json_encode(['error' => 'Voice not found.']);

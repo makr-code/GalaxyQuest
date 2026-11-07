@@ -156,8 +156,7 @@ foreach ($dueRows as $row) {
     $userStart = microtime(true);
 
     try {
-        // Build the full overview payload (without session side-effects like NPC tick).
-        $payload = build_live_overview_payload($db, $userId, false);
+        $payload = build_live_overview_payload($db, $userId);
 
         $completed = complete_projection_claim(
             $db,

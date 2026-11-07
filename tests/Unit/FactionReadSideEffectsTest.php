@@ -30,9 +30,11 @@ final class FactionReadSideEffectsTest extends TestCase
         self::assertStringContainsString("only_method('GET')", $questsHandler);
         self::assertStringNotContainsString('ensure_precursor_beacon_quest_seed(', $questsHandler);
         self::assertStringContainsString('get_standing($db, $uid, $fid)', $questsHandler);
+        self::assertStringContainsString('q.active = 1', $questsHandler);
 
         $startQuestHandler = substr($source, $startQuestStart, strpos($source, "case 'check_quests':", $startQuestStart) - $startQuestStart);
         self::assertStringContainsString("only_method('POST')", $startQuestHandler);
+        self::assertStringContainsString('WHERE id = ? AND active = 1', $startQuestHandler);
         self::assertStringContainsString('ensure_precursor_beacon_quest_seed(', $startQuestHandler);
     }
 

@@ -113,6 +113,25 @@ describe('Cinematic draft registration', () => {
     document.body.innerHTML = '';
   });
 
+  it('tracks narration ducking and releases the active clip on navigation and close', async () => {
+    const releases = [];
+    window.__GQ_AUDIO_MANAGER = {
+      snapshot: () => ({ masterVolume: 0.8, ttsVolume: 0.95 }),
+      trackTtsAudio: vi.fn(() => {
+        const release = vi.fn();
+        releases.push(release);
+        return release;
+      }),
+    };
+    prologue.open();
+    await vi.waitFor(() => expect(releases).toHaveLength(1));
+    expect(window.__GQ_AUDIO_MANAGER.trackTtsAudio).toHaveBeenCalledWith(audio);
+    el('continue').click();
+    expect(releases[0]).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+    prologue.close();
+    expect(releases[1]).toHaveBeenCalledOnce();
+  });
   it('offers Back and Next during the teaser while synchronizing chapters with speech', async () => {
     prologue.open();
     expect(el('back').hidden).toBe(false);

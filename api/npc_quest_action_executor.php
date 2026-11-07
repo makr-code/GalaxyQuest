@@ -69,7 +69,7 @@ function npc_pve_apply_quest_action(PDO $db, int $userId, array $faction, array 
             'standing_delta' => $rewardStanding,
         ]);
 
-        $questId = npc_insert_generated_quest($db, $factionId, $questData, $userId);
+        $questId = npc_insert_generated_quest($db, $factionId, $questData, $userId, $questTemplate);
 
         // Log quest generation
         $logResult = npc_quest_trigger_log_record($db, [
@@ -204,7 +204,8 @@ function npc_calculate_quest_rewards(array $rewardTemplate, array $params): arra
         $multiplier = (float) ($rewardTemplate['multipliers'][0] ?? 1.0);
 
         // Apply amount-based scaling
-        if (isset($rewardTemplate['multipliers']['by_amount'])) {
+        if (!in_array($resource, ['standing', 'rank_points'], true)
+            && isset($rewardTemplate['multipliers']['by_amount'])) {
             $amount = (int) ($params['amount'] ?? 0);
             $base += (int) ($amount * (float) $rewardTemplate['multipliers']['by_amount']);
         }
@@ -244,17 +245,24 @@ function npc_calculate_quest_difficulty(array $template, array $params): string
  * @param int $userId User who triggered the quest
  * @return int Quest ID
  */
-function npc_insert_generated_quest(PDO $db, int $factionId, array $questData, int $userId): int
+function npc_insert_generated_quest(
+    PDO $db,
+    int $factionId,
+    array $questData,
+    int $userId,
+    ?string $templateCode = null
+): int
 {
-    $code = 'generated_quest_' . $userId . '_' . time();
+    $code = 'generated_quest_' . $userId . '_' . gmdate('YmdHis') . '_' . bin2hex(random_bytes(4));
 
     $stmt = $db->prepare(
         'INSERT INTO faction_quests 
          (faction_id, code, title, description, quest_type, requirements_json,
+          template_code,
           reward_metal, reward_crystal, reward_deuterium, reward_rare_earth,
           reward_dark_matter, reward_rank_points, reward_standing, min_standing, difficulty, repeatable,
           generated_by_npc, generated_timestamp)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,  1, NOW())'
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())'
     );
 
     $stmt->execute([
@@ -264,6 +272,7 @@ function npc_insert_generated_quest(PDO $db, int $factionId, array $questData, i
         $questData['description'],
         $questData['quest_type'],
         $questData['requirements_json'],
+        $templateCode,
         $questData['reward_metal'],
         $questData['reward_crystal'],
         $questData['reward_deuterium'],

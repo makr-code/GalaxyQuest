@@ -44,9 +44,30 @@ final class ConstructionQueueReadSideEffectsTest extends TestCase
 
         $queueSource = file_get_contents(__DIR__ . '/../../api/shipyard_queue.php');
         self::assertIsString($queueSource);
+        $schemaGuard = $this->functionBody($queueSource, 'ensure_ship_build_queue_table');
+        self::assertStringContainsString('GalaxySchema::assertShipQueue($db)', $schemaGuard);
+        self::assertDoesNotMatchRegularExpression(
+            '/\b(?:CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|REPLACE)\b/i',
+            $schemaGuard
+        );
+
         $queueReader = $this->functionBody($queueSource, 'list_ship_build_queue');
         self::assertStringNotContainsString('UPDATE ship_build_queue', $queueReader);
         self::assertStringNotContainsString('INSERT INTO ships', $queueReader);
+
+        $queueLock = $this->functionBody($queueSource, 'ship_build_queue_with_colony_lock');
+        self::assertStringContainsString('$db->beginTransaction();', $queueLock);
+        self::assertStringContainsString('$db->exec(\'SAVEPOINT \' . $savepoint);', $queueLock);
+        self::assertStringContainsString("SELECT id FROM colonies WHERE id = ?", $queueLock);
+        self::assertStringContainsString("' FOR UPDATE' : ''", $queueLock);
+        self::assertStringContainsString('$db->commit();', $queueLock);
+        self::assertStringContainsString('$db->rollBack();', $queueLock);
+
+        $complete = $this->functionBody($queueSource, 'complete_ship_build_queue');
+        self::assertStringContainsString('ship_build_queue_with_colony_lock(', $complete);
+        self::assertStringContainsString('complete_ship_build_queue_locked($db, $colonyId)', $complete);
+        $lockedCompletion = $this->functionBody($queueSource, 'complete_ship_build_queue_locked');
+        self::assertStringContainsString('start_next_ship_build_queue($db, $colonyId)', $lockedCompletion);
     }
 
     private function functionBody(string $source, string $functionName): string

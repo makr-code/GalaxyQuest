@@ -20,7 +20,6 @@
  */
 
 require_once __DIR__ . '/game_engine.php';
-require_once __DIR__ . '/achievements.php';
 require_once __DIR__ . '/../lib/projection_runtime.php';
 
 /**
@@ -158,15 +157,11 @@ function mark_projection_stale(PDO $db, int $userId): void
  * game.php?action=overview response structure exactly.
  * It runs update_all_colonies() to keep resource counts fresh.
  *
- * Simulation side effects are opt-in and must only be enabled from an
- * explicit mutation/tick path, never from an overview GET.
- *
  * @param PDO  $db
  * @param int  $uid
- * @param bool $runSimulationSideEffects  true = explicitly run achievements + simulation ticks
  * @return array  The overview payload (same structure as the HTTP response body)
  */
-function build_live_overview_payload(PDO $db, int $uid, bool $runSimulationSideEffects = false): array
+function build_live_overview_payload(PDO $db, int $uid): array
 {
     // ── Offline-progress: snapshot before resource update ─────────────────────
     $offlineBeforeStmt = $db->prepare(
@@ -387,24 +382,10 @@ function build_live_overview_payload(PDO $db, int $uid, bool $runSimulationSideE
         'last_tick' => 0,
     ];
 
-    // ── Simulation side-effects (legacy compatibility path) ───────────────────
-    if ($runSimulationSideEffects) {
-        check_and_update_achievements($db, $uid);
-        require_once __DIR__ . '/npc_ai.php';
-        try { npc_ai_tick($db, $uid); } catch (Throwable $e) { error_log('npc_ai_tick error: ' . $e->getMessage()); }
-        try { $economyProdTick = process_economy_production_tick($db); } catch (Throwable $e) { error_log('economy_production_tick error: ' . $e->getMessage()); }
-        try { $economyPopTick = process_economy_pop_satisfaction_tick($db); } catch (Throwable $e) { error_log('economy_pop_satisfaction_tick error: ' . $e->getMessage()); }
-        try { $warRuntime = process_war_runtime_tick($db); } catch (Throwable $e) { error_log('war_runtime_tick error: ' . $e->getMessage()); }
-        try { $warAttritionTick = process_war_attrition_tick($db); } catch (Throwable $e) { error_log('war_attrition_tick error: ' . $e->getMessage()); }
-        try { $pirateRaidTick = process_pirate_raid_resolution_tick($db); } catch (Throwable $e) { error_log('pirate_raid_resolution_tick error: ' . $e->getMessage()); }
-    }
-
     // ── Politics runtime ──────────────────────────────────────────────────────
     $politicsRuntime = [
         'effects'         => empire_dynamic_effects($db, $uid),
-        'pressure_events' => $runSimulationSideEffects
-            ? apply_faction_pressure_situations($db, $uid)
-            : default_faction_pressure_events(),
+        'pressure_events' => default_faction_pressure_events(),
         'war'             => $warRuntime,
     ];
 

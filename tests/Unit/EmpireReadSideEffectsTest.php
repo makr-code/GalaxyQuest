@@ -108,4 +108,24 @@ final class EmpireReadSideEffectsTest extends TestCase
         self::assertSame(2, substr_count($source, 'calc_empire_scores($db, $uid)'));
         self::assertStringNotContainsString('calc_and_store_empire_scores(', $source);
     }
+
+    public function testPoliticsStatusEffectsOnlyIgnoreMissingOptionalTables(): void
+    {
+        $engine = file_get_contents(__DIR__ . '/../../api/game_engine.php');
+        $politics = file_get_contents(__DIR__ . '/../../api/politics.php');
+        self::assertIsString($engine);
+        self::assertIsString($politics);
+
+        $start = strpos($engine, 'function empire_dynamic_effects(');
+        $end = strpos($engine, "\nfunction merge_effect_bundle(", $start);
+        self::assertNotFalse($start);
+        self::assertNotFalse($end);
+        $effects = substr($engine, $start, $end - $start);
+
+        self::assertSame(4, substr_count($effects, "if (\$error->getCode() !== '42S02')"));
+        self::assertSame(4, substr_count($effects, 'catch (PDOException $error)'));
+        self::assertSame(4, substr_count($effects, 'throw $error;'));
+        self::assertStringContainsString("case 'status':", $politics);
+        self::assertStringContainsString('$effects = empire_dynamic_effects($db, $uid);', $politics);
+    }
 }

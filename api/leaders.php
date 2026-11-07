@@ -27,6 +27,7 @@
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/buildings.php';  // verify_colony_ownership, get_building_level
+require_once __DIR__ . '/simulation_runtime.php';
 
 $action = $_GET['action'] ?? '';
 $uid    = require_auth();
@@ -194,9 +195,17 @@ switch ($action) {
     case 'ai_tick':
         only_method('POST');
         verify_csrf();
-        $db      = get_db();
-        $actions = run_ai_tick($db, $uid);
-        json_ok(['actions' => $actions]);
+        $db = get_db();
+        $result = simulation_runtime_with_scope_lock(
+            $db,
+            'user',
+            (string)$uid,
+            static fn(): array => [
+                'executed' => true,
+                'actions' => run_ai_tick($db, $uid),
+            ]
+        );
+        json_ok($result);
         break;
 
     // ── Marketplace: read active candidates ──────────────────────────────────
@@ -822,72 +831,68 @@ function fc_select_ships_for_mission(PDO $db, int $colonyId, string $mission): a
  * Lightweight hostile-territory check using alliance war relations.
  */
 function fc_is_hostile_system_for_user(PDO $db, int $uid, int $galaxy, int $system): bool {
-    try {
-        $allianceStmt = $db->prepare('SELECT alliance_id FROM alliance_members WHERE user_id = ? LIMIT 1');
-        $allianceStmt->execute([$uid]);
-        $myAllianceId = (int)($allianceStmt->fetchColumn() ?: 0);
-        if ($myAllianceId <= 0) {
-            return false;
-        }
-
-        $warStmt = $db->prepare(
-            'SELECT other_alliance_id, other_user_id
-             FROM alliance_relations
-             WHERE alliance_id = ?
-               AND relation_type = "war"
-               AND (expires_at IS NULL OR expires_at > NOW())'
-        );
-        $warStmt->execute([$myAllianceId]);
-        $warRows = $warStmt->fetchAll(PDO::FETCH_ASSOC);
-        if (!$warRows) {
-            return false;
-        }
-
-        $enemyAllianceIds = [];
-        $enemyUserIds = [];
-        foreach ($warRows as $row) {
-            $oa = (int)($row['other_alliance_id'] ?? 0);
-            $ou = (int)($row['other_user_id'] ?? 0);
-            if ($oa > 0) $enemyAllianceIds[] = $oa;
-            if ($ou > 0) $enemyUserIds[] = $ou;
-        }
-
-        if (!$enemyAllianceIds && !$enemyUserIds) {
-            return false;
-        }
-
-        $where = ['cb.galaxy_index = ?', 'cb.system_index = ?'];
-        $params = [$galaxy, $system];
-        $scope = [];
-
-        if ($enemyAllianceIds) {
-            $scope[] = 'am.alliance_id IN (' . implode(',', array_fill(0, count($enemyAllianceIds), '?')) . ')';
-            $params = array_merge($params, $enemyAllianceIds);
-        }
-        if ($enemyUserIds) {
-            $scope[] = 'c.user_id IN (' . implode(',', array_fill(0, count($enemyUserIds), '?')) . ')';
-            $params = array_merge($params, $enemyUserIds);
-        }
-        if (!$scope) {
-            return false;
-        }
-        $where[] = '(' . implode(' OR ', $scope) . ')';
-
-        $sql = sprintf(
-            'SELECT 1
-             FROM colonies c
-             JOIN celestial_bodies cb ON cb.id = c.body_id
-             LEFT JOIN alliance_members am ON am.user_id = c.user_id
-             WHERE %s
-             LIMIT 1',
-            implode(' AND ', $where)
-        );
-        $checkStmt = $db->prepare($sql);
-        $checkStmt->execute($params);
-        return (bool)$checkStmt->fetchColumn();
-    } catch (Throwable $e) {
+    $allianceStmt = $db->prepare('SELECT alliance_id FROM alliance_members WHERE user_id = ? LIMIT 1');
+    $allianceStmt->execute([$uid]);
+    $myAllianceId = (int)($allianceStmt->fetchColumn() ?: 0);
+    if ($myAllianceId <= 0) {
         return false;
     }
+
+    $warStmt = $db->prepare(
+        'SELECT other_alliance_id, other_user_id
+         FROM alliance_relations
+         WHERE alliance_id = ?
+           AND relation_type = "war"
+           AND (expires_at IS NULL OR expires_at > NOW())'
+    );
+    $warStmt->execute([$myAllianceId]);
+    $warRows = $warStmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!$warRows) {
+        return false;
+    }
+
+    $enemyAllianceIds = [];
+    $enemyUserIds = [];
+    foreach ($warRows as $row) {
+        $oa = (int)($row['other_alliance_id'] ?? 0);
+        $ou = (int)($row['other_user_id'] ?? 0);
+        if ($oa > 0) $enemyAllianceIds[] = $oa;
+        if ($ou > 0) $enemyUserIds[] = $ou;
+    }
+
+    if (!$enemyAllianceIds && !$enemyUserIds) {
+        return false;
+    }
+
+    $where = ['cb.galaxy_index = ?', 'cb.system_index = ?'];
+    $params = [$galaxy, $system];
+    $scope = [];
+
+    if ($enemyAllianceIds) {
+        $scope[] = 'am.alliance_id IN (' . implode(',', array_fill(0, count($enemyAllianceIds), '?')) . ')';
+        $params = array_merge($params, $enemyAllianceIds);
+    }
+    if ($enemyUserIds) {
+        $scope[] = 'c.user_id IN (' . implode(',', array_fill(0, count($enemyUserIds), '?')) . ')';
+        $params = array_merge($params, $enemyUserIds);
+    }
+    if (!$scope) {
+        return false;
+    }
+    $where[] = '(' . implode(' OR ', $scope) . ')';
+
+    $sql = sprintf(
+        'SELECT 1
+         FROM colonies c
+         JOIN celestial_bodies cb ON cb.id = c.body_id
+         LEFT JOIN alliance_members am ON am.user_id = c.user_id
+         WHERE %s
+         LIMIT 1',
+        implode(' AND ', $where)
+    );
+    $checkStmt = $db->prepare($sql);
+    $checkStmt->execute($params);
+    return (bool)$checkStmt->fetchColumn();
 }
 
 function ai_colony_manager_tick(PDO $db, array $leader): ?string {

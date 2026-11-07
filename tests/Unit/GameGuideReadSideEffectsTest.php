@@ -63,4 +63,36 @@ final class GameGuideReadSideEffectsTest extends TestCase
         self::assertStringNotContainsString('catch (Exception', $read);
         self::assertStringNotContainsString('return [];', $read);
     }
+
+    public function testDirectHelpLimitReadsPersistedUsageAndPropagatesDatabaseFailures(): void
+    {
+        $guide = file_get_contents(__DIR__ . '/../../api/llm_soc/GameGuideNPC.php');
+        self::assertIsString($guide);
+
+        $start = strpos($guide, 'private function getDirectHelpUsageCount(');
+        $end = strpos($guide, "\n    /**", $start + 1);
+        self::assertNotFalse($start);
+        self::assertNotFalse($end);
+
+        $read = substr($guide, $start, $end - $start);
+        self::assertStringContainsString('FROM game_guide_help_usage', $read);
+        self::assertStringContainsString('WHERE user_id = ? AND help_type = ?', $read);
+        self::assertStringNotContainsString('npc_action_log', $read);
+        self::assertStringNotContainsString('catch (', $read);
+    }
+
+    public function testCheckpointWriteDoesNotReportSuccessAfterDatabaseFailure(): void
+    {
+        $guide = file_get_contents(__DIR__ . '/../../api/llm_soc/GameGuideNPC.php');
+        self::assertIsString($guide);
+
+        $start = strpos($guide, 'public function recordCheckpointCompletion(');
+        $end = strpos($guide, "\n    /**", $start + 1);
+        self::assertNotFalse($start);
+        self::assertNotFalse($end);
+
+        $write = substr($guide, $start, $end - $start);
+        self::assertStringContainsString('$stmt->execute([$user_id, $checkpoint]);', $write);
+        self::assertStringNotContainsString('catch (', $write);
+    }
 }

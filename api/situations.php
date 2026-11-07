@@ -138,24 +138,33 @@ switch ($action) {
             json_error('situation_id and approach_key are required.');
         }
 
-        $row = load_user_situation($db, $sid, $uid);
-        if (!$row) {
-            json_error('Situation not found.', 404);
-        }
-        if ((string)$row['status'] !== 'active') {
-            json_error('Only active situations can change approach.');
-        }
-        if ((int)$row['approach_locked'] === 1) {
-            json_error('Approach is locked for this situation.');
+        try {
+            $result = mutate_user_situation(
+                $db,
+                $sid,
+                $uid,
+                static function (array $row) use ($db, $sid, $uid, $approach): array {
+                    if ((string)$row['status'] !== 'active') {
+                        throw new DomainException('Only active situations can change approach.', 409);
+                    }
+                    if ((int)$row['approach_locked'] === 1) {
+                        throw new DomainException('Approach is locked for this situation.', 409);
+                    }
+
+                    $db->prepare(
+                        'UPDATE situation_states
+                         SET approach_key = ?, updated_at = NOW()
+                         WHERE id = ? AND user_id = ?'
+                    )->execute([$approach, $sid, $uid]);
+
+                    return ['situation_id' => $sid, 'approach_key' => $approach];
+                }
+            );
+        } catch (DomainException $error) {
+            json_error($error->getMessage(), $error->getCode() ?: 400);
         }
 
-        $db->prepare(
-            'UPDATE situation_states
-             SET approach_key = ?, updated_at = NOW()
-             WHERE id = ? AND user_id = ?'
-        )->execute([$approach, $sid, $uid]);
-
-        json_ok(['situation_id' => $sid, 'approach_key' => $approach]);
+        json_ok($result);
         break;
 
     case 'tick':
@@ -164,27 +173,39 @@ switch ($action) {
         $body = get_json_body();
         $sid = isset($body['situation_id']) ? (int)$body['situation_id'] : 0;
 
-        if ($sid > 0) {
-            $rows = [];
-            $one = load_user_situation($db, $sid, $uid);
-            if ($one && (string)$one['status'] === 'active') {
-                $rows[] = $one;
+        try {
+            $db->beginTransaction();
+            if ($sid > 0) {
+                $stmt = $db->prepare(
+                    'SELECT * FROM situation_states
+                     WHERE id = ? AND user_id = ? AND status = \'active\'
+                     FOR UPDATE'
+                );
+                $stmt->execute([$sid, $uid]);
+                $rows = $stmt->fetchAll();
+            } else {
+                $stmt = $db->prepare(
+                    'SELECT * FROM situation_states
+                     WHERE user_id = ? AND status = \'active\'
+                     FOR UPDATE'
+                );
+                $stmt->execute([$uid]);
+                $rows = $stmt->fetchAll();
             }
-        } else {
-            $stmt = $db->prepare(
-                'SELECT * FROM situation_states
-                 WHERE user_id = ? AND status = \'active\''
-            );
-            $stmt->execute([$uid]);
-            $rows = $stmt->fetchAll();
-        }
 
-        $ticked = [];
-        foreach ($rows as $s) {
-            $tickResult = tick_situation($db, $s, $uid);
-            if ($tickResult !== null) {
-                $ticked[] = $tickResult;
+            $ticked = [];
+            foreach ($rows as $situation) {
+                $tickResult = tick_situation($db, $situation, $uid);
+                if ($tickResult !== null) {
+                    $ticked[] = $tickResult;
+                }
             }
+            $db->commit();
+        } catch (Throwable $error) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $error;
         }
 
         json_ok(['ticked' => $ticked]);
@@ -205,26 +226,34 @@ switch ($action) {
             json_error('outcome must be resolved, failed, or cancelled.');
         }
 
-        $row = load_user_situation($db, $sid, $uid);
-        if (!$row) {
-            json_error('Situation not found.', 404);
-        }
-        if ((string)$row['status'] !== 'active') {
-            json_error('Situation is not active.');
+        try {
+            $result = mutate_user_situation(
+                $db,
+                $sid,
+                $uid,
+                static function (array $row) use ($db, $sid, $uid, $outcome, $note): array {
+                    if ((string)$row['status'] !== 'active') {
+                        throw new DomainException('Situation is not active.', 409);
+                    }
+
+                    $payload = decode_json_field((string)($row['payload_json'] ?? ''));
+                    if ($note !== '') {
+                        $payload['resolution_note'] = $note;
+                    }
+                    $db->prepare(
+                        'UPDATE situation_states
+                         SET status = ?, ended_at = NOW(), payload_json = ?, updated_at = NOW()
+                         WHERE id = ? AND user_id = ?'
+                    )->execute([$outcome, json_encode($payload), $sid, $uid]);
+
+                    return ['situation_id' => $sid, 'status' => $outcome];
+                }
+            );
+        } catch (DomainException $error) {
+            json_error($error->getMessage(), $error->getCode() ?: 400);
         }
 
-        $payload = decode_json_field((string)($row['payload_json'] ?? ''));
-        if ($note !== '') {
-            $payload['resolution_note'] = $note;
-        }
-
-        $db->prepare(
-            'UPDATE situation_states
-             SET status = ?, ended_at = NOW(), payload_json = ?, updated_at = NOW()
-             WHERE id = ? AND user_id = ?'
-        )->execute([$outcome, json_encode($payload), $sid, $uid]);
-
-        json_ok(['situation_id' => $sid, 'status' => $outcome]);
+        json_ok($result);
         break;
 
     default:
@@ -242,6 +271,36 @@ function load_user_situation(PDO $db, int $situationId, int $userId): ?array {
     $stmt->execute([$situationId, $userId]);
     $row = $stmt->fetch();
     return $row ?: null;
+}
+
+/**
+ * @param callable(array<string, mixed>): array<string, mixed> $operation
+ * @return array<string, mixed>
+ */
+function mutate_user_situation(PDO $db, int $situationId, int $userId, callable $operation): array
+{
+    $db->beginTransaction();
+    try {
+        $stmt = $db->prepare(
+            'SELECT * FROM situation_states
+             WHERE id = ? AND user_id = ?
+             FOR UPDATE'
+        );
+        $stmt->execute([$situationId, $userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            throw new DomainException('Situation not found.', 404);
+        }
+
+        $result = $operation($row);
+        $db->commit();
+        return $result;
+    } catch (Throwable $error) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        throw $error;
+    }
 }
 
 function tick_situation(PDO $db, array $row, int $userId): ?array {

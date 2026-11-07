@@ -80,8 +80,8 @@ function cubicBezierTangent(p0, p1, p2, p3, t) {
 
 // Convert a THREE.Vector3-like object to a plain array (or identity if already array).
 function toArr(v) {
-  if (Array.isArray(v)) return [v[0] || 0, v[1] || 0, v[2] || 0];
-  if (v && typeof v === 'object') return [Number(v.x || 0), Number(v.y || 0), Number(v.z || 0)];
+  if (Array.isArray(v)) return [Number(v[0] ?? 0), Number(v[1] ?? 0), Number(v[2] ?? 0)];
+  if (v && typeof v === 'object') return [Number(v.x ?? 0), Number(v.y ?? 0), Number(v.z ?? 0)];
   return [0, 0, 0];
 }
 
@@ -192,6 +192,7 @@ const MAX_ROLL_RAD = (8 * Math.PI) / 180; // ±8°
 
 class CameraFlightPath {
   constructor() {
+    this._generation = 0;
     /** @type {'idle'|'flying'|'aborting'} */
     this._state    = 'idle';
     this._t        = 0;      // normalised flight progress [0, 1]
@@ -244,28 +245,10 @@ class CameraFlightPath {
    * @returns {Promise<void>}        Resolves when flight completes (t === 1)
    */
   flyTo(from, to, durationMs, opts = {}) {
-    this._opts     = opts || {};
-    this._targetRef = opts.target ?? opts.targetObject ?? { x: 0, y: 0, z: 0 };
-    this._colliders = normalizeColliders(opts.colliders);
-    this._collisionRadius = Number(opts.collisionRadius ?? 0.25);
-    if (!Number.isFinite(this._collisionRadius) || this._collisionRadius < 0) {
-      throw new TypeError('CameraFlightPath: collisionRadius must be a non-negative number');
-    }
-    this._duration = Number(durationMs) > 0 ? Number(durationMs) : 2500;
-    this._elapsed  = 0;
-    this._t        = 0;
-    this._state    = 'flying';
-
-    if (typeof opts.onAtmosphereScale === 'function') {
-      this._onAtmosphereScale = opts.onAtmosphereScale;
-    }
-    if (typeof opts.onStarBlur === 'function') {
-      this._onStarBlur = opts.onStarBlur;
-    }
-
-    const p0 = toArr(from);
-    const p3 = toArr(to);
-    resolveTarget(this._targetRef, p3);
+    const generation = this._generation;
+    const setup = this._prepareFlight(from, to, durationMs, opts, 2500, { x: 0, y: 0, z: 0 });
+    if (this._generation !== generation) return Promise.resolve();
+    const { p0, p3 } = setup;
 
     // Control points: camera first "pulls back" (away from target) then arcs.
     // Offset p1 behind the start direction, p2 in front of target with a
@@ -290,36 +273,98 @@ class CameraFlightPath {
       p3[2] - (p3[2] - p0[2]) * 0.2,
     ];
 
-    this._p0 = p0;
+    return this._startFlight(setup, p1, p2, 'flyTo');
+  }
+
+  _prepareFlight(from, to, durationMs, opts, defaultDuration, defaultTarget) {
+    if (!opts || typeof opts !== 'object') throw new TypeError('CameraFlightPath: options must be an object');
+    const options = { ...opts };
+    const target = options.target ?? options.targetObject ?? defaultTarget;
+    const colliders = normalizeColliders(options.colliders);
+    const collisionRadius = Number(options.collisionRadius ?? 0.25);
+    if (!Number.isFinite(collisionRadius) || collisionRadius < 0) {
+      throw new TypeError('CameraFlightPath: collisionRadius must be a non-negative number');
+    }
+    const duration = durationMs == null ? defaultDuration : Number(durationMs);
+    if (!Number.isFinite(duration)) throw new TypeError('CameraFlightPath: duration must be finite');
+    options.starBlur = Number(options.starBlur ?? 0.4);
+    if (!Number.isFinite(options.starBlur)) throw new TypeError('CameraFlightPath: starBlur must be finite');
+    const p0 = toArr(from);
+    const p3 = toArr(to);
+    if (![...p0, ...p3].every(Number.isFinite)) {
+      throw new TypeError('CameraFlightPath: endpoints must have finite coordinates');
+    }
+    resolveTarget(target, p3);
+    return { options, target, colliders, collisionRadius, duration: duration > 0 ? duration : defaultDuration, p0, p3 };
+  }
+
+  _startFlight(setup, p1, p2, method) {
+    if (![...p1, ...p2].every(Number.isFinite)) {
+      throw new TypeError('CameraFlightPath: path must have finite control points');
+    }
+    this._reject?.(new Error(`CameraFlightPath: new ${method} started`));
+    ++this._generation;
+    this._opts = setup.options;
+    this._targetRef = setup.target;
+    this._colliders = setup.colliders;
+    this._collisionRadius = setup.collisionRadius;
+    this._duration = setup.duration;
+    this._elapsed = 0;
+    this._t = 0;
+    this._state = 'flying';
+    this._onAtmosphereScale = method === 'flyTo' && typeof setup.options.onAtmosphereScale === 'function'
+      ? setup.options.onAtmosphereScale : null;
+    this._onStarBlur = method === 'flyTo' && typeof setup.options.onStarBlur === 'function'
+      ? setup.options.onStarBlur : null;
+    this._p0 = setup.p0;
     this._p1 = p1;
     this._p2 = p2;
-    this._p3 = p3;
-
-    this._lastPos    = p0.slice();
-    this._lastTarget = p3.slice();
-    this._lastRoll   = 0;
-
-    // Cancel any previous in-flight promise
-    if (this._reject) {
-      this._reject(new Error('CameraFlightPath: new flyTo started'));
-    }
-
+    this._p3 = setup.p3;
+    this._lastPos = setup.p0.slice();
+    this._lastTarget = setup.p3.slice();
+    this._lastRoll = 0;
     return new Promise((resolve, reject) => {
       this._resolve = resolve;
-      this._reject  = reject;
+      this._reject = reject;
     });
   }
 
   /**
    * Per-frame update.  Must be called from the main render loop.
    *
-   * @param {number} dt  — delta time in *milliseconds*
+   * @param {number} dt — finite non-negative delta; values <= 1 are seconds, otherwise milliseconds
    * @returns {{ position: {x,y,z}, target: {x,y,z}, roll: number, t: number }|null}
    *          Returns null when idle.
    */
   tick(dt) {
-    if (this._state === 'idle') return null;
+    return this._advance(dt);
+  }
 
+  _advance(dt, applyState) {
+    if (this._state === 'idle') return null;
+    const resolve = this._resolve;
+    const reject = this._reject;
+    try {
+      if (typeof dt !== 'number' || !Number.isFinite(dt) || dt < 0) {
+        throw new TypeError('CameraFlightPath: frame time must be a finite non-negative number');
+      }
+      const state = this._tick(dt, resolve);
+      if (this._resolve !== resolve) return null;
+      applyState?.(state, resolve);
+      if (this._resolve !== resolve) return null;
+      if (this._state === 'idle') this.dispose();
+      return state;
+    } catch (error) {
+      if (this._reject === reject) {
+        this._resolve = null;
+        this.dispose();
+        reject?.(error);
+      }
+      throw error;
+    }
+  }
+
+  _tick(dt, resolve) {
     const dtMs = dt > 1 ? dt : dt * 1000; // accept both ms and seconds
     this._elapsed += dtMs;
 
@@ -332,20 +377,19 @@ class CameraFlightPath {
       if (this._t <= 0) {
         this._t     = 0;
         this._state = 'idle';
-        if (this._resolve) { this._resolve(); this._resolve = null; this._reject = null; }
       }
     } else {
       this._t = eased;
       if (raw >= 1) {
         this._t    = 1;
         this._state = 'idle';
-        if (this._resolve) { this._resolve(); this._resolve = null; this._reject = null; }
       }
     }
 
     const desiredPosition = cubicBezier(this._p0, this._p1, this._p2, this._p3, this._t);
     const pos = this._resolveCameraPosition(desiredPosition);
     const target = resolveTarget(this._targetRef, this._p3);
+    if (this._resolve !== resolve) return null;
     const tangent = cubicBezierTangent(this._p0, this._p1, this._p2, this._p3, Math.max(0.001, Math.min(0.999, this._t)));
 
     // Roll correlates with the horizontal (XZ) curvature angle of the tangent.
@@ -361,11 +405,13 @@ class CameraFlightPath {
     const starBlur  = lerp(0, Number(this._opts.starBlur ?? 0.4), Math.sin(Math.PI * this._t));
 
     if (typeof this._onAtmosphereScale === 'function') {
-      try { this._onAtmosphereScale(atmoScale); } catch (_) {}
+      this._onAtmosphereScale(atmoScale);
     }
+    if (this._resolve !== resolve) return null;
     if (typeof this._onStarBlur === 'function') {
-      try { this._onStarBlur(starBlur); } catch (_) {}
+      this._onStarBlur(starBlur);
     }
+    if (this._resolve !== resolve) return null;
 
     return {
       position: arrToObj(pos),
@@ -393,25 +439,10 @@ class CameraFlightPath {
    * @returns {Promise<void>}        Resolves when flight completes (t === 1)
    */
   flyToBuilding(from, to, durationMs, opts = {}) {
-    this._opts     = opts || {};
-    this._targetRef = opts.target ?? opts.targetObject ?? null;
-    this._colliders = normalizeColliders(opts.colliders);
-    this._collisionRadius = Number(opts.collisionRadius ?? 0.25);
-    if (!Number.isFinite(this._collisionRadius) || this._collisionRadius < 0) {
-      throw new TypeError('CameraFlightPath: collisionRadius must be a non-negative number');
-    }
-    this._duration = Number(durationMs) > 0 ? Number(durationMs) : 900;
-    this._elapsed  = 0;
-    this._t        = 0;
-    this._state    = 'flying';
-
-    // No atmosphere/star callbacks for building-level fly-in
-    this._onAtmosphereScale = null;
-    this._onStarBlur        = null;
-
-    const p0 = toArr(from);
-    const p3 = toArr(to);
-    resolveTarget(this._targetRef, p3);
+    const generation = this._generation;
+    const setup = this._prepareFlight(from, to, durationMs, opts, 900, null);
+    if (this._generation !== generation) return Promise.resolve();
+    const { p0, p3 } = setup;
 
     const dist = Math.sqrt(
       (p3[0] - p0[0]) ** 2 + (p3[1] - p0[1]) ** 2 + (p3[2] - p0[2]) ** 2,
@@ -429,23 +460,7 @@ class CameraFlightPath {
       p0[2] + (p3[2] - p0[2]) * 0.66 + (p3[0] - p0[0]) * 0.04,
     ];
 
-    this._p0 = p0;
-    this._p1 = p1;
-    this._p2 = p2;
-    this._p3 = p3;
-
-    this._lastPos    = p0.slice();
-    this._lastTarget = p3.slice();
-    this._lastRoll   = 0;
-
-    if (this._reject) {
-      this._reject(new Error('CameraFlightPath: new flyToBuilding started'));
-    }
-
-    return new Promise((resolve, reject) => {
-      this._resolve = resolve;
-      this._reject  = reject;
-    });
+    return this._startFlight(setup, p1, p2, 'flyToBuilding');
   }
 
   /**
@@ -462,6 +477,7 @@ class CameraFlightPath {
   }
 
   dispose() {
+    ++this._generation;
     this._state = 'idle';
     const resolve = this._resolve;
     this._resolve = null;
@@ -488,27 +504,31 @@ class CameraFlightPath {
    * Camera-driver update called by GalaxyCameraController each frame.
    *
    * @param {object} ctx  — { camera: THREE.Camera, target?, controls? }
+   * Camera publication failures reject the flight before completion is committed.
    */
   update(ctx) {
-    if (this._state === 'idle') return;
-
     // dt not available in the driver context — use a fixed 16 ms step.
-    const dt = 16;
-    const state = this.tick(dt);
-    if (!state || !ctx) return;
-
-    const cam = ctx.camera || ctx;
-    if (cam && typeof cam.position === 'object' && cam.position !== null) {
-      cam.position.x = state.position.x;
-      cam.position.y = state.position.y;
-      cam.position.z = state.position.z;
-    }
-    if (ctx.controls?.target && typeof ctx.controls.target.set === 'function') {
-      ctx.controls.target.set(state.target.x, state.target.y, state.target.z);
-      ctx.controls.update?.();
-    } else if (typeof cam?.lookAt === 'function') {
-      cam.lookAt(state.target.x, state.target.y, state.target.z);
-    }
+    this._advance(16, (state, resolve) => {
+      if (!ctx) throw new TypeError('CameraFlightPath: driver context is required');
+      const cam = ctx.camera || ctx;
+      const position = cam?.position;
+      if (this._resolve !== resolve) return;
+      if (position && typeof position === 'object') {
+        for (const axis of ['x', 'y', 'z']) {
+          position[axis] = state.position[axis];
+          if (this._resolve !== resolve) return;
+        }
+      }
+      const controls = ctx.controls;
+      if (this._resolve !== resolve) return;
+      if (controls?.target && typeof controls.target.set === 'function') {
+        controls.target.set(state.target.x, state.target.y, state.target.z);
+        if (this._resolve !== resolve) return;
+        controls.update?.();
+      } else if (typeof cam?.lookAt === 'function') {
+        cam.lookAt(state.target.x, state.target.y, state.target.z);
+      }
+    });
   }
 
   _resolveCameraPosition(position) {

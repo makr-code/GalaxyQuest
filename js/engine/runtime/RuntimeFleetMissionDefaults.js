@@ -102,10 +102,21 @@
         if (hint) {
           const owner = fallbackPrefill.owner ? `Ziel: ${esc(fallbackPrefill.owner)}` : 'Freies Zielprofil';
           const threat = fallbackPrefill.threatLevel ? ` | Bedrohung: ${esc(fallbackPrefill.threatLevel)}` : '';
-          const scan = fallbackPrefill.intel?.intel?.latest_scan_at
-            ? ` | Scan: ${esc(new Date(fallbackPrefill.intel.intel.latest_scan_at).toLocaleString())}`
+          const intel = fallbackPrefill.intel?.intel;
+          const scan = intel?.latest_scan_at
+            ? ` | Scan: ${esc(new Date(intel.latest_scan_at).toLocaleString())}`
             : '';
-          hint.innerHTML = `${owner}${threat}${scan} | Missionsdefaults gesetzt.`;
+          const scanStatus = intel?.latest_scan;
+          const scanMetrics = ['health_pct', 'shield_pct']
+            .flatMap((key) => {
+              const value = scanStatus?.[key];
+              if (value === null || value === undefined || value === ''
+                || !Number.isFinite(Number(value)) || Number(value) < 0 || Number(value) > 100) return [];
+              const label = key === 'health_pct' ? 'Hülle' : 'Schild';
+              return [`${label} ${Math.round(Number(value))}%`];
+            });
+          const status = scanMetrics.length ? ` | Aufklärung: ${esc(scanMetrics.join(' · '))}` : '';
+          hint.innerHTML = `${owner}${threat}${scan}${status} | Missionsdefaults gesetzt.`;
         }
       },
 

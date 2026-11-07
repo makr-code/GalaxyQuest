@@ -114,8 +114,11 @@ function npc_load_behavior_script(PDO $db, string $faction): ?string
         $stmt->execute([$faction]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return $row ? $row['script_yaml'] : null;
-    } catch (Exception $e) {
-        // Table doesn't exist yet
+    } catch (PDOException $error) {
+        if ($error->getCode() !== '42S02') {
+            throw $error;
+        }
+
         return null;
     }
 }
@@ -219,41 +222,63 @@ function npc_get_behavior_context(PDO $db, int $userId, string $faction): array
     // Get standing
     try {
         $stmt = $db->prepare("
-            SELECT standing FROM user_faction_standing
-            WHERE user_id = ? AND faction = ?
+            SELECT d.standing
+            FROM diplomacy d
+            JOIN npc_factions f ON f.id = d.faction_id
+            WHERE d.user_id = ? AND f.code = ?
             LIMIT 1
         ");
         $stmt->execute([$userId, $faction]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         $standing = $row ? (int)$row['standing'] : 0;
-    } catch (Exception $e) {
-        // Standing table might not exist
+    } catch (PDOException $error) {
+        if ($error->getCode() !== '42S02') {
+            throw $error;
+        }
     }
 
-    // Get user resources
+    // Credits belong to the user; material resources are the sum of owned colonies.
+    try {
+        $stmt = $db->prepare('SELECT credits FROM users WHERE id = ? LIMIT 1');
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            $resources['credits'] = (int) $row['credits'];
+        }
+    } catch (PDOException $error) {
+        if ($error->getCode() !== '42S02') {
+            throw $error;
+        }
+    }
+
     try {
         $stmt = $db->prepare("
-            SELECT metal, crystal, credits FROM user_inventory
+            SELECT
+                COALESCE(SUM(metal), 0) AS metal,
+                COALESCE(SUM(crystal), 0) AS crystal,
+                COALESCE(SUM(deuterium), 0) AS deuterium,
+                COALESCE(SUM(rare_earth), 0) AS rare_earth
+            FROM colonies
             WHERE user_id = ?
-            LIMIT 1
         ");
         $stmt->execute([$userId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($row) {
-            $resources = [
-                'metal' => (int)$row['metal'],
-                'crystal' => (int)$row['crystal'],
-                'credits' => (int)$row['credits']
-            ];
+            foreach (['metal', 'crystal', 'deuterium', 'rare_earth'] as $resource) {
+                $resources[$resource] = (int) $row[$resource];
+            }
         }
-    } catch (Exception $e) {
-        // Inventory table might not exist
+    } catch (PDOException $error) {
+        if ($error->getCode() !== '42S02') {
+            throw $error;
+        }
     }
 
     return [
         'user_id' => $userId,
         'faction' => $faction,
         'standing' => $standing,
+        'faction_standing' => $standing,
         'resources' => $resources,
         'current_time' => time(),
         'current_hour' => (int)date('H'),

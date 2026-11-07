@@ -29,6 +29,17 @@
       return `<span class="item-level-pips" title="Level ${level}">${'●'.repeat(f)}${'○'.repeat(e)}</span>`;
     }
 
+    function readPercent(...values) {
+      for (const value of values) {
+        if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) continue;
+        const parsed = Number(value);
+        if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 100) {
+          return Math.round(parsed);
+        }
+      }
+      return null;
+    }
+
     return {
       getBuildingFocus() {
         const currentColony = getCurrentColony();
@@ -81,29 +92,29 @@
               }
             }
             const cost = building.next_cost;
-            const rawIntegrity = Number(
+            const integrityPct = readPercent(
               building.integrity_pct
               ?? building.health_pct
               ?? building.hp_pct
               ?? building.condition_pct
-              ?? (busy ? 92 : 100)
             );
-            const integrityPct = Number.isFinite(rawIntegrity)
-              ? Math.max(0, Math.min(100, Math.round(rawIntegrity)))
-              : (busy ? 92 : 100);
-            const rawShield = Number(
+            const shieldPct = readPercent(
               building.shield_pct
               ?? building.shields_pct
               ?? building.defense_shield_pct
-              ?? ((building.meta?.cat === 'Military' || building.meta?.cat === 'Advanced')
-                ? Math.min(100, Math.round(25 + Number(building.level || 0) * 8))
-                : 0)
             );
-            const shieldPct = Number.isFinite(rawShield)
-              ? Math.max(0, Math.min(100, Math.round(rawShield)))
-              : 0;
-            const integrityTone = integrityPct < 30 ? 'is-critical' : (integrityPct < 60 ? 'is-warning' : 'is-good');
-            const shieldTone = shieldPct < 30 ? 'is-critical' : (shieldPct < 60 ? 'is-warning' : 'is-good');
+            const statusRows = [
+              integrityPct === null ? '' : `
+                <div class="entity-bar-row" title="Building integrity ${integrityPct}%">
+                  <span class="entity-bar-label">Health</span>
+                  <div class="bar-wrap"><div class="bar-fill bar-integrity ${integrityPct < 30 ? 'is-critical' : (integrityPct < 60 ? 'is-warning' : 'is-good')}" style="width:${integrityPct}%"></div></div>
+                </div>`,
+              shieldPct === null ? '' : `
+                <div class="entity-bar-row" title="Building shields ${shieldPct}%">
+                  <span class="entity-bar-label">Shield</span>
+                  <div class="bar-wrap"><div class="bar-fill bar-shield ${shieldPct < 30 ? 'is-critical' : (shieldPct < 60 ? 'is-warning' : 'is-good')}" style="width:${shieldPct}%"></div></div>
+                </div>`,
+            ].join('');
             html += `
             <div class="item-card ${buildingFocus === building.type ? 'item-card-focus' : ''}" data-building-type="${esc(building.type)}">
               <div class="item-card-header">
@@ -111,16 +122,7 @@
                 ${levelPips(building.level)}
               </div>
               <div class="item-desc">${building.meta.desc}</div>
-              <div class="entity-bars" aria-label="Building status bars">
-                <div class="entity-bar-row" title="Building integrity ${integrityPct}%">
-                  <span class="entity-bar-label">Health</span>
-                  <div class="bar-wrap"><div class="bar-fill bar-integrity ${integrityTone}" style="width:${integrityPct}%"></div></div>
-                </div>
-                <div class="entity-bar-row" title="Building shields ${shieldPct}%">
-                  <span class="entity-bar-label">Shield</span>
-                  <div class="bar-wrap"><div class="bar-fill bar-shield ${shieldTone}" style="width:${shieldPct}%"></div></div>
-                </div>
-              </div>
+              ${statusRows ? `<div class="entity-bars" aria-label="Building status bars">${statusRows}</div>` : ''}
               <div class="item-cost">
                 ${cost.metal ? `<span class="cost-metal">Ô¼í ${fmt(cost.metal)}</span>` : ''}
                 ${cost.crystal ? `<span class="cost-crystal">­ƒÆÄ ${fmt(cost.crystal)}</span>` : ''}

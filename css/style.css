@@ -36,6 +36,12 @@
   --radius-sm: 4px;
   --shadow:    0 4px 24px rgba(0,0,0,0.6);
   --transition: 0.2s ease;
+  --command-border: #6ca9d629;
+  --command-accent: #90caff66;
+  --command-surface: linear-gradient(90deg, #19334d70, #0d1d3030);
+  --command-text: #e0eeff;
+  --command-hover-border: #a8d7ff;
+  --command-hover-bg: #28567770;
 
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   font-size: 14px;
@@ -270,6 +276,9 @@
 #game-planet-context { width: min(360px, 100%); max-height: 36%; overflow: auto; overflow-wrap: anywhere; }
 #game-planet-context h3 { margin: 0 0 4px; font-size: 14px; }
 #game-planet-context p { margin: 0 0 6px; font-size: 12px; }
+#game-fleet-target-picker { display: grid; gap: 6px; width: min(360px, 100%); max-height: 42dvh; overflow: auto; }
+#game-fleet-target-picker h3, #game-fleet-target-picker p { margin: 0; font-size: 12px; }
+#game-fleet-target-picker button { min-height: 44px; text-align: left; white-space: normal; }
 .game-development[data-domain="fleet-launch"] fieldset { display: grid; gap: 8px; min-width: 0; }
 .game-development[data-domain="fleet-launch"] label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; overflow-wrap: anywhere; }
 .game-development[data-domain="fleet-launch"] input { width: 110px; max-width: 100%; }
@@ -286,6 +295,19 @@
 #game-fleet-command[hidden] { display: none; }
 #game-fleet-command h2, #game-fleet-command h3 { font-size: 14px; margin: 6px 0; }
 #game-fleet-command p { font-size: 12px; }
+.game-fleet-command-steps {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px;
+  margin: 10px 0; padding: 0; list-style: none; counter-reset: fleet-step;
+}
+.game-fleet-command-steps li {
+  padding: 7px 5px; border: 1px solid #6ca9d640; border-radius: 6px;
+  color: #9fbcd0; background: #10243a; font-size: 11px; text-align: center;
+}
+.game-fleet-command-steps li[data-state="complete"] { border-color: #82e3c455; color: #a4e8d1; }
+.game-fleet-command-steps li[data-state="current"] {
+  border-color: #83bfff; color: #e6f5ff; background: #19344a; box-shadow: inset 0 -2px #83bfff;
+}
+.game-fleet-command-steps li[aria-current="step"] { font-weight: 700; }
 #game-fleet-markers { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
 #game-fleet-markers button {
   position: absolute; pointer-events: auto; min-width: 40px; min-height: 32px;
@@ -302,10 +324,12 @@
 #game-fleet-context p, #game-fleet-map-status p { font-size: 12px; margin: 6px 0; }
 #game-fleet-map-status { left: 12px; right: auto; max-height: 20dvh; }
 #game-fleet-markers[hidden], #game-fleet-context[hidden], #game-fleet-map-status[hidden] { display: none; }
-.fleet-target-picking #starfield { cursor: crosshair; }
-#game-fleet-command[data-picking="true"] { top: auto; bottom: 12px; max-height: 30dvh; }
+.fleet-target-picking #starfield, .fleet-origin-picking #starfield { cursor: crosshair; }
+#game-fleet-command[data-picking="true"] { top: auto; bottom: 12px; max-height: 42dvh; }
 .fleet-target-picking #game-planet-context,
 .fleet-target-picking #game-galaxy-details { display: none; }
+.fleet-origin-picking #game-planet-context,
+.fleet-origin-picking #game-galaxy-details { display: none; }
 #game-galaxy-ui:is([data-camera-level="colony"], [data-camera-level="building"]) #game-galaxy-details {
   display: none;
 }
@@ -342,14 +366,52 @@
 .gq-spatial-label[data-kind="star"] { border-color: #ffd27a; color: #fff5dc; background: rgba(30, 20, 8, 0.92); }
 .gq-spatial-label[data-kind="planet"] { border-color: #8de4d1; color: #effffb; background: rgba(7, 24, 26, 0.92); }
 .gq-spatial-label[data-kind="moon"] { border-color: #a9c5ff; color: #f3f6ff; background: rgba(14, 21, 34, 0.92); }
+.gq-spatial-label[aria-pressed="true"] {
+  border: 2px solid #b9f4ff; background: rgba(16, 57, 70, 0.96);
+  box-shadow: 0 0 0 2px #6ecbf466, 0 2px 8px #0008;
+}
 .gq-spatial-label:hover, .gq-spatial-label:focus-visible {
   border-color: #fff; outline: 2px solid #9edbff; outline-offset: 2px; filter: brightness(1.2);
 }
 .gq-spatial-label-detail { max-width: 100%; overflow: hidden; color: #c3d6e5; font-size: var(--badge-detail-font-size, 11px); font-weight: 500; text-overflow: ellipsis; }
+.gq-spatial-label-metrics { display: grid; width: 100%; gap: 2px; margin-top: 2px; }
+.gq-spatial-label-metrics[hidden] { display: none; }
+.gq-spatial-label-metric { display: grid; grid-template-columns: 2rem minmax(1.5rem, 1fr) 2.5rem; align-items: center; gap: 5px; font-size: 9px; line-height: 1; }
+.gq-spatial-label-metric-name { color: #dcecf4; text-align: left; }
+.gq-spatial-label-meter { height: 4px; overflow: hidden; border-radius: 3px; background: rgba(190, 220, 235, 0.22); }
+.gq-spatial-label-meter-fill { display: block; height: 100%; border-radius: inherit; }
+.gq-spatial-label-metric-value { color: #f5fbff; text-align: right; font-variant-numeric: tabular-nums; }
+.game-fleet-hull-status { display: grid; grid-template-columns: auto minmax(4rem, 1fr) auto; align-items: center; gap: 8px; margin: 8px 0; color: #dcecf4; font-size: 0.8rem; }
+.game-fleet-hull-meter { width: 100%; height: 8px; accent-color: #ff776e; }
 #game-galaxy-selection { overflow-wrap: anywhere; }
 #game-galaxy-selection ul { padding-left: 20px; }
 #game-galaxy-selection li { margin: 5px 0; }
 #game-galaxy-selection li.selected { outline: 1px solid #6ecbff; background: #19344a; }
+#game-galaxy-selection .game-system-planets { list-style: none; padding: 0; display: grid; gap: 8px; }
+.game-system-planets > li { padding: 12px; border: 1px solid #6ca9d640; border-radius: 8px; background: linear-gradient(135deg, #10243a, #0d1d30 70%); }
+.game-system-planets > li[data-owned="true"] { border-left: 3px solid #82e3c4; }
+.game-system-planet-heading { display: grid; grid-template-columns: 30px auto minmax(0, 1fr); align-items: center; gap: 8px; }
+.game-system-planet-heading > .game-ui-icon { width: 28px; height: 28px; color: #9edbff; }
+.game-system-planet-heading strong { min-width: 0; overflow-wrap: anywhere; }
+.game-system-ownership { grid-column: 2 / -1; justify-self: start; color: #a4e8d1; background: #82e3c41a; border: 1px solid #82e3c455; border-radius: 12px; padding: 3px 8px; font-size: 11px; }
+.game-system-planet-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 135px), 1fr)); gap: 6px; margin-top: 10px; }
+.game-system-planet-actions button { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; text-align: left; white-space: normal; }
+#game-galaxy-system-list .game-system-catalog-card { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 4px 8px; width: 100%; min-height: 54px; margin: 6px 0; padding: 8px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.game-system-catalog-card > .game-ui-icon { grid-row: span 2; width: 28px; height: 28px; color: #ffd59c; }
+.game-system-catalog-card > span { grid-column: 2; color: #b8dcf5; font-variant-numeric: tabular-nums; }
+.game-system-catalog-card[aria-current="location"] { border-color: #82e3c4; background: #19344a; }
+.game-system-catalog-card:focus-visible { outline: 2px solid #9edbff; outline-offset: 2px; }
+.game-planet-context-heading { display: flex; align-items: center; gap: 8px; }
+.game-planet-context-heading > .game-ui-icon { flex-shrink: 0; width: 32px; height: 32px; color: #9edbff; }
+.game-planet-ownership { padding: 6px 8px; background: #6ca9d61a; border-left: 3px solid #83bfff; }
+#game-planet-context[data-ownership="own"] .game-planet-ownership { border-color: #82e3c4; color: #82e3c4; }
+.game-planet-action-grid { display: grid; gap: 10px; }
+.game-planet-action-group { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 145px), 1fr)); gap: 6px; }
+.game-planet-action-group h4 { grid-column: 1 / -1; margin: 4px 0 0; color: #9fbcd0; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+.game-planet-action-grid button { display: flex; align-items: center; gap: 6px; min-height: 48px; white-space: normal; text-align: left; }
+.game-planet-action-grid button .game-ui-icon { width: 20px; height: 20px; flex-shrink: 0; }
+.game-planet-action-grid button[hidden] { display: none; }
+.game-planet-action-grid > button:focus-visible { outline: 2px solid #9edbff; outline-offset: 2px; }
 #game-galaxy-system-list { display: grid; gap: 4px; }
 #game-galaxy-catalog input { max-width: 100%; }
 #game-galaxy-status[data-error="true"], #game-renderer-status[role="alert"] { color: #ffb6ad; }
@@ -412,7 +474,21 @@
   border: 1px solid #6ca9d640; border-radius: 8px; padding: 5px;
   background: #0d1d30b3; backdrop-filter: blur(12px);
 }
-.game-overlay-resource-menu { position: relative; }
+.game-overlay-dock > #game-command-toggle,
+.game-overlay-dock > #game-field-toggle,
+.game-overlay-dock > .game-overlay-resource-menu > summary {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 40px;
+}
+.game-overlay-dock > #game-command-toggle .game-ui-icon,
+.game-overlay-dock > #game-field-toggle .game-ui-icon,
+.game-overlay-resource-menu > summary .game-ui-icon { width: 18px; height: 18px; color: #9edbff; }
+.game-overlay-dock > #game-command-toggle[aria-expanded="true"] { border-color: #83bfff; background: #19344a; }
+.game-command-data-badge { padding: 2px 6px; border: 1px solid currentColor; border-radius: 6px; font-size: 12px; line-height: 1.5; }
+#game-command-toggle[data-data-state="error"] { border-color: #ff7180; }
+#game-command-toggle[data-data-state="error"] .game-command-data-badge { color: #ffc1c7; background: #49232c; }
+#game-command-toggle[data-data-state="loading"] .game-command-data-badge { color: #b8dcf5; background: #19344a; }
+#game-command-toggle[data-data-state="empty"] .game-command-data-badge { color: #ffe0a2; background: #43351e; }
+.game-overlay-resource-menu { position: static; }
 .game-overlay-resource-menu > summary {
   min-height: 32px; display: flex; align-items: center; padding: 0 9px;
   border: 1px solid #6ca9d640; border-radius: 6px; color: #b8dcf5;
@@ -423,14 +499,45 @@
 .game-overlay-resource-menu[open] > summary::after { content: " ▴"; }
 .game-page.game-overlay-layout .game-overlay-resource-menu[open] #resource-section {
   position: absolute !important; top: calc(100% + 8px); left: 0; z-index: 2;
-  width: min(600px, calc(100vw - 24px)) !important; max-height: min(60dvh, 480px);
-  overflow: auto; padding: 8px; border: 1px solid #6ca9d640; border-radius: 8px;
+  box-sizing: border-box;
+  width: min(600px, calc(100vw - max(12px, env(safe-area-inset-left, 0px)) - max(12px, env(safe-area-inset-right, 0px)))) !important;
+  max-height: max(0px, min(60dvh, 480px, calc(100dvh - var(--game-overlay-menu-top) - max(12px, env(safe-area-inset-bottom, 0px)))));
+  overflow: auto; overscroll-behavior: contain; scroll-padding-block-start: 64px;
+  padding: 8px; border: 1px solid #6ca9d640; border-radius: 8px;
   background: #0d1d30ed; box-shadow: 0 12px 30px #0008; backdrop-filter: blur(12px);
 }
 .game-page.game-overlay-layout .game-overlay-resource-menu[open] .game-development-actions,
 .game-page.game-overlay-layout .game-overlay-resource-menu[open] .resource-bar {
   flex-wrap: wrap; padding: 4px; background: transparent; border: 0;
 }
+.game-resource-help { display: none; }
+.game-resource-toolbar, .game-command-toolbar {
+  position: sticky; top: 0; z-index: 100; display: flex; align-items: center;
+  justify-content: space-between; gap: 8px; padding: 4px 2px 8px; background: #0d1d30;
+  color: #d7efff; font-size: 14px; line-height: 1.5;
+}
+.game-resource-toolbar > button, .game-command-toolbar > button { min-height: 44px; font-size: 13px; transform: none; }
+.game-resource-toolbar > button:focus-visible, .game-command-toolbar > button:focus-visible { outline: 2px solid #9edbff; outline-offset: 2px; }
+.game-resource-context {
+  display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: center;
+  gap: 2px 8px; margin: 4px 4px 8px; color: #d7efff; overflow-wrap: anywhere;
+}
+.game-resource-context > .game-ui-icon { grid-row: span 2; color: #82e3c4; }
+.game-resource-context > strong { min-width: 0; font-size: 14px; line-height: 1.5; }
+.game-resource-context > span { grid-column: 2; min-width: 0; font-size: 12px; line-height: 1.5; color: #adc8dc; font-variant-numeric: tabular-nums; }
+.game-overlay-resource-menu .game-resource-help { display: block; margin: 4px 4px 12px; color: #b8dcf5; font-size: 12px; line-height: 1.5; }
+.game-page.game-overlay-layout .game-overlay-resource-menu[open] .resource-bar {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); gap: 8px; align-items: stretch;
+}
+.game-overlay-resource-menu .resource {
+  display: grid; grid-template-columns: 20px minmax(0, 1fr); align-content: center;
+  min-width: 0; min-height: 64px; box-sizing: border-box; padding: 8px;
+  border: 1px solid #6ca9d640; border-radius: 6px; gap: 3px 8px; text-align: left;
+}
+.game-overlay-resource-menu .res-icon { grid-column: 1; grid-row: 1 / 3; }
+.game-overlay-resource-menu .res-label { grid-column: 2; font-size: 12px; line-height: 1.5; text-transform: none; overflow-wrap: anywhere; }
+.game-overlay-resource-menu .res-value { grid-column: 2; font-size: 14px; line-height: 1.5; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.game-overlay-resource-menu .resource-btn:focus-visible { outline: 2px solid #9edbff; outline-offset: 2px; }
 .game-overlay-dock #topbar-player { position: static; }
 #game-overlay-shell #topbar-player-menu {
   position: absolute; top: calc(100% + 8px); bottom: auto; left: 0; right: auto;
@@ -438,26 +545,135 @@
   max-height: calc(100dvh - 100px); overflow: auto;
 }
 #game-command-overlay {
-  position: absolute; top: calc(64px + env(safe-area-inset-top, 0px));
+  position: absolute; top: var(--game-overlay-menu-top);
   right: max(12px, env(safe-area-inset-right, 0px)); width: min(600px, calc(100vw - 24px));
-  max-height: calc(100dvh - 80px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
-  overflow: auto; overscroll-behavior: contain; pointer-events: auto;
+  box-sizing: border-box;
+  max-height: max(0px, calc(100dvh - var(--game-overlay-menu-top) - max(12px, env(safe-area-inset-bottom, 0px))));
+  overflow: auto; overscroll-behavior: contain; scroll-padding-block-start: 64px; pointer-events: auto;
   border: 1px solid #6ca9d640; border-radius: 8px; padding: 12px;
   background: #0d1d30e8; backdrop-filter: blur(12px);
 }
 #game-window-picker { display: grid; gap: 8px; margin: 4px 0 10px; }
+#game-empire-outliner {
+  position: absolute; top: calc(12px + env(safe-area-inset-top, 0px));
+  right: max(12px, env(safe-area-inset-right, 0px)); width: min(280px, calc(100vw - 24px));
+  pointer-events: auto; color: #d7efff; border: 1px solid #6ca9d640; border-radius: 8px;
+  background: #0d1d30ed; backdrop-filter: blur(12px); font-size: 12px;
+}
+#game-empire-outliner > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px; font-weight: 600; }
+#game-empire-outliner > summary::after {
+  content: ""; flex: 0 0 7px; height: 7px; margin-left: auto; margin-right: 3px;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg);
+}
+#game-empire-outliner[open] > summary::after { transform: rotate(45deg); }
+#game-empire-outliner > summary::-webkit-details-marker { display: none; }
+#game-empire-outliner > summary > .game-ui-icon { width: 22px; height: 22px; color: #9edbff; }
+#game-empire-outliner > section {
+  padding: 0 10px 10px; max-height: min(72dvh, 640px); overflow: auto; overscroll-behavior: contain;
+  scroll-padding-block-start: 112px;
+}
+.game-empire-search-header { position: sticky; top: 0; z-index: 1; padding-top: 4px; background: #0d1d30; }
+#game-empire-outliner input {
+  width: 100%; min-height: 36px; margin: 5px 0 8px; padding: 6px;
+  color: #d7efff; background: #071724; border: 1px solid #6ca9d640; border-radius: 5px;
+}
+#game-empire-outliner .game-empire-search-label { display: block; color: #adc8dc; font-weight: 600; }
+#game-empire-outliner .game-empire-search-label input { font-weight: 400; }
+#game-empire-outliner .game-empire-search-tools { display: flex; align-items: center; gap: 6px; margin: 5px 0 8px; }
+#game-empire-outliner .game-empire-search-tools input { flex: 1; min-width: 0; width: 0; margin: 0; box-sizing: border-box; }
+#game-empire-outliner .game-empire-search-tools button { flex: 0 0 40px; min-height: 40px; text-align: center; }
+#game-empire-outliner .game-empire-search-tools button:disabled { cursor: default; }
+.game-empire-search-results { margin: 0 0 8px; color: #adc8dc; font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.game-empire-outliner-empty { padding: 8px 0; }
+.game-empire-outliner-empty p { margin: 0 0 8px; }
+#game-empire-outliner .game-empire-outliner-empty button { min-height: 40px; max-width: 100%; }
+#game-empire-outliner [hidden] { display: none !important; }
+#game-empire-outliner ul { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
+#game-empire-outliner li {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 6px;
+  border-bottom: 1px solid #6ca9d626; padding-bottom: 6px;
+}
+#game-empire-outliner li[data-active="true"] { border: 1px solid #82e3c455; border-left: 3px solid #82e3c4; border-radius: 6px; background: #82e3c40a; padding: 5px; }
+#game-empire-outliner button {
+  color: #d7efff; border: 1px solid #6ca9d640; border-radius: 5px; background: #122a3d;
+  padding: 6px; cursor: pointer; overflow-wrap: anywhere; text-align: left;
+}
+#game-empire-outliner [data-empire-action="select"] { grid-column: 1; }
+#game-empire-outliner [data-empire-action="locate"] { grid-column: 2; grid-row: 1 / 3; align-self: center; }
+#game-empire-outliner button[aria-pressed="true"] { border-color: #77c7ff; background: #16466a; }
+#game-empire-outliner li[data-active="true"] [data-empire-action="select"] { border-color: #82e3c4; background: #16463d; }
+#game-empire-outliner .game-empire-active-badge { margin-left: auto; padding: 2px 6px; border: 1px solid #82e3c455; border-radius: 10px; color: #a4e8d1; font-size: 12px; line-height: 1.5; white-space: nowrap; }
+#game-empire-outliner .game-empire-active-badge[hidden] { display: none; }
+#game-empire-outliner button:disabled { opacity: .5; cursor: wait; }
+@media (hover: hover) {
+  #game-empire-outliner > summary:hover, #game-empire-outliner button:not(:disabled):hover {
+    background-color: #1c3e56; border-color: #9edbff;
+  }
+}
+#game-empire-outliner :is(button, input, summary):focus-visible { outline: 2px solid #9edbff; outline-offset: 2px; }
+.game-empire-coordinates, .game-empire-status { color: #adc8dc; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.game-empire-status { margin: 6px 0 0; }
+.game-empire-management { border-top: 1px solid #6ca9d640; margin-top: 12px; padding-top: 10px; }
+.game-empire-management-header { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: center; gap: 0 7px; margin-bottom: 8px; }
+.game-empire-management-header > .game-ui-icon { grid-row: span 2; width: 24px; height: 24px; color: #82e3c4; }
+.game-empire-management-header > strong { overflow-wrap: anywhere; }
+.game-empire-management-header > .game-empire-coordinates { grid-column: 2; font-variant-numeric: tabular-nums; }
+.game-empire-management > .game-empire-management-header + div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.game-empire-management > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.game-ui-icon { width: 24px; height: 24px; flex: 0 0 auto; vertical-align: middle; }
+.game-visual-action { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.game-window-picker-buttons .game-visual-action,
+#game-empire-outliner .game-empire-management .game-visual-action {
+  display: flex; flex-direction: column; min-height: 64px; padding: 8px 4px; text-align: center;
+  font-size: 12px; line-height: 1.4; gap: 5px;
+}
+.game-window-picker-buttons .game-visual-action { min-width: 76px; }
+.game-visual-action .game-ui-icon { width: 28px; height: 28px; }
+#game-empire-outliner [data-empire-action="select"] {
+  display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: center; gap: 4px 6px; min-width: 0;
+}
+#game-empire-outliner [data-empire-action="select"] > .game-ui-icon { width: 20px; height: 20px; }
+#game-empire-outliner [data-empire-action="select"] > span:first-of-type { min-width: 0; overflow-wrap: anywhere; }
+#game-empire-outliner [data-empire-action="select"] > .game-empire-active-badge {
+  grid-column: 2; justify-self: start; margin-left: 0;
+}
+#game-empire-outliner li:focus-within { outline: 1px solid #9edbff80; outline-offset: -1px; border-radius: 6px; }
+.game-stock-chart { margin: 8px 0 12px; }
+.game-stock-chart figcaption { color: #b8dcf5; font-size: 12px; line-height: 1.5; margin-bottom: 6px; }
+.game-stock-chart > p { font-size: 12px; line-height: 1.5; color: #adc8dc; margin: 5px 0 0; }
+.game-stock-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 6px;
+  margin-bottom: 6px; --stock-color: #9fbcd0;
+}
+.game-stock-row[data-resource="crystal"] { --stock-color: #83bfff; }
+.game-stock-row[data-resource="deuterium"] { --stock-color: #82e3c4; }
+.game-stock-row[data-resource="food"] { --stock-color: #c1e39a; }
+.game-stock-row[data-resource="rare_earth"] { --stock-color: #d3a8ef; }
+.game-stock-label { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 12px; line-height: 1.5; color: var(--stock-color); overflow-wrap: anywhere; }
+.game-stock-label .game-ui-icon { width: 16px; height: 16px; }
+.game-stock-value { min-width: 0; font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; align-self: center; overflow-wrap: anywhere; }
+.game-stock-track { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: #6ca9d626; overflow: hidden; }
+.game-stock-track > span { display: block; height: 100%; background: var(--stock-color); }
 #game-window-picker > strong,
 .game-window-picker-group > strong { color: #b8dcf5; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; }
 .game-window-picker-group { display: grid; gap: 5px; }
-.game-window-picker-group > strong { color: #85abc9; font-size: 10px; }
+.game-window-picker-group > strong { color: #adc8dc; font-size: 12px; }
+.game-window-picker-description { margin: -4px 0 2px; color: #adc8dc; font-size: 12px; line-height: 1.5; }
+.game-window-picker-status { margin: 0; color: #b8dcf5; font-size: 12px; }
+.game-window-picker-status:empty { display: none; }
+.game-window-picker-count { justify-self: start; color: #adc8dc; font: 600 12px/1.5 system-ui, sans-serif; font-variant-numeric: tabular-nums; }
 .game-window-picker-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
 .game-window-picker-buttons .btn { opacity: .7; }
 .game-window-picker-buttons .btn.is-active {
   border-color: #77c7ff; background: #16466a; color: #e4f5ff; opacity: 1;
   box-shadow: 0 0 10px #39aaff33;
 }
+.game-window-picker-buttons .btn.is-active .game-ui-icon { color: #a4e8d1; }
 .game-window-layout-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 8px; border-top: 1px solid #6ca9d633; }
-.game-window-layout-status { flex-basis: 100%; margin: 0; color: #b8dcf5; font-size: 11px; }
+.game-window-layout-menu > summary { cursor: pointer; padding: 10px 0; color: #b8dcf5; font-size: 12px; }
+.game-window-layout-menu > summary:focus-visible { outline: 2px solid #9edbff; outline-offset: 2px; }
+.game-window-layout-status { flex-basis: 100%; margin: 0; color: #b8dcf5; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+#game-command-overlay #game-data-status { box-sizing: border-box; max-width: 100%; margin: 4px 0 12px; border-radius: 8px; font-size: 12px; line-height: 1.5; }
 #game-overlay-shell [hidden] { display: none !important; }
 .game-page.game-overlay-layout #topbar-section,
 .game-page.game-overlay-layout #resource-section {
@@ -471,7 +687,23 @@
 #game-command-overlay .topbar-left,
 #game-command-overlay .topbar-right { flex-wrap: wrap; max-width: 100%; }
 #game-command-overlay .topbar-nav { display: none; }
-#game-command-overlay #game-colony-select { max-width: min(300px, 100%); }
+.game-command-action-label { display: none; }
+#game-command-overlay .game-command-action-label { display: inline; }
+#game-command-overlay :is(#topbar-title-btn, #topbar-home-btn) {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 44px; max-width: 100%; padding: 6px 10px; font-size: 13px;
+  line-height: 1.4; white-space: normal; overflow-wrap: anywhere;
+}
+#game-command-overlay :is(#topbar-title-btn, #topbar-home-btn) .gq-icon { flex-shrink: 0; }
+#game-command-overlay label[for="game-colony-select"] {
+  position: static; flex-basis: 100%; width: auto; height: auto; margin: 0;
+  overflow: visible; clip: auto; white-space: normal; color: #b8dcf5;
+  font-size: 12px; line-height: 1.5;
+}
+#game-command-overlay #game-colony-select {
+  box-sizing: border-box; flex-basis: 100%; width: 100%; max-width: 100%;
+  min-height: 44px; font-size: 13px;
+}
 #game-command-overlay .resource-bar { flex-wrap: wrap; background: transparent; padding: 8px 0; }
 .game-page.game-overlay-layout #taskbar-section { position: static; height: auto; }
 #game-command-overlay .wm-taskbar { flex-wrap: wrap; padding: 8px 0; background: transparent; }
@@ -481,11 +713,12 @@
 #game-command-overlay #system-breadcrumb-nav,
 #game-command-overlay #stellaris-system-overview { display: none; }
 @media (max-width: 700px) {
+  #game-empire-outliner { top: auto; bottom: max(8px, env(safe-area-inset-bottom, 0px)); }
+  #game-empire-outliner > section { max-height: 32dvh; }
+  #game-empire-outliner :is(button, input) { min-height: 44px; }
   #game-command-overlay {
-    top: calc(60px + env(safe-area-inset-top, 0px));
     right: max(8px, env(safe-area-inset-right, 0px));
     width: calc(100vw - 16px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
-    max-height: calc(100dvh - 72px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   }
   .game-overlay-dock { left: max(8px, env(safe-area-inset-left, 0px)); }
 }
@@ -1241,17 +1474,323 @@ input:focus, select:focus, textarea:focus {
 }
 .topbar-left { display: flex; align-items: center; gap: 0.75rem; min-width: 160px; }
 #game-colony-select { min-width: 0; max-width: min(230px, 42vw); }
+#topbar-title-btn { display: inline-grid; place-items: center; min-width: 40px; min-height: 40px; }
+#topbar-title-btn.is-refreshing .gq-icon { animation: topbar-refresh-spin 900ms linear infinite; }
+@keyframes topbar-refresh-spin { to { transform: rotate(360deg); } }
+#game-data-status {
+  display: flex; align-items: center; gap: 7px; width: fit-content; max-width: min(100%, 560px);
+  margin: 8px 12px; padding: 5px 10px; border: 1px solid #6ca9d64d; border-radius: 999px;
+  background: #0c1a2bd9; color: #b8d5e8; font-size: 11px; line-height: 1.4; overflow-wrap: anywhere;
+}
+#game-data-status:empty { display: none; }
+#game-data-status::before { content: ""; flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: #78a1bd; }
+#game-data-status[data-state="ready"] { border-color: #54d6a34d; color: #a9e3c9; }
+#game-data-status[data-state="ready"]::before { background: #54d6a3; box-shadow: 0 0 8px #54d6a366; }
+#game-data-status[data-state="loading"] { border-color: #68bcff66; color: #b8dcf5; }
+#game-data-status[data-state="loading"]::before { background: #68bcff; }
+#game-data-status[data-state="error"] { border-color: #ff718066; color: #ffc1c7; }
+#game-data-status[data-state="error"]::before { background: #ff7180; }
+#game-data-status[data-state="empty"] { border-color: #ffc96666; color: #ffe0a2; }
+#game-data-status[data-state="empty"]::before { background: #ffc966; }
+@media (prefers-reduced-motion: reduce) {
+  #topbar-title-btn.is-refreshing .gq-icon { animation: none; }
+}
 .game-development { padding: 1rem; overflow-wrap: anywhere; }
 .game-development-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.25rem 0.5rem; }
 .game-development-list { display: grid; gap: 0.75rem; }
 .game-development-card { padding: 0.75rem; border: 1px solid var(--border); border-radius: 6px; }
 .game-development-card[aria-current="true"] { border-color: #6ecbff; outline: 1px solid #6ecbff; }
+.game-development-workspace-header { border-bottom: 1px solid #6ca9d640; margin-bottom: 12px; }
+.game-development-workspace-header h2 { display: flex; align-items: center; gap: 8px; }
+.game-development-workspace-header .game-ui-icon { width: 28px; height: 28px; color: #9edbff; }
+.game-development-workspace-header p { color: #adc8dc; font-variant-numeric: tabular-nums; }
+.game-development-orders { padding: 12px; margin: 12px 0 20px; border: 1px solid #83bfff66; border-radius: 8px; background: #10243a80; }
+.game-development-orders-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.game-development-orders-header h3 { margin: 0; }
+.game-development-orders .game-ui-icon { width: 24px; height: 24px; color: #9edbff; flex-shrink: 0; }
+.game-development-project-card { display: flex; flex-direction: column; gap: 8px; background: #0d1d30; min-width: 0; overflow-wrap: anywhere; }
+.game-development-project-costs { border-top: 1px solid #6ca9d630; }
+.game-development-project-costs > p { font-size: 12px; color: #adc8dc; margin-bottom: 4px; }
+.game-development-project-card > button { margin-top: auto; min-height: 44px; }
+.game-development-help { color: #adc8dc; font-size: 12px; }
+.game-development-help summary { cursor: pointer; padding: 12px 0; }
+.game-development-catalog { grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+.game-development-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin: 12px 0; }
+.game-development-filters label { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 180px; }
+.game-development-filters input, .game-development-filters select { max-width: 100%; box-sizing: border-box; min-height: 44px; }
+.game-development-filters button { min-height: 44px; }
+.game-development-catalog > [hidden] { display: none; }
+.game-development-card-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.game-development-card-heading h3 { flex: 1; margin: 0; overflow-wrap: anywhere; }
+.game-development-card-heading > .game-ui-icon { color: #9edbff; width: 32px; height: 32px; }
+.game-development-level { padding: 4px 8px; border: 1px solid #6ca9d640; border-radius: 12px; color: #b8dcf5; }
+.game-development-costs { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; }
+.game-development-costs li { display: flex; align-items: center; gap: 5px; background: #122a3d; padding: 6px; border-radius: 5px; }
+.game-development-costs .game-ui-icon { width: 20px; height: 20px; color: #9edbff; }
+.game-development-state { padding: 5px 8px; border-left: 3px solid #83bfff; background: #6ca9d61a; }
+.game-development-state[data-order-state="running"] { border-color: #82e3c4; }
+.game-development-state[data-order-state="blocked"] { border-color: #ffc184; }
+.game-research-prerequisites { list-style: none; padding: 0; display: grid; gap: 8px; }
+.game-research-prerequisites > li { display: grid; gap: 6px; padding: 10px; background: #0d1d30; border: 1px solid #ffc18440; border-radius: 6px; }
+.game-research-prerequisites strong { display: flex; align-items: center; gap: 6px; color: #ffd3a6; }
+.game-research-prerequisites meter { width: 100%; }
+.game-development-queue { list-style: none; padding: 0; display: grid; gap: 6px; }
+.game-development-queue li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; border: 1px solid #6ca9d640; border-radius: 6px; }
+.game-fleet-card { background: #0d1d30; }
+.game-fleet-dashboard-header { border-bottom: 1px solid #6ca9d640; margin-bottom: 12px; }
+.game-fleet-dashboard-header h2 { display: flex; align-items: center; gap: 8px; }
+.game-fleet-dashboard-header .game-ui-icon { width: 28px; height: 28px; color: #9edbff; }
+.game-fleet-dashboard-header p { color: #adc8dc; font-size: 12px; }
+.game-fleet-dashboard [data-game-fleet-launch] { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; white-space: normal; }
+.game-fleet-dashboard [data-game-fleet-launch] .game-ui-icon { width: 20px; height: 20px; flex-shrink: 0; }
+.game-fleet-dashboard-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.game-fleet-dashboard-summary > div { background: #10243a; border: 1px solid #6ca9d640; border-radius: 6px; padding: 10px; min-width: 0; overflow-wrap: anywhere; }
+.game-fleet-dashboard-summary dt { color: #adc8dc; font-size: 12px; }
+.game-fleet-dashboard-summary dd { margin: 6px 0 0; color: #d7efff; font-size: 24px; font-variant-numeric: tabular-nums; }
+.game-fleet-dashboard-summary > .wm-property-row { display: block; border-bottom: 0; }
+.game-fleet-processing { padding: 12px; border: 1px solid #83bfff66; border-radius: 8px; background: #10243a60; margin: 12px 0; overflow-wrap: anywhere; }
+.game-fleet-processing h3 { margin: 0; }
+.game-fleet-processing p { color: #adc8dc; font-size: 12px; }
+.game-fleet-processing button { min-height: 44px; white-space: normal; max-width: 100%; }
+.game-fleet-dashboard-help { color: #adc8dc; font-size: 12px; }
+.game-fleet-dashboard-help summary { padding: 12px 0; cursor: pointer; }
+.game-fleet-measurements { margin-top: 12px; }
+.game-fleet-measurements > summary { cursor: pointer; }
+.game-fleet-table table { min-width: 1000px; }
+.game-fleet-table .is-numeric { white-space: nowrap; }
+.game-fleet-direction { padding: 5px 8px; border: 1px solid #83bfff; border-radius: 12px; color: #b8dcf5; }
+.game-fleet-card[data-direction="return"] .game-fleet-direction { border-color: #82e3c4; color: #82e3c4; }
+.game-fleet-route { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; }
+.game-fleet-endpoint { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; padding: 10px; border: 1px solid #6ca9d640; border-radius: 6px; }
+.game-fleet-endpoint > .game-ui-icon { width: 28px; height: 28px; color: #9edbff; }
+.game-fleet-endpoint > button { width: 100%; min-height: 44px; }
+.game-fleet-route-arrow { color: #9edbff; font-size: 30px; }
+.game-fleet-arrival { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding: 8px; background: #6ca9d61a; font-variant-numeric: tabular-nums; }
+.game-fleet-card summary { cursor: pointer; }
+.game-fleet-filters { display: grid; gap: 10px; margin: 12px 0; }
+.game-fleet-filter-missions { display: flex; flex-wrap: wrap; gap: 6px; }
+.game-fleet-filter-missions > button { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; white-space: normal; }
+.game-fleet-filter-missions .game-fleet-mission { border: 0; padding: 0; margin: 0; background: transparent; }
+.game-fleet-filter-missions > button[aria-pressed="true"] { border-color: #82e3c4; outline: 1px solid #82e3c4; }
+.game-fleet-filters select { max-width: 100%; min-height: 44px; }
+.game-fleet-mission { display: inline-flex; align-items: center; gap: 8px; padding: 8px; margin: 8px 0; border: 1px solid #6ca9d640; border-radius: 6px; background: #122a3d; color: #d7efff; }
+.game-fleet-mission > .game-ui-icon { width: 26px; height: 26px; flex-shrink: 0; color: #9edbff; }
+.game-fleet-mission-preview > p { margin: 4px 0 8px; color: #b8dcf5; }
+.game-fleet-mission[data-mission="attack"] { border-color: #df9292; }
+.game-fleet-mission[data-mission="attack"] > .game-ui-icon { color: #ffb7b7; }
+.game-shipyard-card { background: #0d1d30; }
+.game-shipyard-header { border-bottom: 1px solid #6ca9d640; margin-bottom: 12px; }
+.game-shipyard-header h2 { display: flex; align-items: center; gap: 8px; }
+.game-shipyard-header .game-ui-icon { width: 28px; height: 28px; color: #9edbff; }
+.game-shipyard-header p { color: #adc8dc; font-variant-numeric: tabular-nums; }
+.game-shipyard-production { padding: 12px; margin: 12px 0 20px; border: 1px solid #83bfff66; border-radius: 8px; background: #10243a80; }
+.game-shipyard-production-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.game-shipyard-production-header h3 { margin: 0; flex: 1 1 200px; }
+.game-shipyard-order-count { color: #adc8dc; font-size: 12px; font-variant-numeric: tabular-nums; }
+.game-shipyard .game-shipyard-card { display: flex; flex-direction: column; gap: 8px; }
+.game-shipyard-cost { border-top: 1px solid #6ca9d630; }
+.game-shipyard-cost > p { color: #adc8dc; font-size: 12px; margin-bottom: 4px; }
+.game-shipyard-card form { margin-top: auto; }
+.game-shipyard-card fieldset label { display: flex; flex-direction: column; gap: 6px; flex: 1 1 80px; min-width: 0; }
+.game-shipyard-card fieldset input { box-sizing: border-box; width: 100%; }
+.game-shipyard-help { color: #adc8dc; font-size: 12px; }
+.game-shipyard-help summary { cursor: pointer; padding: 12px 0; }
+.game-shipyard-stock { padding: 6px 8px; border-radius: 6px; background: #6ca9d61a; color: #b8dcf5; font-variant-numeric: tabular-nums; }
+.game-shipyard-blueprint { display: flex; align-items: center; gap: 6px; color: #b8dcf5; }
+.game-shipyard-card fieldset { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; margin: 0; padding: 8px; border: 1px solid #6ca9d640; border-radius: 6px; }
+.game-shipyard-card input { width: 90px; max-width: 100%; min-height: 36px; }
+.game-shipyard-card button { min-height: 44px; }
+.game-shipyard-queue > li[data-order-state="running"] { border-color: #82e3c4; }
+.game-shipyard-queue > li[data-order-state="queued"] { border-style: dashed; }
+.game-market fieldset { min-width: 0; padding: 10px; border: 1px solid #6ca9d640; border-radius: 6px; }
+.game-market select, .game-market input { max-width: 100%; min-height: 36px; }
+.game-market button { min-height: 44px; }
+.game-market-header { border-bottom: 1px solid #6ca9d640; margin-bottom: 12px; }
+.game-market-header h2 { display: flex; align-items: center; gap: 8px; }
+.game-market-header h2 .game-ui-icon { width: 28px; height: 28px; color: #9edbff; }
+.game-market-header p { color: #adc8dc; font-variant-numeric: tabular-nums; }
+.game-market .game-market-catalogue { border: 0; padding: 0; margin: 0 0 16px; }
+.game-market legend { padding: 0 8px; color: #b8dcf5; font-weight: 600; }
+.game-market .game-market-ticket { display: block; background: #10243a80; border-color: #83bfff66; margin: 0 0 20px; }
+.game-market-native-selection { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: #adc8dc; }
+.game-market-native-selection select { flex: 1 1 150px; }
+.game-market-native-selection.wm-field select { flex: 0 0 auto; }
+.game-market-order-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-items: end; border-top: 1px solid #6ca9d640; padding-top: 12px; }
+.game-market-order-actions .game-market-quantity { grid-column: 1 / -1; margin: 0; }
+.game-market-order-actions input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 18px; font-variant-numeric: tabular-nums; }
+.game-market-order-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: normal; }
+.game-market-order-actions [data-trade-action="buy"] { background: #16463d; border-color: #82e3c4; color: #d3fff0; }
+.game-market-order-actions [data-trade-action="sell"] { background: #263d5a; border-color: #83bfff; color: #d7efff; }
+.game-market-order-actions .game-ui-icon { width: 20px; height: 20px; flex-shrink: 0; }
+.game-market-order-note, .game-market-help { font-size: 12px; color: #adc8dc; }
+.game-market-help summary { cursor: pointer; padding: 12px 0; }
+.game-market-goods { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 8px; max-height: 240px; overflow: auto; padding: 4px; margin-bottom: 10px; }
+.game-market-goods > .game-market-good { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; white-space: normal; text-align: left; min-width: 0; overflow-wrap: anywhere; padding: 10px; }
+.game-market-goods > .game-market-good[hidden] { display: none; }
+.game-market-good > .game-ui-icon { width: 28px; height: 28px; color: #9edbff; }
+.game-market-good > span { color: #b8dcf5; font-variant-numeric: tabular-nums; }
+.game-market-good[aria-pressed="true"] { border-color: #82e3c4; background: #19344a; }
+.game-market-good:focus-visible { outline: 2px solid #9edbff; outline-offset: -2px; }
+.game-market-quantity { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.game-market-summary h3 { display: flex; align-items: center; gap: 8px; }
+.game-market-summary h3 > .game-ui-icon { width: 30px; height: 30px; color: #9edbff; }
+.game-market-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 8px; }
+.game-market-metric { display: flex; flex-direction: column; gap: 6px; background: #0d1d30; padding: 10px; border-radius: 6px; }
+.game-market-metric strong { font-size: 20px; color: #d7efff; font-variant-numeric: tabular-nums; }
+.game-market-balance { margin: 12px 0; display: grid; gap: 8px; }
+.game-market-balance-row { display: grid; grid-template-columns: 1fr auto; gap: 4px; }
+.game-market-balance-track { grid-column: 1 / -1; height: 7px; background: #6ca9d626; border-radius: 4px; overflow: hidden; }
+.game-market-balance-track > span { display: block; height: 100%; background: #83bfff; }
+.game-market-balance-row[data-measure="demand"] .game-market-balance-track > span { background: #ffc184; }
+.game-market-history table { min-width: 900px; }
+.game-market-history tbody th { border-left: 3px solid #83bfff; }
+.game-market-history tbody tr[data-direction="sell"] th { border-left-color: #82e3c4; }
+.game-market-history .is-numeric { white-space: nowrap; }
+.game-market-transaction-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.game-market-history summary { cursor: pointer; margin-top: 8px; }
+.game-fleet-selection { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 8px; margin: 8px 0; }
+.game-fleet-selection-card { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; padding: 10px; background: #0d1d30; border: 1px solid #6ca9d640; border-radius: 6px; }
+.game-fleet-selection-card > .game-ui-icon { width: 28px; height: 28px; color: #9edbff; }
+.game-fleet-selection-card label { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.game-fleet-selection-card input { width: 100%; box-sizing: border-box; min-height: 36px; }
+.game-fleet-selection-status { color: #9fbcd0; font-size: 12px; font-variant-numeric: tabular-nums; }
+.game-fleet-selection-status[data-invalid="true"] { color: #ffc184; }
+.game-fleet-quantity-controls { display: grid; grid-template-columns: repeat(2, minmax(44px, 1fr)); gap: 6px; width: 100%; }
+.game-fleet-quantity-controls button { min-height: 44px; font-size: 14px; }
+.game-fleet-selection-stock { color: #b8dcf5; font-variant-numeric: tabular-nums; }
+.game-fleet-selection > .game-fleet-selection-card[hidden] { display: none; }
+.game-fleet-composition-summary { margin: 12px 0; padding: 10px; border: 1px solid #6ca9d640; border-radius: 6px; background: #0d1d30; overflow-wrap: anywhere; }
+.game-fleet-composition-summary small { color: #9fbcd0; }
+.game-fleet-transit { border-left: 3px solid #82e3c4; padding: 8px; background: #6ca9d61a; margin: 8px 0; }
+.game-fleet-transit[data-ready="false"] { border-color: #ffc184; }
+.game-fleet-transit h3 { display: flex; align-items: center; gap: 8px; }
+.game-fleet-command-header { justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid #6ca9d640; }
+.game-fleet-command-header h2 { display: flex; align-items: center; gap: 8px; color: #d7efff; }
+.game-fleet-command-header > button { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
+.game-fleet-command-header .game-ui-icon { width: 24px; height: 24px; color: #9edbff; }
+.game-fleet-command-route { margin: 12px 0; }
+.game-fleet-command-route .game-fleet-endpoint { background: #10243a; align-self: stretch; }
+.game-fleet-command-route .game-fleet-endpoint span { color: #9fbcd0; font-size: 12px; font-variant-numeric: tabular-nums; }
+.game-fleet-command-route [data-empty="true"] { border-style: dashed; }
+.game-fleet-inventory-actions { margin: 10px 0; }
+.game-fleet-drive-status { display: inline-block; border: 1px solid #82e3c455; border-radius: 12px; padding: 4px 8px; color: #a4e8d1; background: #82e3c40d; }
+.game-fleet-transit[data-ready="false"] .game-fleet-drive-status { color: #ffc184; border-color: #ffc18455; }
+.game-fleet-transit-details { margin: 8px 0; font-size: 12px; color: #adc8dc; }
+.game-fleet-transit-details summary { cursor: pointer; min-height: 36px; display: flex; align-items: center; gap: 8px; }
+.game-fleet-transit-details summary::before { content: "+"; color: #9edbff; font-size: 18px; }
+.game-fleet-transit-details[open] summary::before { content: "-"; }
+@media (max-width: 480px) {
+  .game-fleet-route { grid-template-columns: minmax(0, 1fr); }
+  .game-fleet-route-arrow { justify-self: center; transform: rotate(90deg); }
+}
 .game-economy-table { max-width: 100%; overflow-x: auto; }
+.game-economy-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 12px; }
+.game-economy-resource-card {
+  display: flex; flex-direction: column; gap: 7px; padding: 12px;
+  border: 1px solid #6ca9d640; border-radius: 8px; background: #0d1d30;
+}
+.game-economy-resource-card[aria-current="true"] { border-color: #77c7ff; outline: 1px solid #77c7ff; }
+.game-economy-resource-card > button { color: #d7efff; background: transparent; border: 0; cursor: pointer; min-height: 44px; }
+.game-economy-resource-card > button:focus-visible { outline: 2px solid #9edbff; outline-offset: 2px; }
+.game-economy-resource-card > meter { width: 100%; }
+.game-economy-amount { font-size: 24px; font-variant-numeric: tabular-nums; color: #edf8ff; }
+.game-economy-rate { display: grid; grid-template-columns: 1fr auto; gap: 4px; font-size: 12px; }
+.game-economy-rate-track { grid-column: 1 / -1; height: 5px; background: #6ca9d626; border-radius: 3px; overflow: hidden; }
+.game-economy-rate-track > span { display: block; height: 100%; background: #82e3c4; }
+.game-economy-rate[data-rate="consumption"] .game-economy-rate-track > span { background: #ffc184; }
+.game-economy-deficit { color: #ffadad; }
+.game-economy-header { border-bottom: 1px solid #6ca9d640; margin-bottom: 12px; }
+.game-economy-header h2, .game-economy-workspace-section > h3 { display: flex; align-items: center; gap: 8px; }
+.game-economy-header .game-ui-icon, .game-economy-workspace-section > h3 .game-ui-icon { width: 28px; height: 28px; color: #9edbff; flex-shrink: 0; }
+.game-economy-header p, .game-economy-serverstand, .game-economy-scope { color: #adc8dc; font-variant-numeric: tabular-nums; }
+.game-economy-serverstand, .game-economy-scope { font-size: 12px; }
+.game-economy-navigation { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.game-economy-navigation button { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; white-space: normal; }
+.game-economy-navigation .game-ui-icon { width: 20px; height: 20px; flex-shrink: 0; }
+.game-economy-workspace-section { padding: 12px; margin: 16px 0; border: 1px solid #6ca9d640; border-radius: 8px; background: #10243a60; min-width: 0; overflow-wrap: anywhere; }
+.game-economy-workspace-section > h3 { margin-top: 0; }
+.game-economy-governance { border-color: #83bfff66; }
+.game-economy-society, .game-economy-help { color: #adc8dc; font-size: 12px; }
+.game-economy-society summary, .game-economy-help summary { cursor: pointer; padding: 12px 0; }
+.game-economy-cards > [data-resource-card][hidden] { display: none; }
+.game-economy-surplus { color: #82e3c4; }
+.game-economy-chart-note { grid-column: 1 / -1; font-size: 11px; color: #9fbcd0; }
+.game-economy-measurements { margin: 12px 0; }
+.game-economy-measurements > summary { cursor: pointer; padding: 6px 0; }
+.game-population-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; }
+.game-population-header { border-bottom: 1px solid #6ca9d640; margin-bottom: 12px; }
+.game-population-header h2, .game-population-supply > h3 { display: flex; align-items: center; gap: 8px; }
+.game-population-header .game-ui-icon, .game-population-supply > h3 .game-ui-icon { width: 28px; height: 28px; color: #9edbff; flex-shrink: 0; }
+.game-population-header p, .game-population-serverstand { color: #adc8dc; font-variant-numeric: tabular-nums; }
+.game-population-serverstand { font-size: 12px; }
+.game-population-overview, .game-population-supply { min-width: 0; margin: 16px 0; padding: 12px; border: 1px solid #6ca9d640; border-radius: 8px; background: #10243a60; overflow-wrap: anywhere; }
+.game-population-overview > h3, .game-population-supply > h3 { margin-top: 0; }
+.game-population-classes { border-top: 1px solid #6ca9d640; margin-top: 16px; }
+.game-population-supply { border-color: #ffc18455; }
+.game-population-supply .game-population-shortage { display: flex; flex-direction: column; min-width: 0; background: #0d1d30; }
+.game-population-supply .game-population-shortage h4 { margin: 0 0 8px; }
+.game-population-supply .game-population-shortage button { margin-top: auto; }
+.game-population-shortage button, .game-population-footer > button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: normal; }
+.game-population-shortage button .game-ui-icon, .game-population-footer > button .game-ui-icon { width: 20px; height: 20px; flex-shrink: 0; }
+.game-population-footer { border-top: 1px solid #6ca9d640; padding-top: 12px; }
+.game-population-help { font-size: 12px; color: #adc8dc; }
+.game-population-help summary { cursor: pointer; padding: 12px 0; }
+.game-population-metric {
+  display: grid; gap: 8px; padding: 12px; border: 1px solid #6ca9d640;
+  border-radius: 8px; background: #0d1d30; color: #d7efff; font-variant-numeric: tabular-nums;
+}
+.game-population-metric .game-ui-icon { width: 30px; height: 30px; color: #9edbff; }
+.game-population-metric meter { width: 100%; }
+.game-population-deficit { border-color: #df9292; color: #ffb7b7; }
+.game-population-distribution { list-style: none; padding: 0; display: grid; gap: 10px; }
+.game-population-distribution li { display: grid; grid-template-columns: 1fr auto; gap: 5px; }
+.game-population-track { grid-column: 1 / -1; height: 8px; background: #6ca9d626; border-radius: 4px; overflow: hidden; }
+.game-population-track > span { display: block; height: 100%; background: #83bfff; }
+.game-population-shortage { border-left: 4px solid #ffc184; }
+.game-population-shortage h4 { display: flex; align-items: center; gap: 8px; color: #ffd3a6; }
+.game-population-shortage h4 > .game-ui-icon { width: 30px; height: 30px; }
+.game-population-gap { display: flex; align-items: center; gap: 8px; color: #ffd3a6; }
+.game-population-gap strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.game-supply-measurements { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: 8px; }
+.game-supply-measurements > div { padding: 10px; background: #0d1d30; border: 1px solid #6ca9d640; border-radius: 6px; min-width: 0; }
+.game-supply-measurements dd { margin: 6px 0 0; font-size: 20px; color: #d7efff; font-variant-numeric: tabular-nums; }
+.game-supply-measurements > .wm-property-row { display: block; border-bottom: 0; }
+.game-population-class-measurements { margin-top: 12px; }
+.game-population-class-measurements > summary { cursor: pointer; }
+.game-population-class-table table { min-width: 440px; }
+.game-population-class-table .is-numeric { white-space: nowrap; }
+.game-population-shortage button { min-height: 44px; }
 .game-economy-stock { width: 100%; border-collapse: collapse; }
+.game-economy-table.wm-data-table .game-economy-stock { min-width: 560px; }
+.game-economy-table.wm-data-table .is-numeric { white-space: nowrap; }
 .game-economy-stock th, .game-economy-stock td { padding: 0.4rem; text-align: left; }
 .game-economy-stock tr[aria-current="true"] { outline: 1px solid #6ecbff; background: #19344a; }
 .game-economy-setting fieldset { display: flex; flex-wrap: wrap; gap: 0.5rem; min-width: 0; margin: 0.5rem 0; }
 .game-economy-setting select, .game-economy-setting input { max-width: 100%; min-width: 0; }
+.game-resource-detail { background: #0d1d30; margin: 12px 0; }
+.game-resource-detail-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 8px; margin: 12px 0; }
+.game-resource-metric { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 10px; border: 1px solid #6ca9d640; border-radius: 6px; }
+.game-resource-metric strong { font-size: 20px; color: #d7efff; font-variant-numeric: tabular-nums; }
+.game-economy-policy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; }
+.game-economy-policy-card { min-width: 0; background: #0d1d30; border: 1px solid #6ca9d640; border-radius: 6px; padding: 8px; }
+.game-economy-policy-card fieldset { flex-direction: column; align-items: stretch; border: 0; padding: 6px; }
+.game-economy-policy-card legend .game-ui-icon { margin-right: 6px; vertical-align: middle; color: #9edbff; }
+.game-economy-confirmed { color: #b8dcf5; font-weight: 600; font-variant-numeric: tabular-nums; }
+.game-economy-policy-card meter { width: 100%; }
+.game-economy-setting-note { color: #9fbcd0; font-size: 12px; }
+.game-economy-policy-card button { min-height: 44px; }
+.game-production-catalog { display: grid; gap: 12px; }
+.game-production-card { background: #0d1d30; }
+.game-production-card h4 { flex: 1; margin: 0; }
+.game-production-flow { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; margin: 12px 0; }
+.game-production-inputs { flex-direction: column; align-items: flex-start; }
+.game-production-arrow { font-size: 28px; color: #9edbff; }
+.game-production-output { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 10px; border: 1px solid #82e3c440; border-radius: 6px; }
+.game-production-output > .game-ui-icon { width: 28px; height: 28px; color: #82e3c4; }
+@media (max-width: 480px) {
+  .game-production-flow { grid-template-columns: minmax(0, 1fr); }
+  .game-production-arrow { justify-self: center; transform: rotate(90deg); }
+}
 .logo-small  { font-size: 1rem; font-weight: 700; color: var(--accent-cyan); white-space: nowrap; }
 .topbar-brand-btn {
   background: transparent;
@@ -2570,6 +3109,7 @@ input:focus, select:focus, textarea:focus {
     flex: 1 1 auto;
     gap: 0.45rem;
   }
+  #game-colony-select { max-width: min(230px, 48vw); }
   .topbar-nav { display: none; }
   .topbar-right {
     gap: 0.35rem;
@@ -3235,7 +3775,23 @@ input:focus, select:focus, textarea:focus {
   font-size: 0.72rem;
   color: var(--text-muted, #8899aa);
 }
+.vessel-status-row {
+  display: grid;
+  grid-template-columns: 2.8rem minmax(3rem, 1fr) auto;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.68rem;
+}
+.vessel-status-label {
+  color: var(--text-muted, #8899aa);
+}
+.vessel-status-value {
+  color: #dcecf4;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
 .vessel-hp-bar {
+  width: 100%;
   height: 4px;
   background: rgba(255,255,255,0.1);
   border-radius: 999px;
@@ -3245,7 +3801,6 @@ input:focus, select:focus, textarea:focus {
   height: 100%;
   background: linear-gradient(90deg, #3c8e5a, #5ef09a);
   border-radius: 999px;
-  min-width: 2px;
 }
 .vessel-hp-fill.is-warning {
   background: linear-gradient(90deg, #d18d20, #f2c75a);
@@ -3254,8 +3809,8 @@ input:focus, select:focus, textarea:focus {
   background: linear-gradient(90deg, #9f2b2b, #df4a4a);
 }
 .vessel-shield-bar {
+  width: 100%;
   height: 4px;
-  margin-top: 0.2rem;
   background: rgba(255,255,255,0.1);
   border-radius: 999px;
   overflow: hidden;
@@ -3264,7 +3819,6 @@ input:focus, select:focus, textarea:focus {
   height: 100%;
   background: linear-gradient(90deg, #2f65cc, #69a8ff);
   border-radius: 999px;
-  min-width: 2px;
 }
 .vessel-shield-fill.is-warning {
   background: linear-gradient(90deg, #d18d20, #f2c75a);

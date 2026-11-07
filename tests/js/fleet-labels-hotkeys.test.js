@@ -65,7 +65,7 @@ describe('RuntimeOverviewLists – fleet label rendering', () => {
 
   function makeRenderTemplateList() {
     return (tplName, rows) => rows.map((row) =>
-      `<div class="fleet-row" data-fleet-id="${row.fleetId}">${row.fleetLabelHtml}${row.mission}</div>`
+      `<div class="fleet-row" data-fleet-id="${row.fleetId}">${row.fleetLabelHtml}${row.mission}${row.fleetHealthHtml}</div>`
     ).join('');
   }
 
@@ -84,6 +84,26 @@ describe('RuntimeOverviewLists – fleet label rendering', () => {
     const root = makeRoot([{ id: 3, fleet_label: null, mission: 'transport', target_galaxy: 1, target_system: 1, target_position: 1, arrival_time: new Date(Date.now() + 60000).toISOString() }]);
     ol.renderFleetList({ root, renderTemplateList: makeRenderTemplateList(), onReload: async () => {} });
     expect(root.querySelector('.fleet-label-edit-btn')).not.toBeNull();
+  });
+
+  it('does not infer hull integrity or full shields from missing fleet status', () => {
+    const { createOverviewLists } = window.GQRuntimeOverviewLists;
+    const ol = createOverviewLists({ esc, fmt, fmtName, countdown, api: makeApi(), showToast: vi.fn(), windowRef: window });
+    const root = makeRoot([{ id: 8, mission: 'attack', target_galaxy: 1, target_system: 1, target_position: 1 }]);
+    ol.renderFleetList({ root, renderTemplateList: makeRenderTemplateList(), onReload: async () => {} });
+
+    expect(root.querySelector('.entity-bars-compact')).toBeNull();
+    expect(root.querySelector('.fleet-hull-badge')).toBeNull();
+  });
+
+  it('renders only explicitly supplied fleet shield status', () => {
+    const { createOverviewLists } = window.GQRuntimeOverviewLists;
+    const ol = createOverviewLists({ esc, fmt, fmtName, countdown, api: makeApi(), showToast: vi.fn(), windowRef: window });
+    const root = makeRoot([{ id: 9, mission: 'attack', shield_pct: 43, target_galaxy: 1, target_system: 1, target_position: 1 }]);
+    ol.renderFleetList({ root, renderTemplateList: makeRenderTemplateList(), onReload: async () => {} });
+
+    expect(root.querySelector('.entity-bar-value')?.textContent).toBe('43%');
+    expect(root.querySelector('.entity-bars-compact')).not.toBeNull();
   });
 
   it('fleet-label-edit-btn carries data-fid attribute', () => {

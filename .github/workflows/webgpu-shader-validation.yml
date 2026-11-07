@@ -26,20 +26,35 @@ on:
     branches:
       - 'copilot/improve-webgpu-integration'
       - 'main'
+      - 'develop'
     paths:
       - 'js/engine/webgpu/**/*.js'
       - 'js/engine/fx/shaders/*.wgsl'
       - 'js/engine/post-effects/shaders/*.wgsl'
       - 'js/rendering/Galaxy3DRendererWebGPU.js'
+      - 'js/rendering/game-colony-zoom.js'
+      - 'js/rendering/body-material.js'
+      - 'js/engine/zoom/**/*.js'
+      - 'tests/e2e/colony-gpu-lifecycle.spec.js'
+      - 'playwright.config.js'
       - 'tests/e2e/webgpu-shader-validation.spec.js'
       - '.github/workflows/webgpu-shader-validation.yml'
   pull_request:
     branches:
       - main
+      - develop
     paths:
       - 'js/engine/webgpu/**/*.js'
       - 'js/engine/fx/shaders/*.wgsl'
       - 'js/engine/post-effects/shaders/*.wgsl'
+      - 'js/rendering/Galaxy3DRendererWebGPU.js'
+      - 'js/rendering/game-colony-zoom.js'
+      - 'js/rendering/body-material.js'
+      - 'js/engine/zoom/**/*.js'
+      - 'tests/e2e/webgpu-shader-validation.spec.js'
+      - 'tests/e2e/colony-gpu-lifecycle.spec.js'
+      - 'playwright.config.js'
+      - '.github/workflows/webgpu-shader-validation.yml'
 
 jobs:
   webgpu-shader-validation:
@@ -75,7 +90,7 @@ jobs:
       - name: Verify Vulkan ICD availability
         run: vulkaninfo --summary
 
-      - name: Run WGSL shader validation
+      - name: Run WGSL shader and colony GPU lifecycle validation
         env:
           GQ_WEBGPU_SHADER_CI: '1'
           # Tell Chrome to use the software Vulkan renderer and enable WebGPU
@@ -88,6 +103,7 @@ jobs:
             --enable-features=Vulkan
         run: |
           npx playwright test tests/e2e/webgpu-shader-validation.spec.js \
+            tests/e2e/colony-gpu-lifecycle.spec.js \
             --project=chromium \
             --reporter=list
 
@@ -96,5 +112,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-webgpu-shader-report
-          path: playwright-report/
+          path: |
+            playwright-report/
+            test-results/
           retention-days: 7

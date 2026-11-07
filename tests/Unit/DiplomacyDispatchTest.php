@@ -25,6 +25,7 @@ final class DiplomacyDispatchTest extends TestCase
     public static bool $connectionFailure = false;
     private static array $dispatchers = [];
     private array $previousGet;
+    private ?string $previousRequestMethod;
 
     public static function setUpBeforeClass(): void
     {
@@ -54,6 +55,12 @@ function json_response(array $payload, int $status = 200): never {
 function json_error(string $message, int $status = 400): never {
     json_response(['success' => false, 'error' => $message], $status);
 }
+function only_method(string ...$methods): void {
+    if (!in_array($_SERVER['REQUEST_METHOD'] ?? '', $methods, true)) {
+        json_error('Method not allowed', 405);
+    }
+}
+function verify_csrf(): void {}
 function file_get_contents(string $path): string {
     return '{}';
 }
@@ -73,7 +80,9 @@ PHP
     protected function setUp(): void
     {
         $this->previousGet = $_GET;
+        $this->previousRequestMethod = $_SERVER['REQUEST_METHOD'] ?? null;
         $_GET = [];
+        $_SERVER['REQUEST_METHOD'] = 'GET';
         self::$logs = [];
         self::$connectionFailure = false;
         self::$db = new PDO('sqlite::memory:', options: [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
@@ -102,12 +111,22 @@ PHP
     protected function tearDown(): void
     {
         $_GET = $this->previousGet;
+        if ($this->previousRequestMethod === null) {
+            unset($_SERVER['REQUEST_METHOD']);
+        } else {
+            $_SERVER['REQUEST_METHOD'] = $this->previousRequestMethod;
+        }
         self::$logs = [];
         self::$connectionFailure = false;
     }
 
     private function dispatch(string $endpoint, string $action): JsonResponse
     {
+        $_SERVER['REQUEST_METHOD'] = match ($action) {
+            'list', 'types', 'trust_threat' => 'GET',
+            default => 'POST',
+        };
+
         try {
             self::$dispatchers[$endpoint]($action, 42);
         } catch (JsonResponse $response) {

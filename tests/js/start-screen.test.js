@@ -18,7 +18,7 @@ describe('Start-screen menu', () => {
       removeAttribute() {}
     });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true, json: async () => ({ success: true, announcements: [] }),
+      ok: true, json: async () => ({ success: true, announcements: [], posts: [] }),
     }));
     HTMLDialogElement.prototype.showModal = vi.fn(function () {
       this.open = true;

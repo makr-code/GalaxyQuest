@@ -1,0 +1,23 @@
+{
+  "tags": [
+    { "id": 1, "slug": "game-start", "name": "Spielstartseite" },
+    { "id": 2, "slug": "hero", "name": "Wichtig" },
+    { "id": 3, "slug": "audio", "name": "Audio" }
+  ],
+  "categories": [
+    { "id": 10, "slug": "entwicklung", "name": "Entwicklung" },
+    { "id": 11, "slug": "fraktionen", "name": "Fraktionen" }
+  ],
+  "posts": [
+    { "id": 101, "date_gmt": "2026-11-01T10:00:00", "status": "publish", "title": "Willkommen im Entwicklerblog", "body": "Hier berichten wir über die Entwicklung von GalaxyQuest. Dieses lokale Blog simuliert eine eigenständige WordPress-Redaktion. Das Spiel übernimmt ausschließlich freigegebene Kurzfassungen.", "summary": "Willkommen im Entwicklerblog von GalaxyQuest. Auf der Spielstartseite erscheinen nur ausdrücklich freigegebene Nachrichten.", "categories": [10], "tags": [1] },
+    { "id": 102, "date_gmt": "2026-11-02T10:00:00", "status": "publish", "title": "Nachrichten bequem auswählen", "body": "Die Spielstartseite zeigt die fünf neuesten freigegebenen Artikel als kompakte Karten. Die vollständigen Beiträge bleiben im eigenständigen Blog. Tastatur und Maus lassen sich für die Auswahl verwenden.", "summary": "Kompakte Nachrichtenkarten zeigen Datum, Kategorie und Vorschau. Die vollständigen Artikel bleiben im Blog erreichbar.", "categories": [10], "tags": [1] },
+    { "id": 103, "date_gmt": "2026-11-03T10:00:00", "status": "publish", "title": "Musik und Sprachausgabe", "body": "Während Nachrichten vorgelesen werden, wird die Hintergrundmusik abgesenkt. Nach dem Ende oder einem Abbruch kehrt die Musik zu ihrer bisherigen Lautstärke zurück. Die Einstellungen bleiben in der Audiosteuerung verfügbar.", "summary": "Die Hintergrundmusik wird während der Sprachausgabe leiser. Stoppen und Beitragswechsel beenden das Vorlesen zuverlässig.", "categories": [10], "tags": [1,3] },
+    { "id": 104, "date_gmt": "2026-11-04T10:00:00", "status": "publish", "title": "Ein Blog, zwei Ansichten", "body": "Das Blog ist die führende Inhaltsquelle. Beiträge ohne Startseitenfreigabe gehören weiterhin zum Blog, aber nicht zum Nachrichtenmenü des Spiels. Kategorien ordnen Themen; Tags steuern die gezielte Übernahme.", "summary": "Das Blog und die Spielstartseite teilen sich eine Inhaltsquelle. Der Tag game-start steuert, welche Beiträge im Spiel erscheinen.", "categories": [10], "tags": [1] },
+    { "id": 105, "date_gmt": "2026-11-05T10:00:00", "status": "publish", "title": "Redaktionelle Kurzfassungen", "body": "Ein vollständiger Blogartikel kann ausführlicher sein als eine Nachricht im Spiel. Die Redaktion pflegt dafür eine separate Klartext-Kurzfassung. Nur diese Kurzfassung wird angezeigt und vorgelesen. So bleiben längere Hintergrundberichte möglich, ohne den Spieleinstieg zu überladen.", "summary": "Für Anzeige und Vorlesen im Spiel gibt es eine eigene Kurzfassung mit maximal dreitausend Zeichen. Der Originalartikel bleibt unabhängig davon verfügbar.", "categories": [10], "tags": [1] },
+    { "id": 106, "date_gmt": "2026-11-06T10:00:00", "status": "publish", "title": "Besuch der Aereth-Hauptwelt", "body": "Mit einem Nachrichtenbeitrag kann die Redaktion ein Ziel der Galaxieanimation verknüpfen. Als Beispiel dient die Aereth-Hauptwelt Sol'Ryaan. Der Anflug ist eine reine Darstellung und verändert keinen Spielzustand. Er startet erst nach dem Betätigen des Galaxiebuttons; reduzierte Bewegung wird respektiert.", "summary": "Diese wichtige Nachricht verknüpft die Aereth-Hauptwelt mit der Galaxieanimation. Über den Galaxiebutton lässt sich die Hauptwelt gezielt anfliegen. Das Vorlesen und der Anflug starten nur auf ausdrückliche Betätigung.", "target_faction_code": "aereth", "categories": [11], "tags": [1,2] },
+    { "id": 107, "date_gmt": "2026-11-06T11:00:00", "status": "publish", "title": "Nur im Blog: Hintergrund zur Redaktion", "body": "Dieser wichtige Artikel hat den Tag hero, aber keine Spielstartseitenfreigabe. Er darf deshalb nicht im Spiel erscheinen.", "summary": "Nicht für die Spielstartseite freigegeben.", "categories": [10], "tags": [2] },
+    { "id": 108, "date_gmt": "2026-11-06T12:00:00", "status": "draft", "title": "Unveröffentlichter Entwurf", "body": "Nicht öffentlich.", "summary": "Nicht öffentlich.", "categories": [10], "tags": [1] },
+    { "id": 109, "date_gmt": "2026-11-06T13:00:00", "status": "publish", "protected": true, "title": "Passwortgeschützter Bericht", "body": "Nicht öffentlich.", "summary": "Nicht öffentlich.", "categories": [10], "tags": [1] },
+    { "id": 110, "date_gmt": "2026-11-06T14:00:00", "status": "private", "title": "Privater Bericht", "body": "Nicht öffentlich.", "summary": "Nicht öffentlich.", "categories": [10], "tags": [1] }
+  ]
+}

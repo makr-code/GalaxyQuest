@@ -25,6 +25,9 @@ define('APP_ENV', env_value('APP_ENV', 'production'));
 define('REGISTRATION_MAILPIT_URL', rtrim((string)env_value('REGISTRATION_MAILPIT_URL', ''), '/'));
 define('REGISTRATION_PUBLIC_URL', rtrim((string)env_value('REGISTRATION_PUBLIC_URL', APP_ENV === 'dev' ? 'http://localhost:8081' : ''), '/'));
 define('ENABLE_DEV_AUTH_TOOLS', (int) env_value('ENABLE_DEV_AUTH_TOOLS', APP_ENV === 'dev' ? 1 : 0));
+define('BLOG_SOURCE', (string)env_value('BLOG_SOURCE', APP_ENV === 'dev' ? 'wordpress-simulation' : 'local'));
+define('BLOG_WORDPRESS_REST_URL', rtrim((string)env_value('BLOG_WORDPRESS_REST_URL', ''), '/'));
+define('BLOG_WORDPRESS_SITE_URL', rtrim((string)env_value('BLOG_WORDPRESS_SITE_URL', ''), '/'));
 
 // Local LLM (Ollama) configuration
 define('OLLAMA_ENABLED', (int) env_value('OLLAMA_ENABLED', APP_ENV === 'dev' ? 1 : 0));

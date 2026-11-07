@@ -1198,14 +1198,23 @@
       if (!vessels.length) return null;
       const list = new GQUI.Div().setClass('vessel-list');
       vessels.forEach((v) => {
-        const hp    = v.hp_state?.hp    ?? v.stats?.hull ?? '?';
-        const maxHp = v.hp_state?.max_hp ?? v.stats?.hull ?? '?';
-        const hpPct = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 100;
-        const shieldCurrent = Number(v.hp_state?.shield ?? v.stats?.shield ?? 0);
-        const shieldMax = Number(v.hp_state?.max_shield ?? v.stats?.shield ?? 0);
-        const shieldPct = shieldMax > 0 ? Math.max(0, Math.min(100, Math.round((shieldCurrent / shieldMax) * 100))) : 0;
-        const hpTone = hpPct < 30 ? 'is-critical' : (hpPct < 60 ? 'is-warning' : 'is-good');
-        const shieldTone = shieldPct < 30 ? 'is-critical' : (shieldPct < 60 ? 'is-warning' : 'is-good');
+        const readMeter = (currentValue, maximumValue) => {
+          if (currentValue === null || currentValue === undefined || currentValue === ''
+            || maximumValue === null || maximumValue === undefined || maximumValue === '') return null;
+          const current = Number(currentValue);
+          const maximum = Number(maximumValue);
+          if (!Number.isFinite(current) || !Number.isFinite(maximum)
+            || maximum <= 0 || current < 0 || current > maximum) return null;
+          return {
+            current,
+            maximum,
+            percent: Math.round((current / maximum) * 100),
+          };
+        };
+        const hull = readMeter(v.hp_state?.hp, v.hp_state?.max_hp);
+        const shield = readMeter(v.hp_state?.shield, v.hp_state?.max_shield);
+        const hullTone = hull?.percent < 30 ? 'is-critical' : (hull?.percent < 60 ? 'is-warning' : 'is-good');
+        const shieldTone = shield?.percent < 30 ? 'is-critical' : (shield?.percent < 60 ? 'is-warning' : 'is-good');
 
         const card = new GQUI.Div().setClass('vessel-card');
         card.dom.dataset.vesselId = String(v.id);
@@ -1220,19 +1229,33 @@
         const hullLbl = new GQUI.Div().setClass('vessel-card-hull').setTextContent(String(v.hull_label || ''));
         card.add(hullLbl);
 
-        const hpBarWrap = new GQUI.Div().setClass('vessel-hp-bar');
-        const hpFill = new GQUI.Div().setClass('vessel-hp-fill ' + hpTone);
-        hpFill.dom.style.width = hpPct + '%';
-        hpFill.dom.title = `Hull ${hpPct}%`;
-        hpBarWrap.add(hpFill);
-        card.add(hpBarWrap);
-
-        const shieldBarWrap = new GQUI.Div().setClass('vessel-shield-bar');
-        const shieldFill = new GQUI.Div().setClass('vessel-shield-fill ' + shieldTone);
-        shieldFill.dom.style.width = shieldPct + '%';
-        shieldFill.dom.title = `Shield ${shieldPct}%`;
-        shieldBarWrap.add(shieldFill);
-        card.add(shieldBarWrap);
+        const appendStatusMeter = ({ label, meter, fillClass, tone }) => {
+          if (!meter) return;
+          const row = new GQUI.Div().setClass('vessel-status-row');
+          const statusLabel = new GQUI.Span().setClass('vessel-status-label').setTextContent(label);
+          const bar = new GQUI.Div().setClass(fillClass === 'vessel-hp-fill' ? 'vessel-hp-bar' : 'vessel-shield-bar');
+          const fill = new GQUI.Div().setClass(`${fillClass} ${tone}`);
+          fill.dom.style.width = `${meter.percent}%`;
+          fill.dom.title = `${label} ${meter.current}/${meter.maximum} (${meter.percent}%)`;
+          bar.dom.setAttribute('role', 'progressbar');
+          bar.dom.setAttribute('aria-label', label);
+          bar.dom.setAttribute('aria-valuemin', '0');
+          bar.dom.setAttribute('aria-valuemax', String(meter.maximum));
+          bar.dom.setAttribute('aria-valuenow', String(meter.current));
+          bar.dom.dataset.statusMeter = fillClass === 'vessel-hp-fill' ? 'hull' : 'shield';
+          bar.add(fill);
+          const value = new GQUI.Span().setClass('vessel-status-value').setTextContent(
+            `${meter.current}/${meter.maximum} (${meter.percent}%)`,
+          );
+          if (fillClass === 'vessel-hp-fill') {
+            fill.dom.dataset.maxHp = String(meter.maximum);
+            value.dom.classList.add('vessel-hp-value');
+          }
+          row.add(statusLabel, bar, value);
+          card.add(row);
+        };
+        appendStatusMeter({ label: 'Hull', meter: hull, fillClass: 'vessel-hp-fill', tone: hullTone });
+        appendStatusMeter({ label: 'Shield', meter: shield, fillClass: 'vessel-shield-fill', tone: shieldTone });
 
         const chipsDiv = new GQUI.Div().setClass('vessel-stat-chips');
         ['attack', 'shield', 'hull', 'cargo', 'speed'].filter((k) => v.stats?.[k] > 0).forEach((k) => {
@@ -1245,13 +1268,12 @@
         const actionsDiv = new GQUI.Div().setClass('vessel-card-actions');
 
         // Repair button — shown only for damaged vessels (hp < max)
-        const isDamaged = Number(hp) < Number(maxHp) && Number(maxHp) > 0;
+        const isDamaged = hull !== null && hull.current < hull.maximum;
         if (isDamaged) {
           const repairBtn = new GQUI.Button('🔧 Repair').setClass('btn btn-sm btn-success vessel-repair-btn');
           repairBtn.dom.type = 'button';
           repairBtn.dom.dataset.vesselId = String(v.id);
-          // Repair cost factor (0.25) mirrors api/shipyard.php action_repair_vessel — update both together.
-          const repairCostMetal = Math.min(50000, Math.ceil(((Number(maxHp) - Number(hp)) / Number(maxHp)) * Number(maxHp) * 0.25));
+          const repairCostMetal = Math.min(50000, Math.ceil(((hull.maximum - hull.current) / hull.maximum) * hull.maximum * 0.25));
           repairBtn.dom.title = `Repair to full HP — costs ~${fmt(repairCostMetal)} metal`;
           actionsDiv.add(repairBtn);
         }
@@ -1299,7 +1321,12 @@
             if (hpFill) {
               hpFill.style.width = '100%';
               hpFill.className = 'vessel-hp-fill is-good';
-              hpFill.title = 'Hull 100%';
+              const maxHp = hpFill.dataset.maxHp;
+              hpFill.title = maxHp ? `Hull ${maxHp}/${maxHp} (100%)` : 'Hull 100%';
+              const hpBar = hpFill.closest('[data-status-meter="hull"]');
+              hpBar?.setAttribute('aria-valuenow', maxHp);
+              const hpValue = card.querySelector('.vessel-hp-value');
+              if (hpValue && maxHp) hpValue.textContent = `${maxHp}/${maxHp} (100%)`;
             }
             card.querySelector('.vessel-repair-btn')?.remove();
           }

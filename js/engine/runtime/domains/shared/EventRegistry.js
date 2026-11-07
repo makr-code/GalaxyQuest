@@ -30,13 +30,26 @@ const EVENT_REGISTRY = {
     emitter: 'GameFleetCommand',
     subscribers: ['GameGalaxy'],
   },
+  'fleet:origin-picking': {
+    payload: { active: { type: 'boolean' } },
+    emitter: 'GameFleetCommand, GameGalaxy',
+    subscribers: ['GameGalaxy', 'GameFleetMap', 'GameFleetCommand'],
+  },
   'fleet:origin-requested': {
     payload: { colonyId: { type: 'number' } },
     emitter: 'GameGalaxy',
     subscribers: ['GameFleetCommand'],
   },
   'fleet:target-requested': {
-    payload: { galaxy: { type: 'number' }, system: { type: 'number' }, position: { type: 'number' } },
+    payload: {
+      galaxy: { type: 'number' }, system: { type: 'number' }, position: { type: 'number' },
+      targetName: { description: 'Optional display name of the selected destination.' },
+    },
+    emitter: 'GameGalaxy',
+    subscribers: ['GameFleetLaunch'],
+  },
+  'fleet:target-coordinate-requested': {
+    payload: {},
     emitter: 'GameGalaxy',
     subscribers: ['GameFleetLaunch'],
   },

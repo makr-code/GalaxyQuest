@@ -340,16 +340,28 @@
                  ${leader.role === 'colony_manager' ? 'MGR' : leader.role === 'science_director' ? 'SCI' : 'MIL'} ${esc(leader.name)}
                </span>`
             ).join('');
-            const derivedHealth = Number(colony.integrity_pct ?? colony.health_pct ?? colony.hp_pct ?? colony.condition_pct);
-            const colonyHealthPct = Number.isFinite(derivedHealth)
-              ? Math.max(0, Math.min(100, Math.round(derivedHealth)))
-              : Math.max(0, Math.min(100, Math.round(Number(colony.public_services ?? colony.happiness ?? 70))));
-            const rawShield = Number(colony.shield_pct ?? colony.shields_pct ?? colony.planetary_shield_pct);
-            const colonyShieldPct = Number.isFinite(rawShield)
-              ? Math.max(0, Math.min(100, Math.round(rawShield)))
-              : (protected_ ? 100 : 0);
-            const colonyHealthTone = colonyHealthPct < 30 ? 'is-critical' : (colonyHealthPct < 60 ? 'is-warning' : 'is-good');
-            const colonyShieldTone = colonyShieldPct < 30 ? 'is-critical' : (colonyShieldPct < 60 ? 'is-warning' : 'is-good');
+            const colonyHealthValue = colony.integrity_pct ?? colony.health_pct ?? colony.hp_pct ?? colony.condition_pct;
+            const derivedHealth = colonyHealthValue === null || colonyHealthValue === undefined
+              || (typeof colonyHealthValue === 'string' && colonyHealthValue.trim() === '')
+              ? NaN
+              : Number(colonyHealthValue);
+            const colonyHealthPct = Number.isFinite(derivedHealth) && derivedHealth >= 0 && derivedHealth <= 100
+              ? Math.round(derivedHealth)
+              : null;
+            const colonyShieldValue = colony.shield_pct ?? colony.shields_pct ?? colony.planetary_shield_pct;
+            const rawShield = colonyShieldValue === null || colonyShieldValue === undefined
+              || (typeof colonyShieldValue === 'string' && colonyShieldValue.trim() === '')
+              ? NaN
+              : Number(colonyShieldValue);
+            const colonyShieldPct = Number.isFinite(rawShield) && rawShield >= 0 && rawShield <= 100
+              ? Math.round(rawShield)
+              : null;
+            const colonyHealthTone = colonyHealthPct === null
+              ? ''
+              : (colonyHealthPct < 30 ? 'is-critical' : (colonyHealthPct < 60 ? 'is-warning' : 'is-good'));
+            const colonyShieldTone = colonyShieldPct === null
+              ? ''
+              : (colonyShieldPct < 30 ? 'is-critical' : (colonyShieldPct < 60 ? 'is-warning' : 'is-good'));
             return `
             <div class="planet-card ${currentColony && colony.id === currentColony.id ? 'selected' : ''}" data-cid="${colony.id}">
               <div class="planet-card-name">${esc(colony.name)}
@@ -438,18 +450,18 @@
                 <div class="bar-wrap"><div class="bar-fill bar-services" style="width:${colony.public_services ?? 0}%"></div></div>
                 <span style="font-size:0.7rem;min-width:28px">${colony.public_services ?? 0}%</span>
               </div>
-              <div class="entity-bars" aria-label="Colony status bars">
-                <div class="entity-bar-row" title="Colony integrity ${colonyHealthPct}%">
+              ${(colonyHealthPct !== null || colonyShieldPct !== null) ? `<div class="entity-bars" aria-label="Colony status bars">
+                ${colonyHealthPct === null ? '' : `<div class="entity-bar-row" title="Colony integrity ${colonyHealthPct}%">
                   <span class="entity-bar-label">Health</span>
                   <div class="bar-wrap"><div class="bar-fill bar-integrity ${colonyHealthTone}" style="width:${colonyHealthPct}%"></div></div>
                   <span class="entity-bar-value">${colonyHealthPct}%</span>
-                </div>
-                <div class="entity-bar-row" title="Colony shields ${colonyShieldPct}%">
+                </div>`}
+                ${colonyShieldPct === null ? '' : `<div class="entity-bar-row" title="Colony shields ${colonyShieldPct}%">
                   <span class="entity-bar-label">Shield</span>
                   <div class="bar-wrap"><div class="bar-fill bar-shield ${colonyShieldTone}" style="width:${colonyShieldPct}%"></div></div>
                   <span class="entity-bar-value">${colonyShieldPct}%</span>
-                </div>
-              </div>
+                </div>`}
+              </div>` : ''}
               ${colony.deposit_metal >= 0 ? `
                 <div style="margin-top:0.3rem;font-size:0.7rem">
                   <span class="deposit-chip ${colony.deposit_metal < 100000 ? 'depleted' : ''}" title="Metal deposit remaining">\u26fe ${fmt(colony.deposit_metal)}</span>

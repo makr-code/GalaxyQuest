@@ -21,6 +21,8 @@ class SystemLevelThreeJS extends ZoomLevelRendererBase {
     this._backend   = null;
     this._renderer  = null;   // GalaxyRenderer instance
     this._sceneData = null;
+    this._ownsRenderer = false;
+    this._sharedRendererKey = null;
   }
 
   async initialize(canvas, backend) {
@@ -33,8 +35,11 @@ class SystemLevelThreeJS extends ZoomLevelRendererBase {
       const shared = window.__GQ_LEVEL_SHARED_RENDERER_THREEJS;
       if (shared) {
         this._renderer = shared;
+        this._sharedRendererKey = '__GQ_LEVEL_SHARED_RENDERER_THREEJS';
       } else {
         this._renderer = new GalaxyRendererCtor(container, { externalCanvas: canvas, interactive: true });
+        this._ownsRenderer = true;
+        this._sharedRendererKey = '__GQ_LEVEL_SHARED_RENDERER_THREEJS';
         window.__GQ_LEVEL_SHARED_RENDERER_THREEJS = this._renderer;
       }
     }
@@ -71,12 +76,21 @@ class SystemLevelThreeJS extends ZoomLevelRendererBase {
   }
 
   dispose() {
-    if (this._renderer && typeof this._renderer.dispose === 'function') {
-      try { this._renderer.dispose(); } catch (_) {}
+    try {
+      if (this._renderer && this._ownsRenderer && typeof this._renderer.dispose === 'function') {
+        this._renderer.dispose();
+      }
+    } finally {
+      if (this._renderer && this._ownsRenderer && typeof window !== 'undefined'
+        && window[this._sharedRendererKey] === this._renderer) {
+        window[this._sharedRendererKey] = undefined;
+      }
+      this._renderer = null;
+      this._ownsRenderer = false;
+      this._sharedRendererKey = null;
+      this._canvas = null;
+      this._backend = null;
     }
-    this._renderer = null;
-    this._canvas   = null;
-    this._backend  = null;
   }
 }
 

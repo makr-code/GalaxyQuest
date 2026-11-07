@@ -41,8 +41,9 @@ class RendererRegistry {
       throw new TypeError('RendererRegistry.register: at least one renderer constructor is required');
     }
     this._entries.set(level, { webgpu, threejs });
-    // Invalidate cached instance so next resolve() creates a fresh one.
+    const previousInstance = this._instances.get(level);
     this._instances.delete(level);
+    if (previousInstance) previousInstance.dispose();
   }
 
   /**
@@ -77,14 +78,46 @@ class RendererRegistry {
   }
 
   /**
+   * Check identity without creating or replacing a cached renderer.
+   *
+   * @param {number} level
+   * @param {import('./IZoomLevelRenderer').IZoomLevelRenderer} instance
+   * @returns {boolean}
+   */
+  isCurrent(level, instance) {
+    return this._instances.get(level) === instance;
+  }
+
+  /**
+   * Release a specific cached instance while keeping its registration for retry.
+   * A stale caller must not evict a replacement registered in the meantime.
+   *
+   * @param {number} level
+   * @param {import('./IZoomLevelRenderer').IZoomLevelRenderer} instance
+   */
+  release(level, instance) {
+    if (this._instances.get(level) !== instance) return;
+    this._instances.delete(level);
+    instance.dispose();
+  }
+
+  /**
    * Remove all registrations and cached instances.
    */
   clear() {
+    const errors = [];
     for (const instance of this._instances.values()) {
-      try { instance.dispose(); } catch (_) {}
+      try {
+        instance.dispose();
+      } catch (error) {
+        errors.push(error);
+      }
     }
     this._entries.clear();
     this._instances.clear();
+    if (errors.length) {
+      throw new AggregateError(errors, 'RendererRegistry.clear: one or more renderers failed to dispose');
+    }
   }
 
   // ---------------------------------------------------------------------------

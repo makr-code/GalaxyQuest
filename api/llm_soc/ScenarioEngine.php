@@ -13,7 +13,7 @@ declare(strict_types=1);
  *  - Run a global tick: resolve expired events, roll for new scenario starts
  *  - Apply conclusion effects (standing deltas, quest spawns, galactic_events entries)
  *
- * Usage (from npc_ai.php faction_events_tick_global):
+ * Usage (from npc_ai.php npc_ai_tick):
  *   ScenarioEngine::tick($db, __DIR__ . '/../../scenarios');
  */
 final class ScenarioEngine
@@ -29,7 +29,7 @@ final class ScenarioEngine
     // ── Public API ────────────────────────────────────────────────────────────
 
     /**
-     * Entry point called by npc_ai.php once per hour (globally rate-limited).
+     * Entry point called by npc_ai.php on player activity, globally rate-limited.
      *
      * @param PDO    $db           Active database connection
      * @param string $scenariosDir Absolute path to the scenarios/ directory
@@ -40,16 +40,42 @@ final class ScenarioEngine
             return;
         }
         self::ensureTables($db);
-        self::markTick($db);
 
-        // 1. Resolve any expired active events
-        self::resolveExpiredEvents($db);
+        $ownsTransaction = !$db->inTransaction();
+        $savepoint = 'scenario_engine_tick';
+        if ($ownsTransaction) {
+            $db->beginTransaction();
+        } else {
+            $db->exec('SAVEPOINT ' . $savepoint);
+        }
 
-        // 2. Load scenario definitions and try to start new ones
-        $scenarios = self::loadScenariosFromYaml($scenariosDir);
-        foreach ($scenarios as $scenario) {
-            self::seedScenario($db, $scenario);
-            self::maybeStartScenario($db, $scenario);
+        try {
+            self::resolveExpiredEvents($db);
+
+            $scenarios = self::loadScenariosFromYaml($scenariosDir);
+            foreach ($scenarios as $scenario) {
+                self::seedScenario($db, $scenario);
+                self::maybeStartScenario($db, $scenario);
+            }
+
+            self::markTick($db);
+
+            if ($ownsTransaction) {
+                $db->commit();
+            } else {
+                $db->exec('RELEASE SAVEPOINT ' . $savepoint);
+            }
+        } catch (\Throwable $error) {
+            if ($db->inTransaction()) {
+                if ($ownsTransaction) {
+                    $db->rollBack();
+                } else {
+                    $db->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+                    $db->exec('RELEASE SAVEPOINT ' . $savepoint);
+                }
+            }
+
+            throw $error;
         }
     }
 
@@ -69,17 +95,14 @@ final class ScenarioEngine
         $scenarios = [];
 
         foreach (glob($scenariosDir . '/*.yaml') ?: [] as $file) {
-            try {
-                $raw = file_get_contents($file);
-                if ($raw === false) {
-                    continue;
-                }
-                $data = $parser->parse($raw);
-                if (!empty($data['code'])) {
-                    $scenarios[] = $data;
-                }
-            } catch (\Throwable $e) {
-                error_log('[ScenarioEngine] Failed to parse ' . basename($file) . ': ' . $e->getMessage());
+            $raw = file_get_contents($file);
+            if ($raw === false) {
+                throw new \RuntimeException('Failed to read scenario file: ' . basename($file));
+            }
+
+            $data = $parser->parse($raw);
+            if (!empty($data['code'])) {
+                $scenarios[] = $data;
             }
         }
 
@@ -177,23 +200,19 @@ final class ScenarioEngine
      */
     private static function resolveExpiredEvents(PDO $db): void
     {
-        try {
-            $stmt = $db->prepare(
-                'SELECT awe.*, ws.conclusions_json, ws.effects_json, ws.code AS scenario_code,
-                        ws.faction_id AS scenario_faction_id
-                 FROM active_world_events awe
-                 JOIN world_scenarios ws ON ws.id = awe.scenario_id
-                 WHERE awe.conclusion_key IS NULL
-                   AND awe.ends_at <= NOW()'
-            );
-            $stmt->execute();
-            $expired = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $stmt = $db->prepare(
+            'SELECT awe.*, ws.conclusions_json, ws.effects_json, ws.code AS scenario_code,
+                    ws.faction_id AS scenario_faction_id
+             FROM active_world_events awe
+             JOIN world_scenarios ws ON ws.id = awe.scenario_id
+             WHERE awe.conclusion_key IS NULL
+               AND awe.ends_at <= NOW()'
+        );
+        $stmt->execute();
+        $expired = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
-            foreach ($expired as $event) {
-                self::resolveConclusion($db, $event);
-            }
-        } catch (\Throwable $e) {
-            error_log('[ScenarioEngine] resolveExpiredEvents error: ' . $e->getMessage());
+        foreach ($expired as $event) {
+            self::resolveConclusion($db, $event);
         }
     }
 
@@ -214,50 +233,46 @@ final class ScenarioEngine
             return;
         }
 
-        try {
-            // Load DB record
-            $row = $db->prepare('SELECT * FROM world_scenarios WHERE code = ? AND active = 1');
-            $row->execute([$code]);
-            $dbScenario = $row->fetch(\PDO::FETCH_ASSOC);
-            if (!$dbScenario) {
-                return;
-            }
-
-            // Check if already running
-            $running = $db->prepare(
-                'SELECT COUNT(*) FROM active_world_events awe
-                 WHERE awe.scenario_id = ? AND awe.conclusion_key IS NULL'
-            );
-            $running->execute([(int) $dbScenario['id']]);
-            if ((int) $running->fetchColumn() > 0) {
-                return;
-            }
-
-            // Cooldown: time since last resolved event of this scenario
-            $cooldownHours = max(1, (int) $dbScenario['trigger_cooldown_hours']);
-            $lastResolved = $db->prepare(
-                'SELECT MAX(resolved_at) FROM active_world_events
-                 WHERE scenario_id = ? AND conclusion_key IS NOT NULL'
-            );
-            $lastResolved->execute([(int) $dbScenario['id']]);
-            $lastResolvedAt = $lastResolved->fetchColumn();
-            if ($lastResolvedAt) {
-                $secondsAgo = time() - strtotime((string) $lastResolvedAt);
-                if ($secondsAgo < $cooldownHours * 3600) {
-                    return;
-                }
-            }
-
-            // Random roll
-            $chance = (float) $dbScenario['trigger_chance'];
-            if ($chance <= 0.0 || (mt_rand(1, 10000) / 10000.0) > $chance) {
-                return;
-            }
-
-            self::startScenario($db, $dbScenario);
-        } catch (\Throwable $e) {
-            error_log('[ScenarioEngine] maybeStartScenario(' . $code . ') error: ' . $e->getMessage());
+        // Load DB record
+        $row = $db->prepare('SELECT * FROM world_scenarios WHERE code = ? AND active = 1');
+        $row->execute([$code]);
+        $dbScenario = $row->fetch(\PDO::FETCH_ASSOC);
+        if (!$dbScenario) {
+            return;
         }
+
+        // Check if already running
+        $running = $db->prepare(
+            'SELECT COUNT(*) FROM active_world_events awe
+             WHERE awe.scenario_id = ? AND awe.conclusion_key IS NULL'
+        );
+        $running->execute([(int) $dbScenario['id']]);
+        if ((int) $running->fetchColumn() > 0) {
+            return;
+        }
+
+        // Cooldown: time since last resolved event of this scenario
+        $cooldownHours = max(1, (int) $dbScenario['trigger_cooldown_hours']);
+        $lastResolved = $db->prepare(
+            'SELECT MAX(resolved_at) FROM active_world_events
+             WHERE scenario_id = ? AND conclusion_key IS NOT NULL'
+        );
+        $lastResolved->execute([(int) $dbScenario['id']]);
+        $lastResolvedAt = $lastResolved->fetchColumn();
+        if ($lastResolvedAt) {
+            $secondsAgo = time() - strtotime((string) $lastResolvedAt);
+            if ($secondsAgo < $cooldownHours * 3600) {
+                return;
+            }
+        }
+
+        // Random roll
+        $chance = (float) $dbScenario['trigger_chance'];
+        if ($chance <= 0.0 || (mt_rand(1, 10000) / 10000.0) > $chance) {
+            return;
+        }
+
+        self::startScenario($db, $dbScenario);
     }
 
     /**
@@ -400,43 +415,39 @@ final class ScenarioEngine
             $value       = (int) ($condition['value'] ?? 0);
             $scope       = (string) ($condition['scope'] ?? 'any_player');
 
-            try {
-                $fRow = $db->prepare('SELECT id FROM npc_factions WHERE code = ?');
-                $fRow->execute([$factionCode]);
-                $fid = $fRow->fetchColumn();
-                if ($fid === false) {
-                    return false;
-                }
-
-                $standings = $db->prepare(
-                    'SELECT standing FROM diplomacy WHERE faction_id = ?'
-                );
-                $standings->execute([(int) $fid]);
-                $allStandings = array_column($standings->fetchAll(\PDO::FETCH_ASSOC), 'standing');
-
-                if (empty($allStandings)) {
-                    return false;
-                }
-
-                if ($scope === 'any_player') {
-                    foreach ($allStandings as $s) {
-                        if (self::compareStanding((int) $s, $operator, $value)) {
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-
-                // all_players
-                foreach ($allStandings as $s) {
-                    if (!self::compareStanding((int) $s, $operator, $value)) {
-                        return false;
-                    }
-                }
-                return true;
-            } catch (\Throwable) {
+            $fRow = $db->prepare('SELECT id FROM npc_factions WHERE code = ?');
+            $fRow->execute([$factionCode]);
+            $fid = $fRow->fetchColumn();
+            if ($fid === false) {
                 return false;
             }
+
+            $standings = $db->prepare(
+                'SELECT standing FROM diplomacy WHERE faction_id = ?'
+            );
+            $standings->execute([(int) $fid]);
+            $allStandings = array_column($standings->fetchAll(\PDO::FETCH_ASSOC), 'standing');
+
+            if (empty($allStandings)) {
+                return false;
+            }
+
+            if ($scope === 'any_player') {
+                foreach ($allStandings as $s) {
+                    if (self::compareStanding((int) $s, $operator, $value)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            // all_players
+            foreach ($allStandings as $s) {
+                if (!self::compareStanding((int) $s, $operator, $value)) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         // Unknown condition type: default to eligible
@@ -467,16 +478,12 @@ final class ScenarioEngine
     {
         foreach ($effects as $effect) {
             $type = (string) ($effect['type'] ?? '');
-            try {
-                match ($type) {
-                    'standing_delta' => self::applyStandingDelta($db, $effect),
-                    'quest_spawn'    => self::applyQuestSpawn($db, $effect),
-                    'galactic_event' => self::applyGalacticEvent($db, $effect, $event),
-                    default          => null,
-                };
-            } catch (\Throwable $e) {
-                error_log('[ScenarioEngine] applyEffects type=' . $type . ' error: ' . $e->getMessage());
-            }
+            match ($type) {
+                'standing_delta' => self::applyStandingDelta($db, $effect),
+                'quest_spawn'    => self::applyQuestSpawn($db, $effect),
+                'galactic_event' => self::applyGalacticEvent($db, $effect, $event),
+                default          => null,
+            };
         }
     }
 
@@ -658,13 +665,9 @@ final class ScenarioEngine
         if ($factionCode === '' || $factionCode === 'null') {
             return null;
         }
-        try {
-            $stmt = $db->prepare('SELECT id FROM npc_factions WHERE code = ?');
-            $stmt->execute([$factionCode]);
-            $id = $stmt->fetchColumn();
-            return $id !== false ? (int) $id : null;
-        } catch (\Throwable) {
-            return null;
-        }
+        $stmt = $db->prepare('SELECT id FROM npc_factions WHERE code = ?');
+        $stmt->execute([$factionCode]);
+        $id = $stmt->fetchColumn();
+        return $id !== false ? (int) $id : null;
     }
 }

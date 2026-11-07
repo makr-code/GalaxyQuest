@@ -26,12 +26,50 @@ see [Colony on-demand economy](COLONY_ON_DEMAND_ECONOMY.md).
 - Overview GETs never execute simulation side-effects. The legacy
   `SIMULATION_TICK_ON_READ_ENABLED` setting has been retired; changing it in an
   environment file has no effect.
+- `build_live_overview_payload()` is read-only with respect to simulation and
+  achievement/faction-pressure ticks; the former opt-in side-effect switch has
+  been removed. Colony resource settlement remains a separate lazy-read contract.
 - Simulation runs only through the explicit HTTP or CLI trigger paths below.
+- Per-user NPC ticks only process that user's faction/diplomacy state. Global
+  NPC accounts, faction events, scenarios, colony events, and wormhole
+  maintenance run as a separate `npc_world` global subsystem under the global
+  advisory lock; trader lifecycle remains its own global subsystem.
+- Each NPC player account tick commits its research/build/ship/fleet mutations
+  and per-account completion timestamp atomically. If a later account fails in
+  the global batch, a normal retry skips accounts already committed within the
+  three-minute interval; explicit force runs still bypass that per-account
+  cooldown.
+- The NPC controller's manual `run_once` action uses the same per-user
+  simulation lock and failure response contract. A busy lock is reported as a
+  skipped tick rather than a successful execution.
+- The manual pirate-faction tick uses that same per-user advisory lock, so it
+  cannot overlap the normal per-user NPC tick; lock contention is reported as
+  an unexecuted skip.
+- The administrative trader `game_tick` cycle uses the global advisory lock,
+  preventing its route and market mutations from overlapping the scheduled
+  global trader subsystem.
+- The separate `traders.php?action=process_trader_tick` action uses that same
+  global lock, so it cannot overlap route transitions or trader decisions from
+  another global tick.
+- All individual administrative trader mutation events (market update,
+  opportunity scan, decisions, route processing, route creation, and manual
+  completion) share that lock as well. Their responses distinguish executed
+  work from a lock-busy skip.
+- The on-demand fleet-arrival sweep uses its own advisory lock because one
+  authenticated POST processes due arrivals across all users; concurrent checks
+  are skipped rather than processing the same due-fleet snapshot in parallel.
+- Arrival workers re-read and lock each due fleet inside its processing
+  transaction. Fleet recall takes the same row lock and rechecks arrival state,
+  so recall and arrival cannot both apply conflicting transitions.
+- Manual autonomous leader actions use the same per-user advisory lock as the
+  user simulation tick; busy-lock responses are shown as skipped in the UI.
 - Global ticks and each user tick are serialized by a MySQL connection-scoped
   advisory lock. If the same scope is already running, a concurrent invocation
   returns `executed: false` with `reason: lock_busy`; the scheduler may retry on
   its next run. This prevents overlapping workers but is not a durable lease,
   crash-recovery protocol, or idempotent tick ledger.
+- Successful global and user tick cooldowns start at completion, not at tick
+  start, so a long-running tick cannot consume its own cooldown while executing.
 - The overview still performs lazy colony-resource settlement from `last_update`;
   this on-demand economy accounting is separate from simulation ticks.
 - Each executed global/user subsystem emits `duration_ms`, `lag_seconds`
@@ -39,6 +77,17 @@ see [Colony on-demand economy](COLONY_ON_DEMAND_ECONOMY.md).
   `error_count` in the result and a `[simulation_metrics]` structured log entry.
   Metrics are persisted in `app_state`; per-user timestamps are isolated by
   user. Retention, dashboards and alerts are not included.
+- A failed subsystem makes the tick response fail (HTTP 500 / CLI exit code 2);
+  raw exception messages are not returned to callers. Lock-busy and cooldown
+  skips remain successful non-executions.
+- Pirate raid messages are notifications for raids already applied by the NPC
+  faction tick, not pending events. The global simulation does not replay them;
+  raid resolution remains unavailable until a dedicated, idempotent event queue
+  is implemented.
+- War attrition is currently disabled: no canonical war-party troop inventory
+  exists, so the former tick's fixed `rate × 10` loss figures did not represent
+  real units and were not applied to combat state. The tick remains a no-op until
+  losses can be calculated from and committed against authoritative unit counts.
 
 ## Trigger ticks
 

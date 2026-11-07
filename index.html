@@ -11,12 +11,13 @@
   <link rel="stylesheet" href="css/design-tokens.css?v=20260730p1" />
   <link rel="stylesheet" href="css/animations.css?v=20260730p1" />
   <link rel="stylesheet" href="css/utilities.css?v=20260730p1" />
-  <link rel="stylesheet" href="css/start-screen.css?v=20261029p3" />
+  <link rel="stylesheet" href="css/start-screen.css?v=20261106p1" />
+  <link rel="stylesheet" href="css/developer-blog.css?v=20261106p1" />
   <link rel="stylesheet" href="css/registration-prologue.css?v=20261031p3" />
   <!-- Core Stylesheets -->
-  <link rel="stylesheet" href="css/style.css?v=20261104p5" />
-  <link rel="stylesheet" href="css/wm.css?v=20260830p4" />
-  <link rel="stylesheet" href="css/gqwm.css?v=20261029p1" />
+  <link rel="stylesheet" href="css/style.css?v=20261106p55" />
+  <link rel="stylesheet" href="css/wm.css?v=20261106p15" />
+  <link rel="stylesheet" href="css/gqwm.css?v=20261106p3" />
   <link rel="stylesheet" href="css/prolog.css?v=1" />
   <link rel="stylesheet" href="css/diplomacy.css?v=1" />
   <link rel="stylesheet" href="css/advanced-rendering.css?v=1" />
@@ -211,7 +212,7 @@
         <div class="start-panel-anchor"><button id="start-login" class="start-button start-button-primary" type="button" aria-expanded="false">Login<span>Return to your command</span></button></div>
         <div class="start-panel-anchor"><button id="start-register" class="start-button" type="button" aria-expanded="false">Begin a new campaign<span>Write your first chapter</span></button></div>
         <div class="start-panel-anchor"><button id="start-dev" class="start-button start-button-small" type="button" aria-expanded="false">Developer tools</button></div>
-        <div class="start-panel-anchor"><button class="start-button start-button-small" type="button" data-start-panel="news" aria-expanded="false">News and transmissions</button></div>
+        <div class="start-panel-anchor"><button class="start-button start-button-small" type="button" data-start-panel="news" aria-expanded="false">News and transmissions</button><div id="start-news-posts" role="group" aria-label="Die fünf neuesten Entwicklerbeiträge"></div></div>
         <div class="start-panel-anchor"><button class="start-button start-button-small" type="button" data-start-panel="settings" aria-expanded="false">Settings</button></div>
         <button id="start-announcements" class="start-log-button" type="button" aria-expanded="false">Server announcements <span id="start-announcements-status" class="start-session-status">Loading</span></button>
       </nav>
@@ -227,7 +228,23 @@
           <button type="button" data-start-close>Close</button>
         </header>
         <section id="start-panel-news" hidden>
-          <p>Command updates and transmissions from across the galaxy.</p>
+          <div class="start-news-toolbar" role="group" aria-label="Nachrichtenaktionen">
+            <button id="start-news-refresh" type="button">Beiträge aktualisieren</button>
+            <button id="start-news-read" type="button" disabled>Beitrag vorlesen</button>
+            <button id="start-news-stop" type="button" disabled>Vorlesen stoppen</button>
+            <button id="start-news-flight" type="button" disabled>Beitragsziel anfliegen</button>
+            <a href="developer-blog-admin.php">Redaktion (Administratoren)</a>
+          </div>
+          <p id="start-news-source" class="start-news-source"></p>
+          <p id="start-news-status" role="status" aria-live="polite"></p>
+          <p id="start-news-flight-status" role="status"></p>
+          <article>
+            <h3 id="start-news-title" tabindex="-1">Beiträge werden geladen …</h3>
+            <p id="start-news-meta"></p>
+            <p id="start-news-taxonomy" class="start-news-taxonomy"></p>
+            <p id="start-news-body"></p>
+            <a id="start-news-original" hidden target="_blank" rel="noopener noreferrer">Vollständigen Beitrag im Blog lesen</a>
+          </article>
           <p id="server-announcements-status"></p>
         </section>
         <section id="start-panel-settings" hidden>
@@ -522,9 +539,11 @@
       <div class="topbar-left">
         <button id="topbar-title-btn" class="topbar-brand-btn" type="button" title="Daten aktualisieren" aria-label="Daten aktualisieren">
           <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/galaxy.svg#icon-galaxy"></use></svg>
+          <span class="game-command-action-label">Daten aktualisieren</span>
         </button>
         <button id="topbar-home-btn" class="topbar-home-btn" type="button" title="Zum Heimatsystem springen" aria-label="Zum Heimatsystem springen">
           <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/home.svg#icon-home"></use></svg>
+          <span class="game-command-action-label">Heimatsystem</span>
         </button>
         <span id="topbar-coords" class="coords-badge"></span>
         <label class="sr-only" for="game-colony-select">Aktive Kolonie</label>
@@ -644,6 +663,10 @@
             <label>Musiklautstärke
               <input id="topbar-player-volume" type="range" min="0" max="100" step="1" value="55" disabled />
             </label>
+            <label><input id="topbar-player-ducking" type="checkbox" checked disabled /> Musik bei Sprachausgabe absenken</label>
+            <label>Absenkstärke bei Sprache
+              <input id="topbar-player-ducking-strength" type="range" min="10" max="90" step="5" value="55" disabled />
+            </label>
             <span id="topbar-player-status" role="status" aria-live="polite"></span>
           </div>
         </div>
@@ -690,51 +713,52 @@
       <button class="btn btn-secondary btn-sm" type="button" data-game-market>Markt</button>
       <button class="btn btn-secondary btn-sm" type="button" data-game-population>Bevölkerung</button>
     </nav>
+    <p class="game-resource-help">Koloniebestände · Ressource auswählen, um Details zu öffnen. Dunkle Materie ist kontoweit. Tastatur: ↑/↓ wechseln, Pos1/Ende zum ersten/letzten Eintrag.</p>
     <div class="resource-bar">
 
-      <button class="resource resource-btn metal" type="button" data-resource="metal" title="Metal-Statistik und Handel oeffnen">
+      <button class="resource resource-btn metal" type="button" data-resource="metal" title="Metalldetails öffnen">
         <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/metal.svg#icon-metal"></use></svg></span>
-        <span class="res-label">Metal</span>
+        <span class="res-label">Metall</span>
         <span id="res-metal" class="res-value">—</span>
       </button>
-      <button class="resource resource-btn crystal" type="button" data-resource="crystal" title="Crystal-Statistik und Handel oeffnen">
+      <button class="resource resource-btn crystal" type="button" data-resource="crystal" title="Kristalldetails öffnen">
         <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/crystal.svg#icon-crystal"></use></svg></span>
-        <span class="res-label">Crystal</span>
+        <span class="res-label">Kristall</span>
         <span id="res-crystal" class="res-value">—</span>
       </button>
-      <button class="resource resource-btn deuterium" type="button" data-resource="deuterium" title="Deuterium-Statistik und Handel oeffnen">
+      <button class="resource resource-btn deuterium" type="button" data-resource="deuterium" title="Deuteriumdetails öffnen">
         <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/deuterium.svg#icon-deuterium"></use></svg></span>
         <span class="res-label">Deuterium</span>
         <span id="res-deuterium" class="res-value">—</span>
       </button>
-      <button class="resource resource-btn food" type="button" data-resource="food" title="Nahrungs-Statistik oeffnen">
+      <button class="resource resource-btn food" type="button" data-resource="food" title="Nahrungsdetails öffnen">
         <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/food.svg#icon-food"></use></svg></span>
-        <span class="res-label">Food</span>
+        <span class="res-label">Nahrung</span>
         <span id="res-food" class="res-value">—</span>
       </button>
-      <button class="resource resource-btn rare-earth" type="button" data-resource="rare_earth" title="Rare-Earth-Statistik oeffnen">
+      <button class="resource resource-btn rare-earth" type="button" data-resource="rare_earth" title="Details zu seltenen Erden öffnen">
         <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/rare-earth.svg#icon-rare-earth"></use></svg></span>
-        <span class="res-label">Rare Earth</span>
+        <span class="res-label">Seltene Erden</span>
         <span id="res-rare-earth" class="res-value">—</span>
       </button>
-      <button class="resource resource-btn population" type="button" data-resource="population" title="Bevoelkerungs-Statistik oeffnen">
+      <button class="resource resource-btn population" type="button" data-resource="population" title="Bevölkerungsdetails öffnen">
         <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/population.svg#icon-population"></use></svg></span>
-        <span class="res-label">Pop</span>
+        <span class="res-label">Bevölkerung</span>
         <span id="res-population" class="res-value">—</span>
       </button>
-      <button class="resource resource-btn happiness" type="button" data-resource="happiness" title="Zufriedenheits-Statistik oeffnen">
+      <button class="resource resource-btn happiness" type="button" data-resource="happiness" title="Zufriedenheitsdetails öffnen">
         <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/happiness.svg#icon-happiness"></use></svg></span>
-        <span class="res-label">Happy</span>
+        <span class="res-label">Zufriedenheit</span>
         <span id="res-happiness" class="res-value">—</span>
       </button>
-      <button class="resource resource-btn energy" type="button" data-resource="energy" title="Energie-Statistik oeffnen">
+      <button class="resource resource-btn energy" type="button" data-resource="energy" title="Energiedetails öffnen">
         <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/energy.svg#icon-energy"></use></svg></span>
-        <span class="res-label">Energy</span>
+        <span class="res-label">Energie</span>
         <span id="res-energy" class="res-value">—</span>
       </button>
-      <div class="resource dark-matter" title="Dark Matter: bestaetigter Kontostand">
+      <div class="resource dark-matter" title="Dunkle Materie: bestätigter Kontostand">
         <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/dark-matter.svg#icon-dark-matter"></use></svg></span>
-        <span class="res-label">Dark Matter</span>
+        <span class="res-label">Dunkle Materie</span>
         <span id="res-dark-matter" class="res-value">0</span>
       </div>
     </div>

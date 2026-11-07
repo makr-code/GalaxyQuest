@@ -35,6 +35,7 @@ export async function createGameGalaxyRenderer(host, options) {
   let systemPose = null;
   let returningToGalaxy = false;
   let removeCameraFrame = null;
+  let cameraMoveGeneration = 0;
   const endpointObservers = new Set();
   const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
   const listeners = new AbortController();
@@ -44,11 +45,15 @@ export async function createGameGalaxyRenderer(host, options) {
     return { position: space.camera.position.clone(), target: pivot.clone(), origin: space.origin.clone() };
   }
   function stopCameraMove() {
-    removeCameraFrame?.();
+    const remove = removeCameraFrame;
     removeCameraFrame = null;
+    cameraMoveGeneration++;
+    remove?.();
   }
   function moveCamera(to, from = capturePose()) {
     stopCameraMove();
+    if (disposed) return;
+    const generation = cameraMoveGeneration;
     const space = view();
     const start = from.position.clone().sub(from.target);
     const end = to.position.clone().sub(to.target);
@@ -60,6 +65,7 @@ export async function createGameGalaxyRenderer(host, options) {
     const toShift = to.origin.clone().sub(space.origin);
     const toTarget = to.target.clone().add(toShift);
     const apply = (t) => {
+      if (disposed || generation !== cameraMoveGeneration) return false;
       if (t === 1) {
         pivot.copy(toTarget);
         space.camera.position.copy(to.position).add(toShift);
@@ -70,16 +76,33 @@ export async function createGameGalaxyRenderer(host, options) {
         space.camera.position.copy(pivot).add(offset);
       }
       updateCamera();
+      return !disposed && generation === cameraMoveGeneration;
     };
     if (reducedMotion() || !startDistance || !endDistance) { apply(1); return; }
     let elapsed = 0;
     apply(0);
-    removeCameraFrame = renderer.getSharedZoomBackend().addFrameHook((dt) => {
-      elapsed += dt;
-      const t = Math.min(1, elapsed / 1.2);
-      if (t === 1) stopCameraMove();
-      apply(t * t * (3 - 2 * t));
-    });
+    if (disposed || generation !== cameraMoveGeneration) return;
+    try {
+      removeCameraFrame = renderer.getSharedZoomBackend().addFrameHook((dt) => {
+        if (disposed || generation !== cameraMoveGeneration) return;
+        try {
+          if (typeof dt !== 'number' || !Number.isFinite(dt) || dt < 0) {
+            throw new TypeError('Galaxy camera move frame time must be finite and non-negative');
+          }
+          elapsed += dt;
+          const t = Math.min(1, elapsed / 1.2);
+          if (!apply(t * t * (3 - 2 * t))) return;
+          if (t === 1 && generation === cameraMoveGeneration) stopCameraMove();
+        } catch (error) {
+          const errors = [error];
+          try { stopCameraMove(); } catch (cleanupError) { errors.push(cleanupError); }
+          report(errors.length === 1 ? error : new AggregateError(errors, 'Galaxy camera move failed'));
+        }
+      });
+    } catch (error) {
+      cameraMoveGeneration++;
+      report(error);
+    }
   }
   function cameraState() {
     const space = view();
@@ -90,6 +113,17 @@ export async function createGameGalaxyRenderer(host, options) {
   function notify() { options.onViewChange?.(cameraState()); }
   function report(error) {
     if (!disposed && error.name !== 'AbortError') options.onError?.(error);
+  }
+  function recoverZoom(error) {
+    if (disposed || error.name === 'AbortError' || level === 'system' || !system) return error;
+    if (zoomRuntime && zoomRuntime.getStats()?.level !== null) return error;
+    try { frameSystem(); } catch (cleanupError) {
+      return new AggregateError([error, cleanupError], 'Zoom failure and system recovery failed');
+    }
+    return error;
+  }
+  function reportZoom(error) {
+    report(recoverZoom(error));
   }
   function planetCamera() {
     const body = planet();
@@ -116,7 +150,7 @@ export async function createGameGalaxyRenderer(host, options) {
         notify();
       },
       onReturn: () => { frameSystem(); },
-      onError: report,
+      onError: reportZoom,
     }).then((runtime) => {
       if (disposed || signal.aborted) { runtime.dispose(); throw new DOMException('Zoom cancelled.', 'AbortError'); }
       zoomRuntime = runtime;
@@ -128,19 +162,20 @@ export async function createGameGalaxyRenderer(host, options) {
   }
   function stopZoom() {
     zoomRevision++;
-    zoomController.abort();
+    const controller = zoomController;
     zoomController = new AbortController();
-    zoomRuntime?.dispose();
+    const runtime = zoomRuntime;
     zoomRuntime = null;
     zoomPending = null;
     colonyPending = false;
+    try { runtime?.dispose(); } finally { controller.abort(); }
   }
   function approachPlanet(from = null) {
     const version = ++zoomRevision;
     const data = planetData();
     void getZoom().then((runtime) => {
       if (version === zoomRevision) return runtime.approach(data, from);
-    }).catch((error) => { if (version === zoomRevision) report(error); });
+    }).catch((error) => { if (version === zoomRevision) reportZoom(error); });
   }
   function planet(position = planetPosition) {
     return view().bodies.find((body) => body.userData.type === 'planet'
@@ -206,20 +241,22 @@ export async function createGameGalaxyRenderer(host, options) {
     void getZoom().then((runtime) => {
       if (version !== zoomRevision) return;
       return runtime.surface(() => options.loadColonyData(Number(position), data, signal));
-    }).catch((error) => { if (version === zoomRevision) report(error); })
+    }).catch((error) => { if (version === zoomRevision) reportZoom(error); })
       .finally(() => { if (!signal.aborted) colonyPending = false; });
     return true;
   }
   function frameSystem(restore = true) {
     if (!system) return false;
     const from = capturePose();
-    stopZoom();
+    let cleanupError = null;
+    try { stopZoom(); } catch (error) { cleanupError = error; }
     const target = view().resolveTarget({ kind: 'system' });
     planetPosition = null;
     setLevel('system', target.focus, 1e-12, systemRadius() * 20);
     moveCamera(restore && systemPose ? systemPose : {
       position: target.destination.clone(), target: target.focus.clone(), origin: view().origin.clone(),
     }, from);
+    if (cleanupError) throw cleanupError;
     return true;
   }
   function back() {
@@ -235,7 +272,12 @@ export async function createGameGalaxyRenderer(host, options) {
     const runtime = zoomRuntime;
     const signal = zoomController.signal;
     if (['colony', 'building'].includes(level)) {
-      if (!await runtime.returnTo(target === 'colony' ? 'colony' : 'planet')) return false;
+      try {
+        if (!await runtime.returnTo(target === 'colony' ? 'colony' : 'planet')) return false;
+      } catch (error) {
+        if (signal.aborted) throw error;
+        throw recoverZoom(error);
+      }
       if (disposed || signal.aborted) return false;
     }
     if (target === 'system') return frameSystem();
@@ -340,6 +382,13 @@ export async function createGameGalaxyRenderer(host, options) {
     }
   }
   renderer.setSpatialLabelCallbacks?.({
+    onWheel(label, event) {
+      if (disposed) return;
+      const target = level === 'galaxy' && label?.kind === 'system' ? label.data
+        : label?.kind === 'planet' && planet(label.data?.position)
+          ? { ...label.data, __kind: 'planet' } : null;
+      handleWheel(event, target);
+    },
     onHover(label) {
       if (disposed) return;
       renderer.setFlightHover?.(level === 'system' && label?.kind === 'planet' && planet(label.data?.position)
@@ -468,13 +517,13 @@ export async function createGameGalaxyRenderer(host, options) {
     if (!system) options.onDoubleClick?.(object);
     else activatePlanet(object.position);
   });
-  function zoom(direction, amount = 0.22, event = null) {
+  function zoom(direction, amount = 0.22, event = null, target = null) {
     if (['colony', 'building'].includes(level)) { zoomRuntime?.nudgeZoom(direction); return; }
     stopCameraMove();
     renderer.cancelCameraFlight();
     const space = view();
     const inward = direction === 'in';
-    const object = inward && event ? pick(event) : null;
+    const object = inward ? target || (event ? pick(event) : null) : null;
     if (level === 'galaxy' && inward && (object || selectedStar)) {
       const star = object || selectedStar;
       selectedStar = star;
@@ -510,13 +559,15 @@ export async function createGameGalaxyRenderer(host, options) {
       leaveSystem();
     }
   }
-  listen('wheel', (event) => {
+  function handleWheel(event, target = null) {
     event.preventDefault();
     if (!event.deltaY) return;
     const pixels = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? canvas.clientHeight : 1);
-    zoom(event.deltaY < 0 ? 'in' : 'out', Math.min(1, Math.abs(pixels) * 0.0022), event);
-  }, { passive: false });
+    zoom(event.deltaY < 0 ? 'in' : 'out', Math.min(1, Math.abs(pixels) * 0.0022), target ? null : event, target);
+  }
+  listen('wheel', handleWheel, { passive: false });
   listen('keydown', (event) => {
+    if (event.defaultPrevented || event.isComposing) return;
     if (event.key === '+' || event.key === '=') { zoom('in'); event.preventDefault(); }
     if (event.key === '-') { zoom('out'); event.preventDefault(); }
     if (event.key === 'Escape' || event.key === 'Backspace') { back(); event.preventDefault(); }
@@ -568,9 +619,14 @@ export async function createGameGalaxyRenderer(host, options) {
     },
     refreshColony: (colonyId) => zoomRuntime?.refreshColony(colonyId),
     observeFleetEndpoints(getFleets, onProjection) {
+      if (disposed) return () => {};
+      let active = true;
+      let removeFrame = null;
+      const current = () => active && !disposed;
       function project() {
+        if (!current()) return;
         const points = new Map();
-        if (!disposed && ['galaxy', 'system'].includes(level)) {
+        if (['galaxy', 'system'].includes(level)) {
           const space = view();
           space.camera.updateMatrixWorld(true);
           const rect = canvas.getBoundingClientRect();
@@ -602,12 +658,41 @@ export async function createGameGalaxyRenderer(host, options) {
             }
           }
         }
-        onProjection([...points.values()]);
+        if (current()) onProjection([...points.values()]);
       }
-      const removeFrame = renderer.getSharedZoomBackend().addFrameHook(project);
-      const remove = () => { removeFrame(); endpointObservers.delete(remove); };
+      const remove = () => {
+        if (!active && !removeFrame) return;
+        active = false;
+        const detach = removeFrame;
+        detach?.();
+        removeFrame = null;
+        endpointObservers.delete(remove);
+      };
+      const frame = () => {
+        if (!current()) return;
+        try {
+          project();
+        } catch (error) {
+          const errors = [error];
+          try { remove(); } catch (cleanupError) { errors.push(cleanupError); }
+          report(errors.length === 1 ? error
+            : new AggregateError(errors, 'Fleet endpoint projection and cleanup failed'));
+        }
+      };
+      removeFrame = renderer.getSharedZoomBackend().addFrameHook(frame);
       endpointObservers.add(remove);
-      project();
+      if (disposed) {
+        remove();
+        return remove;
+      }
+      try {
+        project();
+      } catch (error) {
+        try { remove(); } catch (cleanupError) {
+          throw new AggregateError([error, cleanupError], 'Fleet endpoint registration and cleanup failed');
+        }
+        throw error;
+      }
       return remove;
     },
     rotateView: rotate, panView: pan,
@@ -635,6 +720,11 @@ export async function createGameGalaxyRenderer(host, options) {
           inhabited: !!slot.player_planet, texture: payload.planet_texture_manifest?.planets?.[String(slot.position)] },
         children: (body.moons || []).map((moon) => ({ type: 'moon', data: moon })) }] : [];
       });
+      if (Array.isArray(payload.special_bodies)) {
+        children.push(...payload.special_bodies
+          .filter((body) => body?.body_type === 'asteroid_belt')
+          .map((body) => ({ type: 'asteroid_belt', data: body, children: [] })));
+      }
       renderer.setFlightScene({ stage: 'system', target: star,
         sceneGraph: { type: 'galaxy', children: [{ type: 'system', data: star, children }] } });
       if (sameSystem && planetPosition !== null) {
@@ -680,21 +770,35 @@ export async function createGameGalaxyRenderer(host, options) {
     nudgeZoom: zoom,
     resize() { renderer.resize(); },
     destroy() {
-      if (disposed) return;
+      if (disposed) {
+        const errors = [];
+        for (const remove of [...endpointObservers]) {
+          try { remove(); } catch (error) { errors.push(error); }
+        }
+        if (errors.length) throw new AggregateError(errors, 'Game galaxy observer cleanup failed');
+        return;
+      }
       disposed = true;
-      [...endpointObservers].forEach((remove) => remove());
-      const capturedTouches = [...touches.keys()];
+      const errors = [];
+      const attempt = (cleanup) => {
+        try { cleanup(); } catch (error) { errors.push(error); }
+      };
+      [...endpointObservers].forEach((remove) => attempt(remove));
+      const captures = new Set([...touches.keys(), ...(pointer ? [pointer.id] : [])]);
+      pointer = null;
       touches.clear();
       touchGesture = false;
-      capturedTouches.forEach((id) => {
+      attempt(() => listeners.abort());
+      captures.forEach((id) => attempt(() => {
         if (canvas.hasPointerCapture?.(id)) canvas.releasePointerCapture(id);
-      });
-      stopCameraMove();
-      stopZoom();
-      listeners.abort();
-      renderer.cancelCameraFlight();
-      renderer.setGalaxyFleets([]);
-      control.returnToMenu();
+      }));
+      attempt(stopCameraMove);
+      attempt(stopZoom);
+      attempt(() => renderer.setSpatialLabelCallbacks?.(null));
+      attempt(() => renderer.cancelCameraFlight());
+      attempt(() => renderer.setGalaxyFleets([]));
+      attempt(() => control.returnToMenu());
+      if (errors.length) throw new AggregateError(errors, 'Game galaxy view cleanup failed');
     },
   };
 }

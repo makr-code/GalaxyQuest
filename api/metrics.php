@@ -221,8 +221,8 @@ try {
     $metrics[] = sprintf('trellis2_total_generations %d', $totalGenerations);
     
 } catch (Exception $e) {
-    // If DB is unavailable, still output basic error metric
-    $metrics[] = '# ERROR: ' . str_replace("\n", ' ', $e->getMessage());
+    error_log('TRELLIS2 metrics collection failed: ' . $e->getMessage());
+    $metrics[] = '# ERROR: Metrics collection unavailable';
     $metrics[] = 'trellis2_database_connected 0';
 }
 

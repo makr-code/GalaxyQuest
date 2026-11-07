@@ -46,6 +46,46 @@ final class LeaderAndAllianceReadSideEffectsTest extends TestCase
         $marketplaceRead = $this->functionBody($source, 'fetch_marketplace_candidates');
         self::assertMatchesRegularExpression('/\\bSELECT\\b/i', $marketplaceRead);
         self::assertDoesNotMatchRegularExpression('/\\b(?:INSERT|UPDATE|DELETE|REPLACE)\\b/i', $marketplaceRead);
+
+        $schemaGuard = $this->functionBody($source, 'ensure_leader_marketplace_schema');
+        self::assertStringContainsString('GalaxySchema::assertLeaderMarketplace($db)', $schemaGuard);
+        self::assertDoesNotMatchRegularExpression(
+            '/\b(?:CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|REPLACE)\b/i',
+            $schemaGuard
+        );
+        $marketplace = $this->caseBody($source, "case 'marketplace':", "case 'refresh_marketplace':");
+        self::assertStringContainsString('ensure_leader_marketplace_schema($db)', $marketplace);
+        self::assertStringNotContainsString('ensure_marketplace_candidates(', $marketplace);
+    }
+
+    public function testAutonomousFleetHostilityChecksDoNotTreatDatabaseErrorsAsSafeTerritory(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/leaders.php');
+        self::assertIsString($source);
+
+        $hostilityCheck = $this->functionBody($source, 'fc_is_hostile_system_for_user');
+        self::assertStringContainsString('FROM alliance_members', $hostilityCheck);
+        self::assertStringContainsString('FROM alliance_relations', $hostilityCheck);
+        self::assertStringContainsString('FROM colonies c', $hostilityCheck);
+        self::assertStringNotContainsString('catch (', $hostilityCheck);
+
+        $aiTick = $this->caseBody($source, "case 'ai_tick':", "case 'marketplace':");
+        self::assertMatchesRegularExpression(
+            "/only_method\\('POST'\\);\\s*verify_csrf\\(\\);/",
+            $aiTick
+        );
+        self::assertStringContainsString('run_ai_tick($db, $uid)', $aiTick);
+        self::assertStringContainsString('simulation_runtime_with_scope_lock(', $aiTick);
+        self::assertStringContainsString("'user',", $aiTick);
+        self::assertStringContainsString('(string)$uid,', $aiTick);
+        self::assertStringContainsString("'executed' => true", $aiTick);
+        self::assertStringContainsString("require_once __DIR__ . '/simulation_runtime.php';", $source);
+        self::assertSame(2, substr_count($source, 'fc_is_hostile_system_for_user($db,'));
+
+        $controller = file_get_contents(__DIR__ . '/../../js/engine/runtime/RuntimeLeadersController.js');
+        self::assertIsString($controller);
+        self::assertStringContainsString('response.executed === false', $controller);
+        self::assertStringContainsString('Leader AI skipped because another simulation is running.', $controller);
     }
 
     public function testAllianceReadHandlersOnlyReadAllianceState(): void

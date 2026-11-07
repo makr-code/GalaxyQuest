@@ -536,6 +536,8 @@
       if (!this._perspectiveFlight) return false;
       return this._perspectiveFlight.navigate(target, {
         durationSec: (Number(options.durationMs) || 18000) / 1000,
+        orbitDurationSec: Math.max(0, Number(options.orbitDurationMs) || 0) / 1000,
+        orbitRevolutions: Number(options.orbitRevolutions) || 0.65,
         signal: options.signal,
       });
     }

@@ -49,13 +49,45 @@ describe('Canonical market commands and overlay', () => {
     root = document.createElement('div');
     document.body.append(root);
     wm = { body: () => root, register: vi.fn(), open: vi.fn(), close: vi.fn(), isOpen: () => true };
-    unmount = mountMarketWindow({ session, domain, wm });
+    unmount = mountMarketWindow({ session, domain, wm: attachWindowWidgets(wm) });
     wm.register.mock.calls[0][1].onRender();
   }
   const quantity = () => root.querySelector('[aria-label="Handelsmenge"]');
   const fill = (value) => { quantity().value = value; quantity().dispatchEvent(new Event('input')); };
   const submit = (action) => root.querySelector('form').dispatchEvent(new SubmitEvent('submit',
     { cancelable: true, submitter: root.querySelector(`button[value="${action}"]`) }));
+  it('uses shared trade fields with linked help and retains decimal drafts and focus on read updates', async () => {
+    mount();
+    await vi.waitFor(() => expect(quantity()).not.toBeNull());
+    const goods = root.querySelector('[aria-label="Handelsgut"]');
+    expect(goods.closest('.wm-field')).not.toBeNull();
+    expect(root.querySelector(`label[for="${goods.id}"]`).textContent).toBe('Handelsgut');
+    const amount = quantity();
+    expect(amount.closest('.wm-field')).not.toBeNull();
+    expect(document.getElementById(amount.getAttribute('aria-describedby')).textContent).toContain('Steuern prüft der Server');
+    expect(amount.min).toBe('0');
+    expect(amount.step).toBe('any');
+    fill('2.5');
+    amount.focus();
+    await domain.load();
+    expect(quantity().value).toBe('2.5');
+    expect(document.activeElement).toBe(quantity());
+    expect(api.post).not.toHaveBeenCalled();
+  });
+  it('marks a requested unavailable good invalid without assigning generic command failures to quantity', async () => {
+    mount();
+    await vi.waitFor(() => expect(quantity()).not.toBeNull());
+    session.events.emit('market:open-requested', { colonyId: 1, goodType: 'unavailable_good' });
+    const goods = root.querySelector('[aria-label="Handelsgut"]');
+    expect(goods.getAttribute('aria-invalid')).toBe('true');
+    expect(goods.closest('.wm-field').querySelector('.wm-field-error').textContent).toContain('nicht handelbar');
+    expect([...root.querySelectorAll('[data-trade-action]')].every(button => button.disabled)).toBe(true);
+    expect(quantity().hasAttribute('aria-invalid')).toBe(false);
+    goods.value = 'metal';
+    goods.dispatchEvent(new Event('change'));
+    expect(root.querySelector('[aria-label="Handelsgut"]').hasAttribute('aria-invalid')).toBe(false);
+    expect(api.post).not.toHaveBeenCalled();
+  });
   it('reads local prices before stock, includes account history and never trades while opening', async () => {
     await domain.load();
     expect(api.get.mock.calls.map(([url]) => url)).toEqual([
@@ -176,6 +208,147 @@ describe('Canonical market commands and overlay', () => {
     expect(accepted).not.toHaveBeenCalled();
     expect(domain.getState().data).toBeNull();
   });
+  it('groups the order ticket separately from goods and locks both sections on stale snapshots', async () => {
+    mount();
+    await vi.waitFor(() => expect(domain.getState().loading).toBe(false));
+    expect(root.querySelector('.game-market-header h2 svg')).not.toBeNull();
+    const catalogue = root.querySelector('.game-market-catalogue');
+    const ticket = root.querySelector('.game-market-ticket');
+    expect(catalogue.querySelector('legend').textContent).toBe('Warenauswahl');
+    expect(ticket.querySelector('legend').textContent).toBe('Handelsauftrag');
+    expect(catalogue.querySelector('.game-market-good')).not.toBeNull();
+    expect(ticket.querySelector('.game-market-good')).toBeNull();
+    const goods = ticket.querySelector('[aria-label="Handelsgut"]');
+    expect(ticket.querySelector(`label[for="${goods.id}"]`).textContent).toBe('Handelsgut');
+    const actions = ticket.querySelector('.game-market-order-actions');
+    expect(actions.querySelector('[aria-label="Handelsmenge"]')).not.toBeNull();
+    expect([...actions.querySelectorAll('button')].map((item) => item.dataset.tradeAction)).toEqual(['buy', 'sell']);
+    expect(root.querySelector('.game-market-help').open).toBe(false);
+    expect(ticket.textContent).toContain('inklusive Steuern');
+    expect(catalogue.disabled).toBe(false);
+    expect(ticket.disabled).toBe(false);
+    api.get.mockRejectedValueOnce(new Error('Market unavailable'));
+    await domain.load();
+    expect(root.querySelector('.game-market-catalogue').disabled).toBe(true);
+    expect(root.querySelector('.game-market-ticket').disabled).toBe(true);
+    expect(api.post).not.toHaveBeenCalled();
+  });
+  it('filters only loaded history while retaining trade drafts, focus and expanded settlement details', async () => {
+    const get = api.get.getMockImplementation();
+    api.get.mockImplementation(async (url, options) => url.includes('get_history')
+      ? { success: true, transactions: [
+        history().transactions[0],
+        { ...history().transactions[0], id: 9, colony_id: 1, good_type: 'steel_alloy', direction: 'buy' },
+        { ...history().transactions[0], id: 10, good_type: '<img src=x>', direction: 'buy' },
+      ] } : get(url, options));
+    mount();
+    await vi.waitFor(() => expect(domain.getState().loading).toBe(false));
+    api.get.mockClear();
+    fill('3.25');
+    const form = root.querySelector('form');
+    const goods = root.querySelector('[aria-label="Handelsgut"]');
+    const search = () => root.querySelector('[aria-label="Handelshistorie durchsuchen"]');
+    const direction = () => root.querySelector('[aria-label="Handelsrichtung"]');
+    const result = () => root.querySelector('[aria-label="Historientreffer"]').textContent;
+    const reset = () => [...root.querySelectorAll('button')].find((item) => item.textContent === 'Historienfilter zurücksetzen');
+    const entries = () => [...root.querySelectorAll('.game-market-history tbody tr[data-transaction-id]')];
+    const setSearch = (value) => {
+      search().value = value;
+      search().dispatchEvent(new Event('input'));
+    };
+    const details = entries()[1].querySelector('details');
+    details.open = true;
+    search().focus();
+    setSearch(' STEEL_ALLOY ');
+    expect(result()).toBe('1 von 3 geladenen Kontotransaktionen angezeigt (höchstens letzte 20).');
+    expect(entries().map((item) => item.hidden)).toEqual([true, false, true]);
+    expect(details.open).toBe(true);
+    expect(search().closest('form')).toBeNull();
+    expect(document.activeElement).toBe(search());
+    setSearch('steel alloy');
+    expect(entries()[1].hidden).toBe(false);
+    direction().value = 'sell';
+    direction().dispatchEvent(new Event('change'));
+    expect(result()).toContain('0 von 3');
+    expect(entries()[1].querySelector('details').open).toBe(true);
+    expect(root.textContent).toContain('Keine passenden Transaktionen unter den letzten 20');
+    expect(details.open).toBe(true);
+    expect(root.querySelector('form')).toBe(form);
+    expect(quantity().value).toBe('3.25');
+    expect(goods.value).toBe('metal');
+    expect(api.get).not.toHaveBeenCalled();
+    expect(api.post).not.toHaveBeenCalled();
+    await domain.refresh();
+    expect(search().value).toBe('steel alloy');
+    expect(direction().value).toBe('sell');
+    expect(entries()[1].querySelector('details').open).toBe(true);
+    expect(result()).toContain('0 von 3');
+    reset().click();
+    expect(document.activeElement).toBe(search());
+    expect(reset().disabled).toBe(true);
+    expect(entries().every((item) => !item.hidden)).toBe(true);
+    direction().value = 'buy';
+    direction().dispatchEvent(new Event('change'));
+    expect(entries().map((item) => item.hidden)).toEqual([true, false, false]);
+    expect(result()).toContain('2 von 3');
+    setSearch('<img');
+    expect(result()).toContain('1 von 3');
+    expect(root.querySelector('img')).toBeNull();
+    const detachedSearch = search();
+    const detachedResult = root.querySelector('[aria-label="Historientreffer"]');
+    unmount();
+    detachedSearch.value = 'absent';
+    detachedSearch.dispatchEvent(new Event('input'));
+    expect(detachedResult.textContent).toContain('1 von 3');
+    expect(root.querySelector('.wm-window-frame')).toBeNull();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+  it('sorts raw history numbers and server times, preserves row identity and restores sorting across refresh without trading', async () => {
+    const get = api.get.getMockImplementation();
+    api.get.mockImplementation(async (url, options) => url.includes('get_history')
+      ? { success: true, transactions: [
+        { ...history().transactions[0], quantity: '10', net_credits: '100', transacted_at: '2026-11-03 12:00:00' },
+        { ...history().transactions[0], id: 9, quantity: '2.5', net_credits: '9', transacted_at: '2026-11-03 09:00:00' },
+        { ...history().transactions[0], id: 10, quantity: '0.5', net_credits: '20', transacted_at: '2026-11-03 11:00:00' },
+      ] } : get(url, options));
+    mount();
+    await vi.waitFor(() => expect(domain.getState().loading).toBe(false));
+    api.get.mockClear();
+    fill('3.25');
+    const form = root.querySelector('form');
+    const table = () => root.querySelector('.game-market-history');
+    const rows = () => [...table().querySelectorAll('tbody tr[data-transaction-id]')];
+    const ids = () => rows().map(row => row.dataset.transactionId);
+    const sort = index => table().querySelectorAll('thead th button')[index].click();
+    const details = rows()[0].querySelector('details');
+    details.open = true;
+    sort(2);
+    expect(ids()).toEqual(['10', '9', '8']);
+    expect(rows()[2].querySelector('details')).toBe(details);
+    sort(3);
+    expect(ids()).toEqual(['9', '10', '8']);
+    sort(5);
+    expect(ids()).toEqual(['9', '10', '8']);
+    sort(5);
+    expect(ids()).toEqual(['8', '10', '9']);
+    const search = table().querySelector('input');
+    search.value = '2026-11-03 12:00:00';
+    search.dispatchEvent(new Event('input'));
+    expect(rows().filter(row => !row.hidden).map(row => row.dataset.transactionId)).toEqual(['8']);
+    expect(root.querySelector('form')).toBe(form);
+    expect(quantity().value).toBe('3.25');
+    expect(api.get).not.toHaveBeenCalled();
+    await domain.refresh();
+    expect(ids()).toEqual(['8', '10', '9']);
+    expect(rows()[0].querySelector('details').open).toBe(true);
+    expect(table().querySelector('input').value).toBe('2026-11-03 12:00:00');
+    expect(table().querySelectorAll('thead th')[5].getAttribute('aria-sort')).toBe('descending');
+    table().querySelector('.wm-table-tools > button').click();
+    expect(ids()).toEqual(['8', '9', '10']);
+    expect(rows().every(row => !row.hidden)).toBe(true);
+    expect(quantity().value).toBe('3.25');
+    expect(api.post).not.toHaveBeenCalled();
+  });
   it('renders safe server values and account history, keeps rejected drafts and clears accepted quantities before recovery', async () => {
     mount();
     await vi.waitFor(() => expect(quantity()).not.toBeNull());
@@ -184,6 +357,15 @@ describe('Canonical market commands and overlay', () => {
     expect(root.textContent).toContain('Kolonie 2');
     expect(root.textContent).toContain('23.75 Credits abgerechnet');
     expect(root.textContent).toContain('Bestand: 10');
+    expect(root.querySelector('.game-market-summary h3 svg')).not.toBeNull();
+    expect(root.querySelectorAll('.game-market-metric')).toHaveLength(2);
+    expect(root.querySelector('[data-measure="supply"] .game-market-balance-track span').style.width).toBe('50%');
+    expect(root.querySelector('[data-measure="demand"] .game-market-balance-track span').style.width).toBe('100%');
+    expect(root.querySelector('.game-market-history tbody tr').dataset.direction).toBe('sell');
+    expect(root.querySelector('.game-market-history details').open).toBe(false);
+    expect(root.querySelector('.game-market-history details').textContent).toContain('Handelssteuer 5%');
+    expect(root.querySelector('button[value="buy"] svg')).not.toBeNull();
+    expect(api.post).not.toHaveBeenCalled();
     fill('2.5');
     api.post.mockRejectedValueOnce(new Error('Autarky blocks imports'));
     submit('buy');
@@ -225,6 +407,8 @@ describe('Canonical market commands and overlay', () => {
     expect(root.querySelector('select').value).toBe('unlisted_good');
     expect(root.textContent).toContain('nicht handelbar');
     expect(root.querySelector('button[value="buy"]').disabled).toBe(true);
+    expect(root.querySelector('.game-market-summary').textContent).toBe('Kein bestätigter Marktpreis für dieses Gut.');
+    expect(root.querySelector('.game-market-balance')).toBeNull();
     expect(api.post).not.toHaveBeenCalled();
     const select = root.querySelector('select');
     select.value = 'metal';
@@ -238,6 +422,21 @@ describe('Canonical market commands and overlay', () => {
     const calls = wm.open.mock.calls.length;
     session.events.emit('market:open-requested', { colonyId: 1, goodType: 'metal' });
     expect(wm.open).toHaveBeenCalledTimes(calls);
+  });
+  it('updates visual goods safely, preserves quantity and displays unknown stock and zero market activity', async () => {
+    mount();
+    await vi.waitFor(() => expect(quantity()).not.toBeNull());
+    fill('3.5');
+    const select = root.querySelector('select');
+    select.value = '<img src=x>';
+    select.dispatchEvent(new Event('change'));
+    expect(root.querySelector('.game-market-summary h3').textContent).toBe('<img src=x>');
+    expect(root.querySelector('img, script')).toBeNull();
+    expect(root.querySelector('.game-market-metric').textContent).toBe('Bestand: Nicht verfügbar');
+    expect([...root.querySelectorAll('.game-market-balance-track span')].map(e => e.style.width)).toEqual(['0%', '0%']);
+    expect(quantity().value).toBe('3.5');
+    expect(document.activeElement).toBe(root.querySelector('select'));
+    expect(api.post).not.toHaveBeenCalled();
   });
   it('does not change origin or order during an active trade when a supply link is requested', async () => {
     mount();
@@ -254,4 +453,102 @@ describe('Canonical market commands and overlay', () => {
     await vi.waitFor(() => expect(domain.getState().mutating).toBe(false));
     expect(api.post).toHaveBeenCalledOnce();
   });
+  it('searches goods without changing selection, quantity, focus or making requests', async () => {
+    mount();
+    await vi.waitFor(() => expect(quantity()).not.toBeNull());
+    fill('4.5');
+    let search = root.querySelector('[aria-label="Waren suchen"]');
+    expect(search.closest('form')).toBeNull();
+    const reads = api.get.mock.calls.length;
+    search.focus();
+    search.value = ' IMG ';
+    search.dispatchEvent(new Event('input'));
+    const visible = () => [...root.querySelectorAll('.game-market-good')].filter(e => !e.hidden);
+    expect(visible()).toHaveLength(1);
+    expect(root.textContent).toContain('1 von 2 Waren angezeigt.');
+    expect(document.activeElement).toBe(search);
+    expect(root.querySelector('select').value).toBe('metal');
+    expect(quantity().value).toBe('4.5');
+    expect(root.querySelector('.game-market-summary h3').textContent).toBe('metal');
+    search.value = 'not loaded';
+    search.dispatchEvent(new Event('input'));
+    expect(visible()).toHaveLength(0);
+    expect(root.textContent).toContain('Die Handelsauswahl bleibt unverändert.');
+    expect(api.get).toHaveBeenCalledTimes(reads);
+    expect(api.post).not.toHaveBeenCalled();
+    await domain.load();
+    search = root.querySelector('[aria-label="Waren suchen"]');
+    expect(search.value).toBe('not loaded');
+    [...root.querySelectorAll('button')].find(e => e.textContent === 'Warensuche zurücksetzen').click();
+    expect(visible()).toHaveLength(2);
+    expect(document.activeElement).toBe(search);
+    search.value = 'not loaded';
+    search.dispatchEvent(new Event('input'));
+    session.events.emit('market:open-requested', { colonyId: 1, goodType: 'metal' });
+    expect(root.querySelector('[aria-label="Waren suchen"]').value).toBe('');
+    expect(visible()).toHaveLength(2);
+    const detachedSearch = root.querySelector('[aria-label="Waren suchen"]');
+    const detachedCatalogue = root.querySelector('.game-market-goods');
+    unmount();
+    unmount = null;
+    detachedSearch.value = 'absent';
+    detachedSearch.dispatchEvent(new Event('input'));
+    expect([...detachedCatalogue.children].filter(tile => !tile.hidden)).toHaveLength(2);
+    expect(root.querySelector('.wm-window-frame')).toBeNull();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+  it('matches multiword goods through underscore or spaced search terms', async () => {
+    api.get.mockImplementation(async url => url.includes('overview') ? overview()
+      : url.includes('get_prices') ? { success: true, prices: [{ ...prices().prices[0], good_type: 'steel_alloy' }] }
+        : url.includes('get_history') ? history()
+          : { success: true, colony: { id: 1 }, economy: { stock: {} } });
+    mount();
+    await vi.waitFor(() => expect(quantity()).not.toBeNull());
+    const search = root.querySelector('[aria-label="Waren suchen"]');
+    for (const query of ['STEEL_ALLOY', 'steel alloy']) {
+      search.value = query;
+      search.dispatchEvent(new Event('input'));
+      expect(root.querySelector('.game-market-good').hidden).toBe(false);
+    }
+    expect(api.post).not.toHaveBeenCalled();
+  });
+  it('selects goods through safe price tiles without reads or trades and preserves the order quantity', async () => {
+    mount();
+    await vi.waitFor(() => expect(quantity()).not.toBeNull());
+    const calls = api.get.mock.calls.length;
+    expect(root.querySelectorAll('.game-market-good')).toHaveLength(2);
+    expect(root.querySelector('.game-market-good[aria-pressed="true"]').textContent).toBe('metal12.5 Credits/Einheit');
+    fill('7.5');
+    root.querySelector('[data-market-good-index="1"]').click();
+    const selected = root.querySelector('[data-market-good-index="1"]');
+    expect(selected.getAttribute('aria-pressed')).toBe('true');
+    expect(selected.textContent).toBe('<img src=x>20 Credits/Einheit');
+    expect(document.activeElement).toBe(selected);
+    expect(root.querySelector('img')).toBeNull();
+    expect(root.querySelector('select').value).toBe('<img src=x>');
+    expect(quantity().value).toBe('7.5');
+    expect(api.get).toHaveBeenCalledTimes(calls);
+    expect(api.post).not.toHaveBeenCalled();
+    const select = root.querySelector('select');
+    select.value = 'metal';
+    select.dispatchEvent(new Event('change'));
+    expect(root.querySelector('[data-market-good-index="0"]').getAttribute('aria-pressed')).toBe('true');
+    expect(root.querySelector('[data-market-good-index="1"]').getAttribute('aria-pressed')).toBe('false');
+    const detached = root.querySelector('[data-market-good-index="1"]');
+    api.get.mockRejectedValueOnce(new Error('Market offline'));
+    await domain.load();
+    expect(root.querySelector('fieldset').disabled).toBe(true);
+    detached.click();
+    expect(root.querySelector('select').value).toBe('metal');
+    expect(api.post).not.toHaveBeenCalled();
+    await domain.load();
+    const tile = root.querySelector('[data-market-good-index="1"]');
+    const detachedGoods = root.querySelector('select');
+    unmount();
+    unmount = null;
+    tile.click();
+    expect(detachedGoods.value).toBe('metal');
+    expect(root.querySelector('.wm-window-frame')).toBeNull();
+  });
 });
+import { attachWindowWidgets } from './helpers/window-widget-fixture.js';

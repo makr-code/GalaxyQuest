@@ -28,7 +28,21 @@ describe('GalaxyRendererCore weapon-fire source contract', () => {
     expect(source).toMatch(/const\s+weaponKey\s*=\s*String\(ev\?\.weaponKind\s*\|\|\s*'default'\)/);
     expect(source).toMatch(/if\s*\(elapsed\s*<\s*nextFireAt\)\s*return;/);
     expect(source).toMatch(/_normalizeWeaponFireTargetPos\(ev\?\.targetPos\s*\?\?\s*ev\?\.target_pos\s*\?\?\s*null\)/);
-    expect(source).toMatch(/_resolveShipWeaponTarget\(fleetEntry,\s*shipWorldPos,\s*targetHint,\s*220\)/);
+    expect(source).toMatch(/_resolveShipWeaponTarget\([\s\S]*?targetHint,[\s\S]*?220,[\s\S]*?ev\?\.targetFleetId\s*\?\?\s*null/);
+  });
+
+  it('routes explicit source and target fleet IDs without substituting a different target', () => {
+    expect(source).toMatch(/sourceFleetId\s*=\s*this\._normalizeWeaponFireEntityId/);
+    expect(source).toMatch(/targetFleetId\s*=\s*this\._normalizeWeaponFireEntityId/);
+    expect(source).toMatch(/if\s*\(typeof\s+rawId\s*===\s*'number'\s*&&\s*\(!Number\.isSafeInteger\(rawId\)\s*\|\|\s*rawId\s*<\s*0\)\)\s*return\s+null;/);
+    expect(source).toMatch(/ev\.sourceFleetId\s*&&\s*ev\.sourceFleetId\s*!==\s*String\(fleetEntry\.fleet\.id/);
+    expect(source).toMatch(/if\s*\(targetFleetId\)\s*\{[\s\S]*?String\(candidate\?\.fleet\?\.id[\s\S]*?return\s+hintVec\s*\?\s*\{\s*type:\s*'hint'/);
+    expect(source).toMatch(/if\s*\(ev\.targetFleetId\)\s*\{[\s\S]*?targetOverride\s*=\s*new\s+THREE\.Vector3\(\)[\s\S]*?this\._triggerInstallationWeaponFire\(fxEntry,\s*elapsed,\s*state,\s*0\.7,\s*targetOverride\)/);
+  });
+
+  it('resolves an explicit body slot before any nearest-target fallback', () => {
+    expect(source).toMatch(/targetSlotPosition\s*=\s*this\._normalizeWeaponFirePosition/);
+    expect(source).toMatch(/if\s*\(targetSlotPosition\)\s*\{[\s\S]*?this\.systemPlanetEntries[\s\S]*?Number\(entry\?\.slot\?\.position[\s\S]*?return\s+\{\s*type:\s*'planet',\s*world:\s*targetWorld\.clone\(\)\s*\}/);
   });
 
   it('uses sourcePosition to narrow ship event sources when provided', () => {

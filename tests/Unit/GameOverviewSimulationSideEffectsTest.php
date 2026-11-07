@@ -18,13 +18,13 @@ final class GameOverviewSimulationSideEffectsTest extends TestCase
         self::assertIsString($config);
         self::assertIsString($projection);
         self::assertStringContainsString(
-            'build_live_overview_payload($db, $uid, false)',
+            'build_live_overview_payload($db, $uid)',
             $gameApi
         );
-        self::assertStringContainsString(
-            'bool $runSimulationSideEffects = false',
-            $projection
-        );
+        self::assertStringNotContainsString('$runSimulationSideEffects', $projection);
+        self::assertStringNotContainsString('npc_ai_tick(', $projection);
+        self::assertStringNotContainsString('process_economy_production_tick(', $projection);
+        self::assertStringNotContainsString('apply_faction_pressure_situations(', $projection);
         self::assertStringNotContainsString('SIMULATION_TICK_ON_READ_ENABLED', $gameApi);
         self::assertStringNotContainsString('SIMULATION_TICK_ON_READ_ENABLED', $config);
     }
@@ -56,15 +56,14 @@ final class GameOverviewSimulationSideEffectsTest extends TestCase
         self::assertNotFalse($resourcesStart);
         $overview = substr($gameApi, $overviewStart, $resourcesStart - $overviewStart);
         self::assertStringContainsString("only_method('GET');", $overview);
-        self::assertStringContainsString('build_live_overview_payload($db, $uid, false)', $overview);
+        self::assertStringContainsString('build_live_overview_payload($db, $uid)', $overview);
 
         $builderStart = strpos($projection, 'function build_live_overview_payload(');
         $settlementOffset = strpos($projection, 'update_all_colonies($db, $uid);', $builderStart);
-        $simulationGuardOffset = strpos($projection, 'if ($runSimulationSideEffects)', $builderStart);
         self::assertNotFalse($builderStart);
         self::assertNotFalse($settlementOffset);
-        self::assertNotFalse($simulationGuardOffset);
-        self::assertLessThan($simulationGuardOffset, $settlementOffset);
+        self::assertStringNotContainsString('if ($runSimulationSideEffects)', $projection);
+        self::assertStringContainsString("'pressure_events' => default_faction_pressure_events()", $projection);
     }
 
     public function testSimulationTickHttpEndpointRequiresPostAndCsrf(): void

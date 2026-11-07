@@ -1262,8 +1262,10 @@ function empire_dynamic_effects(PDO $db, int $userId): array {
             $effects = merge_effect_bundle($effects, json_decode((string)($profile['species_effects'] ?? '{}'), true));
             $effects = merge_effect_bundle($effects, json_decode((string)($profile['government_effects'] ?? '{}'), true));
         }
-    } catch (Throwable $e) {
-        // Politics migration not applied yet -> keep neutral values.
+    } catch (PDOException $error) {
+        if ($error->getCode() !== '42S02') {
+            throw $error;
+        }
     }
 
     try {
@@ -1277,8 +1279,10 @@ function empire_dynamic_effects(PDO $db, int $userId): array {
         foreach ($civicStmt->fetchAll() as $row) {
             $effects = merge_effect_bundle($effects, json_decode((string)($row['effects_json'] ?? '{}'), true));
         }
-    } catch (Throwable $e) {
-        // Optional until migration is applied.
+    } catch (PDOException $error) {
+        if ($error->getCode() !== '42S02') {
+            throw $error;
+        }
     }
 
     try {
@@ -1326,8 +1330,10 @@ function empire_dynamic_effects(PDO $db, int $userId): array {
                 $effects['happiness_flat'] += $delta * (1.0 - $pressureMult);
             }
         }
-    } catch (Throwable $e) {
-        // Optional until migration is applied.
+    } catch (PDOException $error) {
+        if ($error->getCode() !== '42S02') {
+            throw $error;
+        }
     }
 
     try {
@@ -1368,8 +1374,10 @@ function empire_dynamic_effects(PDO $db, int $userId): array {
                 $effects['resource_output_mult'] -= 0.02 * $severity;
             }
         }
-    } catch (Throwable $e) {
-        // Optional until migration is applied.
+    } catch (PDOException $error) {
+        if ($error->getCode() !== '42S02') {
+            throw $error;
+        }
     }
 
     $effects['resource_output_mult'] = max(-0.50, min(0.80, (float)$effects['resource_output_mult']));
@@ -1657,33 +1665,56 @@ function apply_faction_pressure_situations(PDO $db, int $userId): array {
  * Check whether the war strategy schema is available.
  */
 function has_war_runtime_schema(PDO $db): bool {
-    static $cached = null;
-    if ($cached !== null) {
-        return $cached;
-    }
-
-    try {
-        $tables = ['wars', 'war_goals', 'peace_offers'];
-        foreach ($tables as $table) {
-            $st = $db->prepare(
-                'SELECT 1
-                 FROM information_schema.TABLES
-                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
-                 LIMIT 1'
-            );
-            $st->execute([$table]);
-            if (!$st->fetchColumn()) {
-                $cached = false;
-                return $cached;
-            }
+    $tables = ['wars', 'war_goals', 'peace_offers'];
+    foreach ($tables as $table) {
+        $st = $db->prepare(
+            'SELECT 1
+             FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
+             LIMIT 1'
+        );
+        $st->execute([$table]);
+        if (!$st->fetchColumn()) {
+            return false;
         }
-    } catch (Throwable $e) {
-        $cached = false;
-        return $cached;
     }
 
-    $cached = true;
-    return $cached;
+    return true;
+}
+
+function game_engine_begin_tick_transaction(PDO $db, string $savepoint): bool {
+    if (!preg_match('/^[a-zA-Z0-9_]+$/', $savepoint)) {
+        throw new InvalidArgumentException('Invalid tick transaction savepoint.');
+    }
+
+    if ($db->inTransaction()) {
+        $db->exec('SAVEPOINT ' . $savepoint);
+        return false;
+    }
+
+    $db->beginTransaction();
+    return true;
+}
+
+function game_engine_commit_tick_transaction(PDO $db, string $savepoint, bool $ownsTransaction): void {
+    if ($ownsTransaction) {
+        $db->commit();
+        return;
+    }
+
+    $db->exec('RELEASE SAVEPOINT ' . $savepoint);
+}
+
+function game_engine_rollback_tick_transaction(PDO $db, string $savepoint, bool $ownsTransaction): void {
+    if ($ownsTransaction) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        return;
+    }
+
+    $db->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+    $db->exec('RELEASE SAVEPOINT ' . $savepoint);
 }
 
 /**
@@ -1739,6 +1770,7 @@ function process_war_runtime_tick(PDO $db, bool $force = false): array {
     $result['elapsed_seconds'] = $elapsed;
     $result['last_tick'] = $lastTick;
 
+    $ownsTransaction = game_engine_begin_tick_transaction($db, 'war_runtime_tick');
     try {
         // Expire pending offers independently from exhaustion cadence.
         $db->prepare(
@@ -1800,8 +1832,10 @@ function process_war_runtime_tick(PDO $db, bool $force = false): array {
         $activeCount = $db->query('SELECT COUNT(*) FROM wars WHERE status = "active"');
         $result['active_wars'] = $activeCount ? (int)$activeCount->fetchColumn() : 0;
         $result['processed'] = true;
-    } catch (Throwable $e) {
-        error_log('process_war_runtime_tick error: ' . $e->getMessage());
+        game_engine_commit_tick_transaction($db, 'war_runtime_tick', $ownsTransaction);
+    } catch (Throwable $error) {
+        game_engine_rollback_tick_transaction($db, 'war_runtime_tick', $ownsTransaction);
+        throw $error;
     }
 
     return $result;
@@ -1819,103 +1853,14 @@ function process_war_runtime_tick(PDO $db, bool $force = false): array {
  */
 function process_war_attrition_tick(PDO $db, bool $force = false): array
 {
-    $result = [
-        'processed'         => false,
-        'wars_processed'    => 0,
-        'attrition_events'  => 0,
-        'total_losses'      => 0,
-        'elapsed_seconds'   => 0,
+    return [
+        'processed' => false,
+        'reason' => 'troop_force_model_not_implemented',
+        'wars_processed' => 0,
+        'attrition_events' => 0,
+        'total_losses' => 0,
+        'elapsed_seconds' => 0,
     ];
-
-    $now = time();
-    $stateKey = 'war:attrition_last_tick';
-
-    if (function_exists('app_state_get_int')) {
-        $lastTick = app_state_get_int($db, $stateKey, $now);
-        if ($lastTick <= 0) {
-            $lastTick = $now;
-        }
-    } else {
-        $lastTick = $now;
-    }
-
-    $elapsed = max(0, $now - $lastTick);
-    $result['elapsed_seconds'] = $elapsed;
-
-    try {
-        // Get all active wars
-        $stmt = $db->query(
-            'SELECT id, attacker_user_id, defender_user_id, exhaustion_att, exhaustion_def '
-                . 'FROM wars WHERE status = "active"'
-        );
-        $wars = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-
-        foreach ($wars as $war) {
-            $warId = (int)$war['id'];
-            $attackerId = (int)$war['attacker_user_id'];
-            $defenderId = (int)$war['defender_user_id'];
-            $exhaustionAtt = (float)$war['exhaustion_att'];
-            $exhaustionDef = (float)$war['exhaustion_def'];
-
-            // Calculate base attrition from exhaustion
-            // Higher exhaustion = higher attrition (0.5% base + 0.1% per exhaustion point)
-            $baseAttritionAtt = 0.5 + ($exhaustionAtt * 0.001);
-            $baseAttritionDef = 0.5 + ($exhaustionDef * 0.001);
-
-            // Check supply efficiency penalties
-            $supplyStmt = $db->prepare(<<<SQL
-                SELECT
-                    COUNT(*) as total_lines,
-                    SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_lines,
-                    AVG(supply_capacity - interdiction_level * 0.5) as avg_efficiency
-                FROM war_supply_lines
-                WHERE war_id = ?
-            SQL);
-            $supplyStmt->execute([$warId]);
-            $supply = $supplyStmt->fetch(PDO::FETCH_ASSOC);
-
-            $supplyPenalty = 0;
-            if ((int)$supply['total_lines'] > 0) {
-                $avgEff = (float)($supply['avg_efficiency'] ?? 100);
-                $supplyPenalty = (100 - $avgEff) * 0.01; // 1% attrition per 1% supply loss
-            }
-
-            // Calculate final attrition rates
-            $attritionAtt = min(50, $baseAttritionAtt + $supplyPenalty); // Cap at 50% per tick
-            $attritionDef = min(50, $baseAttritionDef + $supplyPenalty);
-
-            // Record attrition events
-            $eventStmt = $db->prepare(<<<SQL
-                INSERT INTO war_attrition_events
-                (war_id, attacker_id, defender_id, attrition_rate, cause, attacker_losses, defender_losses)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            SQL);
-            $eventStmt->execute([
-                $warId,
-                $attackerId,
-                $defenderId,
-                $attritionAtt,
-                'supply_shortage',
-                (int)($attritionAtt * 10), // Placeholder loss calculations
-                (int)($attritionDef * 10),
-            ]);
-
-            $result['total_losses'] += (int)($attritionAtt * 10) + (int)($attritionDef * 10);
-            $result['attrition_events']++;
-            $result['wars_processed']++;
-        }
-
-        $result['processed'] = true;
-
-        if (function_exists('app_state_set_int')) {
-            app_state_set_int($db, $stateKey, $now);
-        }
-
-    } catch (Throwable $e) {
-        error_log('process_war_attrition_tick error: ' . $e->getMessage());
-    }
-
-    return $result;
 }
 
 /** Process legacy population satisfaction; the on-demand ledger owns it when enabled. */
@@ -1961,6 +1906,7 @@ function process_economy_pop_satisfaction_tick(PDO $db, bool $force = false): ar
     $result['elapsed_seconds'] = $elapsed;
     $result['last_tick'] = $lastTick;
 
+    $ownsTransaction = game_engine_begin_tick_transaction($db, 'pop_satisfaction_tick');
     try {
         // Get all colonies with pop classes
         $stmt = $db->prepare(<<<SQL
@@ -2080,8 +2026,10 @@ function process_economy_pop_satisfaction_tick(PDO $db, bool $force = false): ar
             app_state_set_int($db, $stateKey, $now);
         }
 
-    } catch (Throwable $e) {
-        error_log('process_economy_pop_satisfaction_tick error: ' . $e->getMessage());
+        game_engine_commit_tick_transaction($db, 'pop_satisfaction_tick', $ownsTransaction);
+    } catch (Throwable $error) {
+        game_engine_rollback_tick_transaction($db, 'pop_satisfaction_tick', $ownsTransaction);
+        throw $error;
     }
 
     return $result;
@@ -2097,81 +2045,15 @@ function process_economy_pop_satisfaction_tick(PDO $db, bool $force = false): ar
  * - Tracks recovery process
  */
 function process_pirate_raid_resolution_tick(PDO $db, bool $force = false): array {
-    $result = [
-        'processed'         => false,
-        'raids_resolved'    => 0,
-        'raids_successful'  => 0,
-        'damage_total'      => 0.0,
+    // Raid notifications describe attacks already applied by npc_faction_tick.
+    return [
+        'processed' => false,
+        'reason' => 'raid_event_queue_not_implemented',
+        'raids_resolved' => 0,
+        'raids_successful' => 0,
+        'damage_total' => 0.0,
         'defenses_destroyed' => 0,
     ];
-
-    try {
-        // Get pending raid events from messages (simplified detection)
-        // In full implementation, would have dedicated raid_queue table
-        $stmt = $db->query(<<<SQL
-            SELECT cm.receiver_id as user_id, c.id as colony_id, c.defense_budget, c.countermeasure_level
-            FROM messages cm
-            JOIN colonies c ON c.user_id = cm.receiver_id
-            WHERE cm.subject = 'Pirate Raid!' 
-                            AND cm.sent_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
-                            AND cm.is_read = 0
-            LIMIT 100
-        SQL);
-        $pendingRaids = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-
-        foreach ($pendingRaids as $raid) {
-            $colonyId = (int)$raid['colony_id'];
-            $defenseBudget = (float)($raid['defense_budget'] ?? 0);
-            $countermeasureLevel = (int)($raid['countermeasure_level'] ?? 0);
-
-            // Calculate defense effectiveness (0-100%)
-            $baseDefense = $countermeasureLevel;
-            $budgetBonus = min(50, ($defenseBudget / 1000) * 10); // Cap 50% from budget
-            $totalDefense = min(100, $baseDefense + $budgetBonus);
-
-            // Raid intensity (placeholder - should come from raid data)
-            $raidIntensity = rand(30, 90);
-
-            // Success probability = max(0, raidIntensity - totalDefense)
-            $successChance = max(0, min(100, $raidIntensity - $totalDefense));
-            $raidSucceeds = (rand(0, 100) < $successChance);
-
-            if ($raidSucceeds) {
-                // Calculate damage
-                $damagePercent = round(($raidIntensity - $totalDefense) / 2, 2); // 0-50% damage
-                $damagePercent = max(5, min(50, $damagePercent)); // Clamp 5-50%
-
-                // Record raid history
-                $historyStmt = $db->prepare(<<<SQL
-                    INSERT INTO pirate_raid_history
-                    (colony_id, pirate_faction_id, raid_intensity, defense_level, raid_success, damage_percent)
-                    VALUES (?, 1, ?, ?, 1, ?)
-                SQL);
-                $historyStmt->execute([$colonyId, round($raidIntensity, 2), $totalDefense, $damagePercent]);
-
-                // Start recovery process
-                $recoveryStmt = $db->prepare(<<<SQL
-                    INSERT INTO pirate_damage_recovery
-                    (colony_id, initial_damage, recovery_cost)
-                    VALUES (?, ?, ?)
-                SQL);
-                $recoveryCost = round($damagePercent * 500, 2); // ~500 credits per % damage
-                $recoveryStmt->execute([$colonyId, $damagePercent, $recoveryCost]);
-
-                $result['raids_successful']++;
-                $result['damage_total'] += $damagePercent;
-            }
-
-            $result['raids_resolved']++;
-        }
-
-        $result['processed'] = true;
-
-    } catch (Throwable $e) {
-        error_log('process_pirate_raid_resolution_tick error: ' . $e->getMessage());
-    }
-
-    return $result;
 }
 
 /**
@@ -2335,23 +2217,18 @@ function process_war_goal_progress(PDO $db, int $elapsedSeconds): array {
         return $out;
     }
 
-    try {
-        $warsStmt = $db->query(
-            'SELECT id,
-                    attacker_user_id,
-                    defender_user_id,
-                    war_score_att,
-                    war_score_def,
-                    exhaustion_att,
-                    exhaustion_def
-             FROM wars
-             WHERE status = "active"'
-        );
-        $wars = $warsStmt ? ($warsStmt->fetchAll(PDO::FETCH_ASSOC) ?: []) : [];
-    } catch (Throwable $e) {
-        error_log('process_war_goal_progress load wars error: ' . $e->getMessage());
-        return $out;
-    }
+    $warsStmt = $db->query(
+        'SELECT id,
+                attacker_user_id,
+                defender_user_id,
+                war_score_att,
+                war_score_def,
+                exhaustion_att,
+                exhaustion_def
+         FROM wars
+         WHERE status = "active"'
+    );
+    $wars = $warsStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
     foreach ($wars as $war) {
         $warId = (int)($war['id'] ?? 0);
@@ -2469,6 +2346,7 @@ function process_economy_production_tick(PDO $db, bool $force = false): array {
         return $result;
     }
 
+    $ownsTransaction = game_engine_begin_tick_transaction($db, 'economy_production_tick');
     try {
         // Require the economy_flush module which defines flush_colony_production()
         require_once __DIR__ . '/economy_flush.php';
@@ -2501,8 +2379,10 @@ function process_economy_production_tick(PDO $db, bool $force = false): array {
             app_state_set_int($db, $stateKey, $now);
         }
 
-    } catch (Throwable $e) {
-        error_log('process_economy_production_tick error: ' . $e->getMessage());
+        game_engine_commit_tick_transaction($db, 'economy_production_tick', $ownsTransaction);
+    } catch (Throwable $error) {
+        game_engine_rollback_tick_transaction($db, 'economy_production_tick', $ownsTransaction);
+        throw $error;
     }
 
     return $result;

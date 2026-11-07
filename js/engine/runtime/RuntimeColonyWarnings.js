@@ -119,8 +119,12 @@
       }
 
       // Check 6: Colony Health Degradation
-      const health = Number(colony.integrity_pct ?? colony.health_pct ?? colony.hp_pct ?? colony.condition_pct ?? 100);
-      if (health < 30) {
+      const healthValue = colony.integrity_pct ?? colony.health_pct ?? colony.hp_pct ?? colony.condition_pct;
+      const health = healthValue === null || healthValue === undefined
+        || (typeof healthValue === 'string' && healthValue.trim() === '')
+        ? NaN
+        : Number(healthValue);
+      if (Number.isFinite(health) && health >= 0 && health <= 100 && health < 30) {
         warnings.push({
           level: 'critical',
           icon: '💥',
@@ -128,7 +132,7 @@
           desc: `Integrity ${health}% - Catastrophic failure approaching`,
           action: 'repair_dock'
         });
-      } else if (health < 60) {
+      } else if (Number.isFinite(health) && health >= 0 && health <= 100 && health < 60) {
         warnings.push({
           level: 'warning',
           icon: '🔧',
@@ -139,8 +143,12 @@
       }
 
       // Check 7: Shield Down (vulnerable to attack)
-      const shieldPct = Number(colony.shield_pct ?? colony.shields_pct ?? colony.planetary_shield_pct ?? 100);
-      if (shieldPct < 20 && shieldPct > 0) {
+      const shieldValue = colony.shield_pct ?? colony.shields_pct ?? colony.planetary_shield_pct;
+      const shieldPct = shieldValue === null || shieldValue === undefined
+        || (typeof shieldValue === 'string' && shieldValue.trim() === '')
+        ? NaN
+        : Number(shieldValue);
+      if (Number.isFinite(shieldPct) && shieldPct >= 0 && shieldPct < 20 && shieldPct > 0) {
         warnings.push({
           level: 'warning',
           icon: '🛡️',

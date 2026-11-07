@@ -237,6 +237,10 @@ final class NpcBehaviorScript
     private function evalResourceAvailable(array $cond, array $context): bool
     {
         $resource = (string) ($cond['resource'] ?? '');
+        if ($resource === '' || !array_key_exists($resource, $context['resources'] ?? [])) {
+            return false;
+        }
+
         $minValue = (int) ($cond['min_value'] ?? 0);
         $available = (int) ($context['resources'][$resource] ?? 0);
 

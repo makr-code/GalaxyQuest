@@ -13,6 +13,7 @@
  *   sse:fleet_arrived   — { mission, target, attacker, … }
  *   sse:fleet_returning — { mission, origin, … }
  *   sse:incoming_attack — { attacker, target, arrival_time, mission, … }
+ *   sse:battle_resolved — { battle_report_id, fleet_id, role, rounds, … }
  *   sse:world_event     — { title_de, code, conclusion_key, … }
  *
  * Both the window CustomEvent path and the EventBus path are fired in
@@ -128,6 +129,16 @@
           runtimeConfig.refreshWindow('fleet');
         } catch (err) {
           runtimeConfig.gameLog('info', 'SSE fleet_returning handler fehlgeschlagen', err);
+        }
+      });
+
+      eventSource.addEventListener('battle_resolved', (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          windowRef.dispatchEvent(new CustomEvent('gq:battle-resolved', { detail: data }));
+          runtimeConfig.eventBus?.emit('sse:battle_resolved', data);
+        } catch (err) {
+          runtimeConfig.gameLog('info', 'SSE battle_resolved handler fehlgeschlagen', err);
         }
       });
 

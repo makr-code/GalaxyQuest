@@ -5,6 +5,15 @@ export const FLEET_MISSIONS = {
   colonize: 'Kolonisieren', harvest: 'Rohstoffe sammeln', survey: 'System erkunden',
 };
 
+export const FLEET_MISSION_DESCRIPTIONS = {
+  transport: 'Bringt die ausgewählte Metall-, Kristall- und Deuteriumfracht zu einer Kolonie am Ziel.',
+  attack: 'Löst bei Ankunft einen Kampf aus. PvP-Modus und Schutzregeln prüft der Server.',
+  spy: 'Erstellt bei Ankunft einen Spionagebericht. Der Bericht hängt von Ziel und Spionagetechnik ab.',
+  colonize: 'Versucht, am Ziel eine neue Kolonie zu gründen. Belegung und Reservierungen prüft der Server bei Ankunft.',
+  harvest: 'Sammelt Rohstoffe von einem unbewohnten Planeten. Die Frachtmenge ist durch die Schiffskapazität begrenzt.',
+  survey: 'Erkundet das Zielsystem. Das Ergebnis ist spezies-/fraktionsabhängig und kann FTL-Routeninfrastruktur freischalten.',
+};
+
 export const FLEET_TRANSITS = {
   vor_tak: ["Vor'Tak · K-F-Sprungantrieb", 'Reichweitenbegrenzter Sprung mit Wiederaufladung.'],
   syl_nar: ["Syl'Nar · Resonanz-Tornetz", 'Transit benötigt ein aktives Tor auf der gewählten Route.'],

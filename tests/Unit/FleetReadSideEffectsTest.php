@@ -49,7 +49,56 @@ final class FleetReadSideEffectsTest extends TestCase
         self::assertStringNotContainsString('process_fleet_arrivals(', $listHandler);
         self::assertStringContainsString("only_method('POST')", $checkHandler);
         self::assertStringContainsString('verify_csrf()', $checkHandler);
-        self::assertStringContainsString('process_fleet_arrivals(get_db())', $checkHandler);
+        self::assertStringContainsString("require_once __DIR__ . '/simulation_runtime.php';", $source);
+        self::assertStringContainsString('simulation_runtime_with_scope_lock(', $checkHandler);
+        self::assertStringContainsString("'fleet_arrivals',", $checkHandler);
+        self::assertStringContainsString('process_fleet_arrivals($db)', $checkHandler);
+        self::assertStringContainsString("return ['executed' => true]", $checkHandler);
+        self::assertStringContainsString('json_ok($result)', $checkHandler);
+    }
+
+    public function testCombatPreviewsProjectDueShipBuildsWithoutCompletingTheQueue(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/fleet.php');
+        self::assertIsString($source);
+
+        $preview = $this->functionBody($source, 'simulate_battle_preview');
+        $defenderStats = $this->functionBody($source, 'compute_preview_defender_stats');
+        self::assertStringNotContainsString('complete_ship_build_queue(', $preview);
+        self::assertStringNotContainsString('complete_ship_build_queue(', $defenderStats);
+        self::assertStringContainsString('project_colony_ship_counts($db', $preview . $defenderStats);
+
+        $projection = $this->functionBody($source, 'project_colony_ship_counts');
+        self::assertStringContainsString('FROM ships WHERE colony_id', $projection);
+        self::assertStringContainsString('FROM ship_build_queue', $projection);
+        self::assertStringContainsString("status = \\'running\\'", $projection);
+        self::assertDoesNotMatchRegularExpression(
+            '/\\b(?:INSERT\\s+INTO|UPDATE\\s+[a-z_]+\\s+SET|DELETE\\s+FROM|REPLACE\\s+INTO)\\b/i',
+            $projection
+        );
+    }
+
+    public function testFleetRecallAndArrivalClaimTheSameRowTransactionally(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/fleet.php');
+        self::assertIsString($source);
+
+        $recall = $this->functionBody($source, 'recall_fleet');
+        self::assertStringContainsString('$db->beginTransaction();', $recall);
+        self::assertStringContainsString('returning = 0 FOR UPDATE', $recall);
+        self::assertStringContainsString('arrival_time', $recall);
+        self::assertStringContainsString('WHERE id = ? AND returning = 0', $recall);
+        self::assertStringContainsString('$db->commit();', $recall);
+        self::assertStringContainsString('$db->rollBack();', $recall);
+
+        $arrival = $this->functionBody($source, 'process_fleet_arrival_locked');
+        self::assertStringContainsString('arrival_time <= NOW() FOR UPDATE', $arrival);
+        self::assertStringContainsString('handle_fleet_arrival($db, $current)', $arrival);
+
+        $sweep = $this->functionBody($source, 'process_fleet_arrivals');
+        self::assertStringContainsString('process_fleet_arrival_locked($db', $sweep);
+        self::assertStringContainsString('$db->beginTransaction();', $sweep);
+        self::assertStringContainsString('$db->commit();', $sweep);
     }
 
     public function testFtlReadActionsAndHelpersDoNotMutateFleetOrTravelState(): void

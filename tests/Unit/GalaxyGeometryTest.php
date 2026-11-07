@@ -7,6 +7,45 @@ require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../api/galaxy_gen.php';
 
 final class GalaxyGeometryTest extends TestCase {
+    public function testAsteroidBeltsAreStableBoundedVisualDescriptorsForWidePlanetaryGaps(): void {
+        $planets = [];
+        for ($position = 1; $position <= 8; $position++) {
+            $planets[] = [
+                'position' => $position,
+                'planet_class' => $position === 8 ? PC_COMET_BELT : 'rocky',
+                'semi_major_axis_au' => 2 ** ($position - 1),
+            ];
+        }
+
+        $generated = [];
+        $systemIndex = 0;
+        for ($candidateSystem = 1; $candidateSystem <= 256; $candidateSystem++) {
+            $candidate = generate_asteroid_belts($planets, 1, $candidateSystem);
+            if ($candidate !== []) {
+                $generated = $candidate;
+                $systemIndex = $candidateSystem;
+                break;
+            }
+        }
+
+        self::assertNotSame([], $generated);
+        self::assertLessThanOrEqual(2, count($generated));
+        self::assertSame($generated, generate_asteroid_belts($planets, 1, $systemIndex));
+        foreach ($generated as $belt) {
+            self::assertSame('asteroid_belt', $belt['body_type']);
+            self::assertGreaterThan(0, $belt['seed']);
+            self::assertGreaterThan($belt['inner_radius_au'], $belt['outer_radius_au']);
+            self::assertGreaterThan($belt['inner_radius_au'], $belt['semi_major_axis_au']);
+            self::assertLessThan($belt['outer_radius_au'], $belt['semi_major_axis_au']);
+        }
+    }
+
+    public function testAsteroidBeltGeneratorDoesNotCreateBodiesFromACometBeltSlot(): void {
+        self::assertSame([], generate_asteroid_belts([
+            ['position' => 1, 'planet_class' => PC_COMET_BELT, 'semi_major_axis_au' => 40.0],
+        ], 1, 1));
+    }
+
     public function testSpurTracksOutnumberFactionRegionsAndRemainDeterministic(): void {
         $galaxyIndex = 1;
         $armCount = galaxy_arm_count($galaxyIndex);

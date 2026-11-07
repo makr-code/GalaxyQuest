@@ -21,6 +21,23 @@ final class OperationalStreamAndMetricsReadSideEffectsTest extends TestCase
         $this->assertNoPersistentWrites($source);
     }
 
+    public function testWorldEventStreamOnlyIgnoresMissingOptionalMigrationTable(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/events.php');
+        self::assertIsString($source);
+
+        $start = strpos($source, '// ── Check for world events');
+        $end = strpos($source, "\n    } catch (Throwable \$e)", $start);
+        self::assertNotFalse($start);
+        self::assertNotFalse($end);
+
+        $worldEventRead = substr($source, $start, $end - $start);
+        self::assertStringContainsString('catch (PDOException $error)', $worldEventRead);
+        self::assertStringContainsString("if (\$error->getCode() !== '42S02')", $worldEventRead);
+        self::assertStringContainsString('throw $error;', $worldEventRead);
+        self::assertStringNotContainsString('catch (Throwable)', $worldEventRead);
+    }
+
     public function testPrometheusMetricsEndpointIsGetOnlyAndUsesReadQueries(): void
     {
         $source = file_get_contents(__DIR__ . '/../../api/metrics.php');
@@ -32,6 +49,9 @@ final class OperationalStreamAndMetricsReadSideEffectsTest extends TestCase
         );
         self::assertStringContainsString("header('Allow: GET');", $source);
         self::assertStringContainsString("exit('Method Not Allowed');", $source);
+        self::assertStringContainsString("error_log('TRELLIS2 metrics collection failed: ' . \$e->getMessage());", $source);
+        self::assertStringContainsString("'# ERROR: Metrics collection unavailable'", $source);
+        self::assertStringNotContainsString("'# ERROR: ' . str_replace", $source);
         $this->assertNoPersistentWrites($source);
     }
 

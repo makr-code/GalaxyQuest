@@ -8,6 +8,7 @@ const fleet = () => ({
   origin_galaxy: '1', origin_system: '10', origin_position: '3',
   target_galaxy: '2', target_system: '20', target_position: '4',
   fleet_label: '<img src=x>', target_system_name: '<script>bad()</script>',
+  hull_damage_pct: '10',
   ships: { small_cargo: 2 }, cargo_metal: '100', cargo_crystal: '0', cargo_deuterium: '0',
   departure_time: '2026-11-03 10:00:00', arrival_time: '2026-11-03 11:00:00', returning: '0',
 });
@@ -74,6 +75,9 @@ describe('Authoritative fleet commands and window', () => {
   });
   it.each([
     { fleets: null }, { fleets: [{ ...fleet(), returning: 'bad' }] },
+    { fleets: [{ ...fleet(), hull_damage_pct: -1 }] },
+    { fleets: [{ ...fleet(), hull_damage_pct: 101 }] },
+    { fleets: [{ ...fleet(), hull_damage_pct: '10.5' }] },
     { fleets: [{ ...fleet(), ships: null }] }, { fleets: [fleet(), fleet()] },
     { fleets: [{ ...fleet(), target_system: -1 }] }, { success: false, fleets: [] },
   ])('reports malformed read data and preserves the last confirmed missions: %j', async (invalid) => {
@@ -183,11 +187,25 @@ describe('Authoritative fleet commands and window', () => {
     const wm = { body: () => root, register: vi.fn((id, options) => { config = options; }),
       minimize: vi.fn(), close: vi.fn(), open: vi.fn(() => config.onRender()) };
     const galaxy = { navigate: vi.fn() };
-    unmount = mountFleetWindow({ domain, galaxy, wm });
+    unmount = mountFleetWindow({ domain, galaxy, wm: attachWindowWidgets(wm) });
     trigger.click();
     await vi.waitFor(() => expect(root.textContent).toContain('small cargo'));
     expect(root.textContent).toContain('<img src=x>');
     expect(root.querySelector('img, script')).toBeNull();
+    expect(api.post).not.toHaveBeenCalled();
+    expect(root.querySelector('.game-fleet-card').dataset.direction).toBe('outbound');
+    expect(root.querySelector('.game-fleet-mission').textContent).toBe('Transport');
+    expect(root.querySelector('.game-fleet-route').getAttribute('aria-label')).toBe('Hinflug zum Ziel');
+    expect(root.querySelector('.game-fleet-route-arrow').textContent).toBe('→');
+    expect(root.querySelector('[data-endpoint="origin"]').textContent).toContain('[1:10:3]');
+    expect(root.querySelector('[data-endpoint="target"]').textContent).toContain('[2:20:4]');
+    expect(root.querySelector('[aria-label="Schiffe"]').textContent).toBe('2 small cargo');
+    expect(root.querySelectorAll('[aria-label="Fracht"] svg')).toHaveLength(3);
+    expect(root.querySelector('[aria-label="Fracht"]').textContent).toBe('100 Metall0 Kristall0 Deuterium');
+    expect(root.querySelector('.game-fleet-arrival').textContent).toContain('Ankunft2026-11-03 11:00:00Serverzeit');
+    expect(root.querySelector('details').open).toBe(false);
+    expect(root.querySelector('details').textContent).toContain('Abflug: 2026-11-03 10:00:00');
+    expect(root.querySelector('progress, meter')).toBeNull();
     const button = (label) => [...root.querySelectorAll('button')].find((item) => item.textContent === label);
     button('Ziel im Spielfeld').click();
     expect(wm.minimize).toHaveBeenCalledWith('fleet');
@@ -196,7 +214,11 @@ describe('Authoritative fleet commands and window', () => {
     expect(galaxy.navigate).toHaveBeenLastCalledWith('1', '10');
     button('Flotte zurückrufen').click();
     await vi.waitFor(() => expect(button('Flotte zurückrufen').disabled).toBe(true));
-    await vi.waitFor(() => expect(root.textContent).toContain('Rückflug'));
+    await vi.waitFor(() => expect(root.querySelector('.game-fleet-direction').textContent).toBe('Rückflug'));
+    expect(root.querySelector('.game-fleet-card').dataset.direction).toBe('return');
+    expect(root.querySelector('.game-fleet-route').getAttribute('aria-label')).toBe('Rückflug zur Herkunft');
+    expect(root.querySelector('.game-fleet-route-arrow').textContent).toBe('←');
+    expect(root.querySelector('.game-fleet-arrival').textContent).toContain('Rückkehr');
     const oldMapButton = button('Ziel im Spielfeld');
     const oldRecallButton = button('Flotte zurückrufen');
     const posts = api.post.mock.calls.length;
@@ -211,4 +233,195 @@ describe('Authoritative fleet commands and window', () => {
     expect(wm.close).toHaveBeenCalledWith('fleet');
     expect(config.onRender).toBeNull();
   });
+  it('uses linked local filter fields and preserves each fleet disclosure independently across updates and filtering', async () => {
+    current = [fleet(), { ...fleet(), id: '8', returning: '1' }];
+    const root = document.createElement('div');
+    document.body.append(root);
+    const wm = { body: () => root, register: vi.fn(), close: vi.fn() };
+    unmount = mountFleetWindow({ domain, galaxy: {}, wm: attachWindowWidgets(wm) });
+    await domain.load();
+    const direction = root.querySelector('[aria-label="Flugrichtung"]');
+    expect(root.querySelector(`label[for="${direction.id}"]`).textContent).toBe('Flugrichtung');
+    expect(document.getElementById(direction.getAttribute('aria-describedby')).textContent).toContain('keine Flottenbefehle');
+    expect(root.querySelector('.game-fleet-dashboard-summary').classList.contains('wm-properties')).toBe(true);
+    const times = id => root.querySelector(`[data-fleet-id="${id}"] details`);
+    times('7').open = true;
+    root.querySelector('.game-fleet-dashboard-help').open = true;
+    direction.value = 'return';
+    direction.dispatchEvent(new Event('change'));
+    expect(times('7')).toBeNull();
+    expect(times('8').open).toBe(false);
+    await domain.refresh();
+    expect(root.querySelector('[aria-label="Flugrichtung"]').value).toBe('return');
+    const select = root.querySelector('[aria-label="Flugrichtung"]');
+    select.value = 'all';
+    select.dispatchEvent(new Event('change'));
+    expect(times('7').open).toBe(true);
+    expect(times('8').open).toBe(false);
+    expect(root.querySelector('.game-fleet-dashboard-help').open).toBe(true);
+    expect(api.post).not.toHaveBeenCalled();
+    current = [];
+    await domain.refresh();
+    expect(root.querySelector('.wm-notice[data-state="empty"]').textContent).toContain('Keine laufenden Flottenmissionen.');
+    expect([...root.querySelectorAll('.game-fleet-dashboard-summary dd')].map(e => e.textContent)).toEqual(['0', '0', '0']);
+  });
+  it('searches and combines table filters independently of cards, sorts raw ship totals and coordinates and retains state on refresh', async () => {
+    current = [
+      { ...fleet(), fleet_label: 'Transport 10', ships: { small_cargo: '10' }, target_system: '20' },
+      { ...fleet(), id: '8', fleet_label: 'Transport 2', returning: '1', ships: { small_cargo: '2', fighter: '1' }, target_system: '3' },
+      { ...fleet(), id: '9', fleet_label: 'Angriff', mission: 'attack', ships: { fighter: '1' }, target_system: '10' },
+    ];
+    const root = document.createElement('div');
+    document.body.append(root);
+    const wm = { body: () => root, register: vi.fn(), close: vi.fn() };
+    unmount = mountFleetWindow({ domain, galaxy: {}, wm: attachWindowWidgets(wm) });
+    await domain.load();
+    api.get.mockClear();
+    const table = () => root.querySelector('.game-fleet-table');
+    const rows = () => [...table().querySelectorAll('tbody tr')].filter(row => !row.querySelector('.wm-table-empty'));
+    const visible = () => rows().filter(row => !row.hidden);
+    const disclosure = root.querySelector('.game-fleet-measurements');
+    disclosure.open = true;
+    const cards = [...root.querySelectorAll('.game-fleet-card')];
+    const search = table().querySelector('input');
+    search.focus();
+    search.value = 'fighter';
+    search.dispatchEvent(new Event('input'));
+    expect(visible()).toHaveLength(2);
+    expect(document.activeElement).toBe(search);
+    const mission = table().querySelector('[aria-label="Tabellenmission"]');
+    mission.value = 'transport';
+    mission.dispatchEvent(new Event('change'));
+    expect(visible()).toHaveLength(1);
+    expect(visible()[0].firstChild.textContent).toBe('Transport 2');
+    const direction = table().querySelector('[aria-label="Tabellenflugrichtung"]');
+    direction.value = 'outbound';
+    direction.dispatchEvent(new Event('change'));
+    expect(visible()).toHaveLength(0);
+    expect(table().querySelector('.wm-table-empty').textContent).toContain('Keine Einsätze');
+    expect([...root.querySelectorAll('.game-fleet-card')]).toEqual(cards);
+    expect(api.get).not.toHaveBeenCalled();
+    table().querySelector('.wm-table-tools > button').click();
+    table().querySelectorAll('thead th button')[5].click();
+    expect(rows().map(row => row.children[5].textContent)).toEqual(['1', '3', '10']);
+    table().querySelectorAll('thead th button')[4].click();
+    expect(rows().map(row => row.firstChild.textContent)).toEqual(['Transport 2', 'Angriff', 'Transport 10']);
+    table().querySelectorAll('thead th button')[0].click();
+    expect(rows().map(row => row.firstChild.textContent)).toEqual(['Angriff', 'Transport 2', 'Transport 10']);
+    const refreshedMission = table().querySelector('[aria-label="Tabellenmission"]');
+    refreshedMission.value = 'attack';
+    refreshedMission.dispatchEvent(new Event('change'));
+    await domain.refresh();
+    expect(root.querySelector('.game-fleet-measurements').open).toBe(true);
+    expect(table().querySelector('[aria-label="Tabellenmission"]').value).toBe('attack');
+    expect(table().querySelector('thead th').getAttribute('aria-sort')).toBe('ascending');
+    current = [current[0]];
+    await domain.refresh();
+    expect(table().querySelector('[aria-label="Tabellenmission"]').value).toBe('attack');
+    expect(visible()).toHaveLength(0);
+    expect(root.querySelectorAll('.game-fleet-card')).toHaveLength(1);
+    table().querySelector('.wm-table-tools > button').click();
+    expect(visible()).toHaveLength(1);
+    expect(api.post).not.toHaveBeenCalled();
+  });
+  it('keeps empty ship totals at zero and renders unknown table missions as safe text', async () => {
+    current = [{ ...fleet(), mission: '<img src=x>', ships: { small_cargo: 0 } }];
+    const root = document.createElement('div');
+    document.body.append(root);
+    const wm = { body: () => root, register: vi.fn(), close: vi.fn() };
+    unmount = mountFleetWindow({ domain, galaxy: {}, wm: attachWindowWidgets(wm) });
+    await domain.load();
+    const table = () => root.querySelector('.game-fleet-table');
+    expect(table().querySelector('tbody tr').children[5].textContent).toBe('0');
+    expect(table().querySelector('tbody tr').children[1].textContent).toBe('Mission: <img src=x>');
+    expect(table().querySelector('img, script')).toBeNull();
+    current = [];
+    await domain.refresh();
+    expect(table().querySelector('.wm-table-empty').textContent).toBe('Keine laufenden Flottenmissionen.');
+    expect(api.post).not.toHaveBeenCalled();
+  });
+  it('renders empty ship inventories and zero cargo without invented quantities', async () => {
+    current = [{ ...fleet(), ships: { small_cargo: 0 }, cargo_metal: '0' }];
+    const root = document.createElement('div');
+    const wm = { body: () => root, register: vi.fn(), close: vi.fn() };
+    unmount = mountFleetWindow({ domain, galaxy: {}, wm: attachWindowWidgets(wm) });
+    expect(root.querySelector('.game-fleet-dashboard-summary')).toBeNull();
+    const loading = domain.load();
+    expect(root.querySelector('[aria-label="Ankunftsverarbeitung"] button').disabled).toBe(true);
+    await loading;
+    expect(root.querySelector('[aria-label="Schiffe"]').textContent).toBe('Keine Schiffe');
+    expect(root.querySelector('[aria-label="Fracht"]').textContent).toBe('0 Metall0 Kristall0 Deuterium');
+    expect(api.post).not.toHaveBeenCalled();
+    current = [];
+    await domain.load();
+    expect(root.textContent).toContain('Keine laufenden Flottenmissionen.');
+    expect(root.querySelector('.game-fleet-card')).toBeNull();
+    expect([...root.querySelectorAll('.game-fleet-dashboard-summary dd')].map(e => e.textContent)).toEqual(['0', '0', '0']);
+  });
+  it('combines local mission and direction filters, retains zero matches on refresh and resets without reads', async () => {
+    current = [fleet(), { ...fleet(), id: '8', mission: 'attack', returning: '1' },
+      { ...fleet(), id: '9', mission: 'attack' }, { ...fleet(), id: '10', mission: '<img src=x>' }];
+    const root = document.createElement('div');
+    document.body.append(root);
+    const wm = { body: () => root, register: vi.fn(), close: vi.fn() };
+    unmount = mountFleetWindow({ domain, galaxy: {}, wm: attachWindowWidgets(wm) });
+    await domain.load();
+    const calls = api.get.mock.calls.length;
+    const missionButton = mission => root.querySelector(`[data-mission="${mission}"]`).closest('button');
+    expect(root.querySelectorAll('.game-fleet-card')).toHaveLength(4);
+    expect(root.querySelector('.game-fleet-dashboard-header svg')).not.toBeNull();
+    expect(root.querySelector('.game-fleet-dashboard-help').open).toBe(false);
+    expect(root.querySelector('[data-game-fleet-launch]').classList.contains('btn-primary')).toBe(true);
+    expect([...root.querySelectorAll('.game-fleet-dashboard-summary dd')].map(e => e.textContent)).toEqual(['4', '3', '1']);
+    expect(missionButton('attack').textContent).toBe('Angriff (2)');
+    missionButton('attack').click();
+    expect(root.querySelectorAll('.game-fleet-card')).toHaveLength(2);
+    expect(document.activeElement).toBe(missionButton('attack'));
+    expect(missionButton('attack').getAttribute('aria-pressed')).toBe('true');
+    let direction = root.querySelector('[aria-label="Flugrichtung"]');
+    direction.value = 'return';
+    direction.dispatchEvent(new Event('change'));
+    expect(root.querySelectorAll('.game-fleet-card')).toHaveLength(1);
+    expect(root.querySelector('.game-fleet-card').dataset.fleetId).toBe('8');
+    expect(root.textContent).toContain('1 von 4 Missionen angezeigt.');
+    expect([...root.querySelectorAll('.game-fleet-dashboard-summary dd')].map(e => e.textContent)).toEqual(['4', '3', '1']);
+    expect(document.activeElement).toBe(root.querySelector('[aria-label="Flugrichtung"]'));
+    expect(api.get).toHaveBeenCalledTimes(calls);
+    expect(api.post).not.toHaveBeenCalled();
+    current = [fleet()];
+    await domain.load();
+    expect(root.querySelectorAll('.game-fleet-card')).toHaveLength(0);
+    expect(root.textContent).toContain('Keine Missionen für diese Filter.');
+    expect(missionButton('attack').textContent).toBe('Angriff (0)');
+    direction = root.querySelector('[aria-label="Flugrichtung"]');
+    expect(direction.value).toBe('return');
+    const reads = api.get.mock.calls.length;
+    [...root.querySelectorAll('button')].find(e => e.textContent === 'Filter zurücksetzen').click();
+    expect(root.querySelectorAll('.game-fleet-card')).toHaveLength(1);
+    expect(root.querySelector('[aria-label="Flugrichtung"]').value).toBe('all');
+    expect(document.activeElement).toBe(root.querySelector('[data-mission-filter-index="0"]'));
+    expect(api.get).toHaveBeenCalledTimes(reads);
+    expect(api.post).not.toHaveBeenCalled();
+  });
+  it('filters unknown server missions safely and disables detached filters after unmount', async () => {
+    current = [{ ...fleet(), mission: '<img src=x>' }, { ...fleet(), id: '8' }];
+    const root = document.createElement('div');
+    const wm = { body: () => root, register: vi.fn(), close: vi.fn() };
+    unmount = mountFleetWindow({ domain, galaxy: {}, wm: attachWindowWidgets(wm) });
+    await domain.load();
+    const unknown = root.querySelector('.game-fleet-filter-missions [data-mission="unknown"]').closest('button');
+    expect(unknown.textContent).toBe('Mission: <img src=x> (1)');
+    expect(root.querySelector('img')).toBeNull();
+    unknown.click();
+    expect(root.querySelectorAll('.game-fleet-card')).toHaveLength(1);
+    expect(root.querySelector('.game-fleet-card').dataset.fleetId).toBe('7');
+    const all = root.querySelector('[data-mission-filter-index="0"]');
+    unmount();
+    unmount = null;
+    const before = root.innerHTML;
+    all.click();
+    expect(root.innerHTML).toBe(before);
+    expect(api.post).not.toHaveBeenCalled();
+  });
 });
+import { attachWindowWidgets } from './helpers/window-widget-fixture.js';

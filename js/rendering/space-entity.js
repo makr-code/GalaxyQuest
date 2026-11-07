@@ -56,6 +56,9 @@ export class SpaceEntity {
   }
 
   setRoute(descriptor, points, { initial = false, defaultDuration = 7 } = {}) {
+    this.displayName = String(descriptor.display_name || descriptor.name || descriptor.fleet_label
+      || (this.kind === 'vessel' ? 'Raumschiff' : ''));
+    this.combatStatus = descriptor.combat_status || null;
     this.reducedMotion = descriptor.reduced_motion === true;
     this.scale = Math.max(1e-15, Number(descriptor.visual_scale_ly) || this.scale);
     this.followCamera = descriptor.follow_camera === true || this.registration || this.followCamera;

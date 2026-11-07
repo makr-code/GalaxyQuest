@@ -48,6 +48,18 @@ function tts_cache_key(string $voice, string $text, array $prosody = []): string
     return hash('sha256', $identity);
 }
 
+/** @internal @param array<string, float> $prosody */
+function tts_synthesis_payload(string $text, string $voice, string $lang, array $prosody): array
+{
+    return [
+        'text' => $text,
+        'voice' => $voice,
+        'lang' => $lang,
+        'prosody' => (object)$prosody,
+        'no_cache' => false,
+    ];
+}
+
 /**
  * Synthesise text to speech and return a web-accessible audio URL.
  *
@@ -106,13 +118,7 @@ function tts_synthesise(string $text, array $options = []): array
     }
 
     // ── Call TTS microservice ─────────────────────────────────────────────────
-    $result = tts_request('/synthesize', [
-        'text'     => $text,
-        'voice'    => $voice,
-        'lang'     => $lang,
-        'prosody'  => $prosody,
-        'no_cache' => false,
-    ], $options);
+    $result = tts_request('/synthesize', tts_synthesis_payload($text, $voice, $lang, $prosody), $options);
 
     if (!$result['ok']) {
         return $result;
@@ -304,7 +310,8 @@ function _tts_decode(string $raw, int $status, string $ctype): array
     }
 
     if ($status < 200 || $status >= 300) {
-        $msg = (string) ($decoded['detail'] ?? $decoded['error'] ?? ('TTS service HTTP ' . $status));
+        $detail = $decoded['detail'] ?? $decoded['error'] ?? ('TTS service HTTP ' . $status);
+        $msg = is_string($detail) ? $detail : json_encode($detail, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         return ['ok' => false, 'status' => $status, 'error' => $msg, 'data' => $decoded];
     }
 

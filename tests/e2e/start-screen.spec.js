@@ -591,7 +591,9 @@ test('settings flight tour visits DB system preview stages without writing world
       system: { ...target, spectral_class: 'G', temperature_k: 5778, radius_solar: 1, planet_count: 2 },
       planets: [
         { position: 1, name: 'Preview One', planet_class: 'gas_giant', can_colonize: false, semi_major_axis_au: 2.5 },
-        { position: 2, name: 'Preview Two', planet_class: 'rocky', can_colonize: true, semi_major_axis_au: 1.0 },
+        { position: 2, name: 'Preview Two', planet_class: 'rocky', can_colonize: true, semi_major_axis_au: 1.0,
+          ring_system: { inner_radius_planet_r: 1.5, outer_radius_planet_r: 3.2,
+            optical_depth: 0.6, tilt_deg: 12, composition: 'water_ice' } },
       ],
     } });
   });
@@ -613,9 +615,15 @@ test('settings flight tour visits DB system preview stages without writing world
   const previewState = await page.evaluate(() => window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer.scene);
   expect(previewState.flightTour).toBe(true);
   expect(previewState.draft.preview_only).toBe(true);
+  expect(previewState.sceneGraph.children[0].children.find((node) =>
+    node.type === 'planet' && node.data.position === 2).data.ring_system).toMatchObject({
+    inner_radius_planet_r: 1.5,
+    outer_radius_planet_r: 3.2,
+    composition: 'water_ice',
+  });
   expect(await page.evaluate(() => window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer._native.spatialLabelStars.length)).toBe(1);
   expect(await page.evaluate(() => window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer.destinations.slice(0, 3)))
-    .toEqual([{ kind: 'system' }, { kind: 'planet', position: 2 }, { kind: 'surface', position: 2 }]);
+    .toEqual([{ kind: 'system' }, { kind: 'star' }, { kind: 'planet', position: 2 }]);
   expect(previewRequests.length).toBeGreaterThan(0);
   expect(writeRequests).toEqual([]);
   const savedState = await page.evaluate(() => {

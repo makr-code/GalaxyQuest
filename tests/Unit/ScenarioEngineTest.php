@@ -65,6 +65,45 @@ final class ScenarioEngineTest extends TestCase
         $this->assertIsArray($scenarios);
     }
 
+    public function testScenarioTickRecordsCooldownAfterItsAtomicWork(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/llm_soc/ScenarioEngine.php');
+        self::assertIsString($source);
+
+        $tick = $this->functionBody($source, 'tick');
+        $resolve = strpos($tick, 'self::resolveExpiredEvents($db)');
+        $seed = strpos($tick, 'self::seedScenario($db, $scenario)');
+        $mark = strpos($tick, 'self::markTick($db)');
+        $commit = strpos($tick, '$db->commit();');
+        self::assertNotFalse($resolve);
+        self::assertNotFalse($seed);
+        self::assertNotFalse($mark);
+        self::assertNotFalse($commit);
+        self::assertLessThan($mark, $resolve);
+        self::assertLessThan($mark, $seed);
+        self::assertLessThan($commit, $mark);
+        self::assertStringContainsString('$db->beginTransaction();', $tick);
+        self::assertStringContainsString('$db->rollBack();', $tick);
+    }
+
+    public function testScenarioWorkDoesNotConvertFailuresIntoSuccessOrIneligibleResults(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/llm_soc/ScenarioEngine.php');
+        self::assertIsString($source);
+
+        foreach (['resolveExpiredEvents', 'maybeStartScenario', 'applyEffects', 'resolveFactionId'] as $function) {
+            $body = $this->functionBody($source, $function);
+            self::assertStringNotContainsString('catch (', $body, $function);
+        }
+
+        $condition = $this->functionBody($source, 'evaluateCondition');
+        self::assertStringNotContainsString('catch (', $condition);
+
+        $yamlLoader = $this->functionBody($source, 'loadScenariosFromYaml');
+        self::assertStringNotContainsString('catch (', $yamlLoader);
+        self::assertStringContainsString('throw new \\RuntimeException', $yamlLoader);
+    }
+
     public function testLoadScenariosFromYamlFindsIronFleetScenario(): void
     {
         $scenarios = ScenarioEngine::loadScenariosFromYaml($this->scenariosDir);
@@ -453,5 +492,17 @@ final class ScenarioEngineTest extends TestCase
             [5,   '!=', 6,   true],
             [5,   '!=', 5,   false],
         ];
+    }
+
+    private function functionBody(string $source, string $function): string
+    {
+        $start = strpos($source, 'function ' . $function . '(');
+        self::assertNotFalse($start, $function . ' function must exist.');
+        $nextFunction = strpos($source, "\n    private static function ", $start + 1);
+        if ($nextFunction === false) {
+            $nextFunction = strpos($source, "\n    public static function ", $start + 1);
+        }
+        $end = $nextFunction === false ? strlen($source) : $nextFunction;
+        return substr($source, $start, $end - $start);
     }
 }

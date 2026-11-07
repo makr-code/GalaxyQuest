@@ -69,7 +69,9 @@ describe('Authoritative game session and HUD', () => {
       html.getElementById('topbar-section'), html.getElementById('resource-section'),
     );
     const unmount = mountGameOverview(session, { username: 'Commander' });
+    expect(document.getElementById('game-data-status').dataset.state).toBe('idle');
     await session.refresh();
+    expect(document.getElementById('game-data-status').dataset.state).toBe('ready');
     expect(document.getElementById('res-metal').textContent).toBe(new Intl.NumberFormat().format(2365));
     expect(document.getElementById('res-energy').textContent).toBe('-5');
     const select = document.getElementById('game-colony-select');
@@ -82,12 +84,35 @@ describe('Authoritative game session and HUD', () => {
     api.get.mockRejectedValueOnce(new Error('Server unavailable'));
     document.getElementById('topbar-title-btn').click();
     await vi.waitFor(() => expect(document.getElementById('game-data-status').textContent).toContain('Server unavailable'));
+    expect(document.getElementById('game-data-status').dataset.state).toBe('error');
     expect(document.getElementById('res-metal').textContent).toBe('700');
     unmount();
     expect(select.options.length).toBe(0);
     expect(document.getElementById('res-metal').textContent).toBe('\u2014');
+    expect(document.getElementById('game-data-status').dataset.state).toBe('idle');
     api.get.mockClear();
     document.getElementById('topbar-title-btn').click();
     expect(api.get).not.toHaveBeenCalled();
+  });
+  it('marks an explicit refresh as busy and shows the loading state', async () => {
+    const html = new DOMParser().parseFromString(fs.readFileSync('index.html', 'utf8'), 'text/html');
+    document.body.replaceChildren(
+      html.getElementById('topbar-section'), html.getElementById('resource-section'),
+    );
+    let resolveRefresh;
+    api.get.mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = resolve; }));
+    const unmount = mountGameOverview(session, { username: 'Commander' });
+    const refresh = document.getElementById('topbar-title-btn');
+    refresh.click();
+    expect(refresh.disabled).toBe(true);
+    expect(refresh.getAttribute('aria-busy')).toBe('true');
+    expect(refresh.classList.contains('is-refreshing')).toBe(true);
+    expect(document.getElementById('game-data-status').dataset.state).toBe('loading');
+    resolveRefresh(payload());
+    await vi.waitFor(() => expect(document.getElementById('game-data-status').dataset.state).toBe('ready'));
+    expect(refresh.disabled).toBe(false);
+    expect(refresh.hasAttribute('aria-busy')).toBe(false);
+    expect(refresh.classList.contains('is-refreshing')).toBe(false);
+    unmount();
   });
 });

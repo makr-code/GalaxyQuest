@@ -65,8 +65,22 @@ export function mountFleetMap({ domain, galaxy, renderer, session, stage }) {
       const card = node('article');
       card.dataset.fleetId = String(fleet.id);
       const returning = Number(fleet.returning) === 1;
+      const hullDamage = Number(fleet.hull_damage_pct);
+      const hullStatus = node('div');
+      hullStatus.className = 'game-fleet-hull-status';
+      hullStatus.setAttribute('role', 'group');
+      hullStatus.setAttribute('aria-label', `Hüllenschaden: ${hullDamage}%; Angriffsmalus: ${hullDamage}%`);
+      const hullLabel = node('span', `Hüllenschaden ${hullDamage}%`);
+      const hullMeter = node('progress');
+      hullMeter.className = 'game-fleet-hull-meter';
+      hullMeter.max = 100;
+      hullMeter.value = hullDamage;
+      hullMeter.setAttribute('aria-label', `Hüllenschaden von Flotte ${fleet.fleet_label || fleet.id}`);
+      const hullValue = node('span', `-${hullDamage}% Angriff`);
+      hullStatus.append(hullLabel, hullMeter, hullValue);
       card.append(node('h4', fleet.fleet_label || `Flotte ${fleet.id}`),
         node('p', `${FLEET_MISSIONS[fleet.mission] || fleet.mission} · ${returning ? 'Rückflug' : 'Hinflug'}`),
+        hullStatus,
         node('p', `Herkunft [${fleet.origin_galaxy}:${fleet.origin_system}:${fleet.origin_position}] → Ziel [${fleet.target_galaxy}:${fleet.target_system}:${fleet.target_position}]`),
         node('p', `Schiffe: ${Object.entries(fleet.ships).map(([type, count]) => `${count} ${type.replaceAll('_', ' ')}`).join(', ')}`),
         node('p', `Fracht: ${fleet.cargo_metal} Metall · ${fleet.cargo_crystal} Kristall · ${fleet.cargo_deuterium} Deuterium`),
@@ -164,13 +178,19 @@ export function mountFleetMap({ domain, galaxy, renderer, session, stage }) {
     status.hidden = active || !state.error;
     if (active) close();
   });
+  const unsubscribeOriginPicking = session.events.on('fleet:origin-picking', ({ active }) => {
+    picking = active;
+    markers.hidden = active;
+    status.hidden = active || !state.error;
+    if (active) close();
+  });
   const escape = (event) => {
-    if (event.key !== 'Escape' || selected === null || picking) return;
+    if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || selected === null || picking) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     close(true);
   };
-  window.addEventListener('keydown', escape, true);
+  window.addEventListener('keydown', escape);
   update(state);
   void domain.load();
   return () => {
@@ -178,7 +198,8 @@ export function mountFleetMap({ domain, galaxy, renderer, session, stage }) {
     stopProjection?.();
     unsubscribe();
     unsubscribePicking();
-    window.removeEventListener('keydown', escape, true);
+    unsubscribeOriginPicking();
+    window.removeEventListener('keydown', escape);
     markers.remove();
     context.remove();
     status.remove();

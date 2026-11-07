@@ -1,7 +1,6 @@
 <?php
 /**
- * NPC AI tick – invoked by explicit simulation or NPC-controller actions.
- * Handles: trade offer generation, pirate raids, diplomacy time-decay.
+ * NPC AI routines used by explicit per-user and global simulation actions.
  */
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/game_engine.php';
@@ -27,8 +26,6 @@ function npc_ai_tick(PDO $db, int $userId, bool $force = false): void {
     $lastTick = $u['last_npc_tick'] ? strtotime($u['last_npc_tick']) : 0;
     if (!$force && (time() - $lastTick < 300)) return; // 5-minute cooldown
 
-    $db->prepare('UPDATE users SET last_npc_tick=NOW() WHERE id=?')->execute([$userId]);
-
     $factions = $db->query('SELECT * FROM npc_factions')->fetchAll();
     foreach ($factions as $faction) {
         npc_faction_tick($db, $userId, $faction);
@@ -42,49 +39,22 @@ function npc_ai_tick(PDO $db, int $userId, bool $force = false): void {
          WHERE d.user_id = ? AND ABS(d.standing - f.base_diplomacy) > 5'
     )->execute([$userId]);
 
-    // Global NPC player accounts tick (build/research/ships).
-    // Triggered opportunistically by active player traffic, rate-limited via app_state.
-    try {
-        npc_player_accounts_tick_global($db, $force);
-    } catch (Throwable $e) {
-        error_log('npc_player_accounts_tick_global error: ' . $e->getMessage());
-    }
+    $db->prepare('UPDATE users SET last_npc_tick=NOW() WHERE id=?')->execute([$userId]);
+}
 
-    // Dynamic faction events (galactic war, trade boom, pirate surge).
-    try {
-        faction_events_tick_global($db);
-    } catch (Throwable $e) {
-        error_log('faction_events_tick_global error: ' . $e->getMessage());
-    }
-
-    // REDCS: Random-Event-Driven-Conclusion System scenario tick.
-    try {
-        $scenariosDir = realpath(__DIR__ . '/../scenarios') ?: (__DIR__ . '/../scenarios');
-        ScenarioEngine::tick($db, $scenariosDir);
-    } catch (Throwable $e) {
-        error_log('ScenarioEngine::tick error: ' . $e->getMessage());
-    }
-
-    // Planetary random events (solar flare, mineral vein, disease).
-    try {
-        colony_events_tick_global($db);
-    } catch (Throwable $e) {
-        error_log('colony_events_tick_global error: ' . $e->getMessage());
-    }
-
-    // Wormhole network maintenance (stability regeneration + cooldown clear).
-    try {
-        wormhole_regeneration_tick_global($db);
-    } catch (Throwable $e) {
-        error_log('wormhole_regeneration_tick_global error: ' . $e->getMessage());
-    }
-
-    // NPC Trader lifecycle: route transitions, supply/demand recalc, new opportunities.
-    try {
-        trader_tick_global($db);
-    } catch (Throwable $e) {
-        error_log('trader_tick_global error: ' . $e->getMessage());
-    }
+/**
+ * Run world-wide NPC and event subsystems.
+ *
+ * This must only be invoked from the global simulation scope lock.
+ */
+function npc_ai_global_tick(PDO $db, bool $force = false): void
+{
+    npc_player_accounts_tick_global($db, $force);
+    faction_events_tick_global($db);
+    $scenariosDir = realpath(__DIR__ . '/../scenarios') ?: (__DIR__ . '/../scenarios');
+    ScenarioEngine::tick($db, $scenariosDir);
+    colony_events_tick_global($db);
+    wormhole_regeneration_tick_global($db);
 }
 
 /**
@@ -93,6 +63,18 @@ function npc_ai_tick(PDO $db, int $userId, bool $force = false): void {
  * Safe to skip if tables are not yet created (pre-migration).
  */
 function trader_tick_global(PDO $db, bool $force = false): void {
+    // The trader subsystem is optional until its migration is applied. Check
+    // this before recording the global cooldown so deployment can retry later.
+    try {
+        $db->query('SELECT 1 FROM npc_traders LIMIT 1');
+    } catch (PDOException $error) {
+        if ($error->getCode() !== '42S02') {
+            throw $error;
+        }
+
+        return;
+    }
+
     $now = time();
     $stateKey = 'trader_tick:last_unix';
     $cooldown = 900; // 15 minutes
@@ -102,33 +84,49 @@ function trader_tick_global(PDO $db, bool $force = false): void {
         if (!$force && ($now - $last) < $cooldown) {
             return;
         }
-        app_state_set_int($db, $stateKey, $now);
     }
 
-    // Guard: tables might not exist on pre-migration DBs
+    $ownsTransaction = !$db->inTransaction();
+    $savepoint = 'trader_global_tick';
+    if ($ownsTransaction) {
+        $db->beginTransaction();
+    } else {
+        $db->exec('SAVEPOINT ' . $savepoint);
+    }
+
     try {
-        $db->query('SELECT 1 FROM npc_traders LIMIT 1');
-    } catch (Throwable $e) {
-        return; // Migration not applied yet
+        if (!defined('TRADERS_LIB_MODE')) {
+            define('TRADERS_LIB_MODE', true);
+        }
+        require_once __DIR__ . '/traders.php';
+        require_once __DIR__ . '/market_analysis.php';
+
+        update_supply_demand_table($db);
+        find_and_rank_trade_opportunities($db, 5.0);
+        process_route_transitions($db);
+        execute_trader_decisions($db);
+
+        if (function_exists('app_state_set_int')) {
+            app_state_set_int($db, $stateKey, time());
+        }
+
+        if ($ownsTransaction) {
+            $db->commit();
+        } else {
+            $db->exec('RELEASE SAVEPOINT ' . $savepoint);
+        }
+    } catch (Throwable $error) {
+        if ($db->inTransaction()) {
+            if ($ownsTransaction) {
+                $db->rollBack();
+            } else {
+                $db->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+                $db->exec('RELEASE SAVEPOINT ' . $savepoint);
+            }
+        }
+
+        throw $error;
     }
-
-    if (!defined('TRADERS_LIB_MODE')) {
-        define('TRADERS_LIB_MODE', true);
-    }
-    require_once __DIR__ . '/traders.php';
-    require_once __DIR__ . '/market_analysis.php';
-
-    // 1. Refresh supply/demand
-    update_supply_demand_table($db);
-
-    // 2. Discover / refresh trade opportunities (5% min margin for autonomous tick)
-    find_and_rank_trade_opportunities($db, 5.0);
-
-    // 3. Advance all active routes through lifecycle
-    process_route_transitions($db);
-
-    // 4. Let traders decide new routes
-    execute_trader_decisions($db);
 }
 
 function npc_faction_tick(PDO $db, int $userId, array $faction): void {
@@ -149,6 +147,8 @@ function npc_faction_tick(PDO $db, int $userId, array $faction): void {
                     return;
                 }
             }
+        } catch (PDOException $error) {
+            throw $error;
         } catch (Throwable $e) {
             error_log("Behavior script execution error for faction $factionCode: " . $e->getMessage());
             // Fall through to LLM controller on error
@@ -476,30 +476,65 @@ function npc_player_accounts_tick_global(PDO $db, bool $force = false): void {
         if (!$force && ($now - $last) < $cooldown) {
             return;
         }
-        app_state_set_int($db, $stateKey, $now);
     }
 
     $stmt = $db->query("SELECT id FROM users WHERE control_type = 'npc_engine' ORDER BY id ASC LIMIT 64");
-    $npcIds = $stmt ? $stmt->fetchAll(PDO::FETCH_COLUMN) : [];
+    if (!$stmt) {
+        throw new RuntimeException('Failed to load NPC player accounts for the global tick.');
+    }
+
+    $npcIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
     foreach ($npcIds as $npcIdRaw) {
         $npcId = (int)$npcIdRaw;
         if ($npcId <= 0) {
             continue;
         }
-        npc_player_account_tick($db, $npcId);
+        npc_player_account_tick($db, $npcId, $force);
+    }
+
+    if (function_exists('app_state_set_int')) {
+        app_state_set_int($db, $stateKey, time());
     }
 }
 
 /**
  * Single NPC account tick: one build action, one research action, one ship action.
  */
-function npc_player_account_tick(PDO $db, int $npcUserId): void {
+function npc_player_account_tick(PDO $db, int $npcUserId, bool $force = false): void
+{
+    if ($npcUserId <= 0) {
+        throw new InvalidArgumentException('NPC user ID must be positive.');
+    }
+
+    $now = time();
+    $stateKey = 'npc_player_tick:user:' . $npcUserId . ':last_unix';
+    $lastTick = app_state_get_int($db, $stateKey, 0);
+    if (!$force && ($now - $lastTick) < 180) {
+        return;
+    }
+
     try {
         ensure_user_character_profile($db, $npcUserId, true);
+    } catch (PDOException $error) {
+        throw $error;
     } catch (Throwable $e) {
         error_log('npc character profile generation failed for user ' . $npcUserId . ': ' . $e->getMessage());
     }
 
+    $savepoint = 'npc_player_account_' . $npcUserId;
+    $ownsTransaction = game_engine_begin_tick_transaction($db, $savepoint);
+    try {
+        npc_player_account_tick_actions($db, $npcUserId);
+        app_state_set_int($db, $stateKey, time());
+        game_engine_commit_tick_transaction($db, $savepoint, $ownsTransaction);
+    } catch (Throwable $error) {
+        game_engine_rollback_tick_transaction($db, $savepoint, $ownsTransaction);
+        throw $error;
+    }
+}
+
+function npc_player_account_tick_actions(PDO $db, int $npcUserId): void
+{
     // OD-3: Assign faction-specific FTL drive if still on default 'aereth'
     npc_assign_ftl_drive($db, $npcUserId);
 
@@ -956,6 +991,37 @@ function faction_events_tick_global(PDO $db): void {
         return;
     }
 
+    $ownsTransaction = !$db->inTransaction();
+    $savepoint = 'faction_event_tick';
+    if ($ownsTransaction) {
+        $db->beginTransaction();
+    } else {
+        $db->exec('SAVEPOINT ' . $savepoint);
+    }
+
+    try {
+        faction_events_tick_global_run($db);
+
+        if ($ownsTransaction) {
+            $db->commit();
+        } else {
+            $db->exec('RELEASE SAVEPOINT ' . $savepoint);
+        }
+    } catch (Throwable $error) {
+        if ($db->inTransaction()) {
+            if ($ownsTransaction) {
+                $db->rollBack();
+            } else {
+                $db->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+                $db->exec('RELEASE SAVEPOINT ' . $savepoint);
+            }
+        }
+
+        throw $error;
+    }
+}
+
+function faction_events_tick_global_run(PDO $db): void {
     $now = time();
 
     // Check if an active event has expired → clear it
@@ -1126,16 +1192,19 @@ function colony_events_tick_global(PDO $db): void {
     if (($now - $lastTick) < 900) {
         return;
     }
-    app_state_set_int($db, 'colony_events:last_tick', $now);
-
-    // Clean up expired events
+    // A missing event table is an optional pre-migration state. Do not consume
+    // the tick cooldown until the event processing completes successfully.
     try {
         $db->exec("DELETE FROM colony_events WHERE expires_at < NOW()");
-    } catch (Throwable $e) {
-        return; // table may not exist yet (pre-migration)
+    } catch (PDOException $error) {
+        if ($error->getCode() !== '42S02') {
+            throw $error;
+        }
+
+        return;
     }
 
-        // Load all active colonies owned by login-enabled human actors.
+    // Load all active colonies owned by login-enabled human actors.
     $stmt = $db->prepare(
         'SELECT c.id AS colony_id, c.name AS colony_name, c.user_id
          FROM colonies c
@@ -1147,6 +1216,7 @@ function colony_events_tick_global(PDO $db): void {
     $colonies = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     if (empty($colonies)) {
+        app_state_set_int($db, 'colony_events:last_tick', $now);
         return;
     }
 
@@ -1173,19 +1243,14 @@ function colony_events_tick_global(PDO $db): void {
          VALUES (?, ?, NOW(), FROM_UNIXTIME(?))'
     );
     $msgStmt = $db->prepare(
-        'INSERT INTO messages (sender_id, receiver_id, subject, body, is_system, created_at)
-         VALUES (NULL, ?, ?, ?, 1, NOW())'
+        'INSERT INTO messages (sender_id, receiver_id, subject, body)
+         VALUES (NULL, ?, ?, ?)'
     );
 
     // Science Collective faction id for archaeological-find eligibility
-    $scienceFactionId = 0;
-    try {
-        $sf = $db->prepare('SELECT id FROM npc_factions WHERE faction_type = "science" ORDER BY id ASC LIMIT 1');
-        $sf->execute();
-        $scienceFactionId = (int)($sf->fetchColumn() ?: 0);
-    } catch (Throwable $e) {
-        $scienceFactionId = 0;
-    }
+    $sf = $db->prepare('SELECT id FROM npc_factions WHERE faction_type = "science" ORDER BY id ASC LIMIT 1');
+    $sf->execute();
+    $scienceFactionId = (int)($sf->fetchColumn() ?: 0);
 
     foreach ($colonies as $col) {
         $cid = (int)$col['colony_id'];
@@ -1221,17 +1286,43 @@ function colony_events_tick_global(PDO $db): void {
         $meta   = $eventMeta[$type];
         $expiry = $now + $meta['duration'];
 
-        $insertStmt->execute([$cid, $type, $expiry]);
-
-        if ($type === 'archaeological_find') {
-            $db->prepare('UPDATE users SET dark_matter = dark_matter + 500 WHERE id = ?')
-               ->execute([(int)$col['user_id']]);
+        $ownsTransaction = !$db->inTransaction();
+        $savepoint = 'colony_event_' . $cid;
+        if ($ownsTransaction) {
+            $db->beginTransaction();
+        } else {
+            $db->exec('SAVEPOINT ' . $savepoint);
         }
 
-        // Notify the player
-        $subject = $meta['icon'] . ' ' . $meta['label'] . ' – ' . $col['colony_name'];
-        $msgStmt->execute([(int)$col['user_id'], $subject, $meta['body']]);
+        try {
+            $insertStmt->execute([$cid, $type, $expiry]);
+            if ($insertStmt->rowCount() === 1) {
+                if ($type === 'archaeological_find') {
+                    $db->prepare('UPDATE users SET dark_matter = dark_matter + 500 WHERE id = ?')
+                       ->execute([(int)$col['user_id']]);
+                }
+
+                $subject = $meta['icon'] . ' ' . $meta['label'] . ' – ' . $col['colony_name'];
+                $msgStmt->execute([(int)$col['user_id'], $subject, $meta['body']]);
+            }
+
+            if ($ownsTransaction) {
+                $db->commit();
+            } else {
+                $db->exec('RELEASE SAVEPOINT ' . $savepoint);
+            }
+        } catch (Throwable $error) {
+            if ($ownsTransaction) {
+                $db->rollBack();
+            } else {
+                $db->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+                $db->exec('RELEASE SAVEPOINT ' . $savepoint);
+            }
+            throw $error;
+        }
     }
+
+    app_state_set_int($db, 'colony_events:last_tick', $now);
 }
 
 // ─── Phase 5.3 – Wormhole network maintenance ───────────────────────────────
@@ -1252,25 +1343,53 @@ function wormhole_regeneration_tick_global(PDO $db): void {
     }
     require_once __DIR__ . '/../lib/GalaxySchema.php';
     \GalaxyQuest\Schema\GalaxySchema::assertWormholes($db);
-    app_state_set_int($db, 'wormholes:regen:last_tick', $now);
 
-    $db->exec(
-        'UPDATE wormholes
-         SET
-            cooldown_until = CASE
-                WHEN cooldown_until IS NOT NULL AND cooldown_until <= NOW() THEN NULL
-                ELSE cooldown_until
-            END,
-            stability = LEAST(
-                100,
-                stability + CASE
-                    WHEN cooldown_until IS NULL OR cooldown_until <= NOW() THEN 2
-                    ELSE 0
-                END
-            )
-         WHERE is_active = 1
-           AND (stability < 100 OR cooldown_until IS NOT NULL)'
-    );
+    $ownsTransaction = !$db->inTransaction();
+    $savepoint = 'wormhole_regen_tick';
+    if ($ownsTransaction) {
+        $db->beginTransaction();
+    } else {
+        $db->exec('SAVEPOINT ' . $savepoint);
+    }
+
+    try {
+        $db->exec(
+            'UPDATE wormholes
+             SET
+                cooldown_until = CASE
+                    WHEN cooldown_until IS NOT NULL AND cooldown_until <= NOW() THEN NULL
+                    ELSE cooldown_until
+                END,
+                stability = LEAST(
+                    100,
+                    stability + CASE
+                        WHEN cooldown_until IS NULL OR cooldown_until <= NOW() THEN 2
+                        ELSE 0
+                    END
+                )
+             WHERE is_active = 1
+               AND (stability < 100 OR cooldown_until IS NOT NULL)'
+        );
+
+        app_state_set_int($db, 'wormholes:regen:last_tick', $now);
+
+        if ($ownsTransaction) {
+            $db->commit();
+        } else {
+            $db->exec('RELEASE SAVEPOINT ' . $savepoint);
+        }
+    } catch (Throwable $error) {
+        if ($db->inTransaction()) {
+            if ($ownsTransaction) {
+                $db->rollBack();
+            } else {
+                $db->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+                $db->exec('RELEASE SAVEPOINT ' . $savepoint);
+            }
+        }
+
+        throw $error;
+    }
 }
 
 /**

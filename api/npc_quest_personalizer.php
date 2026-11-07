@@ -160,8 +160,10 @@ function npc_load_quest_template(PDO $db, string $templateCode): ?array
             $row['reward_template'] = json_decode($row['reward_template'] ?? '{}', true);
             return $row;
         }
-    } catch (Exception $e) {
-        // Ignore DB error, try file
+    } catch (PDOException $error) {
+        if ($error->getCode() !== '42S02') {
+            throw $error;
+        }
     }
 
     // Fallback to YAML files

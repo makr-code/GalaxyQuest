@@ -43,6 +43,11 @@ $defaultMigrations = [
     __DIR__ . '/sql/migrate_glossary_cache_v1.sql',
     __DIR__ . '/sql/migrate_alliance_wars_v1.sql',
     __DIR__ . '/sql/migrate_projection_claim_token_v1.sql',
+    __DIR__ . '/sql/migrate_npc_daily_quests_v2.sql',
+    __DIR__ . '/sql/migrate_developer_blog_v1.sql',
+    __DIR__ . '/sql/migrate_developer_blog_v2.sql',
+    __DIR__ . '/sql/migrate_developer_blog_v3.sql',
+    __DIR__ . '/sql/migrate_developer_blog_v4.sql',
 ];
 
 $existingRuntimeSchema = is_existing_runtime_schema($db);

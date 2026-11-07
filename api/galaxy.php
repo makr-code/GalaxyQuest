@@ -6,7 +6,8 @@
  *
  * Returns the star-system descriptor (spectral class, 3-D position,
  * habitable zone, frost line, scientifically generated planets) together
- * with any player-colonised planets in this system.
+ * with any player-colonised planets and deterministic render-only asteroid
+ * belts in this system.
  *
  * The star system is generated deterministically on first access and then
  * cached in the star_systems table for subsequent queries.
@@ -261,12 +262,19 @@ if ($action === 'auth_flight_preview') {
                 p.surface_gravity_g, p.temp_min, p.temp_max, p.in_habitable_zone,
                 COALESCE(cb.mass_earth, NULL) AS mass_earth,
                 COALESCE(cb.eq_temp_k, NULL) AS equilibrium_temperature_k,
-                COALESCE(cb.can_colonize, 0) AS can_colonize
+                COALESCE(cb.can_colonize, 0) AS can_colonize,
+                ring.ring_inner_radius_planet_r,
+                ring.ring_outer_radius_planet_r,
+                ring.ring_optical_depth,
+                ring.ring_tilt_deg,
+                ring.ring_composition
          FROM planets p
          LEFT JOIN celestial_bodies cb
            ON cb.galaxy_index = p.galaxy AND cb.system_index = p.`system`
           AND cb.position = p.position AND cb.body_type = \'planet\'
           AND cb.parent_body_type = \'star\'
+         LEFT JOIN celestial_bodies ring
+           ON ring.parent_body_id = cb.id AND ring.body_type = \'ring_system\'
          WHERE p.galaxy = ? AND p.`system` = ?
          ORDER BY p.position'
     );
@@ -285,6 +293,9 @@ if ($action === 'auth_flight_preview') {
         foreach ($generatedPlanets as $generatedPlanet) {
             $position = (int)($generatedPlanet['position'] ?? 0);
             if ($position <= 0 || isset($existingPositions[$position])) continue;
+            $generatedRingSystem = is_array($generatedPlanet['ring_system'] ?? null)
+                ? $generatedPlanet['ring_system']
+                : null;
             $planets[] = [
                 'position' => $position,
                 'planet_class' => (string)($generatedPlanet['planet_class'] ?? 'rocky'),
@@ -300,6 +311,7 @@ if ($action === 'auth_flight_preview') {
                 'equilibrium_temperature_k' => (float)($generatedPlanet['eq_temp_k'] ?? 0),
                 'can_colonize' => !empty($generatedPlanet['can_colonize']) ? 1 : 0,
                 'moons' => is_array($generatedPlanet['moons'] ?? null) ? $generatedPlanet['moons'] : [],
+                'ring_system' => $generatedRingSystem,
                 'preview_generated' => true,
             ];
             $existingPositions[$position] = true;
@@ -391,6 +403,25 @@ if ($action === 'auth_flight_preview') {
         ];
     }
     foreach ($planets as &$planet) {
+        $innerRingRadius = $planet['ring_inner_radius_planet_r'] ?? null;
+        $outerRingRadius = $planet['ring_outer_radius_planet_r'] ?? null;
+        if (is_numeric($innerRingRadius) && is_numeric($outerRingRadius)
+            && (float)$outerRingRadius > (float)$innerRingRadius) {
+            $planet['ring_system'] = [
+                'inner_radius_planet_r' => (float)$innerRingRadius,
+                'outer_radius_planet_r' => (float)$outerRingRadius,
+                'optical_depth' => isset($planet['ring_optical_depth']) ? (float)$planet['ring_optical_depth'] : 0.35,
+                'tilt_deg' => isset($planet['ring_tilt_deg']) ? (float)$planet['ring_tilt_deg'] : 0.0,
+                'composition' => (string)($planet['ring_composition'] ?? 'mixed_ice_dust'),
+            ];
+        }
+        unset(
+            $planet['ring_inner_radius_planet_r'],
+            $planet['ring_outer_radius_planet_r'],
+            $planet['ring_optical_depth'],
+            $planet['ring_tilt_deg'],
+            $planet['ring_composition']
+        );
         $position = (int)($planet['position'] ?? 0);
         $habitation = $habitationByPosition[$position] ?? ['colony_count' => 0, 'colony_population' => 0];
         $planet['colony_count'] = $habitation['colony_count'];
@@ -1134,7 +1165,7 @@ if (!isset($starSystem['catalog_name']) || $starSystem['catalog_name'] === '') {
 }
 
 // ── 2. Build or load cached system base payload (planets/colonies/fleets) ────
-$systemCacheParams = ['g' => $g, 's' => $s, 'schema' => 2];
+$systemCacheParams = ['g' => $g, 's' => $s, 'schema' => 4];
 $response = null;
 $cachedBaseRaw = gq_cache_get_raw('system_payload_base', $systemCacheParams);
 if (is_string($cachedBaseRaw) && $cachedBaseRaw !== '') {
@@ -1253,6 +1284,7 @@ if (!is_array($response)) {
         'bodies'               => is_array($starSystem['bodies'] ?? null) ? $starSystem['bodies'] : [],
         'free_comets'          => is_array($starSystem['free_comets'] ?? null) ? $starSystem['free_comets'] : [],
         'rogue_planets'        => is_array($starSystem['rogue_planets'] ?? null) ? $starSystem['rogue_planets'] : [],
+        'special_bodies'       => generate_asteroid_belts($starSystem['planets'] ?? [], $g, $s),
         'planets'              => $mergedPlanets,
         'planet_texture_manifest' => build_planet_texture_manifest($g, $s, $starSystem, $mergedPlanets, $assetsManifestVersion),
         'fleets_in_system'     => $fleetsInSystem,

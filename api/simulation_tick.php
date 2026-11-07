@@ -25,8 +25,14 @@ if ($action !== 'run') {
     exit;
 }
 
-$scope = strtolower(trim((string)($body['scope'] ?? 'user')));
-$force = !empty($body['force']);
+try {
+    $options = simulation_tick_request_options($body, $uid);
+} catch (InvalidArgumentException $error) {
+    json_error($error->getMessage(), 400);
+}
+
+$scope = $options['scope'];
+$force = $options['force'];
 
 if ($scope === 'global') {
     if (!is_admin_user($db, $uid)) {
@@ -34,15 +40,17 @@ if ($scope === 'global') {
         exit;
     }
     $result = simulation_tick_global($db, $force);
-    json_ok(['simulation' => $result]);
+    $response = simulation_runtime_public_response($result);
+    json_response($response, $response['success'] ? 200 : 500);
     exit;
 }
 
-$targetUserId = (int)($body['user_id'] ?? $uid);
+$targetUserId = $options['user_id'];
 if ($targetUserId !== $uid && !is_admin_user($db, $uid)) {
     json_error('Cannot run simulation tick for another user.', 403);
     exit;
 }
 
 $result = simulation_tick_user($db, $targetUserId, $force);
-json_ok(['simulation' => $result]);
+$response = simulation_runtime_public_response($result);
+json_response($response, $response['success'] ? 200 : 500);

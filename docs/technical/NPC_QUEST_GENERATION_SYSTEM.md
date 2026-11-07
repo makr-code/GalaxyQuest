@@ -10,6 +10,10 @@ The NPC Quest Generation System allows NPCs to autonomously create and offer que
 4. **LLM Integration** — Optional LLM-driven quest personalization
 5. **Generation Logging** — Audit trail for all quest creation events
 
+The global daily-offer generator is not connected to the production NPC tick.
+It is callable explicitly, but should remain unwired until its trigger and
+full player quest lifecycle have end-to-end coverage.
+
 ## Architecture
 
 ### Core Flow
@@ -134,12 +138,35 @@ $stats = npc_quest_trigger_log_stats($db, $factionId);
 ALTER TABLE faction_quests ADD:
   quest_chain_parent_id INT      -- Parent quest for chains
   quest_chain_position INT       -- Position in chain (0 = first)
+  active TINYINT                 -- Offer available for discovery
+  template_code VARCHAR(64)      -- Template used to create the offer
   generated_by_npc TINYINT       -- 1 if generated dynamically
   generated_timestamp DATETIME   -- When it was generated
   llm_prompt_context TEXT        -- LLM context used
   quest_reward_seed VARCHAR(64)  -- Seeded RNG seed
   description_source ENUM        -- static, llm, hybrid
 ```
+
+The append-only `migrate_npc_daily_quests_v2.sql` migration adds the daily
+generator fields and seeds its supported database templates. Templates whose
+quest types or requirements are not implemented by the canonical quest engine
+are not selected by the daily generator. Unstarted generated offers expire
+after 24 hours; accepted quests remain available to their owners.
+
+### Contextual triggers
+
+The callable contextual trigger checks use canonical data sources: low-metal
+colonies are read from `colonies`, recent attacks from `battle_reports`, and
+standing changes from `diplomacy_history` when that optional history table is
+present. Missing history produces no standing trigger; other database errors
+propagate. Generated contextual quests are limited to the supported delivery
+and combat templates and write the canonical quest fields plus their audit log
+in one transaction or savepoint.
+
+`trade_routes` has no persisted disruption state or event history, so the trade
+disruption trigger remains disabled. The contextual trigger system has no
+production call site; do not activate it until trade-event persistence and the
+user-specific quest discovery/lifecycle have end-to-end coverage.
 
 ### quest_templates
 
@@ -165,7 +192,7 @@ CREATE TABLE quest_templates (
 CREATE TABLE npc_quest_generation_log (
   id INT PRIMARY KEY AUTO_INCREMENT,
   faction_id INT,
-  user_id INT,
+  user_id INT NULL,                    -- NULL for global daily generation
   quest_id INT,
   trigger_reason VARCHAR(255),         -- daily_generator, contextual_trigger, npc_decision
   trigger_context_json TEXT,           -- JSON details

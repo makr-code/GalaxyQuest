@@ -283,6 +283,74 @@ describe('Persisted cube-sphere terrain', () => {
     expect(status).toHaveBeenCalledTimes(2);
   });
 
+  it.each(['manifest', 'tiles'])('does not start a %s POST after disposal during CSRF body decoding', async action => {
+    let decode;
+    const fetcher = vi.fn(async () => ({ ok: true, json: async () => ({ success: false }) }))
+      .mockImplementationOnce(async () => ({ ok: true, json: () => new Promise(resolve => { decode = resolve; }) }));
+    vi.stubGlobal('fetch', fetcher);
+    const status = vi.fn();
+    const stream = new CubeSphereTerrainStream(7, status);
+    if (action === 'tiles') stream.manifest = manifest;
+    const pending = action === 'manifest' ? stream.load() : stream._fetchTiles(roots());
+    await flush();
+    expect(decode).toBeTypeOf('function');
+    const signal = fetcher.mock.calls[0][1].signal;
+    stream.dispose();
+    decode({ token: 'late-csrf-token' });
+    await pending;
+    expect(signal.aborted).toBe(true);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(stream.csrfToken).toBeNull();
+    expect(stream.manifest).toBeNull();
+    expect(stream.request).toBeNull();
+    expect(stream.failed).toBe(false);
+    expect(status).toHaveBeenCalledTimes(action === 'manifest' ? 1 : 0);
+  });
+
+  it('releases CPU terrain state even when request cancellation throws', () => {
+    const stream = new CubeSphereTerrainStream(7, vi.fn());
+    stream.manifest = manifest;
+    stream.csrfToken = 'cached-token';
+    stream.tiles.set('root', tile(roots()[0]));
+    stream.surfaceTiles.set('root', stream.tiles.get('root'));
+    stream.needed.set('root', roots()[0]);
+    stream.plan = { radiusPixels: 4000, focus: [0, 1, 0] };
+    const failure = new Error('Request cancellation failed');
+    stream.request = { abort: vi.fn(() => { throw failure; }) };
+    expect(() => stream.dispose()).toThrow(failure);
+    expect(stream.request).toBeNull();
+    expect(stream.manifest).toBeNull();
+    expect(stream.csrfToken).toBeNull();
+    expect(stream.plan).toBeNull();
+    expect(stream.onChange).toBeNull();
+    expect(stream.wanted).toEqual([]);
+    expect(stream.tiles.size + stream.surfaceTiles.size + stream.needed.size).toBe(0);
+    expect(() => stream.dispose()).not.toThrow();
+  });
+
+  it('does not restore a disposed manifest or schedule more terrain work from a late body', async () => {
+    const fetcher = fixtureFetch();
+    let decode;
+    fetcher.mockImplementation(async url => {
+      if (url.includes('auth.php')) return { ok: true, json: async () => ({ token: 'test-token' }) };
+      return { ok: true, json: () => new Promise(resolve => { decode = resolve; }) };
+    });
+    const status = vi.fn();
+    const stream = new CubeSphereTerrainStream(7, status);
+    const pending = stream.load();
+    await flush();
+    expect(decode).toBeTypeOf('function');
+    stream.dispose();
+    decode({ success: true, manifest });
+    await pending;
+    expect(stream.manifest).toBeNull();
+    expect(stream.csrfToken).toBeNull();
+    expect(stream.update(4000, [0, 1, 0])).toEqual([]);
+    await stream.load();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(status).toHaveBeenCalledOnce();
+  });
+
   it('keeps the CPU cache bounded while moving between distant surface targets', async () => {
     fixtureFetch();
     const stream = new CubeSphereTerrainStream(7, vi.fn());

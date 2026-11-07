@@ -1290,6 +1290,7 @@ class CubeSphereTerrainStream {
   }
 
   async _fetchTerrain(action, payload, signal) {
+    signal.throwIfAborted();
     if (!this.csrfToken) {
       const csrfResponse = await fetch('/api/auth.php?action=csrf', {
         credentials: 'same-origin',
@@ -1297,12 +1298,14 @@ class CubeSphereTerrainStream {
       });
       if (!csrfResponse.ok) throw new Error(`Terrain CSRF token HTTP ${csrfResponse.status}`);
       const csrfData = await csrfResponse.json();
+      signal.throwIfAborted();
       if (typeof csrfData.token !== 'string' || csrfData.token.length === 0) {
         throw new Error('Terrain CSRF token missing');
       }
       this.csrfToken = csrfData.token;
     }
 
+    signal.throwIfAborted();
     return fetch(`api/terrain.php?action=${action}`, {
       method: 'POST',
       credentials: 'same-origin',
@@ -1317,11 +1320,17 @@ class CubeSphereTerrainStream {
 
   dispose() {
     this.disposed = true;
-    this.request?.abort();
+    const request = this.request;
     this.request = null;
+    this.manifest = null;
+    this.csrfToken = null;
+    this.plan = null;
+    this.onChange = null;
+    this.wanted = [];
     this.tiles.clear();
     this.surfaceTiles.clear();
     this.needed.clear();
+    request?.abort();
   }
 }
 
@@ -1612,6 +1621,8 @@ function cityPedestrians(population, slots, popClasses = {}) {
 class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   constructor() {
     super();
+    this._disposed = false;
+    this._viewGeneration = 0;
     this._canvas         = null;
     this._backend        = null;
     this._sceneData      = null;
@@ -1684,6 +1695,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   }
 
   async initialize(canvas, backend) {
+    if (this._disposed) throw new Error('Cannot initialize a disposed colony surface renderer');
     this._canvas  = canvas;
     this._backend = backend;
 
@@ -1693,10 +1705,12 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       throw new Error('ColonySurfaceLevelWebGPU requires the shared WebGPU device and canvas context');
     }
     await this._buildPipelines();
+    if (this._disposed) return;
     if (this._sceneData) this.setSceneData(this._sceneData);
   }
 
   setSceneData(data) {
+    if (this._disposed) throw new Error('Cannot update a disposed colony surface renderer');
     this._cameraFocus = null;
     const detail = this._buildingView;
     const sameColony = Number(this._sceneData?.colony?.id || 0) === Number(data?.colony?.id || 0);
@@ -1837,7 +1851,11 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   }
 
   async enter(prevLevel, transitionPayload) {
-    if (this._active) await this.exit();
+    if (this._disposed) throw new Error('Cannot enter a disposed colony surface renderer');
+    const leaving = this._active ? this.exit() : null;
+    const generation = ++this._viewGeneration;
+    if (leaving) await leaving;
+    if (this._disposed || generation !== this._viewGeneration) return;
     this._active = true;
     this._camera.progress = 0;
     this._camera.target = { x: 0, z: 0 };
@@ -1868,36 +1886,55 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   }
 
   async exit(nextLevel) {
+    const generation = ++this._viewGeneration;
+    const errors = [];
+    const attempt = (cleanup) => {
+      try { cleanup(); } catch (error) { errors.push(error); }
+    };
+    attempt(() => this._departure?.resolve());
+    this._departure = null;
     if (nextLevel === 2 && this._backend?.externalCameraControls && this._active
         && this._planetBackdrop && this._camera.progress > 0 && this._sceneData?.reduced_motion !== true
         && !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
       this._cameraFocus = null;
       this._requestGeneration++;
-      this._request?.abort();
+      attempt(() => this._request?.abort());
       this._request = null;
-      this._inputCleanups.splice(0).forEach((cleanup) => cleanup());
-      this._hud?.remove();
+      this._inputCleanups.splice(0).forEach(attempt);
+      attempt(() => this._hud?.remove());
       this._hud = null;
-      await new Promise((resolve) => {
-        this._departure = { elapsed: 0, progress: this._camera.progress, span: this._camera.span,
-          target: { ...this._camera.target }, orbit: { ...this._orbit }, resolve };
-      });
+      if (!errors.length) {
+        await new Promise((resolve) => {
+          this._departure = { elapsed: 0, progress: this._camera.progress, span: this._camera.span,
+            target: { ...this._camera.target }, orbit: { ...this._orbit }, resolve };
+        });
+      }
     }
-    this._departure?.resolve();
+    if (generation === this._viewGeneration) errors.push(...this._releaseViewResources());
+    if (errors.length) throw new AggregateError(errors, 'Colony surface exit failed');
+  }
+
+  _releaseViewResources() {
+    this._viewGeneration++;
+    const errors = [];
+    const attempt = (cleanup) => {
+      try { cleanup(); } catch (error) { errors.push(error); }
+    };
+    attempt(() => this._departure?.resolve());
     this._departure = null;
     this._active = false;
     this._cameraEye = null;
     this._cameraFocus = null;
     this._buildingView = null;
     this._atmosphereState = null;
-    this._terrainStream?.dispose();
+    attempt(() => this._terrainStream?.dispose());
     this._terrainStream = null;
     this._terrainState = '';
     this._requestGeneration++;
-    this._request?.abort();
+    attempt(() => this._request?.abort());
     this._request = null;
-    this._inputCleanups.splice(0).forEach((cleanup) => cleanup());
-    this._hud?.remove();
+    this._inputCleanups.splice(0).forEach(attempt);
+    attempt(() => this._hud?.remove());
     this._hud = null;
     this._selected = null;
     this._people = [];
@@ -1911,33 +1948,30 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       profileCounts: {},
       burstActive: false,
     };
-    this._instanceBuffer?.destroy();
+    attempt(() => this._instanceBuffer?.destroy());
     this._instanceBuffer = null;
     this._instanceBindGroup = null;
-    this._buildingVfxBuffer?.destroy();
+    attempt(() => this._buildingVfxBuffer?.destroy());
     this._buildingVfxBuffer = null;
     this._slotCount = 0;
     this._planetBackdrop = null;
     this._backdropPose = null;
-    this._depthTexture?.destroy();
+    attempt(() => this._depthTexture?.destroy());
     this._depthTexture = null;
-    this._releaseTerrain();
+    attempt(() => this._releaseTerrain());
+    return errors;
   }
 
   dispose() {
-    this.exit();
-    this._cameraBuffer?.destroy();
+    this._disposed = true;
+    const errors = this._releaseViewResources();
+    const attempt = (cleanup) => {
+      try { cleanup(); } catch (error) { errors.push(error); }
+    };
+    attempt(() => this._cameraBuffer?.destroy());
     this._cameraBuffer = null;
-    this._materialBuffer?.destroy();
+    attempt(() => this._materialBuffer?.destroy());
     this._materialBuffer = null;
-    if (this._instanceBuffer) {
-      try { this._instanceBuffer.destroy(); } catch (_) {}
-      this._instanceBuffer = null;
-    }
-    if (this._buildingVfxBuffer) {
-      try { this._buildingVfxBuffer.destroy(); } catch (_) {}
-      this._buildingVfxBuffer = null;
-    }
     this._meshPipeline = null;
     this._domePipeline = null;
     this._domeBindGroup = null;
@@ -1966,6 +2000,16 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._context = null;
     this._canvas  = null;
     this._backend = null;
+    this._sceneData = null;
+    this._navigation = null;
+    this._slots = [];
+    this._city = null;
+    this._bodySurface = null;
+    this._materialState = null;
+    this._snapshotState = '';
+    this._snapshotLoaded = false;
+    this._snapshotDirty = false;
+    if (errors.length) throw new AggregateError(errors, 'Colony surface disposal failed');
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────
@@ -2086,7 +2130,10 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   }
 
   _releaseTerrain() {
-    for (const entry of this._terrainCache.values()) entry.buffer.destroy();
+    const errors = [];
+    for (const entry of this._terrainCache.values()) {
+      try { entry.buffer.destroy(); } catch (error) { errors.push(error); }
+    }
     this._terrainCache.clear();
     this._terrainCacheBytes = 0;
     this._terrainBuffer = null;
@@ -2095,6 +2142,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._terrainFocus = null;
     this._terrainKey = '';
     this._persistentMeshKey = '';
+    if (errors.length) throw new AggregateError(errors, 'Colony terrain cleanup failed');
   }
 
   _uploadTerrain() {
@@ -2276,6 +2324,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
   }
 
   setNavigationHandlers(handlers) {
+    if (this._disposed) throw new Error('Cannot bind navigation on a disposed colony surface renderer');
     this._navigation = handlers;
   }
 
@@ -2355,7 +2404,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     };
   }
 
-  enterBuilding(payload) {
+  validateBuilding(payload) {
     const requested = payload?.target || payload?.building || payload;
     const colonyId = requested?.colonyId ?? requested?.colony_id ?? payload?.colonyId ?? payload?.colony?.id;
     if (colonyId != null && Number(colonyId) !== Number(this._sceneData?.colony?.id)) {
@@ -2369,6 +2418,11 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
             ? entry.x === requested.x && entry.z === requested.z
             : requested.id != null && entry.id != null && entry.id === requested.id);
     if (!slot) throw new Error('Building detail requires an existing colony building');
+    return slot;
+  }
+
+  enterBuilding(payload) {
+    const slot = this.validateBuilding(payload);
     if (!this._buildingView) {
       this._buildingView = {
         target: { ...this._camera.target },
@@ -2456,9 +2510,11 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
         const response = await fetch(`api/colony_economy.php?action=snapshot&colony_id=${id}`, {
           credentials: 'same-origin', cache: 'no-store', signal: request.signal,
         });
+        if (!this._active || generation !== this._requestGeneration) return;
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         snapshot = await response.json();
       }
+      if (!this._active || generation !== this._requestGeneration) return;
       if (!snapshot.success || !snapshot.economy || Number(snapshot.colony?.id) !== id) {
         throw new Error(snapshot.error || 'Economy rollout not enabled');
       }
@@ -2485,9 +2541,15 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
         try {
           const buildings = await window.API.buildings(id);
           if (!this._active || generation !== this._requestGeneration) return;
+          if (!buildings?.success) throw new Error(buildings?.error || 'Building snapshot unavailable');
           const mapped = window.GQRuntimeColonySurfaceSlotMapping?.buildColonySurfaceVfxSlots(this._sceneData.colony, buildings);
           if (buildings.success && mapped) this.setSceneData({ ...this._sceneData, layout: buildings.layout, slots: mapped.slots });
-        } catch (_) { /* Preserve the last confirmed scene when offline. */ }
+        } catch (fallbackError) {
+          if (!this._active || generation !== this._requestGeneration || fallbackError.name === 'AbortError') return;
+          this._snapshotState = `Economy unavailable; building snapshot unavailable: ${fallbackError.message}`;
+          window.GQLog?.error?.('[colony-surface]', fallbackError.message);
+          this._sceneData.onError?.(fallbackError);
+        }
       }
     } finally {
       if (generation === this._requestGeneration) {
@@ -2509,6 +2571,14 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       if (!document.hidden && this._snapshotDirty) void this.refreshSnapshot(this._sceneData?.colony?.id);
     });
     let drag = null;
+    const releaseDrag = () => {
+      const pointerId = drag?.pointerId;
+      drag = null;
+      if (pointerId !== undefined && canvas.hasPointerCapture?.(pointerId)) {
+        canvas.releasePointerCapture(pointerId);
+      }
+    };
+    this._inputCleanups.push(releaseDrag);
     const stop = (event) => { event.stopImmediatePropagation(); };
     listen(canvas, 'pointerdown', (event) => {
       stop(event);
@@ -2516,7 +2586,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       event.preventDefault();
       canvas.focus?.({ preventScroll: true });
       this._cameraFocus = null;
-      drag = { x: event.clientX, y: event.clientY, moved: false, button: event.button,
+      drag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, moved: false, button: event.button,
         pan: !this._backend?.externalCameraControls || event.shiftKey || event.button !== 0 };
       canvas.setPointerCapture?.(event.pointerId);
     }, capture);
@@ -2536,10 +2606,10 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     listen(canvas, 'pointerup', (event) => {
       stop(event);
       if (drag && !drag.moved && drag.button === 0) this._selectAt(event.clientX, event.clientY);
-      drag = null;
-      if (canvas.hasPointerCapture?.(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+      releaseDrag();
     }, capture);
-    listen(canvas, 'pointercancel', () => { drag = null; }, capture);
+    listen(canvas, 'pointercancel', releaseDrag, capture);
+    listen(canvas, 'lostpointercapture', () => { drag = null; }, capture);
     listen(canvas, 'click', stop, capture);
     listen(canvas, 'contextmenu', (event) => { stop(event); event.preventDefault(); }, capture);
     for (const name of ['mousedown', 'mousemove', 'mouseup']) listen(canvas, name, stop, capture);

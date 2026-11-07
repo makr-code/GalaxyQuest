@@ -3,6 +3,7 @@ import { createShipyardDomain } from '../../js/engine/runtime/server-shipyard-do
 import { createFleetLaunchDomain } from '../../js/engine/runtime/server-fleet-launch-domain.js';
 import { createServerGameSession } from '../../js/engine/runtime/server-game-session.js';
 import { mountShipyardWindow } from '../../js/ui/game-shipyard.js';
+import { attachWindowWidgets } from './helpers/window-widget-fixture.js';
 
 const inventory = () => ({ success: true,
   ships: [{ type: 'small_cargo', count: 4, cost: { metal: 2000, crystal: 2000, deuterium: 0 } }],
@@ -46,7 +47,7 @@ describe('Authoritative shipyard and fleet inventory integration', () => {
     document.body.append(root);
     wm = { body: () => root, register: vi.fn(), open: vi.fn(), close: vi.fn(),
       minimize: vi.fn(), isOpen: () => true };
-    unmount = mountShipyardWindow({ session, domain, wm });
+    unmount = mountShipyardWindow({ session, domain, wm: attachWindowWidgets(wm) });
     return wm.register.mock.calls[0][1].onRender();
   }
   const click = (label) => [...root.querySelectorAll('button')].find((item) => item.textContent === label).click();
@@ -54,6 +55,25 @@ describe('Authoritative shipyard and fleet inventory integration', () => {
   const input = () => form().querySelector('input');
   const fill = (value) => { input().value = value; input().dispatchEvent(new Event('input')); };
   const submit = () => form().dispatchEvent(new Event('submit', { cancelable: true }));
+  it('separates production completion from construction cards and keeps stale commands locked', async () => {
+    mount();
+    await vi.waitFor(() => expect(domain.getState().loading).toBe(false));
+    expect(root.querySelector('.game-shipyard-header h2 svg')).not.toBeNull();
+    const production = root.querySelector('[aria-label="Produktionsaufträge"]');
+    expect(production.querySelector('.game-shipyard-order-count').textContent).toBe('1 Auftrag');
+    const finish = [...production.querySelectorAll('button')].find((item) => item.textContent === 'Fällige Schiffsbauten abschließen');
+    expect(finish.disabled).toBe(false);
+    expect(production.querySelector('.game-shipyard-queue li')).not.toBeNull();
+    expect(production.querySelector('form')).toBeNull();
+    expect(root.querySelector('.game-shipyard-cost [aria-label="Basiskosten je Schiff"]')).not.toBeNull();
+    expect(root.querySelector('.game-shipyard-help').open).toBe(false);
+    expect(api.post).not.toHaveBeenCalled();
+    api.get.mockRejectedValueOnce(new Error('Inventory unavailable'));
+    await domain.load();
+    expect(root.querySelector('.game-shipyard-production button').disabled).toBe(true);
+    expect(form().querySelector('fieldset').disabled).toBe(true);
+    expect(api.post).not.toHaveBeenCalled();
+  });
   it('only reads canonical catalog, blueprints and overdue queue without automatic completion', async () => {
     await domain.load();
     expect(api.get).toHaveBeenCalledExactlyOnceWith('api/shipyard.php?action=list&colony_id=1', { signal: expect.any(AbortSignal) });
@@ -205,6 +225,19 @@ describe('Authoritative shipyard and fleet inventory integration', () => {
     expect(root.querySelector('img')).toBeNull();
     expect(root.textContent).toContain('<img src=x>');
     expect(root.textContent).toContain('2000-01-01 10:00:00 (Serverzeit)');
+    const card = root.querySelector('[data-ship-type="small_cargo"]');
+    expect(card.querySelector('.game-development-card-heading svg')).not.toBeNull();
+    expect(card.querySelector('.game-shipyard-stock').textContent).toBe('Verfügbar: 4');
+    expect(card.querySelector('[aria-label="Basiskosten je Schiff"]').textContent).toBe('2000 metal2000 crystal');
+    expect(card.querySelectorAll('.game-development-costs svg')).toHaveLength(2);
+    expect(root.querySelector('[data-ship-type="bp_7"] .game-shipyard-blueprint').textContent).toBe('Bauplan');
+    const order = root.querySelector('.game-shipyard-queue li');
+    expect(order.dataset.orderState).toBe('running');
+    expect(order.querySelector('.wm-timeline-meta').textContent).toContain('#1');
+    expect(order.querySelector('.wm-timeline-title').textContent).toBe('2 small cargo');
+    expect(order.querySelector('.wm-timeline-state').textContent).toBe('Im Bau');
+    expect(root.querySelector('progress, meter')).toBeNull();
+    expect(api.post).not.toHaveBeenCalled();
     fill('3');
     api.post.mockRejectedValueOnce(new Error('Shipyard required'));
     submit();
@@ -222,6 +255,72 @@ describe('Authoritative shipyard and fleet inventory integration', () => {
     session.selectColony(2);
     await vi.waitFor(() => expect(root.textContent).toContain('Other'));
     await vi.waitFor(() => expect(input().value).toBe('1'));
+  });
+  it('shows waiting orders, zero inventory and empty costs without inferred progress or writes', async () => {
+    api.get.mockResolvedValueOnce({ success: true,
+      ships: [{ type: 'small_cargo', count: 0, cost: { metal: 0 } }],
+      blueprints: [], queue: [{ id: 8, position: 2, ship_type: 'small_cargo',
+        label: '<script>queue</script>', quantity: 3, status: 'queued', eta: null }] });
+    mount();
+    await vi.waitFor(() => expect(root.querySelector('.game-shipyard-stock')).not.toBeNull());
+    expect(root.querySelector('.game-shipyard-stock').textContent).toBe('Verfügbar: 0');
+    expect(root.querySelector('.game-development-costs').textContent).toBe('0');
+    const order = root.querySelector('.game-shipyard-queue li');
+    expect(order.dataset.orderState).toBe('queued');
+    expect(order.textContent).toContain('Wartet');
+    expect(order.textContent).toContain('Start ausstehend');
+    expect(order.textContent).toContain('3 <script>queue</script>');
+    expect(root.querySelector('script, progress, meter')).toBeNull();
+    api.get.mockResolvedValueOnce({ success: true, ships: [], blueprints: [], queue: [] });
+    await domain.load();
+    expect(root.textContent).toContain('Keine laufenden Schiffsbauten.');
+    expect(root.querySelector('.game-shipyard-card')).toBeNull();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+  it('filters ships locally while preserving quantities, focus, queue and refresh selections', async () => {
+    mount();
+    await vi.waitFor(() => expect(input()).not.toBeNull());
+    fill('6');
+    const originalInput = input();
+    const search = root.querySelector('[aria-label="Schiffe suchen"]');
+    const filter = root.querySelector('[aria-label="Schiffsauswahl"]');
+    const visible = () => [...root.querySelectorAll('.game-shipyard-card')].filter(card => !card.hidden);
+    const reads = api.get.mock.calls.length;
+    search.focus();
+    search.value = ' SMALL ';
+    search.dispatchEvent(new Event('input'));
+    expect(visible().map(card => card.dataset.shipType)).toEqual(['small_cargo']);
+    expect(document.activeElement).toBe(search);
+    filter.value = 'blueprints';
+    filter.dispatchEvent(new Event('change'));
+    expect(visible()).toHaveLength(0);
+    expect(root.textContent).toContain('0 von 2 Schiffstypen angezeigt.');
+    expect(root.querySelector('.game-shipyard-queue li')).not.toBeNull();
+    expect(input()).toBe(originalInput);
+    expect(input().value).toBe('6');
+    search.value = '';
+    search.dispatchEvent(new Event('input'));
+    expect(visible().map(card => card.dataset.shipType)).toEqual(['bp_7']);
+    expect(visible()[0].querySelector('fieldset').disabled).toBe(false);
+    filter.value = 'stock';
+    filter.dispatchEvent(new Event('change'));
+    expect(visible().map(card => card.dataset.shipType)).toEqual(['small_cargo']);
+    expect(api.get).toHaveBeenCalledTimes(reads);
+    expect(api.post).not.toHaveBeenCalled();
+    await domain.load();
+    expect(root.querySelector('[aria-label="Schiffsauswahl"]').value).toBe('stock');
+    expect(input().value).toBe('6');
+    click('Werftfilter zurücksetzen');
+    expect(visible()).toHaveLength(2);
+    expect(document.activeElement).toBe(root.querySelector('[aria-label="Schiffe suchen"]'));
+    expect(api.post).not.toHaveBeenCalled();
+    const detachedSearch = root.querySelector('[aria-label="Schiffe suchen"]');
+    unmount();
+    unmount = null;
+    const before = root.innerHTML;
+    detachedSearch.value = 'not loaded';
+    detachedSearch.dispatchEvent(new Event('input'));
+    expect(root.innerHTML).toBe(before);
   });
   it('opens only owned colony requests and returns to map composition, then removes all bindings', async () => {
     mount();

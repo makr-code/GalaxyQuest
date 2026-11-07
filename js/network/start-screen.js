@@ -1,5 +1,6 @@
 import { initializeServerAnnouncements } from './server-announcements.js';
 import { initializeRegistrationPrologue } from './registration-prologue.js';
+import { initializeDeveloperBlog } from './developer-blog.js';
 
 export function initializeStartScreen({ onResume, onMute, onFlightTour = () => true, onRegistrationRequest, onRegistrationPreview, onEnterDraft } = {}) {
   const menu = document.getElementById('start-menu');
@@ -22,6 +23,7 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
   let panelListeners = null;
   let activeTrigger = null;
   const loginButton = document.getElementById('start-login');
+  const blog = initializeDeveloperBlog();
   const announcements = initializeServerAnnouncements({
     beforeOpen: () => {
       // Do not interrupt credentials, registration or settings while the initial request finishes.
@@ -38,6 +40,7 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
   }
 
   function closeContent() {
+    blog.stop();
     if (!contentDialog.open) return;
     contentDialog.close();
     const trigger = activeTrigger;

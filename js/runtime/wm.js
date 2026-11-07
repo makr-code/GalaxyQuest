@@ -71,6 +71,10 @@ const WMCore = (() => {
     snapBottom:       'Snap bottom',
     tileWithSelected: 'Tile with selection',
     createDockGroup:  'Create group',
+    windowActions:    'Window actions',
+    docking:          'Dock to edge',
+    undock:           'Detach from edge',
+    snapLayout:       'Split layout',
   };
 
   // ── Factory ─────────────────────────────────────────────────────────────────
@@ -82,6 +86,7 @@ const WMCore = (() => {
     const _wins     = new Map();
     /** @type {Map<string, object>} */
     const _registry = new Map();
+    const _windowLayouts = new WeakMap();
 
     let _topZ                 = 240;
     let _nextX                = 60;
@@ -100,6 +105,7 @@ const WMCore = (() => {
     let _lastSelectedWindowId  = null; // For Shift+click range selection
     let _focusHistory          = [];   // MRU list, most recent first
     let _paletteState         = null;
+    let _activePointerInteraction = null;
 
     // ── Configuration ──────────────────────────────────────────────────────
     const _storagePrefix    = String(opts.storagePrefix    != null ? opts.storagePrefix    : 'wm_');
@@ -846,6 +852,8 @@ const WMCore = (() => {
         ui = { root: root, parentWinId: null };
         _dockGroupUis.set(gid, ui);
       }
+      var focusedTabId = ui.root.contains(document.activeElement)
+        ? document.activeElement.dataset.dockTabWinId : null;
 
       var titlebar = activeWin.el.querySelector('.wm-titlebar');
       if (!(titlebar instanceof HTMLElement)) {
@@ -919,6 +927,7 @@ const WMCore = (() => {
         });
 
         ui.root.appendChild(btn);
+        if (focusedTabId === String(winId)) btn.focus();
       });
     }
 
@@ -1259,6 +1268,10 @@ const WMCore = (() => {
     function close(id) {
       if (!_wins.has(id)) return;
       var win = _wins.get(id);
+      _cancelWindowPointer(win.el);
+      var frame = _windowLayouts.get(win.el);
+      if (frame && frame.menuBar) frame.menuBar.close();
+      if (frame && !win.preserveOnClose) frame.destroy();
       var cfg = (win && win.cfg) || _registry.get(id) || _windowDefaults[id] || {};
       _detachOverflowObservers(id);
       if (win && win.preserveOnClose) {
@@ -1306,6 +1319,26 @@ const WMCore = (() => {
       var win = _wins.get(id);
       if (!win) return null;
       return win.el.querySelector('.wm-body') || null;
+    }
+
+    function layout(id, options) {
+      var win = _wins.get(id);
+      if (!win) throw new Error('Cannot create a layout for a closed window: ' + id);
+      var existing = _windowLayouts.get(win.el);
+      if (options == null && existing) return existing;
+      var widgets = opts.widgets || window.WMWidgets;
+      if (!widgets || typeof widgets.frame !== 'function') throw new Error('WMWidgets must be loaded before creating a window layout.');
+      if (existing) existing.destroy();
+      var container = body(id);
+      container.replaceChildren();
+      var frame = widgets.frame(container, options || {});
+      var destroy = frame.destroy;
+      frame.destroy = function () {
+        destroy();
+        if (_windowLayouts.get(win.el) === frame) _windowLayouts.delete(win.el);
+      };
+      _windowLayouts.set(win.el, frame);
+      return frame;
     }
 
     // ── Public: isOpen ────────────────────────────────────────────────────
@@ -1399,15 +1432,7 @@ const WMCore = (() => {
       var resizeHandle   = el.querySelector(':scope > .wm-resize-handle');
 
       if (!cfg.fullscreenDesktop && !titlebar) {
-        var minBtn   = new GQUI.Button('\u2013').setClass('wm-btn wm-btn-min');
-        minBtn.dom.title = 'Minimise';
-        var closeBtn = new GQUI.Button('\u2715').setClass('wm-btn wm-btn-close');
-        closeBtn.dom.title = 'Close';
-        var head = new GQUI.Div()
-          .setClass('wm-titlebar')
-          .add(new GQUI.Span().setClass('wm-title').setTextContent(cfg.title || id))
-          .add(new GQUI.Div().setClass('wm-controls').add(minBtn, closeBtn));
-        el.insertBefore(head.dom, el.firstChild);
+        el.insertBefore(_buildTitlebar(id, cfg), el.firstChild);
       }
 
       if (!existingBody) {
@@ -1452,6 +1477,29 @@ const WMCore = (() => {
     }
 
     // ── Internal: build window DOM ────────────────────────────────────────
+    function _buildWindowMenuButton() {
+      var menuBtn = new GQUI.Button('\u22ef').setClass('wm-btn wm-btn-menu');
+      menuBtn.dom.title = _labels.windowActions;
+      menuBtn.dom.setAttribute('aria-label', _labels.windowActions);
+      menuBtn.dom.setAttribute('aria-haspopup', 'menu');
+      menuBtn.dom.setAttribute('aria-expanded', 'false');
+      return menuBtn;
+    }
+
+    function _buildTitlebar(id, cfg) {
+      var menuBtn = _buildWindowMenuButton();
+      var minBtn = new GQUI.Button('\u2013').setClass('wm-btn wm-btn-min');
+      minBtn.dom.title = _labels.minimize;
+      minBtn.dom.setAttribute('aria-label', _labels.minimize);
+      var closeBtn = new GQUI.Button('\u2715').setClass('wm-btn wm-btn-close');
+      closeBtn.dom.title = _labels.close;
+      closeBtn.dom.setAttribute('aria-label', _labels.close);
+      return new GQUI.Div()
+        .setClass('wm-titlebar')
+        .add(new GQUI.Span().setClass('wm-title').setTextContent(cfg.title || id))
+        .add(new GQUI.Div().setClass('wm-controls').add(menuBtn, minBtn, closeBtn)).dom;
+    }
+
     function _buildEl(id, cfg) {
       var el = document.createElement('section');
       el.className = 'wm-window'
@@ -1460,15 +1508,7 @@ const WMCore = (() => {
       el.id = 'wm-win-' + id;
       el.setAttribute('data-winid', id);
       if (!cfg.fullscreenDesktop) {
-        var minBtn   = new GQUI.Button('\u2013').setClass('wm-btn wm-btn-min');
-        minBtn.dom.title = 'Minimise';
-        var closeBtn = new GQUI.Button('\u2715').setClass('wm-btn wm-btn-close');
-        closeBtn.dom.title = 'Close';
-        el.appendChild(new GQUI.Div()
-          .setClass('wm-titlebar')
-          .add(new GQUI.Span().setClass('wm-title').setTextContent(cfg.title))
-          .add(new GQUI.Div().setClass('wm-controls').add(minBtn, closeBtn))
-          .dom);
+        el.appendChild(_buildTitlebar(id, cfg));
       }
       el.appendChild(new GQUI.Div().setClass('wm-body').dom);
       if (!cfg.fullscreenDesktop) {
@@ -1485,6 +1525,7 @@ const WMCore = (() => {
 
       if (!cfg.backgroundLayer) {
         el.addEventListener('mousedown', function (ev) {
+          if (ev.target.closest?.('.wm-dock-group-tabs')) return;
           // Selection modifiers are handled on click; mousedown only focuses
           // plain interactions to avoid double-toggle (mousedown + click).
           if (!(ev && (ev.shiftKey || ev.ctrlKey || ev.metaKey))) {
@@ -1495,6 +1536,7 @@ const WMCore = (() => {
 
       if (!cfg.backgroundLayer) {
         el.addEventListener('click', function (ev) {
+          if (ev.target.closest?.('.wm-dock-group-tabs')) return;
           if (ev && (ev.shiftKey)) {
             // Range select: select from last selected to current
             var lastSelected = _lastSelectedWindowId;
@@ -1525,6 +1567,21 @@ const WMCore = (() => {
       }
       var minBtn   = el.querySelector('.wm-btn-min');
       var closeBtn = el.querySelector('.wm-btn-close');
+      var menuBtn = el.querySelector('.wm-btn-menu');
+      var controls = el.querySelector('.wm-controls');
+      if (!menuBtn && controls) {
+        menuBtn = _buildWindowMenuButton().dom;
+        controls.insertBefore(menuBtn, controls.firstChild);
+      }
+      if (menuBtn) menuBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (menuBtn.getAttribute('aria-expanded') === 'true') { _closeContextMenu(); return; }
+        _focus(id);
+        var rect = menuBtn.getBoundingClientRect();
+        contextMenu(_buildWindowContextMenuItems(id), {
+          x: rect.left, y: rect.bottom, title: cfg.title || id, anchor: menuBtn,
+        });
+      });
       if (minBtn)   minBtn.addEventListener('click',   function (e) { e.stopPropagation(); _minimize(id); });
       if (closeBtn) closeBtn.addEventListener('click', function (e) { e.stopPropagation(); close(id); });
 
@@ -1733,6 +1790,7 @@ const WMCore = (() => {
     function _minimize(id) {
       var win = _wins.get(id);
       if (!win || win.minimized) return;
+      _cancelWindowPointer(win.el);
       _closeContextMenu();
       win.minimized = true;
       win.el.classList.add('wm-minimized');
@@ -2037,6 +2095,11 @@ const WMCore = (() => {
 
     function _closeContextMenu() {
       var root = document.getElementById('wm-context-menu-root');
+      var anchor = _contextMenuState && _contextMenuState.anchor;
+      if (anchor) {
+        anchor.setAttribute('aria-expanded', 'false');
+        if (root && root.contains(document.activeElement) && anchor.isConnected) anchor.focus();
+      }
       if (root) root.innerHTML = '';
       if (_contextMenuState && _contextMenuState.onPointerDown) {
         document.removeEventListener('mousedown',   _contextMenuState.onPointerDown, true);
@@ -2111,6 +2174,7 @@ const WMCore = (() => {
       function closeMenusFrom(level) {
         while (menus.length > level) {
           var m = menus.pop();
+          if (m && m.parentButton) m.parentButton.setAttribute('aria-expanded', 'false');
           if (m && m.el && m.el.parentNode) m.el.parentNode.removeChild(m.el);
         }
         activeMenu = menus[menus.length - 1] || null;
@@ -2147,7 +2211,10 @@ const WMCore = (() => {
             + (item.checked ? ' is-checked' : '')
             + (item.items && item.items.length ? ' has-submenu' : '');
           btn.setAttribute('role', 'menuitem');
-          if (item.items && item.items.length) btn.setAttribute('aria-haspopup', 'menu');
+          if (item.items && item.items.length) {
+            btn.setAttribute('aria-haspopup', 'menu');
+            btn.setAttribute('aria-expanded', 'false');
+          }
           btn.disabled = !!item.disabled;
 
           var metaLabel = item.shortcut || item.meta || '';
@@ -2187,6 +2254,7 @@ const WMCore = (() => {
       function openSubmenuForButton(parentState, button, item) {
         closeMenusFrom(parentState.level + 1);
         if (!item || !Array.isArray(item.items) || !item.items.length) return;
+        button.setAttribute('aria-expanded', 'true');
         var child = buildMenu(item.items, button, parentState.level + 1, null);
         if (child && child.items.length) focusItem(child, 0);
       }
@@ -2196,6 +2264,7 @@ const WMCore = (() => {
       var onPointerDown = function (ev) {
         var target = ev.target;
         if (!target) return;
+        if (opts.anchor && opts.anchor.contains(target)) return;
         if (menus.some(function (m) { return m.el.contains(target); })) return;
         _closeContextMenu();
       };
@@ -2264,13 +2333,14 @@ const WMCore = (() => {
         }
       };
 
-      _contextMenuState = { onPointerDown: onPointerDown, onKey: onKey };
+      _contextMenuState = { onPointerDown: onPointerDown, onKey: onKey, anchor: opts.anchor || null };
+      if (opts.anchor) opts.anchor.setAttribute('aria-expanded', 'true');
       document.addEventListener('mousedown',   onPointerDown, true);
       document.addEventListener('contextmenu', onPointerDown, true);
       document.addEventListener('keydown',     onKey,         true);
 
       requestAnimationFrame(function () {
-        if (rootMenu && rootMenu.items.length) focusItem(rootMenu, 0);
+        if (rootMenu && rootMenu.el.isConnected && rootMenu.items.length && activeMenu === rootMenu) focusItem(rootMenu, 0);
       });
     }
 
@@ -2291,45 +2361,30 @@ const WMCore = (() => {
       ];
 
       var dockCfg = _getDockConfig(cfg);
-      if (!cfg.fullscreenDesktop && dockCfg) {
+      if (!cfg.fullscreenDesktop && !cfg.forceDockSide && dockCfg) {
         items.push({ type: 'separator' });
+        var dockLabels = {
+          left: _labels.dockLeft, right: _labels.dockRight, topbar: _labels.dockTopbar,
+          resource: _labels.dockResource, top: _labels.dockTop, bottom: _labels.dockBottom,
+        };
         items.push({
-          label:    _labels.dockLeft,
-          checked:  win.el.dataset.wmDocked === 'left',
-          onSelect: function () { _applyDockPosition(win.el, cfg, 'left', true); },
+          label: _labels.docking,
+          items: dockCfg.sides.filter(function (side) { return Object.prototype.hasOwnProperty.call(dockLabels, side); })
+            .map(function (side) {
+              return {
+                label: dockLabels[side],
+                checked: win.el.dataset.wmDocked === side,
+                onSelect: function () { _applyDockPosition(win.el, cfg, side, true); },
+              };
+            }),
         });
-        items.push({
-          label:    _labels.dockRight,
-          checked:  win.el.dataset.wmDocked === 'right',
-          onSelect: function () { _applyDockPosition(win.el, cfg, 'right', true); },
-        });
-        var freshDockCfg = _getDockConfig(cfg);
-        if (freshDockCfg && freshDockCfg.sides.indexOf('topbar') !== -1) {
+        if (win.el.dataset.wmDocked) {
           items.push({
-            label:    _labels.dockTopbar,
-            checked:  win.el.dataset.wmDocked === 'topbar',
-            onSelect: function () { _applyDockPosition(win.el, cfg, 'topbar', true); },
-          });
-        }
-        if (freshDockCfg && freshDockCfg.sides.indexOf('resource') !== -1) {
-          items.push({
-            label:    _labels.dockResource,
-            checked:  win.el.dataset.wmDocked === 'resource',
-            onSelect: function () { _applyDockPosition(win.el, cfg, 'resource', true); },
-          });
-        }
-        if (freshDockCfg && freshDockCfg.sides.indexOf('top') !== -1) {
-          items.push({
-            label:    _labels.dockTop,
-            checked:  win.el.dataset.wmDocked === 'top',
-            onSelect: function () { _applyDockPosition(win.el, cfg, 'top', true); },
-          });
-        }
-        if (freshDockCfg && freshDockCfg.sides.indexOf('bottom') !== -1) {
-          items.push({
-            label:    _labels.dockBottom,
-            checked:  win.el.dataset.wmDocked === 'bottom',
-            onSelect: function () { _applyDockPosition(win.el, cfg, 'bottom', true); },
+            label: _labels.undock,
+            onSelect: function () {
+              _setDockState(win.el, null);
+              _saveDock(id, null);
+            },
           });
         }
         items.push({
@@ -2339,7 +2394,7 @@ const WMCore = (() => {
       }
 
       // ── Snap targets ────────────────────────────────────────────────────
-      if (!cfg.fullscreenDesktop && !cfg.backgroundLayer) {
+      if (!cfg.fullscreenDesktop && !cfg.backgroundLayer && !cfg.forceDockSide) {
         var snapTargets = suggestSnapTargets(id);
         if (snapTargets.length) {
           items.push({ type: 'separator' });
@@ -2349,10 +2404,10 @@ const WMCore = (() => {
             'top-half':    _labels.snapTop,
             'bottom-half': _labels.snapBottom,
           };
-          snapTargets.forEach(function (target) {
+          items.push({ label: _labels.snapLayout, items: snapTargets.map(function (target) {
             var label = snapLabelMap[target.id] || target.id;
             var t = target;
-            items.push({
+            return {
               label:    label,
               onSelect: function () {
                 if (!win.el) return;
@@ -2360,11 +2415,13 @@ const WMCore = (() => {
                 win.el.style.top    = t.y + 'px';
                 win.el.style.width  = t.w + 'px';
                 win.el.style.height = t.h + 'px';
+                _setDockState(win.el, null);
+                _saveDock(id, null);
                 _savePos(id, t.x, t.y, t.w, t.h);
                 if (win.minimized) _restore(id);
               },
-            });
-          });
+            };
+          }) });
         }
       }
 
@@ -2397,7 +2454,10 @@ const WMCore = (() => {
     // ── Internal: render callback ─────────────────────────────────────────
     function _callRender(id) {
       var cfg = _registry.get(id);
-      if (cfg && cfg.onRender) cfg.onRender(body(id));
+      var win = _wins.get(id);
+      if (cfg && cfg.layout && !_windowLayouts.has(win.el)) layout(id, cfg.layout);
+      var frame = win && _windowLayouts.get(win.el);
+      if (cfg && cfg.onRender) cfg.onRender(frame ? frame.content : body(id), frame || null);
       _normalizeBodyOverflow(id);
     }
 
@@ -2406,6 +2466,7 @@ const WMCore = (() => {
       if (!win || !win.el) return;
       var bodyEl = win.el.querySelector(':scope > .wm-body');
       if (!bodyEl) return;
+      if (bodyEl.classList.contains('wm-body-framed')) return;
 
       bodyEl.style.minHeight = '0';
       if (!win.cfg || !win.cfg.fullscreenDesktop) {
@@ -2587,8 +2648,8 @@ const WMCore = (() => {
       var width   = Math.max(320, window.innerWidth  || (document.documentElement && document.documentElement.clientWidth)  || 1280);
       var height  = Math.max(240, window.innerHeight || (document.documentElement && document.documentElement.clientHeight) || 720);
       var insets  = _getViewportInsets() || {};
-      var titlebarBottom = Number(insets.titlebarBottom);
-      var resourceBottom = Number(insets.resourceBottom);
+      var titlebarBottom = insets.titlebarBottom == null ? NaN : Number(insets.titlebarBottom);
+      var resourceBottom = insets.resourceBottom == null ? NaN : Number(insets.resourceBottom);
       var nearLeft   = cx <= dockCfg.threshold;
       var nearRight  = cx >= (width  - dockCfg.threshold);
       var nearTop    = cy <= dockCfg.threshold;
@@ -2644,8 +2705,8 @@ const WMCore = (() => {
       } else if (side === 'topbar' || side === 'resource' || side === 'top') {
         var tpTopInset  = Math.max(dockCfg.topInset,    insets.top    + dockCfg.margin);
         var tpBotInset  = Math.max(dockCfg.bottomInset, insets.bottom + dockCfg.margin);
-        var titlebarBottomPx = Number(insets.titlebarBottom);
-        var resourceBottomPx = Number(insets.resourceBottom);
+        var titlebarBottomPx = insets.titlebarBottom == null ? NaN : Number(insets.titlebarBottom);
+        var resourceBottomPx = insets.resourceBottom == null ? NaN : Number(insets.resourceBottom);
         var fallbackLeftTop = Number.isFinite(Number(cfg && cfg.defaultX))
           ? Number(cfg.defaultX)
           : Math.floor((ds.w - width) / 2);
@@ -2694,11 +2755,66 @@ const WMCore = (() => {
       return true;
     }
 
+    // Track only the active gesture; closing a window must not leave document listeners behind.
+    function _cancelWindowPointer(winEl) {
+      if (_activePointerInteraction && _activePointerInteraction.el === winEl) {
+        _activePointerInteraction.cancel();
+      }
+    }
+
+    function _trackWindowPointer(winEl, handle, handlers) {
+      handle.addEventListener('pointerdown', function (event) {
+        if (_isMobileMode() || event.button !== 0 || event.isPrimary === false) return;
+        if (!handlers.accept(event)) return;
+        if (_activePointerInteraction) _activePointerInteraction.cancel();
+        _focus(winEl.dataset.winid);
+        var pointerId = event.pointerId;
+        handlers.start(event);
+        function move(e) {
+          if (e.pointerId === pointerId) handlers.move(e);
+        }
+        function finish(cancelled) {
+          document.removeEventListener('pointermove', move, true);
+          document.removeEventListener('pointerup', up, true);
+          document.removeEventListener('pointercancel', cancel, true);
+          document.removeEventListener('keydown', keydown, true);
+          window.removeEventListener('blur', cancel);
+          handle.removeEventListener('lostpointercapture', cancel);
+          _activePointerInteraction = null;
+          if (handle.hasPointerCapture?.(pointerId)) handle.releasePointerCapture(pointerId);
+          handlers.end(cancelled);
+        }
+        function up(e) {
+          if (e.pointerId === pointerId) finish(false);
+        }
+        function cancel(e) {
+          if (!e || e.pointerId == null || e.pointerId === pointerId) finish(true);
+        }
+        function keydown(e) {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            finish(true);
+          }
+        }
+        _activePointerInteraction = { el: winEl, cancel: function () { finish(true); } };
+        document.addEventListener('pointermove', move, true);
+        document.addEventListener('pointerup', up, true);
+        document.addEventListener('pointercancel', cancel, true);
+        document.addEventListener('keydown', keydown, true);
+        window.addEventListener('blur', cancel);
+        handle.addEventListener('lostpointercapture', cancel);
+        handle.setPointerCapture?.(pointerId);
+        event.preventDefault();
+        event.stopPropagation();
+      });
+    }
+
     // ── Internal: drag ────────────────────────────────────────────────────
     function _makeDraggable(winEl) {
       var bar = winEl.querySelector('.wm-titlebar');
       if (!bar) return;
-      var dragging = false, ox = 0, oy = 0, dockCandidate = null;
+      var dragging = false, sx = 0, sy = 0, x = 0, y = 0, dockCandidate = null, originalDock = null;
 
       function getWindowConfig() {
         var id = String((winEl.dataset && winEl.dataset.winid) || '');
@@ -2706,135 +2822,99 @@ const WMCore = (() => {
         return (w && w.cfg) || _registry.get(id) || {};
       }
 
-      function clearDockPersistence() {
-        var id = String((winEl.dataset && winEl.dataset.winid) || '');
-        _saveDock(id, null);
-        _setDockState(winEl, null);
-      }
-
-      bar.addEventListener('mousedown', function (e) {
-        if (_isMobileMode()) return;
-        if (e.target.closest('.wm-controls')) return;
-        dragging = true;
-        ox = e.clientX - winEl.offsetLeft;
-        oy = e.clientY - winEl.offsetTop;
-        dockCandidate = null;
-        _clearDockPreview();
-        _setDockState(winEl, null);
-        winEl.classList.add('wm-dragging');
-        e.preventDefault();
-      });
-
-      bar.addEventListener('touchstart', function (e) {
-        if (_isMobileMode()) return;
-        if (e.target.closest('.wm-controls')) return;
-        var t = e.touches[0];
-        dragging = true;
-        ox = t.clientX - winEl.offsetLeft;
-        oy = t.clientY - winEl.offsetTop;
-        dockCandidate = null;
-        _clearDockPreview();
-        _setDockState(winEl, null);
-        e.preventDefault();
-      }, { passive: false });
-
-      function onMove(cx, cy) {
-        if (!dragging) return;
-        var desktop = _desktop();
-        var ds      = _desktopSize(desktop);
-        var insets  = _getViewportInsets();
-        var margin  = 8;
-        var x  = Math.max(margin, Math.min(cx - ox, ds.w - winEl.offsetWidth - margin));
-        var minY = insets.top + margin;
-        var maxY = Math.max(minY, ds.h - insets.bottom - winEl.offsetHeight - margin);
-        var y    = Math.max(minY, Math.min(cy - oy, maxY));
-
-        var cfg   = getWindowConfig();
-        var side  = _pickDockSide(cfg, cx, cy);
-        dockCandidate = side;
-        if (side) {
-          _setDockPreview(side);
-          var dc = _getDockConfig(cfg);
-          if (dc) {
-            if (side === 'left')  x = dc.margin;
-            if (side === 'right') x = Math.max(0, ds.w - winEl.offsetWidth - dc.margin);
+      _trackWindowPointer(winEl, bar, {
+        accept: function (e) {
+          return !getWindowConfig().forceDockSide
+            && !e.target.closest('.wm-controls, button, input, select, textarea, a, [contenteditable], [role="tab"]');
+        },
+        start: function (e) {
+          sx = e.clientX; sy = e.clientY;
+          x = parseFloat(winEl.style.left) || winEl.offsetLeft;
+          y = parseFloat(winEl.style.top) || winEl.offsetTop;
+          originalDock = winEl.dataset.wmDocked || null;
+          dockCandidate = null;
+          dragging = false;
+        },
+        move: function (e) {
+          if (!dragging) {
+            if (Math.hypot(e.clientX - sx, e.clientY - sy) < 4) return;
+            dragging = true;
+            _setDockState(winEl, null);
+            winEl.classList.add('wm-dragging');
           }
-        } else {
+          var width = winEl.offsetWidth || parseFloat(winEl.style.width);
+          var height = winEl.offsetHeight || parseFloat(winEl.style.height);
+          var pos = _clampWindowPosition(x + e.clientX - sx, y + e.clientY - sy, width, height, 8);
+          dockCandidate = _pickDockSide(getWindowConfig(), e.clientX, e.clientY);
+          _setDockPreview(dockCandidate);
+          winEl.style.left = pos.x + 'px';
+          winEl.style.top = pos.y + 'px';
+        },
+        end: function (cancelled) {
+          if (!dragging) return;
+          dragging = false;
           _clearDockPreview();
-        }
-
-        winEl.style.left = x + 'px';
-        winEl.style.top  = y + 'px';
-      }
-
-      function onEnd() {
-        if (!dragging) return;
-        dragging = false;
-        _clearDockPreview();
-        winEl.classList.remove('wm-dragging');
-        var id  = winEl.dataset.winid;
-        var cfg = getWindowConfig();
-        if (dockCandidate) {
-          _applyDockPosition(winEl, cfg, dockCandidate, true);
-        } else {
-          clearDockPersistence();
-        }
-        _savePos(id, parseInt(winEl.style.left), parseInt(winEl.style.top),
-                 winEl.offsetWidth, winEl.offsetHeight);
-        dockCandidate = null;
-        _syncAllDockGroupUis();
-      }
-
-      document.addEventListener('mousemove', function (e) { onMove(e.clientX, e.clientY); });
-      document.addEventListener('mouseup',   onEnd);
-      document.addEventListener('touchmove', function (e) {
-        var t = e.touches[0]; onMove(t.clientX, t.clientY);
-      }, { passive: true });
-      document.addEventListener('touchend', onEnd);
+          winEl.classList.remove('wm-dragging');
+          if (cancelled) {
+            winEl.style.left = x + 'px';
+            winEl.style.top = y + 'px';
+            _setDockState(winEl, originalDock);
+            return;
+          }
+          var id = winEl.dataset.winid;
+          if (dockCandidate) _applyDockPosition(winEl, getWindowConfig(), dockCandidate, true);
+          else _saveDock(id, null);
+          _savePos(id, parseFloat(winEl.style.left), parseFloat(winEl.style.top),
+            winEl.offsetWidth, winEl.offsetHeight);
+          _syncAllDockGroupUis();
+        },
+      });
     }
 
     // ── Internal: resize ──────────────────────────────────────────────────
     function _makeResizable(winEl) {
       var handle = winEl.querySelector('.wm-resize-handle');
       if (!handle) return;
-      var resizing = false, sx = 0, sy = 0, sw = 0, sh = 0;
-
-      handle.addEventListener('mousedown', function (e) {
-        if (_isMobileMode()) return;
-        resizing = true;
-        sx = e.clientX; sy = e.clientY;
-        sw = winEl.offsetWidth; sh = winEl.offsetHeight;
-        winEl.classList.add('wm-resizing');
-        e.preventDefault();
-        e.stopPropagation();
-      });
-
-      document.addEventListener('mousemove', function (e) {
-        if (!resizing) return;
-        var margin   = 8;
-        var insets   = _getViewportInsets();
-        var viewportW = Math.max(320, window.innerWidth  || (document.documentElement && document.documentElement.clientWidth)  || 1280);
-        var viewportH = Math.max(220, window.innerHeight || (document.documentElement && document.documentElement.clientHeight) || 720);
-        var left = parseInt(winEl.style.left, 10) || winEl.offsetLeft || 0;
-        var top  = parseInt(winEl.style.top,  10) || winEl.offsetTop  || 0;
-        var maxW = Math.max(280, viewportW - insets.right  - margin - left);
-        var maxH = Math.max(180, viewportH - insets.bottom - margin - top);
-        var nw   = Math.min(maxW, Math.max(280, sw + (e.clientX - sx)));
-        var nh   = Math.min(maxH, Math.max(180, sh + (e.clientY - sy)));
-        winEl.style.width  = nw + 'px';
-        winEl.style.height = nh + 'px';
-        _normalizeBodyOverflow(winEl.dataset.winid);
-      });
-
-      document.addEventListener('mouseup', function () {
-        if (!resizing) return;
-        resizing = false;
-        winEl.classList.remove('wm-resizing');
-        var id = winEl.dataset.winid;
-        _savePos(id, parseInt(winEl.style.left), parseInt(winEl.style.top),
-                 winEl.offsetWidth, winEl.offsetHeight);
-        _normalizeBodyOverflow(id);
-        _syncAllDockGroupUis();
+      var sx = 0, sy = 0, sw = 0, sh = 0, originalWidth = '', originalHeight = '';
+      _trackWindowPointer(winEl, handle, {
+        accept: function () { return true; },
+        start: function (e) {
+          sx = e.clientX; sy = e.clientY;
+          originalWidth = winEl.style.width; originalHeight = winEl.style.height;
+          sw = winEl.offsetWidth || parseFloat(originalWidth);
+          sh = winEl.offsetHeight || parseFloat(originalHeight);
+          winEl.classList.add('wm-resizing');
+        },
+        move: function (e) {
+          var margin   = 8;
+          var insets   = _getViewportInsets();
+          var viewportW = Math.max(320, window.innerWidth  || (document.documentElement && document.documentElement.clientWidth)  || 1280);
+          var viewportH = Math.max(220, window.innerHeight || (document.documentElement && document.documentElement.clientHeight) || 720);
+          var left = parseInt(winEl.style.left, 10) || winEl.offsetLeft || 0;
+          var top  = parseInt(winEl.style.top,  10) || winEl.offsetTop  || 0;
+          var maxW = Math.max(280, viewportW - insets.right  - margin - left);
+          var maxH = Math.max(180, viewportH - insets.bottom - margin - top);
+          var nw   = Math.min(maxW, Math.max(280, sw + (e.clientX - sx)));
+          var nh   = Math.min(maxH, Math.max(180, sh + (e.clientY - sy)));
+          winEl.style.width  = nw + 'px';
+          winEl.style.height = nh + 'px';
+          _normalizeBodyOverflow(winEl.dataset.winid);
+        },
+        end: function (cancelled) {
+          winEl.classList.remove('wm-resizing');
+          if (cancelled) {
+            winEl.style.width = originalWidth;
+            winEl.style.height = originalHeight;
+          } else {
+            var id = winEl.dataset.winid;
+            var cfg = (_wins.get(id) || {}).cfg || {};
+            if (winEl.dataset.wmDocked) _applyDockPosition(winEl, cfg, winEl.dataset.wmDocked, true);
+            _savePos(id, parseFloat(winEl.style.left), parseFloat(winEl.style.top),
+              winEl.offsetWidth, winEl.offsetHeight);
+          }
+          _normalizeBodyOverflow(winEl.dataset.winid);
+          _syncAllDockGroupUis();
+        },
       });
     }
 
@@ -3163,6 +3243,7 @@ const WMCore = (() => {
       close:                 close,
       refresh:               refresh,
       body:                  body,
+      layout:                layout,
       isOpen:                isOpen,
       isMinimized:           isMinimized,
       setTitle:              setTitle,

@@ -33,6 +33,7 @@
   };
 
   const AUDIO_COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 180;
+  const MAX_SFX_COOLDOWN_ENTRIES = 128;
   const AUDIO_PERSIST_KEYS = [
     'masterVolume',
     'musicVolume',
@@ -91,6 +92,8 @@
       this._playlist = [];
       this._playlistIndex = -1;
       this._playlistMode = 'shuffle';
+      this._musicTransitionToken = 0;
+      this._musicDeckTransitionTokens = new Map([[this._musicA, 0], [this._musicB, 0]]);
       this._sceneFadeMs = 460;
       this._sceneTransitionFades = {
         fast: 260,
@@ -100,12 +103,25 @@
       };
       this._fadeRaf = 0;
       this._fadeToken = 0;
+      this._fadeResolve = null;
       this._isFading = false;
       this._duckFactor = 1;
       this._duckTimer = 0;
+      this._speakingAudio = new Set();
+      this._ttsAudioCleanup = new Map();
+      this._transientAudioCleanup = new Map();
+      this._transientAudioLevels = new Map();
+      this._scheduledTimeouts = new Set();
+      this._musicElementHandlers = new Map();
+      this._activeToneOscillators = new Map();
+      this._disposed = false;
+      this._disposePromise = null;
       this._lastSceneChangeMs = 0;
       this._audioContext = null;
       this._gain = null;
+      this._synth = null;
+      this._musicPlayToken = 0;
+      this._musicPlayIntent = false;
       this._sfxLastPlayAt = new Map();
       this._sfxTeaserLastPlayAt = new Map();
       this._lastAudioEvent = null;
@@ -125,19 +141,71 @@
 
     _bindMusicElement(el) {
       if (!el) return;
-      el.addEventListener('error', () => {
+      const onError = () => {
         const mediaError = el.error;
         this._log('error', 'Media-Element Fehler beim Laden/Abspielen', {
           track: this._prettyTrack(el.currentSrc || el.src || ''),
           code: mediaError ? mediaError.code : null,
           message: this._mediaErrorMessage(mediaError ? mediaError.code : null),
         });
-      });
+      };
 
-      el.addEventListener('ended', () => {
+      const onEnded = () => {
         if (el !== this._music) return;
         this._onMusicEnded();
-      });
+      };
+      el.addEventListener('error', onError);
+      el.addEventListener('ended', onEnded);
+      this._musicElementHandlers.set(el, { onError, onEnded });
+    }
+
+    _scheduleTimeout(callback, delayMs) {
+      if (this._disposed) return 0;
+      let timeoutId = 0;
+      timeoutId = window.setTimeout(() => {
+        this._scheduledTimeouts.delete(timeoutId);
+        if (!this._disposed) callback();
+      }, delayMs);
+      this._scheduledTimeouts.add(timeoutId);
+      return timeoutId;
+    }
+
+    _trackTransientAudio(audio, channel, gain = 1) {
+      const release = () => {
+        audio.removeEventListener('ended', release);
+        audio.removeEventListener('error', release);
+        this._transientAudioCleanup.delete(audio);
+        this._transientAudioLevels.delete(audio);
+      };
+      audio.addEventListener('ended', release);
+      audio.addEventListener('error', release);
+      this._transientAudioCleanup.set(audio, release);
+      this._transientAudioLevels.set(audio, { channel, gain });
+      return audio;
+    }
+
+    _releaseTransientAudio(audio, stopPlayback = false) {
+      const release = this._transientAudioCleanup.get(audio);
+      if (!release) return;
+      release();
+      if (!stopPlayback) return;
+      try {
+        if (typeof audio.pause === 'function') audio.pause();
+      } finally {
+        audio.removeAttribute('src');
+        audio.load();
+      }
+    }
+
+    _handleTransientAudioFailure(audio, message, error) {
+      if (audio) {
+        try {
+          this._releaseTransientAudio(audio, true);
+        } catch (cleanupError) {
+          this._log('error', 'Transient-Audio-Cleanup fehlgeschlagen', { error: String(cleanupError) });
+        }
+      }
+      this._log('warn', message, { error: String(error) });
     }
 
     _otherMusicDeck(el = this._music) {
@@ -176,6 +244,20 @@
       const map = this.state.sfxMap || {};
       const name = String(key || '').trim();
       return String(map[name] || DEFAULT_SFX[name] || '').trim();
+    }
+
+    _isSfxRateLimited(history, src, now, minIntervalMs) {
+      const interval = Number(minIntervalMs);
+      const cooldownMs = Number.isFinite(interval) ? Math.max(0, interval) : 0;
+      const previous = history.get(src);
+      if (previous !== undefined && (now - previous) < cooldownMs) return true;
+
+      history.delete(src);
+      while (history.size >= MAX_SFX_COOLDOWN_ENTRIES) {
+        history.delete(history.keys().next().value);
+      }
+      history.set(src, now);
+      return false;
     }
 
     _rememberAudioEvent(key) {
@@ -323,11 +405,23 @@
     }
 
     _applyVolumes() {
+      for (const [audio, { channel, gain }] of this._transientAudioLevels) {
+        audio.volume = this._targetTransientVolume(channel, gain);
+      }
       if (this._isFading) return;
       const active = this._music;
       const inactive = this._otherMusicDeck(active);
       if (active) active.volume = this._targetMusicVolume();
       if (inactive && inactive !== active) inactive.volume = 0;
+    }
+
+    _targetTransientVolume(channel, gain = 1) {
+      const master = this.state.masterMuted ? 0 : Number(this.state.masterVolume || 0);
+      const channelMuted = this.state[`${channel}Muted`];
+      const channelVolume = channelMuted ? 0 : Number(this.state[`${channel}Volume`] || 0);
+      const eventGain = Number(gain);
+      const volume = master * channelVolume * eventGain;
+      return Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 0;
     }
 
     _syncMusicLoopMode() {
@@ -380,7 +474,11 @@
     _targetMusicVolume() {
       const master = this.state.masterMuted ? 0 : Number(this.state.masterVolume || 0);
       const music = this.state.musicMuted ? 0 : Number(this.state.musicVolume || 0);
-      return Math.max(0, Math.min(1, master * music * this._duckFactor));
+      const speaking = this.state.musicDuckingEnabled && !this.state.ttsMuted
+        && this.state.ttsVolume > 0 && this._speakingAudio.size > 0;
+      const speechFactor = speaking
+        ? Math.max(0.05, 1 - Math.min(0.92, this.state.musicDuckingStrength * 1.65)) : 1;
+      return Math.max(0, Math.min(1, master * music * Math.min(this._duckFactor, speechFactor)));
     }
 
     _cancelFade() {
@@ -390,6 +488,9 @@
         this._fadeRaf = 0;
       }
       this._isFading = false;
+      const resolve = this._fadeResolve;
+      this._fadeResolve = null;
+      if (resolve) resolve(false);
     }
 
     _fadeMusicTo(targetVolume, durationMs = 220, el = this._music) {
@@ -408,21 +509,26 @@
       const t0 = (window.performance && performance.now) ? performance.now() : Date.now();
 
       return new Promise((resolve) => {
+        this._fadeResolve = resolve;
+        const complete = (result) => {
+          if (this._fadeResolve === resolve) this._fadeResolve = null;
+          resolve(result);
+        };
         const step = () => {
           if (token !== this._fadeToken) {
             this._isFading = false;
-            resolve(false);
+            complete(false);
             return;
           }
           const now = (window.performance && performance.now) ? performance.now() : Date.now();
           const p = Math.max(0, Math.min(1, (now - t0) / ms));
           const eased = 1 - Math.pow(1 - p, 3);
-          player.volume = startVolume + (endVolume - startVolume) * eased;
+          player.volume = Math.min(this._targetMusicVolume(), startVolume + (endVolume - startVolume) * eased);
           if (p >= 1) {
-            player.volume = endVolume;
+            player.volume = Math.min(endVolume, this._targetMusicVolume());
             this._isFading = false;
             this._fadeRaf = 0;
-            resolve(true);
+            complete(true);
             return;
           }
           this._fadeRaf = window.requestAnimationFrame(step);
@@ -431,13 +537,15 @@
       });
     }
 
-    async _crossfadeToTrack(url, fadeMs, targetVol) {
+    async _crossfadeToTrack(url, fadeMs, targetVol, transitionToken = this._musicTransitionToken) {
+      if (this._disposed) return false;
       const current = this._music;
       const next = this._otherMusicDeck(current);
       if (!current || !next) return false;
 
       this._cancelFade();
 
+      this._musicDeckTransitionTokens.set(next, transitionToken);
       next.src = String(url || '').trim();
       next.currentTime = 0;
       next.volume = 0;
@@ -451,6 +559,18 @@
         });
         return false;
       }
+      if (transitionToken !== this._musicTransitionToken) {
+        if (this._musicDeckTransitionTokens.get(next) === transitionToken && next !== this._music) {
+          next.pause();
+          next.currentTime = 0;
+          next.volume = 0;
+        }
+        return false;
+      }
+      if (this._disposed) {
+        next.pause();
+        return false;
+      }
 
       const token = ++this._fadeToken;
       this._isFading = true;
@@ -460,17 +580,23 @@
       const t0 = (window.performance && performance.now) ? performance.now() : Date.now();
 
       return new Promise((resolve) => {
+        this._fadeResolve = resolve;
+        const complete = (result) => {
+          if (this._fadeResolve === resolve) this._fadeResolve = null;
+          resolve(result);
+        };
         const step = () => {
           if (token !== this._fadeToken) {
             this._isFading = false;
-            resolve(false);
+            complete(false);
             return;
           }
           const now = (window.performance && performance.now) ? performance.now() : Date.now();
           const p = Math.max(0, Math.min(1, (now - t0) / ms));
           const eased = 1 - Math.pow(1 - p, 3);
-          current.volume = startCurrent * (1 - eased);
-          next.volume = endNext * eased;
+          const limit = this._targetMusicVolume();
+          current.volume = Math.min(startCurrent, limit) * (1 - eased);
+          next.volume = Math.min(endNext, limit) * eased;
 
           if (p >= 1) {
             current.pause();
@@ -480,7 +606,7 @@
             this._isFading = false;
             this._fadeRaf = 0;
             this._applyVolumes();
-            resolve(true);
+            complete(true);
             return;
           }
 
@@ -514,6 +640,8 @@
     }
 
     async _switchMusicTrack(url, autoplay = false, smooth = false, fadeMsOverride = null, transitionModeOverride = null) {
+      if (this._disposed) return false;
+      const transitionToken = ++this._musicTransitionToken;
       const next = String(url || '').trim();
       if (!next) {
         this._log('warn', 'Leerer Track gesetzt, stoppe Musik.');
@@ -536,7 +664,7 @@
           track: this._prettyTrack(next),
           autoplay,
         });
-        if (autoplay) return this.playMusic();
+        if (autoplay) return (await this.playMusic()) && transitionToken === this._musicTransitionToken;
         this._applyVolumes();
         return true;
       }
@@ -555,16 +683,26 @@
       const canFade = !!smooth && !!autoplay && !this._music.paused && this._music.currentTime > 0.05;
 
       if (canFade && transitionMode === 'fade') {
-        const ok = await this._crossfadeToTrack(next, fadeMs, targetVol);
+        const ok = await this._crossfadeToTrack(next, fadeMs, targetVol, transitionToken);
         if (ok) return true;
+        if (this._disposed || transitionToken !== this._musicTransitionToken) return false;
       }
 
       if (canFade) {
         await this._fadeMusicTo(0, Math.round(fadeMs * 0.5), this._music);
+        if (this._disposed || transitionToken !== this._musicTransitionToken) return false;
       } else {
         this._cancelFade();
       }
 
+      if (this._disposed || transitionToken !== this._musicTransitionToken) return false;
+      if (!autoplay) {
+        this._musicPlayToken += 1;
+        this._musicPlayIntent = false;
+        this._musicA.pause();
+        this._musicB.pause();
+        this.state.musicPaused = true;
+      }
       this._music.src = next;
       if (!autoplay) {
         this._log('info', 'Track vorbereitet (ohne Autoplay)', {
@@ -572,16 +710,18 @@
         });
         this._isFading = false;
         this._applyVolumes();
+        this._save();
+        this._emitStateChange();
         return true;
       }
 
-      try {
-        await this.playMusic();
-      } catch (_) {}
+      const playbackStarted = await this.playMusic();
+      if (!playbackStarted || this._disposed || transitionToken !== this._musicTransitionToken) return false;
 
       if (canFade && targetVol > 0) {
         this._music.volume = 0;
-        await this._fadeMusicTo(targetVol, fadeMs, this._music);
+        const completed = await this._fadeMusicTo(targetVol, fadeMs, this._music);
+        if (!completed || transitionToken !== this._musicTransitionToken) return false;
       } else {
         this._isFading = false;
         this._applyVolumes();
@@ -590,125 +730,232 @@
     }
 
     _ensureContext() {
+      if (this._disposed) return null;
       if (this._audioContext) return this._audioContext;
       const Ctx = window.AudioContext || window.webkitAudioContext;
       if (!Ctx) return null;
-      const ctx = new Ctx();
-      const gain = ctx.createGain();
-      gain.connect(ctx.destination);
+      let ctx;
+      let gain;
+      try {
+        ctx = new Ctx();
+        gain = ctx.createGain();
+        gain.connect(ctx.destination);
+      } catch (error) {
+        if (gain) {
+          try {
+            gain.disconnect();
+          } catch (cleanupError) {
+            this._log('warn', 'AudioContext Gain Cleanup fehlgeschlagen', { error: String(cleanupError) });
+          }
+        }
+        if (ctx && ctx.state !== 'closed' && typeof ctx.close === 'function') {
+          try {
+            Promise.resolve(ctx.close()).catch((cleanupError) => {
+              this._log('warn', 'Fehlerhafter AudioContext konnte nicht geschlossen werden', {
+                error: String(cleanupError),
+              });
+            });
+          } catch (cleanupError) {
+            this._log('warn', 'Fehlerhafter AudioContext konnte nicht geschlossen werden', {
+              error: String(cleanupError),
+            });
+          }
+        }
+        this._log('warn', 'AudioContext Initialisierung fehlgeschlagen', { error: String(error) });
+        return null;
+      }
       this._audioContext = ctx;
       this._gain = gain;
+      if (ctx.state === 'suspended' && typeof ctx.resume === 'function') {
+        try {
+          Promise.resolve(ctx.resume()).catch((error) => {
+            this._log('warn', 'AudioContext konnte nicht aktiviert werden', { error: String(error) });
+          });
+        } catch (error) {
+          this._log('warn', 'AudioContext konnte nicht aktiviert werden', { error: String(error) });
+        }
+      }
       return ctx;
     }
 
     _playTone(freq = 680, duration = 0.05, type = 'triangle') {
-      const ctx = this._ensureContext();
-      if (!ctx || !this._gain) return;
-      if (this.state.masterMuted || this.state.sfxMuted) return;
+      const frequency = Number(freq);
+      const seconds = Number(duration);
+      const waveform = String(type);
+      if (this._disposed || !Number.isFinite(frequency) || frequency <= 0 || frequency > 20000
+        || !Number.isFinite(seconds) || seconds <= 0 || seconds > 30
+        || !['sine', 'square', 'sawtooth', 'triangle'].includes(waveform)) return false;
+      if (this.state.masterMuted || this.state.sfxMuted) return false;
       const master = Math.max(0, Math.min(1, Number(this.state.masterVolume || 0)));
       const sfx = Math.max(0, Math.min(1, Number(this.state.sfxVolume || 0)));
       const amp = master * sfx;
-      if (amp <= 0) return;
+      if (amp <= 0) return false;
 
-      const osc = ctx.createOscillator();
-      const env = ctx.createGain();
-      osc.type = type;
-      osc.frequency.value = freq;
-      env.gain.value = 0;
-      osc.connect(env);
-      env.connect(this._gain);
+      let ctx;
+      try {
+        ctx = this._ensureContext();
+      } catch (error) {
+        this._log('warn', 'Fallback-Sound konnte keinen AudioContext erzeugen', { error: String(error) });
+        return false;
+      }
+      if (!ctx || !this._gain) return false;
 
-      const now = ctx.currentTime;
-      env.gain.setValueAtTime(0, now);
-      env.gain.linearRampToValueAtTime(0.06 * amp, now + 0.012);
-      env.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+      let osc = null;
+      let env = null;
+      let started = false;
+      let released = false;
+      const release = (stop = false) => {
+        if (released) return;
+        released = true;
+        if (osc) this._activeToneOscillators.delete(osc);
+        const errors = [];
+        if (osc) {
+          try {
+            osc.removeEventListener('ended', onEnded);
+          } catch (error) {
+            errors.push(error);
+          }
+          if (stop && started) {
+            try {
+              osc.stop();
+            } catch (error) {
+              errors.push(error);
+            }
+          }
+          try {
+            osc.disconnect();
+          } catch (error) {
+            errors.push(error);
+          }
+        }
+        if (env) {
+          try {
+            env.disconnect();
+          } catch (error) {
+            errors.push(error);
+          }
+        }
+        for (const error of errors) {
+          this._log('warn', 'Fallback-Sound Cleanup fehlgeschlagen', { error: String(error) });
+        }
+      };
+      const onEnded = () => release();
 
-      osc.start(now);
-      osc.stop(now + duration + 0.01);
+      try {
+        osc = ctx.createOscillator();
+        env = ctx.createGain();
+        osc.type = waveform;
+        osc.frequency.value = frequency;
+        env.gain.value = 0;
+        osc.connect(env);
+        env.connect(this._gain);
+        osc.addEventListener('ended', onEnded, { once: true });
+        this._activeToneOscillators.set(osc, { env, onEnded });
+
+        const now = ctx.currentTime;
+        env.gain.setValueAtTime(0, now);
+        env.gain.linearRampToValueAtTime(0.06 * amp, now + 0.012);
+        env.gain.exponentialRampToValueAtTime(0.0001, now + seconds);
+
+        osc.start(now);
+        started = true;
+        osc.stop(now + seconds + 0.01);
+        return true;
+      } catch (error) {
+        release(true);
+        this._log('warn', 'Fallback-Sound konnte nicht gestartet werden', { error: String(error) });
+        return false;
+      }
     }
 
     _playSfx(url, gain = 1, minIntervalMs = 55) {
+      if (this._disposed) return false;
       const src = String(url || '').trim();
       if (!src) return false;
       if (this.state.masterMuted || this.state.sfxMuted) return false;
 
       const now = Date.now();
-      const previous = Number(this._sfxLastPlayAt.get(src) || 0);
-      if ((now - previous) < Math.max(0, Number(minIntervalMs || 0))) {
-        return false;
-      }
-      this._sfxLastPlayAt.set(src, now);
+      if (this._isSfxRateLimited(this._sfxLastPlayAt, src, now, minIntervalMs)) return false;
 
-      const master = Math.max(0, Math.min(1, Number(this.state.masterVolume || 0)));
-      const sfx = Math.max(0, Math.min(1, Number(this.state.sfxVolume || 0)));
-      const vol = Math.max(0, Math.min(1, master * sfx * Math.max(0, Number(gain || 1))));
+      const vol = this._targetTransientVolume('sfx', gain);
       if (vol <= 0) return false;
 
+      let audio = null;
       try {
-        const audio = new Audio(src);
+        audio = this._trackTransientAudio(new Audio(src), 'sfx', gain);
         audio.preload = 'auto';
         audio.volume = vol;
         const p = audio.play();
         if (p && typeof p.catch === 'function') {
-          p.catch(() => {});
+          p.catch((error) => {
+            this._handleTransientAudioFailure(audio, 'Soundeffekt konnte nicht gestartet werden', error);
+          });
         }
         return true;
-      } catch (_) {
+      } catch (error) {
+        this._handleTransientAudioFailure(audio, 'Soundeffekt konnte nicht gestartet werden', error);
         return false;
       }
     }
 
     _playTeaserAudio(url, gain = 1, minIntervalMs = 100) {
+      if (this._disposed) return null;
       const src = String(url || '').trim();
       if (!src) return null;
       if (this.state.masterMuted || this.state.teaserMuted) return null;
 
       const now = Date.now();
-      const previous = Number(this._sfxTeaserLastPlayAt.get(src) || 0);
-      if ((now - previous) < Math.max(0, Number(minIntervalMs || 0))) {
-        return null;
-      }
-      this._sfxTeaserLastPlayAt.set(src, now);
+      if (this._isSfxRateLimited(this._sfxTeaserLastPlayAt, src, now, minIntervalMs)) return null;
 
-      const master = Math.max(0, Math.min(1, Number(this.state.masterVolume || 0)));
-      const teaser = Math.max(0, Math.min(1, Number(this.state.teaserVolume || 0)));
-      const vol = Math.max(0, Math.min(1, master * teaser * Math.max(0, Number(gain || 1))));
+      const vol = this._targetTransientVolume('teaser', gain);
       if (vol <= 0) return null;
 
+      let audio = null;
       try {
-        const audio = new Audio(src);
+        audio = this._trackTransientAudio(new Audio(src), 'teaser', gain);
         audio.preload = 'auto';
         audio.volume = vol;
         const p = audio.play();
         if (p && typeof p.catch === 'function') {
-          p.catch(() => {});
+          p.catch((error) => {
+            this._handleTransientAudioFailure(audio, 'Teaser-Audio konnte nicht gestartet werden', error);
+          });
         }
         return audio;
-      } catch (_) {
+      } catch (error) {
+        this._handleTransientAudioFailure(audio, 'Teaser-Audio konnte nicht gestartet werden', error);
         return null;
       }
     }
 
     _playTtsAudio(url, gain = 1) {
+      if (this._disposed) return null;
       const src = String(url || '').trim();
       if (!src) return null;
       if (this.state.masterMuted || this.state.ttsMuted) return null;
 
-      const master = Math.max(0, Math.min(1, Number(this.state.masterVolume || 0)));
-      const tts = Math.max(0, Math.min(1, Number(this.state.ttsVolume || 0)));
-      const vol = Math.max(0, Math.min(1, master * tts * Math.max(0, Number(gain || 1))));
+      const vol = this._targetTransientVolume('tts', gain);
       if (vol <= 0) return null;
 
+      let audio = null;
+      let untrack = null;
       try {
-        const audio = new Audio(src);
+        audio = this._trackTransientAudio(new Audio(src), 'tts', gain);
         audio.preload = 'auto';
         audio.volume = vol;
+        untrack = this.trackTtsAudio(audio);
         const p = audio.play();
         if (p && typeof p.catch === 'function') {
-          p.catch(() => {});
+          p.catch((error) => {
+            untrack();
+            this._handleTransientAudioFailure(audio, 'Sprachausgabe konnte nicht gestartet werden', error);
+            audio.dispatchEvent(new Event('error'));
+          });
         }
         return audio;
-      } catch (_) {
+      } catch (error) {
+        untrack?.();
+        this._handleTransientAudioFailure(audio, 'Sprachausgabe konnte nicht gestartet werden', error);
         return null;
       }
     }
@@ -730,7 +977,7 @@
       this.duckMusic();
       if (this._playSfx(this._resolveSfxTrack('uiError'), 0.95, 140)) return;
       this._playTone(280, 0.07, 'sawtooth');
-      window.setTimeout(() => this._playTone(220, 0.08, 'sawtooth'), 34);
+      this._scheduleTimeout(() => this._playTone(220, 0.08, 'sawtooth'), 34);
     }
 
     playUiNotify() {
@@ -738,7 +985,7 @@
       this.duckMusic();
       if (this._playSfx(this._resolveSfxTrack('uiNotify'), 0.8, 110)) return;
       this._playTone(740, 0.042, 'triangle');
-      window.setTimeout(() => this._playTone(980, 0.05, 'triangle'), 40);
+      this._scheduleTimeout(() => this._playTone(980, 0.05, 'triangle'), 40);
     }
 
     playNavigation() {
@@ -746,7 +993,7 @@
       this.duckMusic(180);
       if (this._playSfx(this._resolveSfxTrack('navigation'), 0.72, 85)) return;
       this._playTone(690, 0.045, 'triangle');
-      window.setTimeout(() => this._playTone(840, 0.05, 'sine'), 34);
+      this._scheduleTimeout(() => this._playTone(840, 0.05, 'sine'), 34);
     }
 
     playResearchStart() {
@@ -754,7 +1001,7 @@
       this.duckMusic(260);
       if (this._playSfx(this._resolveSfxTrack('researchStart'), 0.8, 150)) return;
       this._playTone(760, 0.04, 'triangle');
-      window.setTimeout(() => this._playTone(920, 0.055, 'triangle'), 38);
+      this._scheduleTimeout(() => this._playTone(920, 0.055, 'triangle'), 38);
     }
 
     playResearchComplete() {
@@ -762,7 +1009,7 @@
       this.duckMusic(280);
       if (this._playSfx(this._resolveSfxTrack('researchComplete'), 0.86, 180)) return;
       this._playTone(880, 0.05, 'triangle');
-      window.setTimeout(() => this._playTone(1120, 0.07, 'triangle'), 42);
+      this._scheduleTimeout(() => this._playTone(1120, 0.07, 'triangle'), 42);
     }
 
     playFleetRecall() {
@@ -770,7 +1017,7 @@
       this.duckMusic(190);
       if (this._playSfx(this._resolveSfxTrack('fleetRecall'), 0.76, 120)) return;
       this._playTone(520, 0.038, 'sine');
-      window.setTimeout(() => this._playTone(430, 0.05, 'triangle'), 28);
+      this._scheduleTimeout(() => this._playTone(430, 0.05, 'triangle'), 28);
     }
 
     playMessageSend() {
@@ -778,7 +1025,7 @@
       this.duckMusic(180);
       if (this._playSfx(this._resolveSfxTrack('messageSend'), 0.78, 110)) return;
       this._playTone(720, 0.04, 'triangle');
-      window.setTimeout(() => this._playTone(900, 0.05, 'sine'), 30);
+      this._scheduleTimeout(() => this._playTone(900, 0.05, 'sine'), 30);
     }
 
     playMessageRead() {
@@ -786,7 +1033,7 @@
       this.duckMusic(120);
       if (this._playSfx(this._resolveSfxTrack('messageRead'), 0.66, 90)) return;
       this._playTone(640, 0.035, 'triangle');
-      window.setTimeout(() => this._playTone(780, 0.04, 'triangle'), 24);
+      this._scheduleTimeout(() => this._playTone(780, 0.04, 'triangle'), 24);
     }
 
     playMessageDelete() {
@@ -794,7 +1041,7 @@
       this.duckMusic(140);
       if (this._playSfx(this._resolveSfxTrack('messageDelete'), 0.72, 100)) return;
       this._playTone(360, 0.045, 'sawtooth');
-      window.setTimeout(() => this._playTone(280, 0.05, 'triangle'), 20);
+      this._scheduleTimeout(() => this._playTone(280, 0.05, 'triangle'), 20);
     }
 
     playPvpToggle() {
@@ -802,7 +1049,7 @@
       this.duckMusic(220);
       if (this._playSfx(this._resolveSfxTrack('pvpToggle'), 0.82, 180)) return;
       this._playTone(510, 0.045, 'square');
-      window.setTimeout(() => this._playTone(690, 0.06, 'triangle'), 36);
+      this._scheduleTimeout(() => this._playTone(690, 0.06, 'triangle'), 36);
     }
 
     playFleetAttack() {
@@ -810,7 +1057,7 @@
       this.duckMusic(220);
       if (this._playSfx(this._resolveSfxTrack('fleetAttack'), 0.84, 140)) return;
       this._playTone(420, 0.04, 'sawtooth');
-      window.setTimeout(() => this._playTone(560, 0.055, 'square'), 24);
+      this._scheduleTimeout(() => this._playTone(560, 0.055, 'square'), 24);
     }
 
     playFleetTransport() {
@@ -818,7 +1065,7 @@
       this.duckMusic(180);
       if (this._playSfx(this._resolveSfxTrack('fleetTransport'), 0.78, 140)) return;
       this._playTone(460, 0.04, 'sine');
-      window.setTimeout(() => this._playTone(620, 0.05, 'triangle'), 28);
+      this._scheduleTimeout(() => this._playTone(620, 0.05, 'triangle'), 28);
     }
 
     playFleetSpy() {
@@ -826,7 +1073,7 @@
       this.duckMusic(160);
       if (this._playSfx(this._resolveSfxTrack('fleetSpy'), 0.76, 140)) return;
       this._playTone(930, 0.03, 'triangle');
-      window.setTimeout(() => this._playTone(780, 0.035, 'sine'), 18);
+      this._scheduleTimeout(() => this._playTone(780, 0.035, 'sine'), 18);
     }
 
     playFleetColonize() {
@@ -834,7 +1081,7 @@
       this.duckMusic(260);
       if (this._playSfx(this._resolveSfxTrack('fleetColonize'), 0.82, 180)) return;
       this._playTone(580, 0.05, 'square');
-      window.setTimeout(() => this._playTone(760, 0.07, 'triangle'), 38);
+      this._scheduleTimeout(() => this._playTone(760, 0.07, 'triangle'), 38);
     }
 
     playFleetHarvest() {
@@ -842,7 +1089,7 @@
       this.duckMusic(180);
       if (this._playSfx(this._resolveSfxTrack('fleetHarvest'), 0.78, 150)) return;
       this._playTone(520, 0.04, 'triangle');
-      window.setTimeout(() => this._playTone(680, 0.05, 'triangle'), 26);
+      this._scheduleTimeout(() => this._playTone(680, 0.05, 'triangle'), 26);
     }
 
     playBuildComplete() {
@@ -850,8 +1097,8 @@
       this.duckMusic();
       if (this._playSfx(this._resolveSfxTrack('buildComplete'), 0.88, 180)) return;
       this._playTone(510, 0.04, 'square');
-      window.setTimeout(() => this._playTone(640, 0.05, 'square'), 36);
-      window.setTimeout(() => this._playTone(790, 0.06, 'triangle'), 78);
+      this._scheduleTimeout(() => this._playTone(640, 0.05, 'square'), 36);
+      this._scheduleTimeout(() => this._playTone(790, 0.06, 'triangle'), 78);
     }
 
     playFleetLaunch() {
@@ -859,8 +1106,8 @@
       this.duckMusic();
       if (this._playSfx(this._resolveSfxTrack('fleetLaunch'), 0.82, 140)) return;
       this._playTone(430, 0.04, 'sine');
-      window.setTimeout(() => this._playTone(520, 0.045, 'sine'), 28);
-      window.setTimeout(() => this._playTone(640, 0.06, 'triangle'), 60);
+      this._scheduleTimeout(() => this._playTone(520, 0.045, 'sine'), 28);
+      this._scheduleTimeout(() => this._playTone(640, 0.06, 'triangle'), 60);
     }
 
     playFleetMission(mission) {
@@ -881,18 +1128,48 @@
           window.clearTimeout(this._duckTimer);
           this._duckTimer = 0;
         }
-        this._applyVolumes();
       }
+      this._applyVolumes();
       this._save();
+      this._emitStateChange();
     }
 
     setMusicDuckingStrength(value) {
       this.state.musicDuckingStrength = Math.max(0.1, Math.min(0.9, Number(value || 0.55)));
+      this._applyVolumes();
       this._save();
+      this._emitStateChange();
+    }
+
+    trackTtsAudio(audio) {
+      if (this._disposed) return () => {};
+      if (this._ttsAudioCleanup.has(audio)) return this._ttsAudioCleanup.get(audio);
+      const update = () => {
+        if (!audio.paused && !audio.ended && !audio.muted && audio.volume > 0) this._speakingAudio.add(audio);
+        else this._speakingAudio.delete(audio);
+        this._applyVolumes();
+      };
+      const pause = () => {
+        this._speakingAudio.delete(audio);
+        this._applyVolumes();
+      };
+      const dispose = () => {
+        if (!this._ttsAudioCleanup.has(audio)) return;
+        for (const event of ['playing', 'volumechange']) audio.removeEventListener(event, update);
+        audio.removeEventListener('pause', pause);
+        for (const event of ['ended', 'error', 'emptied']) audio.removeEventListener(event, dispose);
+        this._ttsAudioCleanup.delete(audio);
+        pause();
+      };
+      for (const event of ['playing', 'volumechange']) audio.addEventListener(event, update);
+      audio.addEventListener('pause', pause);
+      for (const event of ['ended', 'error', 'emptied']) audio.addEventListener(event, dispose);
+      this._ttsAudioCleanup.set(audio, dispose);
+      return dispose;
     }
 
     duckMusic(holdMs = 280) {
-      if (!this.state.musicDuckingEnabled) return;
+      if (this._disposed || !this.state.musicDuckingEnabled) return;
       if (!this._music.src || this._music.paused) return;
       const strength = Math.max(0.1, Math.min(0.9, Number(this.state.musicDuckingStrength || 0.55)));
       this._duckFactor = Math.max(0.12, 1 - strength);
@@ -907,7 +1184,7 @@
     }
 
     duckMusicForTts(holdMs = 1800) {
-      if (!this.state.musicDuckingEnabled) return;
+      if (this._disposed || !this.state.musicDuckingEnabled) return;
       if (!this._music.src || this._music.paused) return;
       const baseStrength = Math.max(0.1, Math.min(0.9, Number(this.state.musicDuckingStrength || 0.55)));
       const strength = Math.min(0.92, baseStrength * 1.65);
@@ -938,16 +1215,19 @@
 
     setSfxVolume(value) {
       this.state.sfxVolume = Math.max(0, Math.min(1, Number(value || 0)));
+      this._applyVolumes();
       this._save();
     }
 
     setTeaserVolume(value) {
       this.state.teaserVolume = Math.max(0, Math.min(1, Number(value || 0)));
+      this._applyVolumes();
       this._save();
     }
 
     setTtsVolume(value) {
       this.state.ttsVolume = Math.max(0, Math.min(1, Number(value || 0)));
+      this._applyVolumes();
       this._save();
     }
 
@@ -974,16 +1254,19 @@
 
     setSfxMuted(value) {
       this.state.sfxMuted = !!value;
+      this._applyVolumes();
       this._save();
     }
 
     setTeaserMuted(value) {
       this.state.teaserMuted = !!value;
+      this._applyVolumes();
       this._save();
     }
 
     setTtsMuted(value) {
       this.state.ttsMuted = !!value;
+      this._applyVolumes();
       this._save();
     }
 
@@ -1001,8 +1284,6 @@
       if (!src) return null;
       if (this.state.masterMuted || this.state.ttsMuted) return null;
       const gain = typeof opts.gain === 'number' ? Math.max(0, Math.min(1, opts.gain)) : 1;
-      const holdMs = typeof opts.holdMs === 'number' ? opts.holdMs : 1800;
-      this.duckMusicForTts(holdMs);
       return this._playTtsAudio(src, gain);
     }
 
@@ -1157,32 +1438,43 @@
     }
 
     async playMusic() {
+      if (this._disposed) return false;
       if (!this._music.src) {
         this._log('warn', 'playMusic ohne gesetzte Quelle abgebrochen.');
         return false;
       }
+      const playToken = ++this._musicPlayToken;
+      const player = this._music;
+      this._musicPlayIntent = true;
       try {
         if (this._audioContext && this._audioContext.state === 'suspended') {
           await this._audioContext.resume();
         }
+        if (this._disposed || playToken !== this._musicPlayToken) return false;
         this._applyVolumes();
         this._log('info', 'Play-Versuch', {
-          track: this._prettyTrack(this._music.currentSrc || this._music.src || ''),
+          track: this._prettyTrack(player.currentSrc || player.src || ''),
           muted: !!this.state.musicMuted || !!this.state.masterMuted,
-          volume: Number(this._music.volume || 0),
+          volume: Number(player.volume || 0),
         });
-        await this._music.play();
+        await player.play();
+        if (this._disposed || playToken !== this._musicPlayToken) {
+          if (!this._musicPlayIntent && player === this._music) player.pause();
+          return false;
+        }
         this.state.musicPaused = false;
         this._save();
         this._log('info', 'Musik läuft', {
-          track: this._prettyTrack(this._music.currentSrc || this._music.src || ''),
-          currentTime: Number(this._music.currentTime || 0),
+          track: this._prettyTrack(player.currentSrc || player.src || ''),
+          currentTime: Number(player.currentTime || 0),
         });
         this._emitStateChange();
         return true;
       } catch (err) {
+        if (playToken !== this._musicPlayToken) return false;
+        this._musicPlayIntent = false;
         this._log('error', 'playMusic fehlgeschlagen', {
-          track: this._prettyTrack(this._music.currentSrc || this._music.src || ''),
+          track: this._prettyTrack(player.currentSrc || player.src || ''),
           error: String(err && err.message ? err.message : err || 'unknown'),
           name: String(err && err.name ? err.name : ''),
         });
@@ -1192,6 +1484,9 @@
     }
 
     pauseMusic(resetPosition = false) {
+      this._musicPlayToken += 1;
+      this._musicPlayIntent = false;
+      this._musicTransitionToken += 1;
       this._cancelFade();
       this._musicA.pause();
       this._musicB.pause();
@@ -1214,6 +1509,9 @@
     }
 
     stopMusic() {
+      this._musicPlayToken += 1;
+      this._musicPlayIntent = false;
+      this._musicTransitionToken += 1;
       this._cancelFade();
       if (this._duckTimer) {
         window.clearTimeout(this._duckTimer);
@@ -1238,6 +1536,7 @@
      * synth for procedural synthesis instead of (or in addition to) file playback.
      *
      * Call with `null` to detach.
+     * The caller owns the synth lifecycle and must dispose it when no longer used.
      *
      * @param {Object|null} synth  — Object with a `playProcedural(type, opts)` method
      */
@@ -1259,14 +1558,19 @@
     playProceduralSfx(type, opts = {}) {
       if (!this._synth) return false;
       if (this.state.masterMuted || this.state.sfxMuted) return false;
-      const master = Math.max(0, Math.min(1, Number(this.state.masterVolume || 0)));
-      const sfx    = Math.max(0, Math.min(1, Number(this.state.sfxVolume || 0)));
-      const vol    = master * sfx;
+      const requestedVolume = Number(opts.volume ?? 1);
+      const eventGain = Number.isFinite(requestedVolume)
+        ? Math.max(0, Math.min(1, requestedVolume)) : 0;
+      const vol = this._targetTransientVolume('sfx', eventGain);
       if (vol <= 0) return false;
       try {
-        this._synth.playProcedural(type, { volume: vol, ...opts });
-        return true;
-      } catch (_) {
+        const result = this._synth.playProcedural(type, { ...opts, volume: vol });
+        return result === true;
+      } catch (error) {
+        this._log('warn', 'Prozeduraler Sound konnte nicht abgespielt werden', {
+          type: String(type || ''),
+          error: String(error),
+        });
         return false;
       }
     }
@@ -1278,6 +1582,81 @@
         musicPlaying: !this._music.paused,
         musicPaused: !!this.state.musicPaused,
       });
+    }
+
+    dispose() {
+      if (!this._disposePromise) this._disposePromise = this._disposeResources();
+      return this._disposePromise;
+    }
+
+    async _disposeResources() {
+      this._disposed = true;
+      this._musicPlayToken += 1;
+      this._musicPlayIntent = false;
+      const errors = [];
+      const attempt = (cleanup) => {
+        try {
+          cleanup();
+        } catch (error) {
+          errors.push(error);
+        }
+      };
+
+      attempt(() => this._cancelFade());
+      if (this._duckTimer) {
+        attempt(() => window.clearTimeout(this._duckTimer));
+        this._duckTimer = 0;
+      }
+      for (const timeoutId of this._scheduledTimeouts) {
+        attempt(() => window.clearTimeout(timeoutId));
+      }
+      this._scheduledTimeouts.clear();
+
+      for (const cleanup of Array.from(this._ttsAudioCleanup.values())) {
+        attempt(cleanup);
+      }
+      for (const audio of Array.from(this._transientAudioCleanup.keys())) {
+        attempt(() => this._releaseTransientAudio(audio, true));
+      }
+      for (const [audio, handlers] of this._musicElementHandlers) {
+        attempt(() => audio.removeEventListener('error', handlers.onError));
+        attempt(() => audio.removeEventListener('ended', handlers.onEnded));
+      }
+      this._musicElementHandlers.clear();
+
+      for (const audio of [this._musicA, this._musicB]) {
+        attempt(() => audio.pause());
+        attempt(() => audio.removeAttribute('src'));
+        attempt(() => audio.load());
+      }
+      this._speakingAudio.clear();
+      this._synth = null;
+      this._sfxLastPlayAt.clear();
+      this._sfxTeaserLastPlayAt.clear();
+
+      for (const [oscillator, { env, onEnded }] of this._activeToneOscillators) {
+        attempt(() => oscillator.removeEventListener('ended', onEnded));
+        attempt(() => oscillator.stop());
+        attempt(() => oscillator.disconnect());
+        attempt(() => env.disconnect());
+      }
+      this._activeToneOscillators.clear();
+      if (this._gain) attempt(() => this._gain.disconnect());
+
+      const context = this._audioContext;
+      this._audioContext = null;
+      this._gain = null;
+      if (context && context.state !== 'closed' && typeof context.close === 'function') {
+        try {
+          await context.close();
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+
+      if (errors.length) {
+        throw new AggregateError(errors, 'Audio manager disposal failed');
+      }
     }
   }
 

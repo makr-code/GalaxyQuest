@@ -36,4 +36,24 @@ final class NpcAiDecisionQueueTest extends TestCase
         $this->assertNull(npc_ai_decision_queue_normalize_worker_id('x'));
         $this->assertNull(npc_ai_decision_queue_normalize_worker_id('bad worker'));
     }
+
+    public function testQueueSchemaChecksDoNotHideDatabaseFailuresOrReuseStaleResults(): void
+    {
+        $source = file_get_contents(dirname(__DIR__, 2) . '/api/npc_ai_decision_queue.php');
+        $this->assertIsString($source);
+
+        foreach ([
+            'function npc_ai_decision_queue_available(',
+            'function npc_ai_decision_queue_supports_worker_claim_fields(',
+        ] as $functionName) {
+            $start = strpos($source, $functionName);
+            $this->assertNotFalse($start);
+            $end = strpos($source, "\n}", $start);
+            $this->assertNotFalse($end);
+
+            $functionBody = substr($source, $start, $end - $start);
+            $this->assertStringNotContainsString('catch (', $functionBody);
+            $this->assertStringNotContainsString('static $', $functionBody);
+        }
+    }
 }

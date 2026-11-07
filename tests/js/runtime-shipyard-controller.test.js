@@ -57,6 +57,7 @@ function makeController(overrides = {}) {
   const wm = { body: vi.fn(() => root) };
 
   const defaultApi = {
+    finishShipyard: vi.fn().mockResolvedValue({ success: true }),
     ships: vi.fn().mockResolvedValue({ success: true, ships: [], blueprints: [], queue: [] }),
     shipyardHulls: vi.fn().mockResolvedValue({ hulls: [] }),
     shipyardVessels: vi.fn().mockResolvedValue({ vessels: [] }),
@@ -536,7 +537,7 @@ describe('RuntimeShipyardController – flotte tab', () => {
         hull_tier: 1,
         hull_label: 'Corvette T1',
         stats: { attack: 10, shield: 5, hull: 20, cargo: 50, speed: 1200 },
-        hp_state: { hp: 20, max_hp: 20, shield: 5, max_shield: 5 },
+        hp_state: { hp: 20, max_hp: 20, shield: 3, max_shield: 5 },
       },
     ];
     const { controller, root } = makeController({
@@ -552,6 +553,64 @@ describe('RuntimeShipyardController – flotte tab', () => {
     flotteTab.click();
     const vesselCard = root.querySelector('.vessel-card[data-vessel-id="42"]');
     expect(vesselCard).not.toBeNull();
+    expect(vesselCard.querySelector('.vessel-shield-fill').style.width).toBe('60%');
+    expect(vesselCard.querySelector('[data-status-meter="shield"]').getAttribute('aria-valuenow')).toBe('3');
+    expect(vesselCard.querySelector('.vessel-status-value:not(.vessel-hp-value)').textContent).toBe('3/5 (60%)');
+  });
+
+  it('shows only status meters backed by persisted current and maximum values', async () => {
+    const vessel = {
+      id: 43,
+      status: 'docked',
+      bp_name: 'Unmeasured',
+      hull_class: 'corvette',
+      hull_tier: 1,
+      stats: { shield: 5, hull: 20 },
+      hp_state: { hp: 15, max_hp: 20 },
+    };
+    const { controller, root } = makeController({
+      api: {
+        ships: vi.fn().mockResolvedValue({ success: true, ships: [], blueprints: [], queue: [] }),
+        shipyardHulls: vi.fn().mockResolvedValue({ hulls: [] }),
+        shipyardVessels: vi.fn().mockResolvedValue({ vessels: [vessel] }),
+        resources: vi.fn().mockResolvedValue({ success: true, resources: {} }),
+      },
+    });
+    await controller.render();
+    root.querySelector('.ui-tab-btn[data-tab-target="flotte"]').click();
+
+    const card = root.querySelector('.vessel-card[data-vessel-id="43"]');
+    expect(card.querySelector('[data-status-meter="hull"]')?.getAttribute('aria-valuenow')).toBe('15');
+    expect(card.querySelector('.vessel-hp-value')?.textContent).toBe('15/20 (75%)');
+    expect(card.querySelector('[data-status-meter="shield"]')).toBeNull();
+    expect(card.querySelector('.vessel-repair-btn')).not.toBeNull();
+  });
+
+  it('does not infer full vessel health or shields when saved status is absent', async () => {
+    const vessel = {
+      id: 44,
+      status: 'docked',
+      bp_name: 'Unknown state',
+      hull_class: 'corvette',
+      hull_tier: 1,
+      stats: { shield: 5, hull: 20 },
+      hp_state: {},
+    };
+    const { controller, root } = makeController({
+      api: {
+        ships: vi.fn().mockResolvedValue({ success: true, ships: [], blueprints: [], queue: [] }),
+        shipyardHulls: vi.fn().mockResolvedValue({ hulls: [] }),
+        shipyardVessels: vi.fn().mockResolvedValue({ vessels: [vessel] }),
+        resources: vi.fn().mockResolvedValue({ success: true, resources: {} }),
+      },
+    });
+    await controller.render();
+    root.querySelector('.ui-tab-btn[data-tab-target="flotte"]').click();
+
+    const card = root.querySelector('.vessel-card[data-vessel-id="44"]');
+    expect(card.querySelector('.vessel-hp-fill')).toBeNull();
+    expect(card.querySelector('.vessel-shield-fill')).toBeNull();
+    expect(card.querySelector('.vessel-repair-btn')).toBeNull();
   });
 });
 
@@ -662,6 +721,7 @@ describe('RuntimeShipyardController – vessel repair', () => {
       const hpFill = card.querySelector('.vessel-hp-fill');
       expect(hpFill.style.width).toBe('100%');
       expect(hpFill.classList.contains('is-good')).toBe(true);
+      expect(card.querySelector('.vessel-hp-value').textContent).toBe('20/20 (100%)');
       expect(card.querySelector('.vessel-repair-btn')).toBeNull();
     });
   });

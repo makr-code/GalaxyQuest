@@ -50,7 +50,18 @@ final class EmpireCategoriesTest extends TestCase
             CREATE TABLE diplomacy (
                 id INTEGER PRIMARY KEY,
                 user_id INTEGER,
+                faction_id INTEGER,
                 standing INTEGER DEFAULT 0
+            );
+            CREATE TABLE npc_factions (
+                id INTEGER PRIMARY KEY,
+                base_diplomacy INTEGER DEFAULT 0
+            );
+            CREATE TABLE wars (
+                id INTEGER PRIMARY KEY,
+                attacker_user_id INTEGER NOT NULL,
+                defender_user_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT "active"
             );
             CREATE TABLE espionage_agents (
                 id INTEGER PRIMARY KEY,
@@ -247,6 +258,16 @@ final class EmpireCategoriesTest extends TestCase
         $this->assertLessThanOrEqual(100, $score);
     }
 
+    public function testStabilityScorePenalizesOnlyActiveWars(): void
+    {
+        $this->db->exec("
+            INSERT INTO wars (attacker_user_id, defender_user_id, status)
+            VALUES (30, 31, 'active'), (32, 30, 'ended')
+        ");
+
+        $this->assertSame(30, calc_stability_score($this->db, 30));
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // calc_and_store_empire_scores — PDO upsert (mock PDO for MySQL-specific SQL)
     // ──────────────────────────────────────────────────────────────────────────
@@ -264,7 +285,11 @@ final class EmpireCategoriesTest extends TestCase
                 population INTEGER DEFAULT 0, energy_balance INTEGER DEFAULT 0);
             CREATE TABLE fleets (id INTEGER PRIMARY KEY, user_id INTEGER,
                 ships_json TEXT DEFAULT "{}", "returning" INTEGER DEFAULT 0);
-            CREATE TABLE diplomacy (id INTEGER PRIMARY KEY, user_id INTEGER, standing INTEGER DEFAULT 0);
+            CREATE TABLE diplomacy (id INTEGER PRIMARY KEY, user_id INTEGER, faction_id INTEGER,
+                standing INTEGER DEFAULT 0);
+            CREATE TABLE npc_factions (id INTEGER PRIMARY KEY, base_diplomacy INTEGER DEFAULT 0);
+            CREATE TABLE wars (id INTEGER PRIMARY KEY, attacker_user_id INTEGER NOT NULL,
+                defender_user_id INTEGER NOT NULL, status TEXT NOT NULL DEFAULT "active");
             CREATE TABLE espionage_agents (id INTEGER PRIMARY KEY, user_id INTEGER,
                 skill_level INTEGER DEFAULT 1, status TEXT DEFAULT "idle");
         ');
@@ -312,7 +337,11 @@ final class EmpireCategoriesTest extends TestCase
                 population INTEGER DEFAULT 0, energy_balance INTEGER DEFAULT 0);
             CREATE TABLE fleets (id INTEGER PRIMARY KEY, user_id INTEGER,
                 ships_json TEXT DEFAULT "{}", "returning" INTEGER DEFAULT 0);
-            CREATE TABLE diplomacy (id INTEGER PRIMARY KEY, user_id INTEGER, standing INTEGER DEFAULT 0);
+            CREATE TABLE diplomacy (id INTEGER PRIMARY KEY, user_id INTEGER, faction_id INTEGER,
+                standing INTEGER DEFAULT 0);
+            CREATE TABLE npc_factions (id INTEGER PRIMARY KEY, base_diplomacy INTEGER DEFAULT 0);
+            CREATE TABLE wars (id INTEGER PRIMARY KEY, attacker_user_id INTEGER NOT NULL,
+                defender_user_id INTEGER NOT NULL, status TEXT NOT NULL DEFAULT "active");
             CREATE TABLE espionage_agents (id INTEGER PRIMARY KEY, user_id INTEGER,
                 skill_level INTEGER DEFAULT 1, status TEXT DEFAULT "idle");
         ');

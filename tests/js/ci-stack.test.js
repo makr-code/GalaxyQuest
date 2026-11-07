@@ -65,6 +65,33 @@ describe.skipIf(process.env.GQ_DOCKER_CONTEXT_TESTS !== '1')('actual merged CI C
 });
 
 describe('CI smoke workflow ordering and cleanup', () => {
+  it('requires native GPU lifecycle coverage on zoom changes in develop and main', () => {
+    const gpuWorkflow = readFileSync(path.resolve('.github', 'workflows', 'webgpu-shader-validation.yml'), 'utf8');
+    const push = gpuWorkflow.slice(gpuWorkflow.indexOf('  push:'), gpuWorkflow.indexOf('  pull_request:'));
+    const pullRequest = gpuWorkflow.slice(gpuWorkflow.indexOf('  pull_request:'), gpuWorkflow.indexOf('\njobs:'));
+    for (const trigger of [push, pullRequest]) {
+      expect(trigger).toContain('develop');
+      expect(trigger).toContain('main');
+      expect(trigger).toContain("'js/engine/zoom/**/*.js'");
+      expect(trigger).toContain("'js/rendering/game-colony-zoom.js'");
+      expect(trigger).toContain("'tests/e2e/colony-gpu-lifecycle.spec.js'");
+    }
+    expect(gpuWorkflow).toContain("GQ_WEBGPU_SHADER_CI: '1'");
+    expect(gpuWorkflow).toContain('            tests/e2e/colony-gpu-lifecycle.spec.js');
+    expect(gpuWorkflow).toContain('            test-results/');
+  });
+
+  it('runs isolated native browser lifecycle checks before starting the application stack', () => {
+    const install = smoke.indexOf('name: Install Playwright Chromium browser');
+    const lifecycle = smoke.indexOf('name: Verify browser lifecycle resource cleanup');
+    const start = smoke.indexOf('name: Start application stack');
+    expect(install).toBeGreaterThan(-1);
+    expect(install).toBeLessThan(lifecycle);
+    expect(lifecycle).toBeLessThan(start);
+    expect(smoke).toContain('npx playwright test tests/e2e/lifecycle-resources.spec.js tests/e2e/game-view-lifecycle.spec.js --project=chromium --workers=1 --reporter=list');
+    expect(smoke).toContain('            test-results/');
+  });
+
   it('migrates the built image before user seeding and E2E', () => {
     const start = smoke.indexOf('name: Start application stack');
     const migrate = smoke.indexOf('name: Apply canonical migrations from the built image');
@@ -98,6 +125,12 @@ describe('CI smoke workflow ordering and cleanup', () => {
     expect(dockerfile).toContain('cp -a dist/assets/. assets/');
     expect(dockerfile).toContain('HEALTHCHECK --interval=30s --timeout=5s');
     expect(dockerfile).toContain('/health/live');
+  });
+  it('runs ThemisDB as a non-root user with a writable data directory', () => {
+    const dockerfile = readFileSync(path.resolve('docker/themisdb/Dockerfile'), 'utf8');
+    expect(dockerfile).toContain('useradd --system --uid 10001 --gid themisdb');
+    expect(dockerfile).toContain('--owner=themisdb --group=themisdb --mode=0750 /data');
+    expect(dockerfile).toMatch(/\nUSER themisdb\s*$/);
   });
   it('serves the local bundle and hashed assets when Compose mounts the source tree', () => {
     const entry = readFileSync(path.resolve('index.php'), 'utf8');

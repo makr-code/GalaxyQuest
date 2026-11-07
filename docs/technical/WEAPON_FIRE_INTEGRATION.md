@@ -3,6 +3,36 @@
 ## Overview
 Complete weapon-fire event routing system for galaxy rendering, supporting multi-entity-type targeting with BeamEffect instanced rendering integration.
 
+## Combat event fidelity
+
+`fleet_arrived` and `incoming_attack` notifications no longer create weapon
+discharges. The combat resolver links each new battle report to its attacking
+fleet; the authenticated SSE stream sends the report's bounded round summary to
+both combatants. The bridge schedules visual salvos from those round summaries,
+using the exact attacker fleet ID and target body slot. Defender salvos are
+routed to installations at that slot and can target the recorded attacker fleet.
+
+The report stores aggregate round pressure, not individual shots, weapon
+hardpoints, hit events, or projectile trajectories. These VFX are therefore
+round-level visualizations of the resolved outcome, not a reconstruction of
+individual firing decisions. The renderer accepts `sourceFleetId` and
+`targetFleetId` (or `sourceEntityId` / `targetEntityId` aliases); explicit fleet
+or body-slot targets are not silently replaced by a different nearby target.
+
+### Resolved-battle event flow
+
+1. `resolve_battle()` stores the arriving fleet ID on its report.
+2. The authenticated SSE stream detects newly committed reports for either
+   participant and emits a bounded round summary with fleet and body-slot IDs.
+3. `CombatVfxBridge` schedules one visual cue per round with positive pressure
+   for the connected participant; fleet-arrival and inbound-warning events do
+   not create weapon discharges.
+4. The renderer resolves the attacker fleet and target body slot, or the
+   defender installation and exact attacker fleet, before creating the beam.
+
+Run `migrate_battle_report_fleet_link_v1.sql` before expecting resolved-battle
+VFX on an existing database. Existing reports intentionally remain unlinked.
+
 ## Phase 1: Installation Weapon Fire ✅ **COMPLETE**
 
 ### Event Flow
@@ -48,15 +78,13 @@ Complete weapon-fire event routing system for galaxy rendering, supporting multi
 
 ---
 
-## Phase 2: Multi-Entity Weapon Fire (PLANNED)
+## Phase 2: Multi-Entity Weapon Fire (PARTIAL)
 
 ### Ships/Vessels
 **Handler**: `_applyWeaponFireToShips(ev, elapsed)`
-- Query ship registry from game engine
-- Match by sourceOwner (faction/player)
-- Locate hardpoint meshes on vessel 3D model
-- Trigger multiple weapon discharge sequences
-- Handle hull/shield VFX variations
+- Exact source fleet and body-slot targeting for resolved battle-round cues
+- Current procedural fleet formations fire from the formation origin; authored
+  hardpoint transforms and weapon-specific projectile paths remain future work
 
 ### Debris/Wreckage  
 **Handler**: `_applyWeaponFireToDebris(ev, elapsed)`

@@ -25,6 +25,39 @@ function displayNumber(value, digits = 1) {
   return NUMBER_FORMATTERS.get(digits).format(number);
 }
 
+const COMBAT_METRICS = {
+  shield: { label: 'Schild', short: 'SH', color: '#59d8ff' },
+  armor: { label: 'Panzerung', short: 'AR', color: '#f6c453' },
+  hull: { label: 'Hülle', short: 'HP', color: '#ff776e' },
+};
+
+function isDecimalMetric(value) {
+  return typeof value === 'number' && Number.isFinite(value)
+    || typeof value === 'string' && /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(value.trim());
+}
+
+export function normalizeSpatialCombatStatus(status) {
+  if (!status || typeof status !== 'object' || Array.isArray(status)) return [];
+  return Object.entries(COMBAT_METRICS).flatMap(([key, metadata]) => {
+    const metric = status[key];
+    if (!metric || typeof metric !== 'object' || Array.isArray(metric)
+      || metric.current === null || metric.maximum === null
+      || metric.current === '' || metric.maximum === '') return [];
+    if (!isDecimalMetric(metric.current) || !isDecimalMetric(metric.maximum)) return [];
+    const current = Number(metric.current);
+    const maximum = Number(metric.maximum);
+    if (!Number.isFinite(current) || current < 0 || !Number.isFinite(maximum) || maximum <= 0) return [];
+    const percent = Math.round(clamp((current / maximum) * 100, 0, 100));
+    return [{ key, ...metadata, current, maximum, percent }];
+  });
+}
+
+export function formatSpatialCombatStatus(metrics) {
+  return (Array.isArray(metrics) ? metrics : [])
+    .map((metric) => `${metric.label} ${metric.percent} % (${displayNumber(metric.current, 0)}/${displayNumber(metric.maximum, 0)})`)
+    .join(' · ');
+}
+
 export function formatSpatialObjectDetails(data = {}, kind = 'object') {
   const values = [];
   if (kind === 'star' || kind === 'system') {
@@ -233,19 +266,47 @@ export function resolveSpatialLabels(flight, galaxyStars, { width, height, maxLa
       const localPosition = body.getWorldPosition(new Vector3());
       const worldPosition = localPosition.clone().add(flight.origin || new Vector3());
       const data = body.userData.data || {};
+      const isSelected = body.userData.type === 'planet'
+        && Number(data.position) === flight.systemVisualizations?.selection?.position;
       candidates.push({
         id: `${body.userData.type}:${body.userData.parentPosition || ''}:${data.position || data.moon_index || data.id || 0}`,
         kind: body.userData.type,
         text: bodyName(body, body.userData.type, index),
+        detail: formatSpatialObjectDetails(data, body.userData.type),
         data,
+        selected: isSelected,
         worldPosition,
         localPosition,
         radius: body.userData.radius,
         distance: localPosition.distanceTo(camera.position),
-        priority: body === nearestPlanet || body === starBody ? 3 : 2,
+        priority: isSelected ? 4 : body === nearestPlanet || body === starBody ? 3 : 2,
+        metrics: normalizeSpatialCombatStatus(data.combat_status),
         body,
       });
     }
+  }
+
+  const spaceEntities = flight.spaceEntities instanceof Map ? flight.spaceEntities.values() : [];
+  for (const entity of spaceEntities) {
+    if (!entity?.position || !Number.isFinite(entity.position.x)
+      || !Number.isFinite(entity.position.y) || !Number.isFinite(entity.position.z)) continue;
+    const metrics = normalizeSpatialCombatStatus(entity.combatStatus);
+    if (!metrics.length) continue;
+    const localPosition = entity.position.clone().sub(flight.origin || new Vector3());
+    candidates.push({
+      id: `entity:${entity.id}`,
+      kind: 'object',
+      text: String(entity.displayName || 'Künstliches Objekt'),
+      data: { combat_status: entity.combatStatus },
+      selected: entity === flight.cameraFollowEntity,
+      worldPosition: entity.position.clone(),
+      localPosition,
+      radius: Number(entity.scale) > 0 ? Number(entity.scale) : 0,
+      distance: localPosition.distanceTo(camera.position),
+      priority: entity === flight.cameraFollowEntity ? 5 : 3,
+      metrics,
+      body: entity,
+    });
   }
 
   const focalPixels = Math.abs(camera.projectionMatrix.elements[5]) * height * 0.5;
@@ -256,14 +317,16 @@ export function resolveSpatialLabels(flight, galaxyStars, { width, height, maxLa
     const projected = candidate.localPosition.clone().project(camera);
     if (!Number.isFinite(projected.x) || projected.z < -1 || projected.z > 1
       || Math.abs(projected.x) > 0.97 || Math.abs(projected.y) > 0.97) continue;
-    const ratio = clamp(Number(pixelRatio) || 1, 1, 3);
+    const ratio = clamp(Number(pixelRatio) || 1, 1, 2);
     const apparentRadiusPx = candidate.radius > 0 ? candidate.radius * focalPixels / cameraDepth : 0;
     const fontSize = clamp(18 + Math.sqrt(apparentRadiusPx / ratio) * 0.75, 18, 24) * ratio;
     const detailFontSize = candidate.detail ? 12 * ratio : 0;
+    const metricsHeight = candidate.metrics?.length ? (candidate.metrics.length * 11 + 3) * ratio : 0;
+    const minimumWidth = candidate.metrics?.length ? 112 * ratio : 68 * ratio;
     const titleWidth = candidate.text.length * fontSize * 0.58;
     const detailWidth = String(candidate.detail || '').length * detailFontSize * 0.56;
-    const widthPx = clamp(Math.max(titleWidth, detailWidth) + 18 * ratio, 68 * ratio, 248);
-    const heightPx = fontSize + detailFontSize + (candidate.detail ? 16 : 12) * ratio;
+    const widthPx = clamp(Math.max(titleWidth, detailWidth, minimumWidth) + 18 * ratio, minimumWidth, 248);
+    const heightPx = fontSize + detailFontSize + metricsHeight + (candidate.detail ? 16 : 12) * ratio;
     const x = (projected.x + 1) * width * 0.5;
     const bodyOffset = Math.min(42 * ratio, apparentRadiusPx + heightPx * 0.65);
     const y = (1 - projected.y) * height * 0.5 - bodyOffset;

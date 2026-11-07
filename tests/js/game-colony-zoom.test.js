@@ -9,6 +9,12 @@ vi.mock('../../js/engine/zoom/levels/PersistentBodyPlanetApproachRenderer.js', (
     async enter() {}
     async exit() {}
     render() { if (state.renderError) throw state.renderError; }
+    resetView() {}
+    rotateView() {}
+    panView() {}
+    zoomBy() {}
+    selectAt() {}
+    nudgeZoom() {}
     dispose() {}
   },
 }));
@@ -20,6 +26,12 @@ vi.mock('../../js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js', () => ({
     async enter() {}
     async exit() {}
     render() {}
+    resetView() {}
+    rotateView() {}
+    panView() {}
+    zoomBy() {}
+    selectAt() {}
+    nudgeZoom() {}
     dispose() {}
   },
 }));
@@ -75,6 +87,129 @@ describe('Authenticated shared colony zoom bridge', () => {
     expect(hooks.size).toBe(0);
   });
 
+  it.each(['back', 'returnTo'])('cancels a pending surface load after %s navigation', async action => {
+    runtime = await createGameColonyZoom(options);
+    await runtime.approach({ planet: { id: 1 } });
+    let finish;
+    const pending = runtime.surface(() => new Promise(resolve => { finish = resolve; }));
+    if (action === 'back') {
+      runtime.back();
+      await vi.waitFor(() => expect(window.__GQ_ZOOM_ORCHESTRATOR._activeLevel).toBe(1));
+    } else {
+      expect(await runtime.returnTo('planet')).toBe(true);
+    }
+    options.onLevel.mockClear();
+    finish({ colony: { id: 7 } });
+    expect(await pending).toBe(false);
+    expect(window.__GQ_ZOOM_ORCHESTRATOR._activeLevel).toBe(action === 'back' ? 1 : 2);
+    expect(options.onLevel).not.toHaveBeenCalled();
+  });
+
+  it('refuses an overlapping approach without losing the accepted flight or return payload', async () => {
+    runtime = await createGameColonyZoom(options);
+    const original = { planet: { id: 1 } };
+    const pending = runtime.approach(original, { position: { x: 0, y: 0, z: 20 } });
+    const zoom = window.__GQ_ZOOM_ORCHESTRATOR;
+    await vi.waitFor(() => expect(zoom._flight.isFlying).toBe(true));
+    expect(await runtime.approach({ planet: { id: 2 } })).toBe(false);
+    const surface = runtime.surface(async () => ({ colony: { id: 7 } }));
+    await Promise.resolve();
+    expect(zoom._activeLevel).toBe(2);
+    for (let frame = 0; frame < 100; frame++) hooks.forEach(hook => hook(0.05));
+    expect(await pending).toBe(false);
+    expect(await surface).toBe(true);
+    const planet = zoom._registry.resolve(2, zoom._backend);
+    const enter = vi.spyOn(planet, 'enter');
+    await runtime.returnTo('planet');
+    expect(enter).toHaveBeenLastCalledWith(3, { colony: { id: 7 } });
+  });
+
+  it('keeps an accepted approach successful after an ignored overlapping approach', async () => {
+    runtime = await createGameColonyZoom(options);
+    const pending = runtime.approach({ planet: { id: 1 } }, { position: { x: 0, y: 0, z: 20 } });
+    const zoom = window.__GQ_ZOOM_ORCHESTRATOR;
+    await vi.waitFor(() => expect(zoom._flight.isFlying).toBe(true));
+    expect(await runtime.approach({ planet: { id: 2 } })).toBe(false);
+    for (let frame = 0; frame < 100; frame++) hooks.forEach(hook => hook(0.05));
+    expect(await pending).toBe(true);
+  });
+
+  it('does not enter the surface after its prerequisite planet entry was cancelled', async () => {
+    runtime = await createGameColonyZoom(options);
+    const zoom = window.__GQ_ZOOM_ORCHESTRATOR;
+    const planet = zoom._registry.resolve(2, zoom._backend);
+    let finish;
+    planet.enter = vi.fn(() => new Promise(resolve => { finish = resolve; }));
+    const pending = runtime.surface(async () => ({ colony: { id: 7 } }));
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    zoom.register(2, { webgpu: class {
+      async initialize() {}
+      async enter() {}
+      dispose() {}
+    } });
+    finish();
+    expect(await pending).toBe(false);
+    expect(zoom._active).toBeNull();
+    expect(options.onLevel).not.toHaveBeenCalled();
+  });
+
+  it('keeps only the latest surface response and ignores refused downward navigation', async () => {
+    runtime = await createGameColonyZoom(options);
+    await runtime.approach({});
+    let finishOld;
+    let finishNew;
+    const old = runtime.surface(() => new Promise(resolve => { finishOld = resolve; }));
+    const latest = runtime.surface(() => new Promise(resolve => { finishNew = resolve; }));
+    expect(await runtime.returnTo('colony')).toBe(false);
+    finishNew({ colony: { id: 8 } });
+    expect(await latest).toBe(true);
+    const zoom = window.__GQ_ZOOM_ORCHESTRATOR;
+    const active = zoom._active;
+    const enter = vi.spyOn(active, 'enter');
+    finishOld({ colony: { id: 7 } });
+    expect(await old).toBe(false);
+    expect(zoom._active).toBe(active);
+    expect(enter).not.toHaveBeenCalled();
+    const planet = zoom._registry.resolve(2, zoom._backend);
+    const returnEntry = vi.spyOn(planet, 'enter');
+    await runtime.returnTo('planet');
+    expect(returnEntry).toHaveBeenLastCalledWith(3, { colony: { id: 8 } });
+  });
+
+  it('does not overwrite return data when a surface load resolves during an unrelated departure', async () => {
+    runtime = await createGameColonyZoom(options);
+    const original = { colony: { id: 7 } };
+    await runtime.surface(async () => original);
+    const zoom = window.__GQ_ZOOM_ORCHESTRATOR;
+    let finishLoad;
+    let finishExit;
+    const pending = runtime.surface(() => new Promise(resolve => { finishLoad = resolve; }));
+    vi.spyOn(zoom._active, 'exit').mockImplementationOnce(() => new Promise(resolve => { finishExit = resolve; }));
+    const departure = zoom.zoomTo(2, original, { skipCameraFlight: true });
+    await vi.waitFor(() => expect(finishExit).toBeTypeOf('function'));
+    finishLoad({ colony: { id: 8 } });
+    expect(await pending).toBe(false);
+    finishExit();
+    await departure;
+    await runtime.surface(async () => original);
+    const planet = zoom._registry.resolve(2, zoom._backend);
+    const enter = vi.spyOn(planet, 'enter');
+    await runtime.returnTo('planet');
+    expect(enter).toHaveBeenLastCalledWith(3, original);
+  });
+
+  it('propagates loader failures without losing the usable planet view', async () => {
+    runtime = await createGameColonyZoom(options);
+    await runtime.approach({});
+    const zoom = window.__GQ_ZOOM_ORCHESTRATOR;
+    const active = zoom._active;
+    const failure = new Error('Colony data failed');
+    await expect(runtime.surface(async () => { throw failure; })).rejects.toBe(failure);
+    expect(zoom._active).toBe(active);
+    expect(zoom._activeLevel).toBe(2);
+    await expect(runtime.surface(async () => ({ colony: { id: 7 } }))).resolves.toBe(true);
+  });
+
   it('only forwards refreshes to an already active full colony surface', async () => {
     runtime = await createGameColonyZoom(options);
     runtime.refreshColony(7);
@@ -85,6 +220,57 @@ describe('Authenticated shared colony zoom bridge', () => {
     runtime.dispose();
     runtime.refreshColony(7);
     expect(state.refresh).toHaveBeenCalledOnce();
+  });
+
+  it('does not forward controls or colony refresh while the active renderer is exiting', async () => {
+    runtime = await createGameColonyZoom(options);
+    await runtime.surface(async () => ({ colony: { id: 7 } }));
+    const zoom = window.__GQ_ZOOM_ORCHESTRATOR;
+    const surface = zoom._active;
+    const controls = ['resetView', 'rotateView', 'panView', 'zoomBy', 'selectAt', 'nudgeZoom']
+      .map(name => vi.spyOn(surface, name));
+    let finish;
+    vi.spyOn(surface, 'exit').mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const transition = zoom.zoomTo(2, {}, { skipCameraFlight: true });
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    runtime.reset();
+    runtime.rotateView(1, 2);
+    runtime.panView(1, 2);
+    runtime.zoomBy(0.1);
+    runtime.selectAt(1, 2);
+    runtime.nudgeZoom('in');
+    runtime.refreshColony(7);
+    controls.forEach(control => expect(control).not.toHaveBeenCalled());
+    expect(state.refresh).not.toHaveBeenCalled();
+    finish();
+    await transition;
+    expect(zoom._activeLevel).toBe(2);
+  });
+
+  it('does not mutate or query a renderer after its registration is replaced', async () => {
+    runtime = await createGameColonyZoom(options);
+    await runtime.surface(async () => ({ colony: { id: 7 } }));
+    const zoom = window.__GQ_ZOOM_ORCHESTRATOR;
+    const retired = zoom._active;
+    const controls = ['resetView', 'rotateView', 'panView', 'zoomBy', 'selectAt', 'nudgeZoom']
+      .map(name => vi.spyOn(retired, name));
+    zoom.register(3, { webgpu: class {
+      async initialize() {}
+      async enter() {}
+      async exit() {}
+      render() {}
+      dispose() {}
+    } });
+    runtime.reset();
+    runtime.rotateView(1, 2);
+    runtime.panView(1, 2);
+    runtime.zoomBy(0.1);
+    runtime.selectAt(1, 2);
+    runtime.nudgeZoom('in');
+    runtime.refreshColony(7);
+    controls.forEach(control => expect(control).not.toHaveBeenCalled());
+    expect(state.refresh).not.toHaveBeenCalled();
+    expect(zoom._active).toBeNull();
   });
   it('uses the existing reverse surface transition for ancestor navigation and refuses downward navigation', async () => {
     runtime = await createGameColonyZoom(options);
@@ -159,6 +345,40 @@ describe('Authenticated shared colony zoom bridge', () => {
     expect(backend.setZoomSceneActive).toHaveBeenLastCalledWith(false);
   });
 
+  it('clears the published zoom runtime even if a renderer cannot be disposed', async () => {
+    runtime = await createGameColonyZoom(options);
+    await runtime.approach({});
+    const zoom = window.__GQ_ZOOM_ORCHESTRATOR;
+    const failure = new Error('Planet resource cleanup failed');
+    zoom._active.dispose = vi.fn(() => { throw failure; });
+
+    expect(() => runtime.dispose()).toThrow(AggregateError);
+    expect(hooks.size).toBe(0);
+    expect(window.__GQ_ZOOM_ORCHESTRATOR).toBeUndefined();
+    expect(() => runtime.dispose()).not.toThrow();
+    expect(zoom._active).toBeNull();
+  });
+
+  it('reports rendering and cleanup errors together without retaining the global or hook', async () => {
+    runtime = await createGameColonyZoom(options);
+    await runtime.approach({});
+    const zoom = window.__GQ_ZOOM_ORCHESTRATOR;
+    const cleanupFailure = new Error('Planet resource cleanup failed');
+    zoom._active.dispose = vi.fn(() => { throw cleanupFailure; });
+    state.renderError = new Error('Planet rendering failed');
+
+    hooks.forEach((hook) => hook(0.016));
+
+    expect(options.onReturn).toHaveBeenCalledOnce();
+    expect(options.onError).toHaveBeenCalledOnce();
+    const reported = options.onError.mock.calls[0][0];
+    expect(reported).toBeInstanceOf(AggregateError);
+    expect(reported.errors[0]).toBe(state.renderError);
+    expect(reported.errors[1]).toBeInstanceOf(AggregateError);
+    expect(hooks.size).toBe(0);
+    expect(window.__GQ_ZOOM_ORCHESTRATOR).toBeUndefined();
+  });
+
   it('settles flight and pending surface entry on disposal without requiring another frame', async () => {
     runtime = await createGameColonyZoom(options);
     const approach = runtime.approach({}, { position: { x: 0, y: 0, z: 20 } });
@@ -171,10 +391,156 @@ describe('Authenticated shared colony zoom bridge', () => {
     expect(options.onLevel).not.toHaveBeenCalled();
   });
 
+  it('reports rendering, disposal and system-return failures after all cleanup attempts', async () => {
+    runtime = await createGameColonyZoom(options);
+    await runtime.approach({});
+    const zoom = window.__GQ_ZOOM_ORCHESTRATOR;
+    const renderingFailure = new Error('Rendering failed');
+    const cleanupFailure = new Error('Cleanup failed');
+    const returnFailure = new Error('System return failed');
+    zoom._active.dispose = vi.fn(() => { throw cleanupFailure; });
+    options.onReturn.mockImplementationOnce(() => { throw returnFailure; });
+    state.renderError = renderingFailure;
+    const hook = [...hooks][0];
+    expect(() => hook(0.016)).not.toThrow();
+    expect(options.onError).toHaveBeenCalledOnce();
+    const reported = options.onError.mock.calls[0][0];
+    const flatten = error => error instanceof AggregateError ? error.errors.flatMap(flatten) : [error];
+    expect(flatten(reported)).toEqual([renderingFailure, cleanupFailure, returnFailure]);
+    expect(options.onReturn).toHaveBeenCalledOnce();
+    expect(hooks.size).toBe(0);
+    expect(window.__GQ_ZOOM_ORCHESTRATOR).toBeUndefined();
+    hook(0.016);
+    expect(options.onError).toHaveBeenCalledOnce();
+  });
+
+  it('preserves the rendering error if the final error reporter also throws', async () => {
+    runtime = await createGameColonyZoom(options);
+    await runtime.approach({});
+    const renderingFailure = new Error('Rendering failed');
+    const reportingFailure = new Error('Error notification failed');
+    state.renderError = renderingFailure;
+    options.onError.mockImplementationOnce(() => { throw reportingFailure; });
+    const hook = [...hooks][0];
+    let failure;
+    try { hook(0.016); } catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect(failure.errors).toEqual([renderingFailure, reportingFailure]);
+    expect(options.onReturn).toHaveBeenCalledOnce();
+    expect(hooks.size).toBe(0);
+    expect(window.__GQ_ZOOM_ORCHESTRATOR).toBeUndefined();
+  });
+
+  it('settles pending flight and surface work after a rendering failure even when system return fails', async () => {
+    runtime = await createGameColonyZoom(options);
+    const approach = runtime.approach({}, { position: { x: 0, y: 0, z: 20 } });
+    await vi.waitFor(() => expect(window.__GQ_ZOOM_ORCHESTRATOR._flight.isFlying).toBe(true));
+    const surface = runtime.surface(async () => ({ colony: { id: 7 } }));
+    await Promise.resolve();
+    const renderingFailure = new Error('In-flight rendering failed');
+    const returnFailure = new Error('System return failed');
+    state.renderError = renderingFailure;
+    options.onReturn.mockImplementationOnce(() => { throw returnFailure; });
+    [...hooks][0](0.016);
+    expect(await Promise.all([approach, surface])).toEqual([false, false]);
+    expect(options.onError).toHaveBeenCalledOnce();
+    expect(options.onError.mock.calls[0][0]).toMatchObject({ errors: [renderingFailure, returnFailure] });
+    expect(options.onLevel).not.toHaveBeenCalled();
+    expect(hooks.size).toBe(0);
+  });
+
   it('does not publish a zoom runtime when lazy imports were cancelled', async () => {
     controller.abort();
     await expect(createGameColonyZoom(options)).rejects.toMatchObject({ name: 'AbortError' });
     expect(hooks.size).toBe(0);
     expect(window.__GQ_ZOOM_ORCHESTRATOR).toBeUndefined();
+  });
+
+  it('closes an initialized runtime when its owner signal aborts', async () => {
+    runtime = await createGameColonyZoom(options);
+    await runtime.surface(async () => ({ colony: { id: 7 } }));
+    const zoom = window.__GQ_ZOOM_ORCHESTRATOR;
+    controller.abort();
+    expect(zoom._disposed).toBe(true);
+    expect(zoom._active).toBeNull();
+    expect(hooks.size).toBe(0);
+    expect(window.__GQ_ZOOM_ORCHESTRATOR).toBeUndefined();
+    expect(await runtime.approach({})).toBe(false);
+    const load = vi.fn();
+    expect(await runtime.surface(load)).toBe(false);
+    expect(load).not.toHaveBeenCalled();
+    expect(options.onReturn).not.toHaveBeenCalled();
+    expect(options.onError).not.toHaveBeenCalled();
+  });
+
+  it('settles an owner-aborted flight and surface without another frame', async () => {
+    runtime = await createGameColonyZoom(options);
+    const approach = runtime.approach({}, { position: { x: 0, y: 0, z: 20 } });
+    const zoom = window.__GQ_ZOOM_ORCHESTRATOR;
+    await vi.waitFor(() => expect(zoom._flight.isFlying).toBe(true));
+    const surface = runtime.surface(async () => ({ colony: { id: 7 } }));
+    await Promise.resolve();
+    controller.abort();
+    expect(await Promise.all([approach, surface])).toEqual([false, false]);
+    expect(hooks.size).toBe(0);
+    expect(options.onLevel).not.toHaveBeenCalled();
+  });
+
+  it('removes its abort listener on manual disposal and reports abort cleanup failures', async () => {
+    const remove = vi.spyOn(controller.signal, 'removeEventListener');
+    runtime = await createGameColonyZoom(options);
+    await runtime.approach({});
+    const failure = new Error('Abort cleanup failed');
+    window.__GQ_ZOOM_ORCHESTRATOR._active.dispose = vi.fn(() => { throw failure; });
+    controller.abort();
+    expect(options.onError).toHaveBeenCalledOnce();
+    const flatten = error => error instanceof AggregateError ? error.errors.flatMap(flatten) : [error];
+    expect(flatten(options.onError.mock.calls[0][0])).toContain(failure);
+    expect(remove).toHaveBeenCalledWith('abort', expect.any(Function));
+    expect(hooks.size).toBe(0);
+    expect(window.__GQ_ZOOM_ORCHESTRATOR).toBeUndefined();
+    runtime.dispose();
+    expect(options.onError).toHaveBeenCalledOnce();
+  });
+
+  it('does not retain an owner abort listener after manual disposal', async () => {
+    const add = vi.spyOn(controller.signal, 'addEventListener');
+    const remove = vi.spyOn(controller.signal, 'removeEventListener');
+    runtime = await createGameColonyZoom(options);
+    const listener = add.mock.calls.find(([type]) => type === 'abort')?.[1];
+    expect(listener).toBeTypeOf('function');
+    runtime.dispose();
+    expect(remove).toHaveBeenCalledWith('abort', listener);
+    controller.abort();
+    expect(options.onError).not.toHaveBeenCalled();
+  });
+
+  it('cancels during backend initialization without publishing a runtime or frame hook', async () => {
+    let finish;
+    backend.init = vi.fn(() => new Promise(resolve => { finish = resolve; }));
+    const remove = vi.spyOn(controller.signal, 'removeEventListener');
+    const pending = createGameColonyZoom(options);
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    controller.abort();
+    finish();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(hooks.size).toBe(0);
+    expect(window.__GQ_ZOOM_ORCHESTRATOR).toBeUndefined();
+    expect(remove).toHaveBeenCalledWith('abort', expect.any(Function));
+    expect(options.onError).not.toHaveBeenCalled();
+  });
+
+  it('removes its abort listener when backend initialization fails and permits a fresh runtime', async () => {
+    const failure = new Error('Backend init failed');
+    backend.init = vi.fn().mockRejectedValueOnce(failure).mockResolvedValue(undefined);
+    const remove = vi.spyOn(controller.signal, 'removeEventListener');
+    await expect(createGameColonyZoom(options)).rejects.toBe(failure);
+    expect(remove).toHaveBeenCalledWith('abort', expect.any(Function));
+    expect(hooks.size).toBe(0);
+    expect(window.__GQ_ZOOM_ORCHESTRATOR).toBeUndefined();
+    runtime = await createGameColonyZoom(options);
+    await expect(runtime.approach({})).resolves.toBe(true);
+    controller.abort();
+    expect(hooks.size).toBe(0);
   });
 });

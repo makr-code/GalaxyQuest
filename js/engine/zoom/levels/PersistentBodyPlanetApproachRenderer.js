@@ -158,12 +158,15 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
     this._rotation = 0;
     this._time = 0;
     this._active = false;
+    this._disposed = false;
+    this._viewGeneration = 0;
     this._inputCleanups = [];
     this._hint = null;
     this._visualPalette = { base: [0.2,0.45,0.8], atmo: [0.55,0.75,1], clear: [0,0,0.02] };
   }
 
   async initialize(canvas, backend) {
+    if (this._disposed) throw new Error('Cannot initialize a disposed planet approach renderer');
     this._canvas = canvas;
     this._backend = backend;
     this._device = backend?.device || null;
@@ -173,6 +176,7 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
   }
 
   setSceneData(data) {
+    if (this._disposed) throw new Error('Cannot update a disposed planet approach renderer');
     this._terrainStream?.dispose();
     this._terrainStream = null;
     this._sceneData = data || null;
@@ -190,12 +194,17 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
   }
 
   setNavigationHandlers(handlers) {
+    if (this._disposed) throw new Error('Cannot bind navigation on a disposed planet approach renderer');
     this._navigation = handlers;
   }
 
   async enter(prevLevel, payload) {
+    if (this._disposed) throw new Error('Cannot enter a disposed planet approach renderer');
     const sceneData = payload || this._sceneData;
-    await this.exit();
+    const leaving = this.exit();
+    const generation = ++this._viewGeneration;
+    await leaving;
+    if (this._disposed || generation !== this._viewGeneration) return;
     this._active = true;
     this._rotation = 0;
     this._time = 0;
@@ -234,17 +243,28 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
   }
 
   async exit() {
+    const errors = this._releaseViewResources();
+    if (errors.length) throw new AggregateError(errors, 'Planet approach exit failed');
+  }
+
+  _releaseViewResources() {
+    this._viewGeneration++;
+    const errors = [];
+    const attempt = (cleanup) => {
+      try { cleanup(); } catch (error) { errors.push(error); }
+    };
     this._active = false;
-    this._terrainStream?.dispose();
+    attempt(() => this._terrainStream?.dispose());
     this._terrainStream = null;
-    this._inputCleanups.splice(0).forEach((cleanup) => cleanup());
-    this._hint?.remove();
+    this._inputCleanups.splice(0).forEach(attempt);
+    attempt(() => this._hint?.remove());
     this._hint = null;
-    this._solidBuffer?.destroy();
+    attempt(() => this._solidBuffer?.destroy());
     this._solidBuffer = null;
     this._solidMeshKey = '';
-    this._depthTexture?.destroy();
+    attempt(() => this._depthTexture?.destroy());
     this._depthTexture = null;
+    return errors;
   }
 
   render(dt, cameraState) {
@@ -442,10 +462,14 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
   }
 
   dispose() {
-    this.exit();
-    this._uniformBuffer?.destroy();
+    this._disposed = true;
+    const errors = this._releaseViewResources();
+    const attempt = (cleanup) => {
+      try { cleanup(); } catch (error) { errors.push(error); }
+    };
+    attempt(() => this._uniformBuffer?.destroy());
     this._uniformBuffer = null;
-    this._materialBuffer?.destroy();
+    attempt(() => this._materialBuffer?.destroy());
     this._materialBuffer = null;
     this._pipeline = null;
     this._solidPipeline = null;
@@ -455,6 +479,13 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
     this._context = null;
     this._canvas = null;
     this._backend = null;
+    this._sceneData = null;
+    this._navigation = null;
+    this._terrainManifest = null;
+    this._publishedTerrainManifest = null;
+    this._materialState = null;
+    this._solidVertexCount = 0;
+    if (errors.length) throw new AggregateError(errors, 'Planet approach disposal failed');
   }
 }
 

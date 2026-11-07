@@ -17,6 +17,8 @@ export function initializeStartMusicPlayer() {
   const trackSelect = document.getElementById('topbar-player-track');
   const trackList = document.getElementById('topbar-player-track-list');
   const topStatus = document.getElementById('topbar-player-status');
+  const ducking = document.getElementById('topbar-player-ducking');
+  const duckingStrength = document.getElementById('topbar-player-ducking-strength');
   const volumes = ['start-music-volume', 'topbar-player-volume'].map((id) => document.getElementById(id)).filter(Boolean);
   const bindings = new AbortController();
   let manager = null;
@@ -70,6 +72,15 @@ export function initializeStartMusicPlayer() {
       input.value = String(Math.round((state.musicVolume ?? 0.55) * 100));
       input.setAttribute('aria-valuetext', `${input.value} %`);
     });
+    if (ducking) {
+      ducking.disabled = pending;
+      ducking.checked = state.musicDuckingEnabled !== false;
+    }
+    if (duckingStrength) {
+      duckingStrength.disabled = pending || !ducking?.checked;
+      duckingStrength.value = String(Math.round((state.musicDuckingStrength ?? 0.55) * 100));
+      duckingStrength.setAttribute('aria-valuetext', `${duckingStrength.value} % · höher senkt Musik stärker ab`);
+    }
     const playlist = state.playlist || (state.musicUrl ? [state.musicUrl] : []);
     const key = JSON.stringify(playlist);
     if (key !== playlistKey) {
@@ -118,6 +129,18 @@ export function initializeStartMusicPlayer() {
     }
   }
 
+  function applyLiveSetting(action) {
+    if (!manager) return;
+    showError('');
+    try {
+      action();
+      refresh();
+    } catch (error) {
+      showError(error?.message || String(error));
+      window.GQLog?.warn?.('[start-music-player]', error?.message || String(error));
+    }
+  }
+
   const togglePlayback = () => act(async () => {
     if (manager.snapshot().musicPlaying) manager.pauseMusic(false);
     else if (!await manager.playMusic()) throw new Error('Wiedergabe konnte nicht gestartet werden.');
@@ -150,8 +173,16 @@ export function initializeStartMusicPlayer() {
   });
   volumes.forEach((input) => listen(input, 'input', () => {
     const volume = Number(input.value) / 100;
-    void act(() => manager.setMusicVolume(volume));
+    applyLiveSetting(() => manager.setMusicVolume(volume));
   }));
+  listen(ducking, 'change', () => {
+    const enabled = ducking.checked;
+    void act(() => manager.setMusicDuckingEnabled(enabled));
+  });
+  listen(duckingStrength, 'input', () => {
+    const strength = Number(duckingStrength.value) / 100;
+    applyLiveSetting(() => manager.setMusicDuckingStrength(strength));
+  });
   listen(menuToggle, 'click', () => {
     const open = menu?.classList.contains('hidden');
     closeMenu();

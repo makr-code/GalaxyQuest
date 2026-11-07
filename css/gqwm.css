@@ -7,6 +7,102 @@
   --gq-console-titlebar-height: 18px;
 }
 
+/* Command chrome shares the start menu's surfaces without moving hover targets. */
+.wm-window:where(:not(.wm-window-fullscreen, [data-winid="auth"], [data-winid="console"])) {
+  border-radius: 6px;
+  background: var(--wm-theme-bg);
+  box-shadow: 0 16px 40px #02081666;
+}
+.wm-titlebar {
+  height: 44px;
+  padding: 0 0 0 14px;
+  gap: 8px;
+  border-left: 2px solid var(--command-accent, #90caff66);
+  border-bottom-color: var(--command-border, #6ca9d629);
+  background: var(--command-surface, linear-gradient(90deg, #19334d70, #0d1d3030));
+  cursor: grab;
+}
+.wm-title { font-weight: 500; letter-spacing: .06em; }
+.wm-controls {
+  gap: 0;
+  align-self: stretch;
+  border-left: 1px solid var(--command-border, #6ca9d629);
+}
+.wm-btn {
+  width: 40px;
+  height: 100%;
+  min-height: 32px;
+  border: 0;
+  border-left: 1px solid var(--command-border, #6ca9d629);
+  border-radius: 0;
+  background: transparent;
+  color: var(--wm-theme-title);
+  font-size: 16px;
+  transition: background-color .15s, color .15s;
+}
+.wm-btn:first-child { border-left: 0; }
+.wm-btn:hover, .wm-btn[aria-expanded="true"] { background: var(--command-hover-bg, #28567770); filter: none; }
+.wm-btn-close:hover { background: #7d263c66; color: #ffd1d8; }
+.wm-btn:focus-visible, .wm-dock-group-tab:focus-visible, .wm-context-menu-item:focus-visible {
+  outline: 2px solid var(--wm-theme-focus-border); outline-offset: -3px;
+}
+.wm-window.wm-focused > .wm-titlebar { border-left-color: var(--wm-theme-focus-border); }
+.wm-window.wm-docked:not([data-winid="console"]) { border-radius: 2px; box-shadow: 0 8px 24px #0208164d; }
+.wm-window.wm-selected { box-shadow: 0 0 0 2px var(--wm-theme-focus-border), 0 16px 40px #02081666; }
+.wm-window.wm-docked > .wm-titlebar { height: 40px; background-color: #19334d40; }
+.wm-window.wm-docked > .wm-titlebar .wm-title { font-size: .78rem; }
+.wm-window.wm-docked-left { border-left-color: var(--wm-theme-focus-border); }
+.wm-window.wm-docked-right { border-right-color: var(--wm-theme-focus-border); }
+.wm-window:is(.wm-docked-top, .wm-docked-topbar, .wm-docked-resource) { border-top-color: var(--wm-theme-focus-border); }
+.wm-window.wm-docked-bottom { border-bottom-color: var(--wm-theme-focus-border); }
+.wm-dragging > .wm-titlebar { cursor: grabbing; }
+.wm-dock-group-tabs.wm-dock-group-tabs-mounted {
+  overflow-x: auto; scrollbar-width: thin; margin-left: 0; align-self: stretch;
+}
+.wm-dock-group-tab {
+  flex-shrink: 0; height: 100%; border-radius: 0;
+  border-left: 1px solid var(--command-border, #6ca9d629);
+}
+.wm-dock-group-tab.is-active { background: var(--command-hover-bg, #28567770); border-color: var(--command-accent, #90caff66); }
+.wm-context-menu {
+  gap: 3px; border-radius: 4px; border-color: var(--command-accent, #90caff66);
+  background: var(--wm-theme-bg);
+  max-height: calc(100dvh - 16px); overflow-y: auto;
+}
+.wm-context-menu-item {
+  min-height: 40px; border-radius: 0; border: 1px solid transparent;
+  border-left: 2px solid var(--command-accent, #90caff66);
+  background: var(--command-surface, linear-gradient(90deg, #19334d70, #0d1d3030));
+  color: var(--wm-theme-title);
+}
+.wm-context-menu-item:hover:not(:disabled), .wm-context-menu-item.is-key-focus {
+  border-color: var(--wm-theme-focus-border); background-color: var(--command-hover-bg, #28567770);
+}
+@media (prefers-reduced-motion: reduce) { .wm-btn { transition: none; } }
+
+.wm-menu-top-item, .wm-tool-btn, .wm-sidebar-item, .wm-accordion-header,
+.wm-tab-item, .wm-card-action-btn, .wm-split-btn-main, .wm-split-btn-arrow, button.wm-breadcrumb-item,
+.wm-data-table th button {
+  min-height: 40px; height: auto; border: 1px solid var(--command-border, #6ca9d629);
+  border-left: 2px solid var(--command-accent, #90caff66); border-radius: 2px;
+  background: var(--command-surface, linear-gradient(90deg, #19334d70, #0d1d3030));
+  color: var(--wm-theme-title);
+}
+.wm-menu-top-item:hover, .wm-tool-btn:hover, .wm-sidebar-item:hover:not(:disabled),
+.wm-accordion-header:hover, .wm-tab-item:hover, .wm-card-action-btn:hover,
+.wm-split-btn-main:hover, .wm-split-btn-arrow:hover { background-color: var(--command-hover-bg, #28567770); }
+.wm-notice { background: var(--command-surface, linear-gradient(90deg, #19334d70, #0d1d3030)); }
+.wm-data-table th button:hover { background-color: var(--command-hover-bg, #28567770); }
+.wm-sidebar-item.is-active, .wm-tab-item.is-active, .wm-tool-btn.is-active,
+.wm-menu-top-item[aria-expanded="true"] { border-color: var(--wm-theme-focus-border); background-color: var(--command-hover-bg, #28567770); }
+.wm-window-frame :focus-visible { outline: 2px solid var(--wm-theme-focus-border); outline-offset: -2px; }
+.wm-sidebar-item:disabled { opacity: .45; cursor: default; }
+.wm-statusbar { background: transparent; border-color: var(--command-border, #6ca9d629); color: var(--wm-theme-body-text); }
+.wm-card { background: var(--wm-theme-bg); border: 1px solid var(--command-border, #6ca9d629); border-radius: 4px; }
+.wm-card.is-elevated { box-shadow: none; }
+.wm-card-title, .wm-card-subtitle, .wm-accordion-body-inner { color: var(--wm-theme-body-text); }
+.wm-accordion-item.is-open > .wm-accordion-body { max-height: none; }
+
 /* ── Auth-page: hide GQ overlay elements ─────────────────── */
 .auth-page .galaxy-overlay-window,
 .auth-page #galaxy-nav-orb-overlay,
@@ -99,6 +195,7 @@
   margin: 0;
   border-top-left-radius: 10px;
   border-top-right-radius: 10px;
+  cursor: default;
 }
 
 .wm-window[data-winid="console"] .wm-title {
@@ -114,6 +211,7 @@
   width: 14px;
   height: 14px;
   min-width: 14px;
+  min-height: 14px;
   border-radius: 4px;
   padding: 0;
   font-size: 10px;

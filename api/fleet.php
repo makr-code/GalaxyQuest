@@ -19,6 +19,7 @@ require_once __DIR__ . '/planet_helper.php';
 require_once __DIR__ . '/projection.php';
 require_once __DIR__ . '/galaxy_seed.php';
 require_once __DIR__ . '/shipyard_queue.php';
+require_once __DIR__ . '/simulation_runtime.php';
 require_once __DIR__ . '/../src/Economy/ResourceLedger.php';
 require_once __DIR__ . '/../lib/PlanetReservation.php';
 
@@ -111,8 +112,17 @@ switch ($action) {
     case 'check':
         only_method('POST');
         verify_csrf();
-        process_fleet_arrivals(get_db());
-        json_ok();
+        $db = get_db();
+        $result = simulation_runtime_with_scope_lock(
+            $db,
+            'fleet_arrivals',
+            '',
+            static function () use ($db): array {
+                process_fleet_arrivals($db);
+                return ['executed' => true];
+            }
+        );
+        json_ok($result);
         break;
 
     case 'simulate_battle':
@@ -804,16 +814,35 @@ function consume_wormhole_jump(PDO $db, int $wormholeId): void {
 // ─── Recall ───────────────────────────────────────────────────────────────────
 
 function recall_fleet(PDO $db, int $uid, int $fleetId): never {
-    $stmt = $db->prepare('SELECT * FROM fleets WHERE id=? AND user_id=? AND returning=0');
-    $stmt->execute([$fleetId, $uid]);
-    $fleet = $stmt->fetch();
-    if (!$fleet) { json_error('Fleet not found or already returning.', 404); }
+    $db->beginTransaction();
+    try {
+        $stmt = $db->prepare(
+            'SELECT * FROM fleets WHERE id = ? AND user_id = ? AND returning = 0 FOR UPDATE'
+        );
+        $stmt->execute([$fleetId, $uid]);
+        $fleet = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$fleet || strtotime((string)$fleet['arrival_time']) <= time()) {
+            $db->rollBack();
+            json_error('Fleet not found, already returning, or has arrived.', 404);
+        }
 
-    $elapsed    = time() - strtotime($fleet['departure_time']);
-    $returnSecs = max(1, $elapsed);
-    $returnTime = date('Y-m-d H:i:s', time() + $returnSecs);
-    $db->prepare('UPDATE fleets SET returning=1, arrival_time=?, return_time=? WHERE id=?')
-       ->execute([$returnTime, $returnTime, $fleetId]);
+        $elapsed = time() - strtotime((string)$fleet['departure_time']);
+        $returnTime = date('Y-m-d H:i:s', time() + max(1, $elapsed));
+        $update = $db->prepare(
+            'UPDATE fleets SET returning = 1, arrival_time = ?, return_time = ? WHERE id = ? AND returning = 0'
+        );
+        $update->execute([$returnTime, $returnTime, $fleetId]);
+        if ($update->rowCount() !== 1) {
+            throw new RuntimeException('Fleet recall lost its state transition.');
+        }
+        $db->commit();
+    } catch (Throwable $error) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        throw $error;
+    }
+
     json_ok(['return_time' => $returnTime]);
 }
 
@@ -842,17 +871,35 @@ function process_fleet_arrivals(PDO $db): void {
             if ($economy->settle($recipient)['economy']['pending_seconds'] >= 300) {
                 continue;
             }
-            $economy->transaction(function () use ($db, $fleet): void {
-                $claim = $db->prepare('SELECT * FROM fleets WHERE id=? AND arrival_time<=NOW() FOR UPDATE');
-                $claim->execute([$fleet['id']]);
-                $current = $claim->fetch();
-                if ($current) {
-                    handle_fleet_arrival($db, $current);
+            $economy->transaction(
+                static function () use ($db, $fleet): void {
+                    process_fleet_arrival_locked($db, (int)$fleet['id']);
                 }
-            });
+            );
         } else {
-            handle_fleet_arrival($db, $fleet);
+            $db->beginTransaction();
+            try {
+                process_fleet_arrival_locked($db, (int)$fleet['id']);
+                $db->commit();
+            } catch (Throwable $error) {
+                if ($db->inTransaction()) {
+                    $db->rollBack();
+                }
+                throw $error;
+            }
         }
+    }
+}
+
+function process_fleet_arrival_locked(PDO $db, int $fleetId): void
+{
+    $claim = $db->prepare(
+        'SELECT * FROM fleets WHERE id = ? AND arrival_time <= NOW() FOR UPDATE'
+    );
+    $claim->execute([$fleetId]);
+    $current = $claim->fetch(PDO::FETCH_ASSOC);
+    if ($current) {
+        handle_fleet_arrival($db, $current);
     }
 }
 
@@ -1283,7 +1330,26 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
     ];
 
     $reportJson = json_encode($report);
-    if (battle_reports_has_combat_meta_columns($db)) {
+    if (battle_reports_has_combat_meta_columns($db) && battle_reports_has_fleet_id($db)) {
+        $db->prepare(
+            'INSERT INTO battle_reports
+                (attacker_id, defender_id, body_id, fleet_id, report_json, battle_seed, report_version,
+                 attacker_power_rating, defender_power_rating, dice_variance_index, explainability_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $fleet['user_id'],
+            $target['user_id'],
+            $target['body_id'],
+            $fleet['id'],
+            $reportJson,
+            $battleSeed,
+            1,
+            $attackerPowerRating,
+            $defenderPowerRating,
+            $diceVarianceIndex,
+            json_encode($report['explainability']),
+        ]);
+    } elseif (battle_reports_has_combat_meta_columns($db)) {
         $db->prepare(
             'INSERT INTO battle_reports
                 (attacker_id, defender_id, body_id, report_json, battle_seed, report_version,
@@ -1300,6 +1366,18 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
             $defenderPowerRating,
             $diceVarianceIndex,
             json_encode($report['explainability']),
+        ]);
+    } elseif (battle_reports_has_fleet_id($db)) {
+        $db->prepare(
+            'INSERT INTO battle_reports
+                (attacker_id, defender_id, body_id, fleet_id, report_json)
+             VALUES (?, ?, ?, ?, ?)'
+        )->execute([
+            $fleet['user_id'],
+            $target['user_id'],
+            $target['body_id'],
+            $fleet['id'],
+            $reportJson,
         ]);
     } else {
          $db->prepare('INSERT INTO battle_reports (attacker_id,defender_id,body_id,report_json)
@@ -1473,13 +1551,7 @@ function simulate_battle_preview(PDO $db, int $uid, array $body): never {
     $defShldRow->execute([$target['user_id']]);
     $defShldLevel = (int)($defShldRow->fetchColumn() ?? 0);
 
-    complete_ship_build_queue($db, (int)$target['id']);
-    $defShipsStmt = $db->prepare('SELECT type, count FROM ships WHERE colony_id=?');
-    $defShipsStmt->execute([$target['id']]);
-    $defFleet = [];
-    foreach ($defShipsStmt->fetchAll() as $r) {
-        $defFleet[$r['type']] = (int)$r['count'];
-    }
+    $defFleet = project_colony_ship_counts($db, (int)$target['id']);
     $defProfile = compute_energy_combat_profile($defFleet, $db);
     $defEnergy = $defProfile['attack_energy'] * (1.0 + $defWpnLevel * 0.1);
     $defKinetic = $defProfile['attack_kinetic'] * (1.0 + $defWpnLevel * 0.1);
@@ -1828,13 +1900,7 @@ function compute_preview_defender_stats(PDO $db, array $target): array {
     $defShldRow->execute([$target['user_id']]);
     $defShldLevel = (int)($defShldRow->fetchColumn() ?? 0);
 
-    complete_ship_build_queue($db, (int)$target['id']);
-    $defShipsStmt = $db->prepare('SELECT type, count FROM ships WHERE colony_id=?');
-    $defShipsStmt->execute([$target['id']]);
-    $defFleet = [];
-    foreach ($defShipsStmt->fetchAll() as $r) {
-        $defFleet[(string)$r['type']] = (int)$r['count'];
-    }
+    $defFleet = project_colony_ship_counts($db, (int)$target['id']);
     $profile = compute_energy_combat_profile($defFleet, $db);
     $defEnergy = $profile['attack_energy'] * (1.0 + $defWpnLevel * 0.1);
     $defKinetic = $profile['attack_kinetic'] * (1.0 + $defWpnLevel * 0.1);
@@ -1861,6 +1927,36 @@ function compute_preview_defender_stats(PDO $db, array $target): array {
         'fleet' => $defFleet,
         'energy_profile' => $profile,
     ];
+}
+
+/**
+ * Project finished ships for combat previews without completing queue rows.
+ *
+ * @return array<string, int>
+ */
+function project_colony_ship_counts(PDO $db, int $colonyId): array
+{
+    $ships = $db->prepare('SELECT type, count FROM ships WHERE colony_id = ?');
+    $ships->execute([$colonyId]);
+    $fleet = [];
+    foreach ($ships->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $fleet[(string)$row['type']] = (int)$row['count'];
+    }
+
+    $due = $db->prepare(
+        'SELECT ship_type, quantity
+         FROM ship_build_queue
+         WHERE colony_id = ? AND status = \'running\' AND eta IS NOT NULL AND eta <= NOW()'
+    );
+    $due->execute([$colonyId]);
+    foreach ($due->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $shipType = (string)$row['ship_type'];
+        if ($shipType !== '' && ship_exists_runtime($shipType, $db)) {
+            $fleet[$shipType] = ($fleet[$shipType] ?? 0) + max(1, (int)$row['quantity']);
+        }
+    }
+
+    return $fleet;
 }
 
 function battle_preview_outcome(
@@ -2125,6 +2221,28 @@ function battle_reports_has_combat_meta_columns(PDO $db): bool {
     $stmt->execute(['battle_reports']);
     $cached = ((int)$stmt->fetchColumn() >= 6);
     return $cached;
+}
+
+function battle_reports_has_fleet_id(PDO $db): bool {
+    static $resolved = false;
+    static $hasFleetId = false;
+
+    if ($resolved) {
+        return $hasFleetId;
+    }
+
+    $stmt = $db->prepare(
+        'SELECT COUNT(*)
+           FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = ?
+            AND COLUMN_NAME = ?'
+    );
+    $stmt->execute(['battle_reports', 'fleet_id']);
+    $hasFleetId = (int)$stmt->fetchColumn() > 0;
+    $resolved = true;
+
+    return $hasFleetId;
 }
 
 function load_combat_modifier_totals(PDO $db, int $attackerUserId, int $defenderUserId): array {

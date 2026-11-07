@@ -174,6 +174,11 @@ describe('Authoritative galaxy playing field', () => {
     badgeMode.dispatchEvent(new Event('change', { bubbles: true }));
     expect(renderer.setSpatialLabelMode).toHaveBeenLastCalledWith('webgpu');
     await domain.home();
+    const catalogCard = document.querySelector('.game-system-catalog-card');
+    expect(catalogCard.querySelector('svg')).not.toBeNull();
+    expect(catalogCard.querySelector('strong').textContent).toBe('<img src=x>');
+    expect(catalogCard.getAttribute('aria-current')).toBe('location');
+    expect(catalogCard.querySelector('img')).toBeNull();
     const rendererOptions = factory.mock.calls.at(-1)[1];
     rendererOptions.onViewChange({ level: 'building', planetPosition: 3 });
     const path = document.getElementById('game-camera-path');
@@ -211,6 +216,25 @@ describe('Authoritative galaxy playing field', () => {
       .filter((element) => element.textContent.endsWith(' verwalten'));
     expect(management).toHaveLength(1);
     expect(management[0].textContent).toBe('Home verwalten');
+    const planets = document.querySelector('.game-system-planets');
+    expect(planets.getAttribute('aria-label')).toBe('Systemplaneten');
+    expect(planets.children).toHaveLength(2);
+    const own = planets.querySelector('[data-position="3"]');
+    const foreign = planets.querySelector('[data-position="4"]');
+    expect(own.dataset.owned).toBe('true');
+    expect(own.querySelector('.game-system-ownership').textContent).toBe('Kolonie · Home');
+    expect(own.querySelector('.game-development-level').textContent).toBe('Position 3');
+    expect(own.querySelectorAll('button')).toHaveLength(3);
+    expect(own.querySelectorAll('button svg')).toHaveLength(3);
+    expect(own.querySelector('.game-system-planet-actions').getAttribute('aria-label')).toBe('Aktionen für Home');
+    expect([...document.querySelectorAll('.game-planet-action-group')].map((group) => group.getAttribute('aria-label')))
+      .toEqual(['Ansicht', 'Flotte', 'Kolonie']);
+    expect(document.querySelector('.game-planet-action-group[aria-label="Kolonie"] h4').textContent).toBe('Kolonie');
+    expect(own.querySelector('.game-system-planet-heading .game-development-level').textContent).toBe('Position 3');
+    expect(foreign.dataset.owned).toBeUndefined();
+    expect(foreign.querySelector('.game-system-ownership')).toBeNull();
+    expect(foreign.querySelectorAll('button')).toHaveLength(1);
+    expect(api.post).not.toHaveBeenCalled();
     session.events.emit('colony:mutation-accepted', { colonyId: 1, domain: 'buildings', allColonies: false });
     expect(renderer.refreshColony).toHaveBeenCalledExactlyOnceWith(1);
     session.events.emit('colony:mutation-accepted', { colonyId: 2, domain: 'economy', allColonies: true });
@@ -224,6 +248,30 @@ describe('Authoritative galaxy playing field', () => {
     expect(document.getElementById('starfield')).toBe(canvas);
     expect(document.getElementById('game-galaxy-ui')).toBeNull();
     cleanups.pop();
+  });
+  it('filters local system cards with an accurate capped count and no additional reads', async () => {
+    cleanups.push(mountGameGalaxy({ session, domain,
+      createRenderer: vi.fn().mockRejectedValue(new Error('No GPU in catalogue test')) }));
+    api.get.mockResolvedValueOnce({ success: true, galaxy: 1,
+      stars: Array.from({ length: 45 }, (_, index) => ({ ...star, system_index: index + 1, name: `Star ${index + 1}` })) });
+    window.dispatchEvent(new CustomEvent('gq:authenticated'));
+    await vi.waitFor(() => expect(document.querySelectorAll('.game-system-catalog-card')).toHaveLength(40));
+    const list = document.getElementById('game-galaxy-system-list');
+    const search = document.querySelector('[aria-label="Sternsysteme filtern"]');
+    expect(list.querySelectorAll('button')).toHaveLength(40);
+    expect(list.querySelector('[role="status"]').textContent).toContain('40 von 45 Treffern');
+    const calls = api.get.mock.calls.length;
+    search.value = 'Star 45';
+    search.dispatchEvent(new Event('input'));
+    expect(list.querySelectorAll('button')).toHaveLength(1);
+    expect(list.textContent).toContain('[1:45]');
+    expect(list.querySelector('[role="status"]').textContent).toContain('1 von 1 Treffern');
+    search.value = 'not loaded';
+    search.dispatchEvent(new Event('input'));
+    expect(list.querySelectorAll('button')).toHaveLength(0);
+    expect(list.textContent).toContain('Keine passenden geladenen Sternsysteme.');
+    expect(api.get).toHaveBeenCalledTimes(calls);
+    expect(api.post).not.toHaveBeenCalled();
   });
   it('shows system visualization toggles only in system view and applies their state', async () => {
     const renderer = { getRenderStats: () => ({ backend: 'webgpu' }), setStars: vi.fn(),
@@ -536,6 +584,11 @@ describe('Authoritative galaxy playing field', () => {
     expect(context.hidden).toBe(false);
     expect(context.textContent).toContain('Home · Position 3');
     expect(context.textContent).not.toContain('Untrusted click label');
+    expect(context.dataset.ownership).toBe('own');
+    expect(context.querySelector('.game-planet-context-heading svg')).not.toBeNull();
+    expect(context.querySelectorAll('.game-planet-action-grid button svg')).toHaveLength(8);
+    expect(action('Kolonie verwalten').title).toBe('Kolonie verwalten');
+    expect(action('Planetenauswahl aufheben').querySelector('svg').getAttribute('aria-hidden')).toBe('true');
     expect(document.getElementById('game-galaxy-details').open).toBe(false);
     expect(document.querySelector('li[data-position="3"]').getAttribute('aria-current')).toBe('true');
     action('Planet annähern').click();
@@ -561,16 +614,85 @@ describe('Authoritative galaxy playing field', () => {
     expect(action('Planet annähern').disabled).toBe(false);
     callbacks.onClick({ __kind: 'planet', position: 4 });
     expect(context.textContent).toContain('keine eigene Kolonie');
+    expect(context.dataset.ownership).toBe('settled');
+    expect(action('Kolonie verwalten').hidden).toBe(true);
     const requestedTarget = vi.fn();
     const unsubscribeTarget = session.events.on('fleet:target-requested', requestedTarget);
     session.events.emit('fleet:target-picking', { active: true });
     expect(document.getElementById('wm-galaxy-section').classList.contains('fleet-target-picking')).toBe(true);
+    const targetPicker = document.getElementById('game-fleet-target-picker');
+    expect(targetPicker.hidden).toBe(false);
+    expect(targetPicker.textContent).toContain('Ziel in diesem Sternsystem wählen');
+    expect(targetPicker.querySelectorAll('button')).toHaveLength(3);
+    const coordinateRequested = vi.fn();
+    const unsubscribeCoordinates = session.events.on('fleet:target-coordinate-requested', coordinateRequested);
+    targetPicker.querySelector('button:last-child').click();
+    expect(coordinateRequested).toHaveBeenCalledOnce();
+    unsubscribeCoordinates();
+    let finishSystem;
+    api.get.mockImplementationOnce(() => new Promise((resolve) => { finishSystem = resolve; }));
+    const navigation = domain.navigate(1, 20);
+    await vi.waitFor(() => expect(finishSystem).toBeTypeOf('function'));
+    expect(targetPicker.textContent).toContain('Planeten des ausgewählten Sternsystems werden geladen.');
+    expect(targetPicker.querySelectorAll('[aria-label^="Flottenziel wählen:"]')).toHaveLength(0);
+    finishSystem(systemPayload(20));
+    await navigation;
+    expect(targetPicker.querySelector('[aria-label="Flottenziel wählen: Foreign · Position 4"]')).not.toBeNull();
+    api.get.mockRejectedValueOnce(new Error('System offline'));
+    await domain.navigate(1, 30);
+    expect(targetPicker.textContent).toContain('Systemziele nicht verfügbar: System offline');
+    expect(targetPicker.querySelectorAll('[aria-label^="Flottenziel wählen:"]')).toHaveLength(0);
+    await domain.navigate(1, 20);
+    expect(targetPicker.querySelector('[aria-label="Flottenziel wählen: Foreign · Position 4"]')).not.toBeNull();
+    targetPicker.querySelector('[aria-label="Flottenziel wählen: Foreign · Position 4"]').click();
+    expect(requestedTarget).toHaveBeenCalledExactlyOnceWith({
+      galaxy: 1, system: 20, position: 4, targetName: '<img src=x> · Foreign',
+    });
     callbacks.onClick({ __kind: 'planet', position: 4 });
-    expect(requestedTarget).toHaveBeenCalledExactlyOnceWith({ galaxy: 1, system: 10, position: 4 });
+    expect(requestedTarget).toHaveBeenCalledTimes(2);
     expect(session.getColony().id).toBe(1);
+    session.events.emit('fleet:target-picking', { active: false });
+    expect(targetPicker.hidden).toBe(true);
+    const malformedSystem = systemPayload();
+    malformedSystem.planets.push(
+      { position: 0, generated_planet: { name: 'Invalid position', position: 0 } },
+      { generated_planet: { name: 'Missing position' } },
+    );
+    api.get.mockResolvedValueOnce({ success: true, galaxy: 1, stars: [star] });
+    api.get.mockResolvedValueOnce(malformedSystem);
+    await domain.navigate(1, 10, true);
+    session.events.emit('fleet:target-picking', { active: true });
+    expect(targetPicker.querySelectorAll('button')).toHaveLength(3);
+    expect(targetPicker.textContent).not.toContain('Invalid position');
+    expect(targetPicker.textContent).not.toContain('Missing position');
+    callbacks.onClick({ __kind: 'planet', position: 0 });
+    expect(requestedTarget).toHaveBeenCalledTimes(2);
     session.events.emit('fleet:target-picking', { active: false });
     const originRequested = vi.fn();
     const unsubscribeOrigin = session.events.on('fleet:origin-requested', originRequested);
+    session.events.emit('fleet:origin-picking', { active: true });
+    expect(document.getElementById('wm-galaxy-section').classList.contains('fleet-origin-picking')).toBe(true);
+    callbacks.onClick({ __kind: 'planet', position: 4 });
+    expect(originRequested).not.toHaveBeenCalled();
+    callbacks.onClick({ __kind: 'planet', position: 3 });
+    expect(originRequested).toHaveBeenCalledExactlyOnceWith({ colonyId: 1 });
+    const canvas = document.getElementById('starfield');
+    for (const composing of [true, false]) {
+      const event = new KeyboardEvent('keydown', {
+        key: 'Escape', bubbles: true, cancelable: true, isComposing: composing,
+      });
+      if (!composing) event.preventDefault();
+      canvas.dispatchEvent(event);
+      expect(document.getElementById('wm-galaxy-section').classList.contains('fleet-origin-picking')).toBe(true);
+      expect(document.activeElement).toBe(canvas);
+    }
+    const cancelOrigin = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    canvas.dispatchEvent(cancelOrigin);
+    expect(cancelOrigin.defaultPrevented).toBe(true);
+    expect(document.getElementById('wm-galaxy-section').classList.contains('fleet-origin-picking')).toBe(false);
+    session.events.emit('fleet:origin-picking', { active: false });
+    expect(document.getElementById('wm-galaxy-section').classList.contains('fleet-origin-picking')).toBe(false);
+    originRequested.mockClear();
     callbacks.onClick({ __kind: 'planet', position: 3 });
     action('Flotte hier auswählen').click();
     expect(originRequested).toHaveBeenCalledExactlyOnceWith({ colonyId: 1 });

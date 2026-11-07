@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
 import { mountFleetMap } from '../../js/ui/game-fleet-map.js';
 import { createFleetDomain } from '../../js/engine/runtime/server-fleet-domain.js';
 import { createServerGameSession } from '../../js/engine/runtime/server-game-session.js';
@@ -8,6 +9,7 @@ const fleet = () => ({
   origin_galaxy: 1, origin_system: 10, origin_position: 3,
   target_galaxy: 2, target_system: 20, target_position: 4,
   fleet_label: '<img src=x>', ships: { small_cargo: 2 },
+  hull_damage_pct: 10,
   cargo_metal: 100, cargo_crystal: 0, cargo_deuterium: 0, returning: 0,
   departure_time: '2000-01-01 10:00:00', arrival_time: '2000-01-01 11:00:00',
 });
@@ -78,6 +80,11 @@ describe('Canonical fleet endpoints on the shared map', () => {
     expect(context().textContent).toContain('2000-01-01 11:00:00 (Serverzeit)');
     expect(context().textContent).toContain('2 small cargo');
     expect(context().textContent).toContain('100 Metall');
+    const hull = context().querySelector('.game-fleet-hull-status');
+    expect(hull.getAttribute('aria-label')).toBe('Hüllenschaden: 10%; Angriffsmalus: 10%');
+    expect(hull.querySelector('progress').value).toBe(10);
+    expect(hull.textContent).toContain('Hüllenschaden 10%');
+    expect(hull.textContent).toContain('-10% Angriff');
     expect(api.post).not.toHaveBeenCalled();
     expect(document.activeElement.textContent).toBe('Flottenauswahl schließen');
   });
@@ -200,5 +207,57 @@ describe('Canonical fleet endpoints on the shared map', () => {
     project([point()]);
     expect(document.querySelector('[id^="game-fleet-"]')).toBeNull();
     expect(api.post).not.toHaveBeenCalled();
+  });
+  it('lets table search consume Escape before closing the fleet selection', () => {
+    window.eval(fs.readFileSync('js/runtime/wm-widgets.js', 'utf8'));
+    const table = window.WMWidgets.dataTable(document.body, {
+      caption: 'Local fleet search', searchable: true,
+      columns: [{ id: 'name', sortable: true }], items: [{ name: 'Transport' }],
+      state: { query: 'Transport' },
+    });
+    try {
+      badge().click();
+      const input = table.el.querySelector('input');
+      input.focus();
+      const clear = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+      input.dispatchEvent(clear);
+      expect(clear.defaultPrevented).toBe(true);
+      expect(table.getState().query).toBe('');
+      expect(context().hidden).toBe(false);
+      expect(document.activeElement).toBe(input);
+      const close = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+      input.dispatchEvent(close);
+      expect(close.defaultPrevented).toBe(true);
+      expect(context().hidden).toBe(true);
+      expect(document.activeElement.id).toBe('starfield');
+      expect(api.post).not.toHaveBeenCalled();
+    } finally {
+      table.destroy();
+    }
+  });
+  it('ignores composition Escape and events already handled by a foreground control', () => {
+    badge().click();
+    const button = context().querySelector('button');
+    const composing = new KeyboardEvent('keydown', {
+      key: 'Escape', bubbles: true, cancelable: true, isComposing: true,
+    });
+    button.dispatchEvent(composing);
+    expect(composing.defaultPrevented).toBe(false);
+    expect(context().hidden).toBe(false);
+    expect(document.activeElement).toBe(button);
+    button.addEventListener('keydown', event => event.preventDefault(), { once: true });
+    button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(context().hidden).toBe(false);
+    expect(document.activeElement).toBe(button);
+    expect(api.post).not.toHaveBeenCalled();
+  });
+  it('hides fleet endpoint controls during origin picking and restores them on cancel', () => {
+    session.events.emit('fleet:origin-picking', { active: true });
+    expect(document.getElementById('game-fleet-markers').hidden).toBe(true);
+    expect(context().hidden).toBe(true);
+
+    session.events.emit('fleet:origin-picking', { active: false });
+
+    expect(document.getElementById('game-fleet-markers').hidden).toBe(false);
   });
 });

@@ -21,6 +21,8 @@ class GalaxyLevelWebGPU extends ZoomLevelRendererBase {
     this._backend  = null;
     this._starfield = null;  // StarfieldWebGPU instance
     this._sceneData = null;
+    this._ownsStarfield = false;
+    this._sharedRendererKey = null;
   }
 
   _isInteractiveWebGpuExperimentEnabled() {
@@ -42,6 +44,7 @@ class GalaxyLevelWebGPU extends ZoomLevelRendererBase {
 
     if (backend && typeof backend.setStars === 'function' && backend.backendType === 'webgpu') {
       this._starfield = backend;
+      this._sharedRendererKey = '__GQ_LEVEL_SHARED_RENDERER_WEBGPU';
       window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU = backend;
       return;
     }
@@ -71,6 +74,8 @@ class GalaxyLevelWebGPU extends ZoomLevelRendererBase {
       const shared = useLegacyThree ? window.__GQ_LEVEL_SHARED_RENDERER_THREEJS : window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU;
       if (shared) {
         this._starfield = shared;
+        this._sharedRendererKey = useLegacyThree
+          ? '__GQ_LEVEL_SHARED_RENDERER_THREEJS' : '__GQ_LEVEL_SHARED_RENDERER_WEBGPU';
         if (this._starfield._opts && typeof this._starfield._opts === 'object') {
           Object.assign(this._starfield._opts, runtimeOptions);
         }
@@ -79,11 +84,16 @@ class GalaxyLevelWebGPU extends ZoomLevelRendererBase {
         }
       } else {
         this._starfield = new GalaxyCtor(container, Object.assign({}, runtimeOptions, { externalCanvas: canvas, interactive: true }));
-        if (typeof this._starfield.init === 'function') {
-          await this._starfield.init();
+        this._ownsStarfield = true;
+        this._sharedRendererKey = useLegacyThree
+          ? '__GQ_LEVEL_SHARED_RENDERER_THREEJS' : '__GQ_LEVEL_SHARED_RENDERER_WEBGPU';
+        const starfield = this._starfield;
+        if (typeof starfield.init === 'function') {
+          await starfield.init();
         }
-        if (useLegacyThree) window.__GQ_LEVEL_SHARED_RENDERER_THREEJS = this._starfield;
-        else window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU = this._starfield;
+        if (this._starfield !== starfield) return;
+        if (useLegacyThree) window.__GQ_LEVEL_SHARED_RENDERER_THREEJS = starfield;
+        else window.__GQ_LEVEL_SHARED_RENDERER_WEBGPU = starfield;
       }
     }
   }
@@ -120,12 +130,21 @@ class GalaxyLevelWebGPU extends ZoomLevelRendererBase {
   }
 
   dispose() {
-    if (this._starfield) {
-      this._starfield.dispose();
+    try {
+      if (this._starfield && this._ownsStarfield) {
+        this._starfield.dispose();
+      }
+    } finally {
+      if (this._starfield && this._ownsStarfield && typeof window !== 'undefined'
+        && window[this._sharedRendererKey] === this._starfield) {
+        window[this._sharedRendererKey] = undefined;
+      }
       this._starfield = null;
+      this._ownsStarfield = false;
+      this._sharedRendererKey = null;
+      this._canvas = null;
+      this._backend = null;
     }
-    this._canvas  = null;
-    this._backend = null;
   }
 }
 

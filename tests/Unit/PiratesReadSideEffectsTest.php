@@ -27,11 +27,12 @@ final class PiratesReadSideEffectsTest extends TestCase
             self::assertStringNotContainsString('npc_ai_tick(', $body, $action);
         }
 
-        self::assertSame(1, substr_count($source, 'npc_faction_tick('));
-        self::assertStringContainsString(
-            'npc_faction_tick($db, $uid, $faction);',
-            $this->caseBody($source, 'run_tick', 'set_defense_budget')
-        );
+        $runTick = $this->caseBody($source, 'run_tick', 'set_defense_budget');
+        self::assertStringContainsString('simulation_runtime_with_scope_lock(', $runTick);
+        self::assertStringContainsString("'user',", $runTick);
+        self::assertStringContainsString('(string)$uid,', $runTick);
+        self::assertStringContainsString('npc_faction_tick($db, $uid, $faction);', $runTick);
+        self::assertStringContainsString("'executed' => true", $runTick);
     }
 
     public function testPirateTickRequiresPostAndCsrfBeforeLoadingFactions(): void
@@ -49,6 +50,13 @@ final class PiratesReadSideEffectsTest extends TestCase
         self::assertNotFalse($queryOffset);
         self::assertLessThan($csrfGuardOffset, $postGuardOffset);
         self::assertLessThan($queryOffset, $csrfGuardOffset);
+
+        $controller = file_get_contents(
+            __DIR__ . '/../../js/engine/runtime/layers/domain/pirates/RuntimePiratesController.js'
+        );
+        self::assertIsString($controller);
+        self::assertStringContainsString('tickRes?.executed === false', $controller);
+        self::assertStringContainsString('another simulation is running.', $controller);
     }
 
     public function testRecentRaidCountHelperUsesAReadOnlyQuery(): void

@@ -55,19 +55,8 @@ function npc_ai_worker_auth_headers(): array
 
 function npc_ai_worker_nonce_table_available(PDO $db): bool
 {
-    static $available = null;
-    if ($available !== null) {
-        return $available;
-    }
-
-    try {
-        $stmt = $db->query("SHOW TABLES LIKE 'npc_ai_worker_nonce'");
-        $available = (bool) $stmt->fetchColumn();
-    } catch (Throwable $e) {
-        $available = false;
-    }
-
-    return $available;
+    $stmt = $db->query("SHOW TABLES LIKE 'npc_ai_worker_nonce'");
+    return (bool) $stmt->fetchColumn();
 }
 
 function npc_ai_worker_nonce_retention_seconds(): int

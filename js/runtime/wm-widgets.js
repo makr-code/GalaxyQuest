@@ -1,5 +1,5 @@
 /**
- * WMWidgets – Android-style UI widget library for WMCore
+ * WMWidgets – Shared window components and layouts for WMCore
  *
  * Standalone DOM-widget factories. No dependency on WMCore internals;
  * works with any HTMLElement container.
@@ -11,6 +11,20 @@
  *   WMWidgets.tree(container, opts)        → TreeView
  *   WMWidgets.list(container, opts)        → ListView
  *   WMWidgets.tabs(container, opts)        → TabView
+ *   WMWidgets.frame(container, opts)       → Standard window regions
+ *   WMWidgets.sidebar(container, opts)     → Navigation sidebar
+ *   WMWidgets.badge(container, opts)       → Text/status badge
+ *   WMWidgets.cards(container, opts)       → Responsive CardView grid
+ *   WMWidgets.breadcrumbs(container, opts) → Context navigation
+ *   WMWidgets.progress(container, opts)    → Measured/indeterminate progress
+ *   WMWidgets.notice(container, opts)      → Empty/loading/error states
+ *   WMWidgets.properties(container, opts)  → Label/value details layout
+ *   WMWidgets.stack(container, opts)       → Vertical/horizontal wrapping layout
+ *   WMWidgets.dataTable(container, opts)   → Searchable, filterable, sortable data table
+ *   WMWidgets.field(container, opts)       → Labelled native form control
+ *   WMWidgets.formLayout(container, opts)  → Responsive field group
+ *   WMWidgets.pagination(container, opts)  → Controlled list navigation
+ *   WMWidgets.timeline(container, opts)    → Keyed sequence/status layout
  *
  * All factories return a controller object with at least:
  *   { el, destroy() }
@@ -122,6 +136,7 @@
  *   ctrl.showDetail()   ctrl.showMaster()   ctrl.destroy()
  */
 const WMWidgets = (() => {
+  let _nextId = 0;
 
   // ── Shared utilities ────────────────────────────────────────────────────────
   function _esc(s) {
@@ -144,7 +159,7 @@ const WMWidgets = (() => {
     if (!(target instanceof HTMLElement)) return;
     if (content == null) return;
     if (typeof content === 'function') {
-      try { content(target); } catch (_) {}
+      content(target);
       return;
     }
     if (content instanceof HTMLElement) {
@@ -190,30 +205,40 @@ const WMWidgets = (() => {
 
     var items        = Array.isArray(opts.items) ? opts.items : [];
     var singleExpand = !!opts.singleExpand;
+    var widgetId = 'wm-accordion-' + (++_nextId);
+    var expandedFound = false;
 
     var el = document.createElement('div');
     el.className = 'wm-accordion';
 
     var itemEls = items.map(function (item, idx) {
+      var expanded = !!item.expanded && (!singleExpand || !expandedFound);
+      if (expanded) expandedFound = true;
       var itemEl = document.createElement('div');
-      itemEl.className = 'wm-accordion-item' + (item.expanded ? ' is-open' : '');
+      itemEl.className = 'wm-accordion-item' + (expanded ? ' is-open' : '');
 
       var headerBtn = document.createElement('button');
       headerBtn.type      = 'button';
       headerBtn.className = 'wm-accordion-header';
-      headerBtn.setAttribute('aria-expanded', item.expanded ? 'true' : 'false');
+      headerBtn.id = widgetId + '-header-' + idx;
+      headerBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      headerBtn.setAttribute('aria-controls', widgetId + '-panel-' + idx);
       headerBtn.innerHTML =
         '<span class="wm-accordion-title">' + _esc(String(item.header != null ? item.header : '')) + '</span>' +
         '<span class="wm-accordion-chevron" aria-hidden="true"></span>';
 
       var bodyEl = document.createElement('div');
       bodyEl.className = 'wm-accordion-body';
+      bodyEl.id = widgetId + '-panel-' + idx;
+      bodyEl.setAttribute('role', 'region');
+      bodyEl.setAttribute('aria-labelledby', headerBtn.id);
+      bodyEl.hidden = !expanded;
 
       var innerEl = document.createElement('div');
       innerEl.className = 'wm-accordion-body-inner';
 
       if (typeof item.content === 'function') {
-        try { item.content(innerEl); } catch (_) {}
+        item.content(innerEl);
       } else if (item.content instanceof HTMLElement) {
         innerEl.appendChild(item.content);
       } else if (item.content != null) {
@@ -227,6 +252,17 @@ const WMWidgets = (() => {
 
       (function (i) {
         headerBtn.addEventListener('click', function () { toggle(i); });
+        headerBtn.addEventListener('keydown', function (event) {
+          var target;
+          if (event.key === 'ArrowDown') target = (i + 1) % items.length;
+          else if (event.key === 'ArrowUp') target = (i + items.length - 1) % items.length;
+          else if (event.key === 'Home') target = 0;
+          else if (event.key === 'End') target = items.length - 1;
+          if (target !== undefined) {
+            event.preventDefault();
+            itemEls[target].querySelector('.wm-accordion-header').focus();
+          }
+        });
       })(idx);
 
       return itemEl;
@@ -242,12 +278,16 @@ const WMWidgets = (() => {
             iel.classList.remove('is-open');
             var h = iel.querySelector('.wm-accordion-header');
             if (h) h.setAttribute('aria-expanded', 'false');
+            var panel = iel.querySelector('.wm-accordion-body');
+            if (panel.contains(document.activeElement)) itemEls[i].querySelector('.wm-accordion-header').focus();
+            panel.hidden = true;
           }
         });
       }
       itemEls[i].classList.add('is-open');
       var hdr = itemEls[i].querySelector('.wm-accordion-header');
       if (hdr) hdr.setAttribute('aria-expanded', 'true');
+      itemEls[i].querySelector('.wm-accordion-body').hidden = false;
       var cb = items[i] && items[i].onExpand;
       if (typeof cb === 'function') cb(items[i]);
     }
@@ -257,6 +297,9 @@ const WMWidgets = (() => {
       itemEls[i].classList.remove('is-open');
       var hdr = itemEls[i].querySelector('.wm-accordion-header');
       if (hdr) hdr.setAttribute('aria-expanded', 'false');
+      var panel = itemEls[i].querySelector('.wm-accordion-body');
+      if (panel.contains(document.activeElement)) hdr.focus();
+      panel.hidden = true;
       var cb = items[i] && items[i].onCollapse;
       if (typeof cb === 'function') cb(items[i]);
     }
@@ -599,6 +642,11 @@ const WMWidgets = (() => {
     var _activeId = String(opts.activeTab != null ? opts.activeTab
                            : (tabList[0] && tabList[0].id != null ? tabList[0].id : ''));
     var _tabData  = Object.create(null);
+    var widgetId = 'wm-tabs-' + (++_nextId);
+    var nextTabId = 0;
+    if (!tabList.some(function (tab) { return String(tab.id) === _activeId; })) {
+      _activeId = tabList.length ? String(tabList[0].id) : '';
+    }
 
     var el = document.createElement('div');
     el.className = 'wm-tabview';
@@ -606,6 +654,7 @@ const WMWidgets = (() => {
     var barEl = document.createElement('div');
     barEl.className = 'wm-tab-bar';
     barEl.setAttribute('role', 'tablist');
+    barEl.setAttribute('aria-label', String(opts.ariaLabel || 'Tabs'));
 
     var panesEl = document.createElement('div');
     panesEl.className = 'wm-tab-panes';
@@ -614,6 +663,7 @@ const WMWidgets = (() => {
     el.appendChild(panesEl);
 
     function _buildEntry(tabCfg) {
+      if (tabCfg.id == null || _tabData[String(tabCfg.id)]) throw new TypeError('Tab IDs must be present and unique.');
       var id       = String(tabCfg.id != null ? tabCfg.id : '');
       var isActive = (id === _activeId);
 
@@ -623,6 +673,8 @@ const WMWidgets = (() => {
       btn.setAttribute('role', 'tab');
       btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
       btn.setAttribute('data-tab-id', id);
+      btn.id = widgetId + '-tab-' + (++nextTabId);
+      btn.tabIndex = isActive ? 0 : -1;
 
       if (tabCfg.icon != null) {
         var iconEl = document.createElement('span');
@@ -639,15 +691,33 @@ const WMWidgets = (() => {
       var pane = document.createElement('div');
       pane.className = 'wm-tab-pane' + (isActive ? ' is-active' : '');
       pane.setAttribute('role', 'tabpanel');
+      pane.id = btn.id + '-panel';
+      btn.setAttribute('aria-controls', pane.id);
+      pane.setAttribute('aria-labelledby', btn.id);
+      pane.tabIndex = 0;
       pane.hidden = !isActive;
 
       var rendered = false;
       if (isActive && typeof tabCfg.render === 'function') {
-        try { tabCfg.render(pane); } catch (_) {}
+        tabCfg.render(pane);
         rendered = true;
       }
 
       btn.addEventListener('click', function () { setActive(id); });
+      btn.addEventListener('keydown', function (event) {
+        var index = tabList.findIndex(function (tab) { return String(tab.id) === id; });
+        var target;
+        if (event.key === 'ArrowRight') target = (index + 1) % tabList.length;
+        else if (event.key === 'ArrowLeft') target = (index + tabList.length - 1) % tabList.length;
+        else if (event.key === 'Home') target = 0;
+        else if (event.key === 'End') target = tabList.length - 1;
+        if (target !== undefined) {
+          event.preventDefault();
+          var targetId = String(tabList[target].id);
+          setActive(targetId);
+          _tabData[targetId].btn.focus();
+        }
+      });
 
       _tabData[id] = { cfg: tabCfg, btn: btn, pane: pane, rendered: rendered };
       barEl.appendChild(btn);
@@ -660,19 +730,24 @@ const WMWidgets = (() => {
     function setActive(id) {
       var sid = String(id != null ? id : '');
       if (!_tabData[sid]) return;
+      var previous = _tabData[_activeId];
+      var transferFocus = sid !== _activeId && previous
+        && (previous.btn === document.activeElement || previous.pane.contains(document.activeElement));
       _activeId = sid;
       Object.keys(_tabData).forEach(function (tid) {
         var entry    = _tabData[tid];
         var isActive = (tid === sid);
         entry.btn.classList.toggle('is-active', isActive);
         entry.btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        entry.btn.tabIndex = isActive ? 0 : -1;
         entry.pane.classList.toggle('is-active', isActive);
         entry.pane.hidden = !isActive;
         if (isActive && !entry.rendered && typeof entry.cfg.render === 'function') {
-          try { entry.cfg.render(entry.pane); } catch (_) {}
+          entry.cfg.render(entry.pane);
           entry.rendered = true;
         }
       });
+      if (transferFocus) _tabData[sid].btn.focus();
       if (onChange) onChange(sid);
     }
 
@@ -689,6 +764,7 @@ const WMWidgets = (() => {
       var sid   = String(id != null ? id : '');
       var entry = _tabData[sid];
       if (!entry) return;
+      var hadFocus = entry.btn === document.activeElement || entry.pane.contains(document.activeElement);
       entry.btn.remove();
       entry.pane.remove();
       delete _tabData[sid];
@@ -696,7 +772,10 @@ const WMWidgets = (() => {
       if (_activeId === sid) {
         var firstKey = Object.keys(_tabData)[0];
         _activeId = firstKey || '';
-        if (firstKey) setActive(firstKey);
+        if (firstKey) {
+          setActive(firstKey);
+          if (hadFocus) _tabData[firstKey].btn.focus();
+        }
       }
     }
 
@@ -746,7 +825,7 @@ const WMWidgets = (() => {
     var contentEl = document.createElement('div');
     contentEl.className = 'wm-card-content';
     if (typeof opts.body === 'function') {
-      try { opts.body(contentEl); } catch (_) {}
+      opts.body(contentEl);
     } else if (opts.body instanceof HTMLElement) {
       contentEl.appendChild(opts.body);
     } else if (opts.body != null) {
@@ -790,7 +869,7 @@ const WMWidgets = (() => {
       if (!cel) return;
       cel.innerHTML = '';
       if (typeof newBody === 'function') {
-        try { newBody(cel); } catch (_) {}
+        newBody(cel);
       } else if (newBody instanceof HTMLElement) {
         cel.appendChild(newBody);
       } else if (newBody != null) {
@@ -1008,10 +1087,14 @@ const WMWidgets = (() => {
     if (!_guard(container, 'split')) return null;
     opts = opts || {};
 
-    var isHoriz  = String(opts.direction || 'horizontal').toLowerCase() !== 'vertical';
-    var ratio    = Math.max(0.05, Math.min(0.95, Number(opts.ratio != null  ? opts.ratio : 0.35)));
-    var minA     = Math.max(40,   Number(opts.minA   != null ? opts.minA    : 120));
-    var minB     = Math.max(40,   Number(opts.minB   != null ? opts.minB    : 120));
+    var direction = opts.direction ?? 'horizontal';
+    if (!['horizontal', 'vertical'].includes(direction)) throw new RangeError('Unknown split direction.');
+    var isHoriz = direction === 'horizontal';
+    var ratio = opts.ratio ?? 0.35;
+    var minA = opts.minA ?? 120;
+    var minB = opts.minB ?? 120;
+    if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) throw new RangeError('Split ratio must be within 0..1.');
+    if (![minA, minB].every(function (value) { return Number.isFinite(value) && value >= 0; })) throw new RangeError('Split minimum sizes must be non-negative.');
     var onResize = typeof opts.onResize === 'function' ? opts.onResize : null;
 
     var el = document.createElement('div');
@@ -1025,6 +1108,9 @@ const WMWidgets = (() => {
     divider.setAttribute('role', 'separator');
     divider.setAttribute('aria-orientation', isHoriz ? 'vertical' : 'horizontal');
     divider.setAttribute('tabindex', '0');
+    divider.setAttribute('aria-label', opts.ariaLabel || 'Resize panes');
+    paneA.id = 'wm-split-pane-' + (++_nextId);
+    divider.setAttribute('aria-controls', paneA.id);
 
     var paneB = document.createElement('div');
     paneB.className = 'wm-split-pane wm-split-pane-b';
@@ -1034,57 +1120,104 @@ const WMWidgets = (() => {
     el.appendChild(paneB);
     container.appendChild(el);
 
-    function _applyRatio(r) {
-      ratio = Math.max(0.05, Math.min(0.95, r));
-      paneA.style.flex = '0 0 ' + (ratio * 100).toFixed(2) + '%';
+    function size() {
+      return Math.max(0, isHoriz ? el.clientWidth - divider.offsetWidth : el.clientHeight - divider.offsetHeight);
     }
-
+    function limits() {
+      var available = size();
+      if (!available) return [0.05, 0.95];
+      if (minA + minB > available) {
+        var proportional = minA / (minA + minB);
+        return [proportional, proportional];
+      }
+      return [minA / available, 1 - minB / available];
+    }
+    function _applyRatio(r) {
+      if (!Number.isFinite(r) || r < 0 || r > 1) throw new RangeError('Split ratio must be within 0..1.');
+      var bounds = limits();
+      ratio = Math.max(bounds[0], Math.min(bounds[1], r));
+      var percent = (ratio * 100).toFixed(2);
+      paneA.style.flex = '0 0 calc((100% - ' + (isHoriz ? divider.offsetWidth : divider.offsetHeight) + 'px) * ' + ratio + ')';
+      divider.setAttribute('aria-valuenow', percent);
+      divider.setAttribute('aria-valuemin', (bounds[0] * 100).toFixed(2));
+      divider.setAttribute('aria-valuemax', (bounds[1] * 100).toFixed(2));
+    }
     _applyRatio(ratio);
-    var dragging = false, startPos = 0, startRatio = 0;
-
-    divider.addEventListener('mousedown', function (e) {
-      dragging   = true;
-      startPos   = isHoriz ? e.clientX : e.clientY;
-      startRatio = ratio;
-      e.preventDefault();
-    });
-
-    divider.addEventListener('touchstart', function (e) {
-      var t = e.touches[0];
-      dragging   = true;
-      startPos   = isHoriz ? t.clientX : t.clientY;
-      startRatio = ratio;
-      e.preventDefault();
-    }, { passive: false });
-
-    function _onDragMove(pos) {
-      if (!dragging) return;
-      var totalSize = isHoriz ? el.offsetWidth : el.offsetHeight;
-      if (totalSize < 1) return;
-      var minRatA  = minA / totalSize;
-      var minRatB  = minB / totalSize;
-      var newRatio = Math.max(minRatA, Math.min(1 - minRatB, startRatio + (pos - startPos) / totalSize));
-      _applyRatio(newRatio);
+    var gesture = null;
+    function finish(cancel) {
+      if (!gesture) return;
+      var prior = gesture;
+      gesture = null;
+      document.removeEventListener('pointermove', move, true);
+      document.removeEventListener('pointerup', up, true);
+      document.removeEventListener('pointercancel', cancelled, true);
+      document.removeEventListener('keydown', escape, true);
+      window.removeEventListener('blur', cancelled);
+      divider.removeEventListener('lostpointercapture', cancelled);
+      if (divider.hasPointerCapture?.(prior.id)) divider.releasePointerCapture(prior.id);
+      el.classList.remove('is-resizing');
+      if (cancel) {
+        _applyRatio(prior.ratio);
+        if (onResize) onResize(ratio);
+      }
+    }
+    function move(event) {
+      if (!gesture || event.pointerId !== gesture.id) return;
+      var available = size();
+      if (!available) return;
+      var value = gesture.ratio + ((isHoriz ? event.clientX : event.clientY) - gesture.pos) / available;
+      _applyRatio(Math.max(0, Math.min(1, value)));
+      event.preventDefault();
       if (onResize) onResize(ratio);
     }
-
-    document.addEventListener('mousemove', function (e) { _onDragMove(isHoriz ? e.clientX : e.clientY); });
-    document.addEventListener('mouseup',   function ()  { dragging = false; });
-    document.addEventListener('touchmove', function (e) {
-      var t = e.touches[0]; _onDragMove(isHoriz ? t.clientX : t.clientY);
-    }, { passive: true });
-    document.addEventListener('touchend', function () { dragging = false; });
-
-    divider.addEventListener('keydown', function (e) {
-      var step = 0.05;
-      var acted = false;
-      if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   { _applyRatio(ratio - step); acted = true; }
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown')  { _applyRatio(ratio + step); acted = true; }
-      if (acted) { e.preventDefault(); if (onResize) onResize(ratio); }
+    function up(event) { if (gesture && event.pointerId === gesture.id) finish(false); }
+    function cancelled(event) {
+      if (gesture && (event.type === 'blur' || event.pointerId === gesture.id)) finish(true);
+    }
+    function escape(event) {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      finish(true);
+    }
+    divider.addEventListener('pointerdown', function (event) {
+      if (event.button !== 0 || event.isPrimary === false || gesture) return;
+      event.preventDefault();
+      divider.focus();
+      gesture = { id: event.pointerId, pos: isHoriz ? event.clientX : event.clientY, ratio: ratio };
+      el.classList.add('is-resizing');
+      document.addEventListener('pointermove', move, true);
+      document.addEventListener('pointerup', up, true);
+      document.addEventListener('pointercancel', cancelled, true);
+      document.addEventListener('keydown', escape, true);
+      window.addEventListener('blur', cancelled);
+      divider.addEventListener('lostpointercapture', cancelled);
+      divider.setPointerCapture?.(event.pointerId);
     });
 
-    function setRatio(r) { _applyRatio(r); }
-    function destroy()   { if (el.parentNode) el.parentNode.removeChild(el); }
+    divider.addEventListener('keydown', function (e) {
+      if (gesture) return;
+      var bounds = limits();
+      var next;
+      if (e.key === (isHoriz ? 'ArrowLeft' : 'ArrowUp')) next = Math.max(0, ratio - 0.05);
+      else if (e.key === (isHoriz ? 'ArrowRight' : 'ArrowDown')) next = Math.min(1, ratio + 0.05);
+      else if (e.key === 'Home') next = bounds[0];
+      else if (e.key === 'End') next = bounds[1];
+      if (next !== undefined) { e.preventDefault(); _applyRatio(next); if (onResize) onResize(ratio); }
+    });
+
+    var observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(function () { _applyRatio(ratio); }) : null;
+    observer?.observe(el);
+    function setRatio(r) {
+      if (!Number.isFinite(r) || r < 0 || r > 1) throw new RangeError('Split ratio must be within 0..1.');
+      finish(false);
+      _applyRatio(r);
+    }
+    function destroy() {
+      finish(false);
+      observer?.disconnect();
+      el.remove();
+    }
     return { el: el, paneA: paneA, paneB: paneB, setRatio: setRatio, destroy: destroy };
   }
 
@@ -1095,6 +1228,7 @@ const WMWidgets = (() => {
 
     var masterWidth    = opts.masterWidth  != null ? opts.masterWidth  : 260;
     var breakpoint     = Number(opts.breakpoint != null ? opts.breakpoint : 600);
+    if (!Number.isFinite(breakpoint) || breakpoint <= 0) throw new RangeError('Master/detail breakpoint must be positive.');
     var renderMasterFn = typeof opts.renderMaster === 'function' ? opts.renderMaster : null;
     var renderDetailFn = typeof opts.renderDetail === 'function' ? opts.renderDetail : null;
     var _showingDetail = !!(opts.defaultView === 'detail');
@@ -1106,25 +1240,38 @@ const WMWidgets = (() => {
 
     var masterEl = document.createElement('div');
     masterEl.className = 'wm-md-master';
+    masterEl.tabIndex = -1;
+    if (opts.masterLabel) { masterEl.setAttribute('role', 'region'); masterEl.setAttribute('aria-label', opts.masterLabel); }
 
     var detailEl = document.createElement('div');
     detailEl.className = 'wm-md-detail';
+    detailEl.tabIndex = -1;
+    if (opts.detailLabel) { detailEl.setAttribute('role', 'region'); detailEl.setAttribute('aria-label', opts.detailLabel); }
 
     el.appendChild(masterEl);
     el.appendChild(detailEl);
     container.appendChild(el);
 
-    if (renderMasterFn) try { renderMasterFn(masterEl); } catch (_) {}
-    if (renderDetailFn) try { renderDetailFn(detailEl); } catch (_) {}
+    var rendered = false;
+    try {
+      if (renderMasterFn) renderMasterFn(masterEl);
+      if (renderDetailFn) renderDetailFn(detailEl);
+      rendered = true;
+    } finally {
+      if (!rendered) el.remove();
+    }
 
     function _syncVisibility() {
       var narrow = el.offsetWidth > 0 && el.offsetWidth < breakpoint;
-      if (narrow) {
-        masterEl.classList.toggle('is-hidden',  _showingDetail);
-        detailEl.classList.toggle('is-hidden', !_showingDetail);
-      } else {
-        masterEl.classList.remove('is-hidden');
-        detailEl.classList.remove('is-hidden');
+      el.classList.toggle('is-narrow', narrow);
+      var focusedMaster = masterEl.contains(document.activeElement);
+      var focusedDetail = detailEl.contains(document.activeElement);
+      masterEl.hidden = narrow && _showingDetail;
+      detailEl.hidden = narrow && !_showingDetail;
+      masterEl.classList.toggle('is-hidden', masterEl.hidden);
+      detailEl.classList.toggle('is-hidden', detailEl.hidden);
+      if ((focusedMaster && masterEl.hidden) || (focusedDetail && detailEl.hidden)) {
+        (masterEl.hidden ? detailEl : masterEl).focus();
       }
     }
 
@@ -1143,7 +1290,974 @@ const WMWidgets = (() => {
       if (el.parentNode) el.parentNode.removeChild(el);
     }
 
-    return { el: el, master: masterEl, detail: detailEl, showDetail: showDetail, showMaster: showMaster, destroy: destroy };
+    return { el: el, master: masterEl, detail: detailEl, showDetail: showDetail, showMaster: showMaster, refresh: _syncVisibility, destroy: destroy };
+  }
+
+  function badge(container, opts) {
+    if (!_guard(container, 'badge')) return null;
+    opts = opts || {};
+    var el = _el('span', { className: 'wm-badge' });
+    if (opts.ariaLabel) el.setAttribute('aria-label', String(opts.ariaLabel));
+    function set(value, tone) {
+      tone = tone || el.dataset.tone || 'neutral';
+      if (!['neutral', 'info', 'success', 'warning', 'danger'].includes(tone)) {
+        throw new RangeError('Unknown badge tone: ' + tone);
+      }
+      el.dataset.tone = tone;
+      el.textContent = value == null ? '' : String(value);
+    }
+    set(opts.text, opts.tone);
+    container.appendChild(el);
+    return { el: el, set: set, destroy: function () { el.remove(); } };
+  }
+
+  function sidebar(container, opts) {
+    if (!_guard(container, 'sidebar')) return null;
+    opts = opts || {};
+    var el = _el('nav', { className: 'wm-sidebar', attrs: { 'aria-label': opts.ariaLabel || 'Sidebar' } });
+    var items = [];
+    var buttons = new Map();
+    var activeId = opts.activeId == null ? null : String(opts.activeId);
+    function setActive(id, notify) {
+      var sid = String(id);
+      var item = items.find(function (entry) { return String(entry.id) === sid; });
+      if (!item || item.disabled) throw new RangeError('Sidebar item is unavailable: ' + sid);
+      activeId = sid;
+      buttons.forEach(function (button, key) {
+        button.classList.toggle('is-active', key === sid);
+        if (key === sid) button.setAttribute('aria-current', 'page');
+        else button.removeAttribute('aria-current');
+      });
+      if (notify !== false && typeof opts.onSelect === 'function') opts.onSelect(item);
+    }
+    function setItems(next) {
+      var ids = new Set();
+      next.forEach(function (item) {
+        if (item.id == null || ids.has(String(item.id))) throw new TypeError('Sidebar IDs must be present and unique.');
+        ids.add(String(item.id));
+      });
+      var focusedId = el.contains(document.activeElement) ? document.activeElement.dataset.sidebarId : null;
+      items = next.slice();
+      buttons.clear();
+      _clearEl(el);
+      items.forEach(function (item) {
+        var id = String(item.id);
+        var button = _el('button', {
+          className: 'wm-sidebar-item', attrs: { type: 'button' }, dataset: { sidebarId: id },
+        });
+        button.disabled = !!item.disabled;
+        if (item.icon) button.appendChild(_el('span', { className: 'wm-sidebar-icon', text: item.icon, attrs: { 'aria-hidden': 'true' } }));
+        button.appendChild(_el('span', { className: 'wm-sidebar-label', text: item.label ?? id }));
+        if (item.badge != null) badge(button, { text: item.badge });
+        button.addEventListener('click', function () { setActive(id); });
+        buttons.set(id, button);
+        el.appendChild(button);
+      });
+      var selected = items.find(function (item) { return !item.disabled && String(item.id) === activeId; })
+        || items.find(function (item) { return !item.disabled; });
+      if (selected) setActive(selected.id, false);
+      else activeId = null;
+      if (focusedId && buttons.get(focusedId) && !buttons.get(focusedId).disabled) buttons.get(focusedId).focus();
+    }
+    el.addEventListener('keydown', function (event) {
+      var available = Array.from(buttons.values()).filter(function (button) { return !button.disabled; });
+      var index = available.indexOf(document.activeElement);
+      if (index < 0) return;
+      var target;
+      if (event.key === 'ArrowDown') target = (index + 1) % available.length;
+      else if (event.key === 'ArrowUp') target = (index + available.length - 1) % available.length;
+      else if (event.key === 'Home') target = 0;
+      else if (event.key === 'End') target = available.length - 1;
+      if (target !== undefined) {
+        event.preventDefault();
+        available[target].focus();
+      }
+    });
+    setItems(opts.items || []);
+    container.appendChild(el);
+    return { el: el, setActive: setActive, setItems: setItems, destroy: function () { buttons.clear(); el.remove(); } };
+  }
+
+  function cards(container, opts) {
+    if (!_guard(container, 'cards')) return null;
+    opts = opts || {};
+    var minWidth = opts.minCardWidth ?? 220;
+    if (!Number.isFinite(minWidth) || minWidth <= 0) throw new RangeError('Card width must be a positive number.');
+    var el = _el('div', { className: 'wm-cards-layout' });
+    el.style.setProperty('--wm-card-min-width', minWidth + 'px');
+    var controllers = [];
+    function setItems(items) {
+      controllers.forEach(function (controller) { controller.destroy(); });
+      controllers = [];
+      items.forEach(function (item) { controllers.push(card(el, item)); });
+    }
+    setItems(opts.items || []);
+    container.appendChild(el);
+    return {
+      el: el, setItems: setItems,
+      destroy: function () { controllers.forEach(function (controller) { controller.destroy(); }); controllers = []; el.remove(); },
+    };
+  }
+
+  function breadcrumbs(container, opts) {
+    if (!_guard(container, 'breadcrumbs')) return null;
+    opts = opts || {};
+    var el = _el('nav', { className: 'wm-breadcrumbs', attrs: { 'aria-label': opts.ariaLabel || 'Breadcrumb' } });
+    var listEl = _el('ol');
+    el.appendChild(listEl);
+    function setItems(items) {
+      var ids = new Set();
+      items.forEach(function (item) {
+        if (item.id == null || ids.has(String(item.id))) throw new TypeError('Breadcrumb IDs must be present and unique.');
+        ids.add(String(item.id));
+      });
+      var focusedId = el.contains(document.activeElement) ? document.activeElement.dataset.breadcrumbId : null;
+      _clearEl(listEl);
+      var focusTarget;
+      items.forEach(function (item, index) {
+        var current = index === items.length - 1;
+        var row = _el('li');
+        var control = _el(current ? 'span' : 'button', {
+          className: 'wm-breadcrumb-item', text: item.label ?? item.id,
+          attrs: current ? { 'aria-current': 'page', tabindex: '-1' } : { type: 'button' },
+          dataset: { breadcrumbId: item.id },
+        });
+        if (!current) {
+          control.disabled = !!item.disabled;
+          control.addEventListener('click', function () { if (typeof opts.onSelect === 'function') opts.onSelect(item); });
+        }
+        if (String(item.id) === focusedId && !control.disabled) focusTarget = control;
+        row.appendChild(control);
+        listEl.appendChild(row);
+      });
+      if (focusedId !== null) {
+        var fallback = focusTarget || listEl.querySelector('[aria-current]');
+        if (fallback) fallback.focus();
+        else { el.tabIndex = -1; el.focus(); }
+      }
+    }
+    setItems(opts.items || []);
+    container.appendChild(el);
+    return { el: el, setItems: setItems, destroy: function () { el.remove(); } };
+  }
+
+  function progress(container, opts) {
+    if (!_guard(container, 'progress')) return null;
+    opts = opts || {};
+    var el = _el('div', { className: 'wm-progress' });
+    var id = 'wm-progress-' + (++_nextId);
+    var label = _el('label', { className: 'wm-progress-label', attrs: { for: id } });
+    var meter = _el('progress', { attrs: { id: id } });
+    var text = _el('span', { className: 'wm-progress-text', attrs: { id: id + '-text' } });
+    meter.setAttribute('aria-describedby', text.id);
+    el.append(label, meter, text);
+    var state = { label: opts.label, value: opts.value ?? null, max: opts.max ?? 100, text: opts.text ?? '' };
+    function set(next) {
+      var candidate = Object.assign({}, state, next);
+      if (typeof candidate.label !== 'string' || !candidate.label.trim()) throw new TypeError('Progress requires a visible label.');
+      if (!Number.isFinite(candidate.max) || candidate.max <= 0) throw new RangeError('Progress maximum must be positive.');
+      if (candidate.value !== null && (!Number.isFinite(candidate.value) || candidate.value < 0 || candidate.value > candidate.max)) {
+        throw new RangeError('Progress value must be null or within 0..max.');
+      }
+      state = candidate;
+      label.textContent = state.label;
+      meter.max = state.max;
+      if (state.value === null) meter.removeAttribute('value');
+      else meter.value = state.value;
+      el.dataset.indeterminate = String(state.value === null);
+      text.textContent = String(state.text);
+      text.hidden = !state.text;
+    }
+    set({});
+    container.appendChild(el);
+    return { el: el, set: set, destroy: function () { el.remove(); } };
+  }
+
+  function notice(container, opts) {
+    if (!_guard(container, 'notice')) return null;
+    opts = opts || {};
+    var el = _el('section', { className: 'wm-notice' });
+    var title = _el('h3', { className: 'wm-notice-title', attrs: { id: 'wm-notice-' + (++_nextId) } });
+    var message = _el('p', { className: 'wm-notice-message' });
+    var actions = _el('div', { className: 'wm-notice-actions' });
+    var copy = _el('div', { className: 'wm-notice-copy' });
+    copy.append(title, message);
+    el.append(copy, actions);
+    el.setAttribute('aria-labelledby', title.id);
+    // Keep interactive actions outside the live region to avoid announcing them twice.
+    copy.setAttribute('aria-live', opts.live === 'polite' ? 'polite' : 'off');
+    copy.setAttribute('aria-atomic', 'true');
+    var state = { state: opts.state || 'empty', title: opts.title, message: opts.message ?? '', actions: opts.actions || [] };
+    function set(next) {
+      var candidate = Object.assign({}, state, next);
+      if (!['empty', 'loading', 'error', 'info', 'success', 'warning'].includes(candidate.state)) throw new RangeError('Unknown notice state.');
+      if (typeof candidate.title !== 'string' || !candidate.title.trim()) throw new TypeError('Notice requires a visible title.');
+      if (!Array.isArray(candidate.actions)) throw new TypeError('Notice actions must be an array.');
+      state = candidate;
+      el.dataset.state = state.state;
+      title.textContent = state.title;
+      message.textContent = String(state.message);
+      message.hidden = !state.message;
+      // Copy-only updates must not replace a focused retry/action button.
+      if (Object.hasOwn(next, 'actions') || !actions.childNodes.length) {
+        var focusedIndex = Array.from(actions.children).indexOf(document.activeElement);
+        _clearEl(actions);
+        state.actions.forEach(function (action) {
+          var button = _el('button', { className: 'wm-card-action-btn', attrs: { type: 'button' }, text: action.label });
+          button.disabled = !!action.disabled;
+          button.addEventListener('click', function () { if (typeof action.onClick === 'function') action.onClick(action); });
+          actions.appendChild(button);
+        });
+        if (focusedIndex >= 0) {
+          var replacement = actions.children[focusedIndex];
+          if (replacement && !replacement.disabled) replacement.focus();
+          else { title.tabIndex = -1; title.focus(); }
+        }
+      }
+      actions.hidden = !state.actions.length;
+    }
+    set({});
+    container.appendChild(el);
+    return { el: el, set: set, destroy: function () { el.remove(); } };
+  }
+
+  function properties(container, opts) {
+    if (!_guard(container, 'properties')) return null;
+    opts = opts || {};
+    var el = _el('dl', { className: 'wm-properties' });
+    var values = new Map();
+    function write(target, value) {
+      var content = _el('div');
+      _appendContent(content, value == null ? (opts.emptyText ?? 'Not available') : value);
+      target.replaceChildren(...content.childNodes);
+    }
+    function setItems(items) {
+      var ids = new Set();
+      items.forEach(function (item) {
+        if (item.id == null || ids.has(String(item.id))) throw new TypeError('Property IDs must be present and unique.');
+        ids.add(String(item.id));
+      });
+      var fragment = document.createDocumentFragment();
+      var nextValues = new Map();
+      items.forEach(function (item) {
+        var row = _el('div', { className: 'wm-property-row' });
+        var value = _el('dd');
+        row.append(_el('dt', { text: item.label ?? item.id }), value);
+        write(value, item.value);
+        nextValues.set(String(item.id), value);
+        fragment.appendChild(row);
+      });
+      _clearEl(el);
+      el.appendChild(fragment);
+      values = nextValues;
+    }
+    function setValue(id, value) {
+      var target = values.get(String(id));
+      if (!target) throw new RangeError('Unknown property: ' + id);
+      write(target, value);
+    }
+    setItems(opts.items || []);
+    container.appendChild(el);
+    return { el: el, setItems: setItems, setValue: setValue, destroy: function () { values.clear(); el.remove(); } };
+  }
+
+  function stack(container, opts) {
+    if (!_guard(container, 'stack')) return null;
+    opts = opts || {};
+    var direction = opts.direction ?? 'vertical';
+    var gap = opts.gap ?? 12;
+    if (!['vertical', 'horizontal'].includes(direction)) throw new RangeError('Unknown stack direction.');
+    if (!Number.isFinite(gap) || gap < 0) throw new RangeError('Stack gap must be a non-negative number.');
+    var el = _el('div', { className: 'wm-stack', dataset: { direction: direction, wrap: String(opts.wrap !== false) } });
+    el.style.setProperty('--wm-stack-gap', gap + 'px');
+    function append(content) {
+      var slot = _el('div', { className: 'wm-stack-item' });
+      _appendContent(slot, content);
+      el.appendChild(slot);
+      return slot;
+    }
+    (opts.items || []).forEach(append);
+    container.appendChild(el);
+    return { el: el, append: append, destroy: function () { el.remove(); } };
+  }
+
+  function dataTable(container, opts) {
+    if (!_guard(container, 'dataTable')) return null;
+    opts = opts || {};
+    if (typeof opts.caption !== 'string' || !opts.caption.trim()) throw new TypeError('Table requires a visible caption.');
+    var columns = opts.columns || [];
+    var ids = new Set();
+    var filterColumns = new Map();
+    if (!columns.length) throw new TypeError('Table requires columns.');
+    columns.forEach(function (column) {
+      if (column.id == null || ids.has(String(column.id))) throw new TypeError('Table column IDs must be present and unique.');
+      ids.add(String(column.id));
+      if (column.filter) {
+        var choices = new Set();
+        (column.filter.options || []).forEach(function (option) {
+          var value = String(option.value);
+          if (!value || choices.has(value)) throw new TypeError('Table filter values must be nonempty and unique.');
+          choices.add(value);
+        });
+        filterColumns.set(String(column.id), { column: column, choices: choices });
+      }
+    });
+    var labels = Object.assign({
+      search: 'Search table', toolbar: 'Table tools', reset: 'Reset table', all: 'All',
+      clearSearch: 'Clear search',
+      ascending: 'ascending', descending: 'descending',
+      sort: function (column, direction) { return 'Sort: ' + column + ' (' + direction + ')'; },
+      clearSort: 'Remove sorting',
+      nextSort: function (column, direction) { return 'Sort ' + column + ': ' + direction; },
+      removeFilter: function (column, value) { return 'Remove filter: ' + column + ': ' + value; },
+      noMatches: 'No matching entries', results: function (visible, total) { return visible + ' of ' + total + ' entries'; },
+    }, opts.labels);
+    var captionId = 'wm-table-' + (++_nextId);
+    var el = _el('div', { className: 'wm-data-table', attrs: { tabindex: '0', role: 'region', 'aria-labelledby': captionId } });
+    var table = _el('table');
+    var caption = _el('caption', { text: opts.caption, attrs: { id: captionId } });
+    var head = _el('thead');
+    var headerRow = _el('tr');
+    var body = _el('tbody');
+    var headers = new Map();
+    var rows = [];
+    var sort = null;
+    var query = '';
+    var filters = Object.create(null);
+    var destroyed = false;
+    var controls = new Map();
+    var fields = [];
+    var search = null;
+    var reset = null;
+    var result = null;
+    var clearSearch = null;
+    var filterChips = new Map();
+    var sortChip = null;
+    var sortFocusTarget = null;
+    var activeFilters = null;
+    var empty = _el('tr');
+    var emptyCell = _el('td', { className: 'wm-table-empty', attrs: { colspan: columns.length } });
+    var emptyContent = _el('div', { className: 'wm-table-empty-content' });
+    var emptyMessage = _el('p', { className: 'wm-table-empty-message' });
+    var emptyReset = _el('button', { text: labels.reset, attrs: { type: 'button' } });
+    emptyReset.dataset.tableControl = 'empty-reset';
+    emptyReset.addEventListener('click', function () {
+      if (destroyed) return;
+      (search || controls.values().next().value || el).focus({ preventScroll: true });
+      resetView();
+    });
+    emptyContent.appendChild(emptyMessage);
+    emptyCell.appendChild(emptyContent);
+    empty.appendChild(emptyCell);
+    var collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+    function normalize(value) {
+      return String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase();
+    }
+    function valueOf(column, item) {
+      return typeof column.value === 'function' ? column.value(item) : item[column.id];
+    }
+    function sortable(column) { return column.sortable === true || typeof column.compare === 'function'; }
+    function getState() {
+      return { query: query, filters: { ...filters }, sort: sort ? Object.assign({}, sort) : null };
+    }
+    function changed() { if (typeof opts.onStateChange === 'function') opts.onStateChange(getState()); }
+    function filterValue(id, value) {
+      var config = filterColumns.get(String(id));
+      if (!config) throw new RangeError('Unknown table filter: ' + id);
+      var text = String(value ?? '');
+      if (text && !config.choices.has(text)) throw new RangeError('Unknown table filter value: ' + text);
+      return text;
+    }
+    function sortState(id, direction) {
+      if (id == null) return null;
+      var sid = String(id);
+      var column = columns.find(function (entry) { return String(entry.id) === sid; });
+      if (!column || !sortable(column)) throw new RangeError('Table column is not sortable: ' + sid);
+      if (!['ascending', 'descending'].includes(direction)) throw new RangeError('Unknown table sort direction.');
+      return { id: sid, direction: direction };
+    }
+    if (opts.state) {
+      query = String(opts.state.query ?? '');
+      Object.entries(opts.state.filters || {}).forEach(function (entry) {
+        var value = filterValue(entry[0], entry[1]);
+        if (value) filters[entry[0]] = value;
+      });
+      if (opts.state.sort) sort = sortState(opts.state.sort.id, opts.state.sort.direction);
+    }
+    if (opts.searchable || filterColumns.size || columns.some(sortable)) {
+      var tools = _el('div', {
+        className: 'wm-table-tools',
+        attrs: { role: 'toolbar', 'aria-label': labels.toolbar },
+      });
+      if (opts.searchable) {
+        var searchGroup = _el('div', { className: 'wm-table-search' });
+        search = _el('input', { attrs: { type: 'search', 'aria-label': labels.search, placeholder: labels.search } });
+        search.dataset.tableControl = 'search';
+        search.value = query;
+        fields.push(field(searchGroup, { control: search, label: labels.search }));
+        search.addEventListener('input', function (event) {
+          if (!destroyed && !event.isComposing) setSearch(search.value);
+        });
+        search.addEventListener('compositionend', function () { if (!destroyed) setSearch(search.value); });
+        var searchActions = _el('div', { className: 'wm-table-search-actions' });
+        clearSearch = _el('button', { text: '\u00d7', attrs: {
+          type: 'button', 'aria-label': labels.clearSearch, title: labels.clearSearch,
+        } });
+        clearSearch.dataset.tableControl = 'clear-search';
+        clearSearch.addEventListener('click', function () {
+          if (destroyed) return;
+          search.focus({ preventScroll: true });
+          setSearch('');
+        });
+        searchActions.appendChild(clearSearch);
+        searchGroup.appendChild(searchActions);
+        tools.appendChild(searchGroup);
+      }
+      reset = _el('button', { text: labels.reset, attrs: { type: 'button' } });
+      reset.dataset.tableControl = 'reset';
+      reset.addEventListener('click', function () {
+        if (destroyed) return;
+        (search || controls.values().next().value || el).focus({ preventScroll: true });
+        resetView();
+      });
+      tools.appendChild(reset);
+      sortChip = _el('button', { className: 'wm-table-sort-chip', attrs: { type: 'button', hidden: '' } });
+      sortChip.dataset.tableControl = 'clear-sort';
+      sortChip.addEventListener('click', function () {
+        if (destroyed || !sort) return;
+        setSort(null);
+      });
+      tools.appendChild(sortChip);
+      activeFilters = _el('div', { className: 'wm-table-active-filters' });
+      filterColumns.forEach(function (config, id) {
+        var chip = _el('button', { attrs: { type: 'button', hidden: '' } });
+        chip.dataset.tableControl = 'clear-filter:' + id;
+        chip.addEventListener('click', function () {
+          if (destroyed) return;
+          setFilter(id, '');
+        });
+        filterChips.set(id, chip);
+        activeFilters.appendChild(chip);
+      });
+      tools.appendChild(activeFilters);
+      result = _el('p', { className: 'wm-table-result', attrs: { role: 'status' } });
+      tools.appendChild(result);
+      tools.addEventListener('keydown', onToolsKey);
+      el.appendChild(tools);
+    }
+    function onToolsKey(event) {
+      if (destroyed || event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (event.target === search) {
+        if (event.key === 'Escape' && query) {
+          event.preventDefault();
+          event.stopPropagation();
+          setSearch('');
+        }
+        return;
+      }
+      if (!event.target.matches('button')) return;
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      var actions = Array.from(tools.querySelectorAll('input, button')).filter(function (control) {
+        return !control.disabled && !control.closest('[hidden]');
+      });
+      var index = actions.indexOf(event.target);
+      if (index < 0) return;
+      var rtl = getComputedStyle(tools).direction === 'rtl';
+      var next = event.key === 'Home' ? 0 : event.key === 'End' ? actions.length - 1
+        : (index + ((event.key === 'ArrowRight') !== rtl ? 1 : -1) + actions.length) % actions.length;
+      event.preventDefault();
+      event.stopPropagation();
+      actions[next].focus({ preventScroll: true });
+    }
+    columns.forEach(function (column) {
+      var th = _el('th', { attrs: { scope: 'col' } });
+      if (column.rowHeader && !headers.size) th.classList.add('wm-table-row-heading');
+      if (column.numeric) th.classList.add('is-numeric');
+      if (sortable(column)) {
+        var button = _el('button', { text: column.label ?? column.id, attrs: { type: 'button' } });
+        button.dataset.tableControl = 'sort:' + column.id;
+        th.setAttribute('aria-sort', 'none');
+        button.addEventListener('click', function () {
+          if (destroyed) return;
+          if (sort?.id === String(column.id) && sort.direction === 'descending') setSort(null);
+          else setSort(column.id, sort?.id === String(column.id) ? 'descending' : 'ascending');
+        });
+        th.appendChild(button);
+        var hintId = captionId + '-sort-' + headers.size;
+        button.setAttribute('aria-describedby', hintId);
+        th.appendChild(_el('span', { className: 'wm-table-sort-hint', attrs: { id: hintId } }));
+      } else th.textContent = String(column.label ?? column.id);
+      var config = filterColumns.get(String(column.id));
+      if (config) {
+        var select = _el('select', { attrs: { 'aria-label': config.column.filter.label ?? column.label ?? column.id } });
+        select.dataset.tableControl = 'filter:' + column.id;
+        select.appendChild(_el('option', { text: labels.all, attrs: { value: '' } }));
+        config.column.filter.options?.forEach(function (option) {
+          select.appendChild(_el('option', { text: option.label ?? option.value, attrs: { value: String(option.value) } }));
+        });
+        select.value = filters[String(column.id)] || '';
+        fields.push(field(th, { control: select, label: config.column.filter.label ?? column.label ?? column.id }));
+        controls.set(String(column.id), select);
+        select.addEventListener('change', function () {
+          if (!destroyed) setFilter(column.id, select.value);
+        });
+      }
+      headers.set(String(column.id), th);
+      headerRow.appendChild(th);
+    });
+    head.appendChild(headerRow);
+    table.append(caption, head, body);
+    el.appendChild(table);
+    function ordered(entries, nextSort) {
+      if (!nextSort) return entries.slice();
+      var column = columns.find(function (entry) { return String(entry.id) === nextSort.id; });
+      return entries.slice().sort(function (a, b) {
+        var result;
+        if (typeof column.compare === 'function') result = column.compare(a.item, b.item);
+        else {
+          var av = typeof column.sortValue === 'function' ? column.sortValue(a.item) : valueOf(column, a.item);
+          var bv = typeof column.sortValue === 'function' ? column.sortValue(b.item) : valueOf(column, b.item);
+          var aMissing = av == null || (column.numeric && (typeof av !== 'number' || !Number.isFinite(av)));
+          var bMissing = bv == null || (column.numeric && (typeof bv !== 'number' || !Number.isFinite(bv)));
+          if (aMissing || bMissing) return (aMissing === bMissing ? 0 : aMissing ? 1 : -1) || a.index - b.index;
+          result = column.numeric ? (av === bv ? 0 : av < bv ? -1 : 1) : collator.compare(String(av), String(bv));
+        }
+        if (!Number.isFinite(result)) throw new TypeError('Table comparator must return a finite number.');
+        return (nextSort.direction === 'descending' ? -result : result) || a.index - b.index;
+      });
+    }
+    function display(entries, reorder) {
+      var focused = el.contains(document.activeElement) ? document.activeElement : null;
+      var tokens = normalize(query).trim().split(/\s+/).filter(Boolean);
+      var activeFilters = Object.entries(filters);
+      var visible = 0;
+      entries.forEach(function (entry) {
+        var match = tokens.every(function (token) { return entry.search.includes(token); })
+          && activeFilters.every(function (filter) { return entry.filters[filter[0]] === filter[1]; });
+        entry.row.hidden = !match;
+        if (match) visible++;
+        if (reorder) body.appendChild(entry.row);
+      });
+      emptyMessage.textContent = rows.length ? labels.noMatches : (opts.emptyText ?? 'No entries');
+      if (rows.length && !visible && (query || activeFilters.length)) emptyContent.appendChild(emptyReset);
+      else emptyReset.remove();
+      if (visible) empty.remove();
+      else body.appendChild(empty);
+      if (result) result.textContent = labels.results(visible, rows.length);
+      if (focused && (!el.contains(focused) || focused.closest('tr')?.hidden)) el.focus({ preventScroll: true });
+      else if (focused && document.activeElement !== focused) focused.focus({ preventScroll: true });
+    }
+    function updateHeaders() {
+      headers.forEach(function (th, key) {
+        if (!th.hasAttribute('aria-sort')) return;
+        var direction = key === sort?.id ? sort.direction : 'none';
+        th.setAttribute('aria-sort', direction);
+        var column = columns.find(function (entry) { return String(entry.id) === key; });
+        var hint = direction === 'descending' ? labels.clearSort
+          : labels.nextSort(column.label ?? column.id, labels[direction === 'ascending' ? 'descending' : 'ascending']);
+        th.querySelector('button').title = hint;
+        th.querySelector('.wm-table-sort-hint').textContent = hint;
+      });
+    }
+    function setSort(id, direction) {
+      var next = sortState(id, direction);
+      if (next?.id === sort?.id && next?.direction === sort?.direction) return;
+      var sorted = ordered(rows, next);
+      sort = next;
+      updateHeaders();
+      display(sorted, true);
+      updateTools();
+      changed();
+    }
+    function setSearch(value) {
+      var text = String(value ?? '');
+      if (search && search.value !== text) search.value = text;
+      if (query === text) return;
+      query = text;
+      display(rows, false);
+      updateTools();
+      changed();
+    }
+    function setFilter(id, value) {
+      var text = filterValue(id, value);
+      var control = controls.get(String(id));
+      if (control.value !== text) control.value = text;
+      if ((filters[id] || '') === text) return;
+      if (text) filters[id] = text;
+      else delete filters[id];
+      display(rows, false);
+      updateTools();
+      changed();
+    }
+    function resetView() {
+      if (search && search.value !== '') search.value = '';
+      controls.forEach(function (control) { if (control.value !== '') control.value = ''; });
+      if (!query && !Object.keys(filters).length && !sort) return;
+      query = '';
+      filters = Object.create(null);
+      sort = null;
+      updateHeaders();
+      display(rows, true);
+      updateTools();
+      changed();
+    }
+    function updateTools() {
+      var focused = el.contains(document.activeElement) ? document.activeElement : null;
+      var fallback = search || controls.values().next().value || el;
+      if (focused === sortChip) fallback = search || sortFocusTarget || el;
+      filterChips.forEach(function (chip, id) {
+        if (focused === chip) fallback = search || controls.get(id);
+      });
+      if (reset) reset.disabled = !query && !Object.keys(filters).length && !sort;
+      if (clearSearch) clearSearch.disabled = !query;
+      if (sortChip) {
+        sortChip.hidden = !sort;
+        if (sort) {
+          var column = columns.find(function (entry) { return String(entry.id) === sort.id; });
+          sortFocusTarget = headers.get(sort.id).querySelector('button');
+          var description = labels.sort(column.label ?? column.id, labels[sort.direction]);
+          sortChip.textContent = description + ' \u00d7';
+          sortChip.setAttribute('aria-label', labels.clearSort + ': ' + description);
+        }
+      }
+      if (activeFilters) activeFilters.hidden = !Object.keys(filters).length;
+      filterChips.forEach(function (chip, id) {
+        var value = filters[id];
+        var config = filterColumns.get(id).column;
+        var option = (config.filter.options || []).find(function (entry) { return String(entry.value) === value; });
+        chip.hidden = !value;
+        headers.get(id).classList.toggle('has-filter', !!value);
+        if (value) {
+          var title = config.label ?? id;
+          var text = option.label ?? option.value;
+          chip.textContent = title + ': ' + text + ' \u00d7';
+          chip.setAttribute('aria-label', labels.removeFilter(title, text));
+        }
+      });
+      if (focused && (focused.disabled || focused.closest('[hidden]'))) fallback.focus({ preventScroll: true });
+    }
+    function setItems(items) {
+      var next = items.map(function (item, index) {
+        var row = _el('tr');
+        columns.forEach(function (column) {
+          var cell = _el(column.rowHeader ? 'th' : 'td', {
+            className: column.numeric ? 'is-numeric' : '',
+            attrs: column.rowHeader ? { scope: 'row' } : {},
+          });
+          if (typeof column.render === 'function') column.render(cell, item);
+          else {
+            var value = typeof column.value === 'function' ? column.value(item) : item[column.id];
+            _appendContent(cell, value == null ? (opts.emptyValue ?? 'Not available') : value);
+          }
+          row.appendChild(cell);
+        });
+        var text = columns.filter(function (column) { return column.searchable !== false; }).map(function (column) {
+          return typeof column.searchValue === 'function' ? column.searchValue(item)
+            : row.children[columns.indexOf(column)].textContent;
+        }).join(' ');
+        var values = Object.create(null);
+        filterColumns.forEach(function (config, id) {
+          values[id] = String(typeof config.column.filter.value === 'function'
+            ? config.column.filter.value(item) : valueOf(config.column, item));
+        });
+        return { row: row, item: item, index: index, search: normalize(text), filters: values };
+      });
+      var sorted = ordered(next, sort);
+      var hadFocus = body.contains(document.activeElement);
+      body.replaceChildren();
+      rows = next;
+      display(sorted, true);
+      if (hadFocus) el.focus({ preventScroll: true });
+    }
+    setItems(opts.items || []);
+    updateHeaders();
+    updateTools();
+    container.appendChild(el);
+    return {
+      el: el, setItems: setItems, setSort: setSort, setSearch: setSearch, setFilter: setFilter,
+      getState: getState, reset: resetView,
+      destroy: function () {
+        destroyed = true;
+        if (tools) tools.removeEventListener('keydown', onToolsKey);
+        rows = [];
+        headers.clear();
+        controls.clear();
+        fields.forEach(function (controller) { controller.destroy(); });
+        el.remove();
+      },
+    };
+  }
+
+  function field(container, opts) {
+    if (!_guard(container, 'field')) return null;
+    opts = opts || {};
+    var control = opts.control;
+    if (!(control instanceof HTMLElement) || !control.matches('input:not([type="hidden"]), select, textarea')) {
+      throw new TypeError('Field requires a visible native input, select or textarea.');
+    }
+    if (typeof opts.label !== 'string' || !opts.label.trim()) throw new TypeError('Field requires a visible label.');
+    var original = {};
+    ['id', 'aria-describedby', 'aria-invalid'].forEach(function (name) { original[name] = control.getAttribute(name); });
+    var id = 'wm-field-' + (++_nextId);
+    if (!control.id) control.id = id;
+    var el = _el('div', { className: 'wm-field' });
+    var label = _el('label', { className: 'wm-field-label', text: opts.label, attrs: { for: control.id } });
+    var help = _el('div', { className: 'wm-field-help', attrs: { id: id + '-help' }, text: opts.help ?? '' });
+    var error = _el('div', { className: 'wm-field-error', attrs: { id: id + '-error' } });
+    help.hidden = !opts.help;
+    el.append(label, control, help, error);
+    function restore(name) {
+      if (original[name] === null) control.removeAttribute(name);
+      else control.setAttribute(name, original[name]);
+    }
+    function setError(message) {
+      var text = message == null ? '' : String(message);
+      error.textContent = text;
+      error.hidden = !text;
+      el.classList.toggle('has-error', !!text);
+      if (text) control.setAttribute('aria-invalid', 'true');
+      else restore('aria-invalid');
+      var descriptions = (original['aria-describedby'] || '').split(/\s+/).filter(Boolean);
+      if (!help.hidden) descriptions.push(help.id);
+      if (text) descriptions.push(error.id);
+      if (descriptions.length) control.setAttribute('aria-describedby', [...new Set(descriptions)].join(' '));
+      else control.removeAttribute('aria-describedby');
+    }
+    setError(opts.error);
+    container.appendChild(el);
+    var destroyed = false;
+    return {
+      el: el, control: control, setError: setError,
+      destroy: function () {
+        if (destroyed) return;
+        destroyed = true;
+        Object.keys(original).forEach(restore);
+        el.remove();
+      },
+    };
+  }
+
+  function formLayout(container, opts) {
+    if (!_guard(container, 'formLayout')) return null;
+    opts = opts || {};
+    if (typeof opts.legend !== 'string' || !opts.legend.trim()) throw new TypeError('Form layout requires a visible legend.');
+    var fields = opts.fields || [];
+    var ids = new Set();
+    var controls = new Set();
+    fields.forEach(function (entry) {
+      if (entry.id == null || ids.has(String(entry.id))) throw new TypeError('Form field IDs must be present and unique.');
+      if (controls.has(entry.control)) throw new TypeError('Form controls must be unique.');
+      ids.add(String(entry.id));
+      controls.add(entry.control);
+    });
+    var el = _el('fieldset', { className: 'wm-form-layout' });
+    el.appendChild(_el('legend', { text: opts.legend }));
+    var content = _el('div', { className: 'wm-form-fields' });
+    el.appendChild(content);
+    var controllers = new Map();
+    var complete = false;
+    try {
+      fields.forEach(function (entry) { controllers.set(String(entry.id), field(content, entry)); });
+      container.appendChild(el);
+      complete = true;
+    } finally {
+      if (!complete) controllers.forEach(function (controller) { controller.destroy(); });
+    }
+    function getField(id) {
+      var controller = controllers.get(String(id));
+      if (!controller) throw new RangeError('Unknown form field: ' + id);
+      return controller;
+    }
+    return {
+      el: el, getField: getField,
+      setErrors: function (errors) {
+        Object.keys(errors).forEach(getField);
+        controllers.forEach(function (controller, key) { controller.setError(Object.hasOwn(errors, key) ? errors[key] : ''); });
+      },
+      destroy: function () { controllers.forEach(function (controller) { controller.destroy(); }); controllers.clear(); el.remove(); },
+    };
+  }
+
+  function pagination(container, opts) {
+    if (!_guard(container, 'pagination')) return null;
+    opts = opts || {};
+    if (typeof opts.onChange !== 'function') throw new TypeError('Pagination requires an onChange handler.');
+    var labels = Object.assign({
+      navigation: 'Pagination', previous: 'Previous page', next: 'Next page',
+      page: function (number) { return 'Page ' + number; },
+      summary: function (page, pages, total) { return page + ' / ' + pages + ' (' + total + ')'; },
+      empty: 'No entries',
+    }, opts.labels);
+    var el = _el('nav', { className: 'wm-pagination', attrs: { 'aria-label': labels.navigation, tabindex: '-1' } });
+    var controls = _el('div', { className: 'wm-pagination-controls' });
+    var summary = _el('span', { className: 'wm-pagination-summary' });
+    el.append(controls, summary);
+    var state = { total: opts.total ?? 0, pageSize: opts.pageSize ?? 20, page: opts.page ?? (opts.total > 0 ? 1 : 0), busy: !!opts.busy };
+    function set(next) {
+      var candidate = Object.assign({}, state, next);
+      if (!Number.isSafeInteger(candidate.total) || candidate.total < 0) throw new RangeError('Pagination total must be a non-negative safe integer.');
+      if (!Number.isSafeInteger(candidate.pageSize) || candidate.pageSize < 1) throw new RangeError('Pagination pageSize must be a positive safe integer.');
+      var pages = Math.ceil(candidate.total / candidate.pageSize);
+      if (!Number.isSafeInteger(candidate.page) || (pages === 0 ? candidate.page !== 0 : candidate.page < 1 || candidate.page > pages)) {
+        throw new RangeError('Pagination page must be in range; empty collections use page zero.');
+      }
+      var fragment = document.createDocumentFragment();
+      var buttons = new Map();
+      function button(key, text, target, disabled, current) {
+        var node = _el('button', {
+          text: text, attrs: { type: 'button', 'aria-label': current == null ? text : labels.page(target), 'aria-current': current ? 'page' : null },
+          dataset: { pageKey: key },
+        });
+        node.disabled = candidate.busy || disabled;
+        node.addEventListener('click', function () { if (!node.disabled && target !== state.page) opts.onChange(target); });
+        fragment.appendChild(node);
+        buttons.set(key, node);
+      }
+      button('previous', labels.previous, candidate.page - 1, candidate.page <= 1);
+      var visible = new Set();
+      if (pages) {
+        [1, pages, candidate.page - 1, candidate.page, candidate.page + 1].forEach(function (page) {
+          if (page >= 1 && page <= pages) visible.add(page);
+        });
+      }
+      var prior = 0;
+      [...visible].sort(function (a, b) { return a - b; }).forEach(function (page) {
+        if (prior && page - prior > 1) fragment.appendChild(_el('span', { text: '...', attrs: { 'aria-hidden': 'true' } }));
+        button(String(page), String(page), page, false, page === candidate.page);
+        prior = page;
+      });
+      button('next', labels.next, candidate.page + 1, !pages || candidate.page >= pages);
+      var summaryText = pages ? labels.summary(candidate.page, pages, candidate.total) : labels.empty;
+      var focusedKey = controls.contains(document.activeElement) ? document.activeElement.dataset.pageKey : null;
+      state = candidate;
+      controls.replaceChildren(fragment);
+      summary.textContent = String(summaryText);
+      el.setAttribute('aria-busy', String(!!state.busy));
+      if (focusedKey !== null) {
+        var target = buttons.get(focusedKey);
+        if (!target || target.disabled) target = buttons.get(String(state.page));
+        if (target && !target.disabled) target.focus();
+        else el.focus();
+      }
+    }
+    set({});
+    container.appendChild(el);
+    return { el: el, set: set, destroy: function () { el.remove(); } };
+  }
+
+  function timeline(container, opts) {
+    if (!_guard(container, 'timeline')) return null;
+    opts = opts || {};
+    if (typeof opts.ariaLabel !== 'string' || !opts.ariaLabel.trim()) throw new TypeError('Timeline requires an accessible label.');
+    var el = _el('ol', { className: 'wm-timeline', attrs: { 'aria-label': opts.ariaLabel, tabindex: '-1' } });
+    var entries = new Map();
+    function setItems(items) {
+      var ids = new Set();
+      items.forEach(function (item) {
+        if (item.id == null || ids.has(String(item.id))) throw new TypeError('Timeline IDs must be present and unique.');
+        if (typeof item.title !== 'string' || !item.title.trim()) throw new TypeError('Timeline items require a visible title.');
+        if (!['queued', 'active', 'complete', 'blocked'].includes(item.state)) throw new RangeError('Unknown timeline state.');
+        if (typeof item.stateLabel !== 'string' || !item.stateLabel.trim()) throw new TypeError('Timeline items require a visible stateLabel.');
+        ids.add(String(item.id));
+      });
+      var next = new Map();
+      // Prepare new content before mutating existing rows so renderer failures preserve the old view.
+      var prepared = items.map(function (item) {
+        var prior = entries.get(String(item.id));
+        var content = null;
+        if (!prior || prior.content !== item.content) {
+          content = _el('div', { className: 'wm-timeline-content' });
+          _appendContent(content, item.content);
+        }
+        return { item: item, prior: prior, content: content };
+      });
+      var focused = el.contains(document.activeElement) ? document.activeElement : null;
+      prepared.forEach(function (entry) {
+        var item = entry.item;
+        var row = entry.prior?.row || _el('li', { className: 'wm-timeline-item' });
+        if (!entry.prior) {
+          row.append(_el('div', { className: 'wm-timeline-title' }), _el('span', { className: 'wm-timeline-state' }), _el('div', { className: 'wm-timeline-meta' }));
+        }
+        row.dataset.state = item.state;
+        if (item.state === 'active') row.setAttribute('aria-current', 'step');
+        else row.removeAttribute('aria-current');
+        row.querySelector('.wm-timeline-title').textContent = item.title;
+        row.querySelector('.wm-timeline-state').textContent = item.stateLabel;
+        var meta = row.querySelector('.wm-timeline-meta');
+        meta.textContent = item.meta == null ? '' : String(item.meta);
+        meta.hidden = item.meta == null || item.meta === '';
+        if (entry.content) {
+          row.querySelector('.wm-timeline-content')?.remove();
+          row.appendChild(entry.content);
+        }
+        el.appendChild(row);
+        next.set(String(item.id), { row: row, content: item.content });
+      });
+      entries.forEach(function (entry, id) { if (!next.has(id)) entry.row.remove(); });
+      entries = next;
+      if (focused && document.activeElement !== focused) {
+        if (el.contains(focused)) focused.focus({ preventScroll: true });
+        else el.focus({ preventScroll: true });
+      }
+    }
+    setItems(opts.items || []);
+    container.appendChild(el);
+    return { el: el, setItems: setItems, destroy: function () { entries.clear(); el.remove(); } };
+  }
+
+  function frame(container, opts) {
+    if (!_guard(container, 'frame')) return null;
+    opts = opts || {};
+    var el = _el('div', { className: 'wm-window-frame', attrs: { 'data-wm-scroll-fix-optout': '' } });
+    var controllers = {};
+    var badgeControllers = [];
+    var middle = _el('div', { className: 'wm-frame-middle' });
+    var content = _el('div', { className: 'wm-frame-content' });
+    var priorClass = container.classList.contains('wm-body-framed');
+    var priorOverflow = container.style.overflow;
+    function mount(name, factory, options) {
+      var slot = _el('div', { className: 'wm-frame-' + name.toLowerCase() });
+      el.appendChild(slot);
+      controllers[name] = factory(slot, options);
+    }
+    var complete = false;
+    var destroyed = false;
+    try {
+      if (opts.menuBar) mount('menuBar', menu, opts.menuBar);
+      if (opts.toolbar) mount('toolbar', toolbar, opts.toolbar);
+      if (opts.breadcrumbs) mount('breadcrumbs', breadcrumbs, opts.breadcrumbs);
+      if (opts.badges?.length) {
+        var badges = _el('div', { className: 'wm-frame-badges' });
+        opts.badges.forEach(function (item) { badgeControllers.push(badge(badges, item)); });
+        el.appendChild(badges);
+      }
+      el.appendChild(middle);
+      if (opts.sidebar) {
+        var sidebarSlot = _el('aside', { className: 'wm-frame-sidebar' });
+        middle.classList.add('has-sidebar');
+        middle.appendChild(sidebarSlot);
+        controllers.sidebar = sidebar(sidebarSlot, opts.sidebar);
+      }
+      middle.appendChild(content);
+      if (opts.statusBar) mount('statusBar', statusBar, opts.statusBar);
+      if (opts.render) _appendContent(content, opts.render);
+      container.classList.add('wm-body-framed');
+      container.style.overflow = 'hidden';
+      container.appendChild(el);
+      complete = true;
+    } finally {
+      if (!complete) destroy();
+    }
+    function destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      Object.values(controllers).forEach(function (controller) { controller.destroy(); });
+      badgeControllers.forEach(function (controller) { controller.destroy(); });
+      el.remove();
+      if (!priorClass) container.classList.remove('wm-body-framed');
+      container.style.overflow = priorOverflow;
+    }
+    return Object.assign({ el: el, content: content, badges: badgeControllers, destroy: destroy }, controllers);
   }
 
   // ── Menu / Submenu ─────────────────────────────────────────────────────────
@@ -1163,22 +2277,9 @@ const WMWidgets = (() => {
         };
 
     var el = _el('nav', { className: 'wm-menu', attrs: { role: 'menubar', 'aria-label': String(opts.ariaLabel || 'Menu bar') } });
-    var _allButtons = [];
+    var buttons = [];
     var _lastFocused = null;
-
-    function _registerButton(btn) {
-      if (!(btn instanceof HTMLElement)) return;
-      _allButtons.push(btn);
-      btn.tabIndex = -1;
-      btn.addEventListener('focus', function () { _lastFocused = btn; });
-    }
-
-    function _focusButton(btn) {
-      if (!(btn instanceof HTMLElement)) return;
-      _allButtons.forEach(function (b) { b.tabIndex = -1; });
-      btn.tabIndex = 0;
-      btn.focus();
-    }
+    var popup = null;
 
     function _execute(item, eventType) {
       if (!item || item.disabled) return;
@@ -1187,105 +2288,101 @@ const WMWidgets = (() => {
       if (onSelect) onSelect(item);
     }
 
-    function _buildSubmenu(items) {
-      var list = _el('ul', { className: 'wm-submenu', attrs: { role: 'menu' } });
+    function close() {
+      if (popup && buttons.some(function (button) { return button.getAttribute('aria-expanded') === 'true'; })) popup.close();
+      popup = null;
+      buttons.forEach(function (button) { if (button.hasAttribute('aria-expanded')) button.setAttribute('aria-expanded', 'false'); });
+    }
 
-      (Array.isArray(items) ? items : []).forEach(function (item) {
-        if (!item || item.separator) {
-          list.appendChild(_el('li', { className: 'wm-menu-separator', attrs: { role: 'separator' } }));
-          return;
-        }
-
-        var li = _el('li', {
-          className: 'wm-menu-item' + (item.disabled ? ' is-disabled' : '') + (item.items && item.items.length ? ' has-submenu' : ''),
-          attrs: { role: 'menuitem', 'aria-haspopup': item.items && item.items.length ? 'true' : 'false' },
-        });
-
-        var labelWrap = _el('span', { className: 'wm-menu-label-wrap' });
-        labelWrap.appendChild(_el('span', { className: 'wm-menu-label', text: String(item.label != null ? item.label : 'Action') }));
-        if (item.shortcut) {
-          labelWrap.appendChild(_el('span', { className: 'wm-menu-shortcut', text: String(item.shortcut) }));
-        }
-        li.appendChild(labelWrap);
-
-        if (item.items && item.items.length) {
-          li.appendChild(_buildSubmenu(item.items));
-        }
-
-        if (!item.disabled) {
-          _registerButton(li);
-          li.addEventListener('click', function (ev) {
-            ev.stopPropagation();
-            _execute(item, 'click');
-          });
-          li.addEventListener('keydown', function (ev) {
-            if (ev.key === 'Enter' || ev.key === ' ') {
-              ev.preventDefault();
-              _execute(item, 'keyboard');
-            }
-          });
-        }
-
-        list.appendChild(li);
+    function menuItems(items) {
+      return items.map(function (item) {
+        if (!item || item.separator || item.type === 'separator') return { type: 'separator' };
+        return {
+          label: item.label, disabled: !!item.disabled, shortcut: item.shortcut, checked: item.checked,
+          items: item.items?.length ? menuItems(item.items) : undefined,
+          onSelect: function () { _execute(item, 'menu'); },
+        };
       });
+    }
 
-      return list;
+    function focusButton(button) {
+      buttons.forEach(function (entry) { entry.tabIndex = entry === button ? 0 : -1; });
+      _lastFocused = button;
+      button.focus();
+    }
+
+    function open(index, toggle) {
+      var entry = entries[index];
+      var button = buttons[index];
+      if (button.disabled) return;
+      if (!entry.items?.length) { _execute(entry, 'click'); return; }
+      if (toggle && button.getAttribute('aria-expanded') === 'true') { close(); return; }
+      close();
+      var rect = button.getBoundingClientRect();
+      popup = contextMenu({
+        items: menuItems(entry.items), x: rect.left, y: rect.bottom, anchor: button, title: entry.label,
+      });
+      button.setAttribute('aria-expanded', 'true');
     }
 
     function _rebuild() {
+      close();
       _clearEl(el);
-      _allButtons = [];
+      buttons = [];
 
-      entries.forEach(function (entry) {
+      entries.forEach(function (entry, index) {
         var itemBtn = _el('button', {
           className: 'wm-menu-top-item',
           attrs: {
             type: 'button',
             role: 'menuitem',
-            'aria-haspopup': entry && Array.isArray(entry.items) && entry.items.length ? 'true' : 'false',
+            'aria-haspopup': entry.items?.length ? 'menu' : null,
+            'aria-expanded': entry.items?.length ? 'false' : null,
           },
           text: String(entry && entry.label != null ? entry.label : 'Menu'),
         });
 
-        var wrap = _el('div', { className: 'wm-menu-top' });
-        wrap.appendChild(itemBtn);
-
-        if (entry && Array.isArray(entry.items) && entry.items.length) {
-          wrap.appendChild(_buildSubmenu(entry.items));
-        } else {
-          itemBtn.addEventListener('click', function () { _execute(entry || null, 'click'); });
-        }
-
-        _registerButton(itemBtn);
-        el.appendChild(wrap);
+        itemBtn.disabled = !!entry.disabled;
+        itemBtn.tabIndex = -1;
+        itemBtn.addEventListener('focus', function () { _lastFocused = itemBtn; });
+        itemBtn.addEventListener('click', function () { open(index, true); });
+        buttons.push(itemBtn);
+        el.appendChild(itemBtn);
       });
 
-      if (_allButtons.length) _focusButton(_allButtons[0]);
+      var first = buttons.find(function (button) { return !button.disabled; });
+      if (first) first.tabIndex = 0;
     }
 
     el.addEventListener('keydown', function (ev) {
-      if (!_allButtons.length) return;
-      var idx = _allButtons.indexOf(_lastFocused || document.activeElement);
+      var available = buttons.filter(function (button) { return !button.disabled; });
+      if (!available.length) return;
+      var idx = available.indexOf(document.activeElement);
       if (idx < 0) idx = 0;
 
       if (ev.key === 'ArrowRight') {
         ev.preventDefault();
-        _focusButton(_allButtons[(idx + 1) % _allButtons.length]);
+        focusButton(available[(idx + 1) % available.length]);
       } else if (ev.key === 'ArrowLeft') {
         ev.preventDefault();
-        _focusButton(_allButtons[(idx - 1 + _allButtons.length) % _allButtons.length]);
+        focusButton(available[(idx - 1 + available.length) % available.length]);
       } else if (ev.key === 'Home') {
         ev.preventDefault();
-        _focusButton(_allButtons[0]);
+        focusButton(available[0]);
       } else if (ev.key === 'End') {
         ev.preventDefault();
-        _focusButton(_allButtons[_allButtons.length - 1]);
+        focusButton(available[available.length - 1]);
+      } else if (ev.key === 'ArrowDown') {
+        ev.preventDefault();
+        open(buttons.indexOf(available[idx]));
+      } else if (ev.key === 'Escape') {
+        close();
       } else if (ev.key && ev.key.length === 1) {
         var ch = ev.key.toLowerCase();
-        var match = _allButtons.find(function (btn) {
+        var match = available.find(function (btn) {
           return String(btn.textContent || '').trim().toLowerCase().indexOf(ch) === 0;
         });
-        if (match) _focusButton(match);
+        if (match) focusButton(match);
       }
     });
 
@@ -1298,11 +2395,12 @@ const WMWidgets = (() => {
     }
 
     function destroy() {
-      _allButtons = [];
+      close();
+      buttons = [];
       if (el.parentNode) el.parentNode.removeChild(el);
     }
 
-    return { el: el, setItems: setItems, focusLast: function () { if (_lastFocused) _focusButton(_lastFocused); }, destroy: destroy };
+    return { el: el, setItems: setItems, close: close, focusLast: function () { if (_lastFocused?.isConnected) focusButton(_lastFocused); }, destroy: destroy };
   }
 
   // ── Toolbar ────────────────────────────────────────────────────────────────
@@ -1353,6 +2451,7 @@ const WMWidgets = (() => {
       node.classList.toggle('is-active', !!item.active);
       node.classList.toggle('is-loading', !!item.loading);
       node.disabled = !!item.disabled;
+      if (item.type === 'toggle') node.setAttribute('aria-pressed', item.active ? 'true' : 'false');
       if (item.badge != null) node.setAttribute('data-badge', String(item.badge));
       else node.removeAttribute('data-badge');
       if (item.shortcut) node.setAttribute('data-shortcut', String(item.shortcut));
@@ -1373,7 +2472,7 @@ const WMWidgets = (() => {
         className: 'wm-tool-btn' + (item.icon && item.label ? ' has-icon-text' : ''),
         attrs: {
           type: 'button',
-          role: item.type === 'toggle' ? 'switch' : 'button',
+          role: 'button',
           'aria-pressed': item.type === 'toggle' ? (item.active ? 'true' : 'false') : null,
           title: String(item.tooltip || item.label || item.id || 'Tool'),
         },
@@ -1463,6 +2562,7 @@ const WMWidgets = (() => {
     }
 
     function _render() {
+      Object.values(_itemMap).forEach(function (entry) { if (entry.split) entry.split.destroy(); });
       _clearEl(leftZone);
       _clearEl(centerZone);
       _clearEl(rightZone);
@@ -1579,6 +2679,7 @@ const WMWidgets = (() => {
 
     function destroy() {
       if (_overflowCtx && _overflowCtx.close) _overflowCtx.close();
+      Object.values(_itemMap).forEach(function (entry) { if (entry.split) entry.split.destroy(); });
       _cleanup.forEach(function (fn) { try { fn(); } catch (_) {} });
       _cleanup = [];
       if (el.parentNode) el.parentNode.removeChild(el);
@@ -1614,13 +2715,33 @@ const WMWidgets = (() => {
 
     var arrow = _el('button', {
       className: 'wm-split-btn-arrow',
-      attrs: { type: 'button', 'aria-label': 'More actions', role: 'button', 'aria-haspopup': 'menu' },
+      attrs: { type: 'button', 'aria-label': opts.ariaLabel || 'More actions', 'aria-haspopup': 'menu', 'aria-expanded': 'false' },
       text: '\u25be',
     });
 
     var menuEl = document.createElement('div');
     menuEl.className = 'wm-split-btn-menu';
     menuEl.hidden = true;
+    menuEl.id = 'wm-split-menu-' + (++_nextId);
+    menuEl.setAttribute('role', 'menu');
+    menuEl.setAttribute('aria-label', opts.ariaLabel || 'More actions');
+    arrow.setAttribute('aria-controls', menuEl.id);
+    arrow.disabled = !actions.some(function (action) { return action && !action.disabled; });
+    main.disabled = !!primaryAction?.disabled;
+
+    function closeMenu(restoreFocus) {
+      menuEl.hidden = true;
+      arrow.setAttribute('aria-expanded', 'false');
+      if (restoreFocus) arrow.focus();
+    }
+
+    function openMenu(last) {
+      if (arrow.disabled) return;
+      menuEl.hidden = false;
+      arrow.setAttribute('aria-expanded', 'true');
+      var available = Array.from(menuEl.querySelectorAll('button:not(:disabled)'));
+      (last ? available[available.length - 1] : available[0])?.focus();
+    }
 
     actions.forEach(function (act) {
       var btn = _el('button', {
@@ -1629,8 +2750,9 @@ const WMWidgets = (() => {
         text: String(act && act.label != null ? act.label : 'Action'),
       });
       btn.disabled = !!(act && act.disabled);
+      btn.tabIndex = -1;
       btn.addEventListener('click', function () {
-        menuEl.hidden = true;
+        closeMenu(true);
         if (act && typeof act.onClick === 'function') act.onClick(act);
       });
       menuEl.appendChild(btn);
@@ -1643,11 +2765,29 @@ const WMWidgets = (() => {
 
     arrow.addEventListener('click', function (e) {
       e.stopPropagation();
-      menuEl.hidden = !menuEl.hidden;
+      if (menuEl.hidden) openMenu(); else closeMenu(true);
+    });
+    arrow.addEventListener('keydown', function (event) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        openMenu(event.key === 'ArrowUp');
+      }
+    });
+    menuEl.addEventListener('keydown', function (event) {
+      var available = Array.from(menuEl.querySelectorAll('button:not(:disabled)'));
+      var index = available.indexOf(document.activeElement);
+      var target;
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeMenu(true); return; }
+      if (event.key === 'Tab') { closeMenu(); return; }
+      if (event.key === 'ArrowDown') target = (index + 1) % available.length;
+      else if (event.key === 'ArrowUp') target = (index - 1 + available.length) % available.length;
+      else if (event.key === 'Home') target = 0;
+      else if (event.key === 'End') target = available.length - 1;
+      if (target !== undefined) { event.preventDefault(); available[target].focus(); }
     });
 
     var onDocClick = function (e) {
-      if (!el.contains(e.target)) menuEl.hidden = true;
+      if (!el.contains(e.target)) closeMenu();
     };
     document.addEventListener('mousedown', onDocClick);
 
@@ -1658,6 +2798,7 @@ const WMWidgets = (() => {
 
     function setPrimary(action) {
       primaryAction = action || null;
+      main.disabled = !!primaryAction?.disabled;
       _clearEl(main);
       _appendContent(main, String((primaryAction && primaryAction.label) || opts.label || 'Action'));
     }
@@ -1667,7 +2808,7 @@ const WMWidgets = (() => {
       if (el.parentNode) el.parentNode.removeChild(el);
     }
 
-    return { el: el, setPrimary: setPrimary, openMenu: function () { menuEl.hidden = false; }, closeMenu: function () { menuEl.hidden = true; }, destroy: destroy };
+    return { el: el, setPrimary: setPrimary, openMenu: openMenu, closeMenu: closeMenu, destroy: destroy };
   }
 
   // ── Hamburger menu ─────────────────────────────────────────────────────────
@@ -1729,18 +2870,25 @@ const WMWidgets = (() => {
   function statusBar(container, opts) {
     if (!_guard(container, 'statusBar')) return null;
     opts = opts || {};
-    var segments = Array.isArray(opts.segments) ? opts.segments.slice() : [];
+    var segments = (opts.segments || opts.items || []).slice();
+    var parts = new Map();
 
     var el = document.createElement('footer');
     el.className = 'wm-statusbar';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-label', opts.ariaLabel || 'Status');
+    el.setAttribute('aria-live', opts.live || 'off');
 
     function _render() {
       el.innerHTML = '';
+      parts.clear();
       segments.forEach(function (seg, idx) {
         var part = document.createElement('div');
         part.className = 'wm-statusbar-segment' + (seg && seg.emphasis ? ' is-emphasis' : '');
         part.setAttribute('data-status-id', String(seg && seg.id != null ? seg.id : idx));
+        if (seg?.title) part.title = String(seg.title);
         part.textContent = String(seg && seg.text != null ? seg.text : '');
+        parts.set(String(seg?.id ?? idx), part);
         el.appendChild(part);
       });
     }
@@ -1750,7 +2898,7 @@ const WMWidgets = (() => {
 
     function set(id, text) {
       var sid = String(id != null ? id : '');
-      var seg = el.querySelector('[data-status-id="' + sid.replace(/"/g, '') + '"]');
+      var seg = parts.get(sid);
       if (seg) seg.textContent = String(text != null ? text : '');
     }
 
@@ -1760,7 +2908,7 @@ const WMWidgets = (() => {
     }
 
     function destroy() { if (el.parentNode) el.parentNode.removeChild(el); }
-    return { el: el, set: set, setSegments: setSegments, destroy: destroy };
+    return { el: el, set: set, setItemText: set, setSegments: setSegments, destroy: destroy };
   }
 
   // ── Lazy loader ────────────────────────────────────────────────────────────
@@ -1893,52 +3041,110 @@ const WMWidgets = (() => {
     var host = (typeof document !== 'undefined') && (document.getElementById('context_menu_container') || document.body);
     if (!host) return null;
 
-    var menuEl = document.createElement('div');
-    menuEl.className = 'wm-context-menu wm-context-menu-inline';
-    menuEl.style.position = 'fixed';
-    menuEl.style.left = String(Number(opts.x || 0)) + 'px';
-    menuEl.style.top = String(Number(opts.y || 0)) + 'px';
-
-    items.forEach(function (item) {
-      if (!item || item.separator) {
-        var sep = document.createElement('div');
-        sep.className = 'wm-context-menu-separator';
-        menuEl.appendChild(sep);
-        return;
+    var panels = [];
+    function trim(level) {
+      while (panels.length > level) {
+        var panel = panels.pop();
+        panel.anchor?.setAttribute('aria-expanded', 'false');
+        panel.el.remove();
       }
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'wm-context-menu-item';
-      btn.textContent = String(item.label != null ? item.label : 'Action');
-      btn.disabled = !!item.disabled;
-      btn.addEventListener('click', function () {
-        if (typeof item.onClick === 'function') item.onClick(item);
-        if (menuEl.parentNode) menuEl.parentNode.removeChild(menuEl);
+    }
+    function close() {
+      var restore = panels.some(function (panel) { return panel.el.contains(document.activeElement); });
+      trim(0);
+      document.removeEventListener('mousedown', onDown, true);
+      document.removeEventListener('keydown', onKey, true);
+      opts.anchor?.setAttribute('aria-expanded', 'false');
+      if (restore && opts.anchor?.isConnected) opts.anchor.focus();
+    }
+    function build(entries, level, anchor) {
+      trim(level);
+      var menuEl = _el('div', {
+        className: 'wm-context-menu wm-context-menu-inline',
+        attrs: { role: 'menu', 'aria-label': opts.title || 'Menu' },
       });
-      menuEl.appendChild(btn);
-    });
-
-    host.appendChild(menuEl);
-
-    var onDown = function (e) {
-      if (!menuEl.contains(e.target)) {
-        document.removeEventListener('mousedown', onDown, true);
-        if (menuEl.parentNode) menuEl.parentNode.removeChild(menuEl);
-      }
-    };
+      var panel = { el: menuEl, anchor: anchor };
+      panels.push(panel);
+      entries.forEach(function (item) {
+        if (!item || item.separator || item.type === 'separator') {
+          menuEl.appendChild(_el('div', { className: 'wm-context-menu-separator', attrs: { role: 'separator' } }));
+          return;
+        }
+        var btn = _el('button', {
+          className: 'wm-context-menu-item' + (item.items?.length ? ' has-submenu' : ''),
+          attrs: { type: 'button', role: 'menuitem', tabindex: '-1' },
+          children: _el('span', { className: 'wm-context-menu-item-main', text: item.label ?? 'Action' }),
+        });
+        btn.disabled = !!item.disabled;
+        if (item.items?.length) {
+          btn.setAttribute('aria-haspopup', 'menu');
+          btn.setAttribute('aria-expanded', 'false');
+        }
+        btn.addEventListener('click', function () {
+          if (item.items?.length) {
+            build(item.items, level + 1, btn);
+            btn.setAttribute('aria-expanded', 'true');
+          } else {
+            close();
+            if (typeof item.onSelect === 'function') item.onSelect(item);
+            else if (typeof item.onClick === 'function') item.onClick(item);
+          }
+        });
+        menuEl.appendChild(btn);
+      });
+      host.appendChild(menuEl);
+      var rect = anchor?.getBoundingClientRect();
+      var width = menuEl.offsetWidth || 220;
+      var height = menuEl.offsetHeight || 100;
+      var x = rect ? rect.right + 4 : Number(opts.x || 0);
+      if (rect && x + width > window.innerWidth - 8) x = rect.left - width - 4;
+      menuEl.style.left = Math.max(8, Math.min(x, window.innerWidth - width - 8)) + 'px';
+      menuEl.style.top = Math.max(8, Math.min(rect ? rect.top : Number(opts.y || 0), window.innerHeight - height - 8)) + 'px';
+      menuEl.querySelector('button:not(:disabled)')?.focus();
+    }
+    function onDown(event) {
+      if (opts.anchor?.contains(event.target)) return;
+      if (!panels.some(function (panel) { return panel.el.contains(event.target); })) close();
+    }
+    function onKey(event) {
+      var panel = panels.find(function (entry) { return entry.el.contains(document.activeElement); });
+      if (!panel) return;
+      var available = Array.from(panel.el.querySelectorAll('button:not(:disabled)'));
+      var index = available.indexOf(document.activeElement);
+      var target;
+      if (event.key === 'ArrowDown') target = (index + 1) % available.length;
+      else if (event.key === 'ArrowUp') target = (index - 1 + available.length) % available.length;
+      else if (event.key === 'Home') target = 0;
+      else if (event.key === 'End') target = available.length - 1;
+      else if (event.key === 'ArrowLeft' && panel.anchor) {
+        var anchor = panel.anchor;
+        trim(panels.indexOf(panel));
+        anchor.focus();
+      } else if (event.key === 'Escape' || event.key === 'Tab') {
+        close();
+        if (event.key === 'Tab') return;
+      } else if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowRight') {
+        if (event.key === 'ArrowRight' && document.activeElement?.getAttribute('aria-haspopup') !== 'menu') return;
+        document.activeElement?.click();
+      } else return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (target !== undefined) available[target]?.focus();
+    }
+    build(items, 0, null);
+    opts.anchor?.setAttribute('aria-expanded', 'true');
     document.addEventListener('mousedown', onDown, true);
-
-    return {
-      close: function () {
-        document.removeEventListener('mousedown', onDown, true);
-        if (menuEl.parentNode) menuEl.parentNode.removeChild(menuEl);
-      }
-    };
+    document.addEventListener('keydown', onKey, true);
+    return { close: close };
   }
 
   // ── Module export ────────────────────────────────────────────────────────────
   return { accordion: accordion, tree: tree, list: list, tabs: tabs,
-           card: card, chips: chips, bottomSheet: bottomSheet,
+           card: card, cards: cards, badge: badge, sidebar: sidebar, frame: frame,
+           breadcrumbs: breadcrumbs, progress: progress, notice: notice, properties: properties, stack: stack,
+           dataTable: dataTable, field: field, formLayout: formLayout,
+           pagination: pagination, timeline: timeline,
+           chips: chips, bottomSheet: bottomSheet,
            split: split, masterDetail: masterDetail,
            menu: menu, toolbar: toolbar, splitButton: splitButton, hamburger: hamburger,
            statusBar: statusBar, lazyLoader: lazyLoader, help: help,

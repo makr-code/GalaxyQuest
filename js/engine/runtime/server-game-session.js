@@ -140,7 +140,7 @@ export function startAuthenticatedGame() {
     unmountShipyard = mountShipyardWindow({ session, domain: shipyardDomain, wm: window.WM });
     marketDomain = createMarketDomain({ api: API, session });
     unmountMarket = mountMarketWindow({ session, domain: marketDomain, wm: window.WM });
-    unmountOverlayShell = mountGameOverlayShell();
+    unmountOverlayShell = mountGameOverlayShell({ session, galaxy: galaxyDomain });
     window.GQGame = {
       api: API,
       events: session.events,

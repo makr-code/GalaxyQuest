@@ -49,7 +49,7 @@ switch ($action) {
             json_ok($cachedOverview);
         }
 
-        $payload = build_live_overview_payload($db, $uid, false);
+        $payload = build_live_overview_payload($db, $uid);
 
         gq_cache_set('game_overview', $overviewCacheKey, $payload, CACHE_TTL_OVERVIEW);
 

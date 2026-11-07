@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createServerGameSession } from '../../js/engine/runtime/server-game-session.js';
 import { createDevelopmentDomain } from '../../js/engine/runtime/server-development-domain.js';
 import { mountDevelopmentWindows } from '../../js/ui/game-development.js';
+import { attachWindowWidgets } from './helpers/window-widget-fixture.js';
 
 const overview = {
   success: true, user_meta: {}, fleets: [],
@@ -154,7 +155,7 @@ describe('Server-backed construction and research', () => {
       body: (id) => roots[id], isOpen: () => true, close: vi.fn(),
       open: vi.fn((id) => configs[id].onRender()),
     };
-    const unmount = mountDevelopmentWindows({ session, domains, wm });
+    const unmount = mountDevelopmentWindows({ session, domains, wm: attachWindowWidgets(wm) });
     let finish;
     api.get.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
     session.events.emit('buildings:open-requested', { colonyId: 1, buildingType: 'metal_mine' });
@@ -182,6 +183,68 @@ describe('Server-backed construction and research', () => {
     expect(wm.open).toHaveBeenCalledTimes(opened);
     Object.values(domains).forEach((domain) => domain.shutdown());
   });
+  it('filters catalogues locally without resetting focus or bypassing a hidden running research', async () => {
+    const roots = { buildings: document.createElement('div'), research: document.createElement('div') };
+    document.body.append(...Object.values(roots));
+    const wm = { register: vi.fn(), body: kind => roots[kind], isOpen: () => true,
+      close: vi.fn(), open: vi.fn() };
+    const unmount = mountDevelopmentWindows({ session, domains, wm: attachWindowWidgets(wm) });
+    try {
+      await domains.buildings.load();
+      await domains.research.load();
+      const root = roots.research;
+      expect(root.querySelector('.game-development-workspace-header h2 svg')).not.toBeNull();
+      expect(root.querySelector('.game-development-orders').textContent).toContain('Keine laufende Forschung.');
+      expect(root.querySelector('.game-development-orders button').textContent).toBe('Fällige Aufträge abschließen');
+      expect(root.querySelector('.game-development-help').open).toBe(false);
+      expect(root.querySelector('.game-development-project-costs [aria-label="Kosten der nächsten Stufe"]')).not.toBeNull();
+      const search = root.querySelector('input[type="search"]');
+      const status = root.querySelector('[aria-label="Auftragsstatus"]');
+      const visible = () => [...root.querySelectorAll('article')].filter(card => !card.hidden);
+      const calls = api.get.mock.calls.length;
+      search.focus();
+      search.value = ' LASER ';
+      search.dispatchEvent(new Event('input'));
+      expect(document.activeElement).toBe(search);
+      expect(visible().map(card => card.dataset.type)).toEqual(['laser_tech']);
+      expect(root.textContent).toContain('1 von 2 Einträgen angezeigt.');
+      status.value = 'request';
+      status.dispatchEvent(new Event('change'));
+      expect(visible()).toHaveLength(0);
+      expect(root.textContent).toContain('Keine passenden Einträge.');
+      expect(roots.buildings.querySelector('article').hidden).toBe(false);
+      expect(api.get).toHaveBeenCalledTimes(calls);
+      expect(api.post).not.toHaveBeenCalled();
+      const running = structuredClone(research);
+      running.research[0].research_end = '2030-01-01 10:00:00';
+      api.get.mockResolvedValueOnce(running);
+      await domains.research.load();
+      expect(root.querySelector('input').value).toBe(' LASER ');
+      expect(root.querySelector('[aria-label="Auftragsstatus"]').value).toBe('request');
+      expect(visible()).toHaveLength(0);
+      const currentResearch = root.querySelector('[aria-label="Laufende Forschung"]');
+      expect(currentResearch.textContent).toContain('energy tech → 1');
+      expect(currentResearch.textContent).toContain('2030-01-01 10:00:00 (Serverzeit)');
+      expect(currentResearch.closest('[hidden]')).toBeNull();
+      [...root.querySelectorAll('button')].find(button => button.textContent === 'Katalogfilter zurücksetzen').click();
+      expect(visible()).toHaveLength(2);
+      expect(document.activeElement).toBe(root.querySelector('input'));
+      expect([...root.querySelectorAll('article button')].every(button => button.disabled)).toBe(true);
+      const buildingSearch = roots.buildings.querySelector('input');
+      buildingSearch.value = 'no match';
+      buildingSearch.dispatchEvent(new Event('input'));
+      expect(roots.buildings.querySelector('article').hidden).toBe(true);
+      session.events.emit('buildings:open-requested', { colonyId: 1, buildingType: 'metal_mine' });
+      expect(roots.buildings.querySelector('article').hidden).toBe(false);
+      expect(roots.buildings.querySelector('input').value).toBe('');
+      expect(document.activeElement).toBe(roots.buildings.querySelector('article h3'));
+      expect(api.post).not.toHaveBeenCalled();
+    } finally {
+      unmount();
+      Object.values(domains).forEach(domain => domain.shutdown());
+      Object.values(roots).forEach(root => root.remove());
+    }
+  });
   it('uses existing WM windows, safe text, explicit finish and tears down subscriptions', async () => {
     const roots = { buildings: document.createElement('div'), research: document.createElement('div') };
     const configs = {};
@@ -192,15 +255,59 @@ describe('Server-backed construction and research', () => {
       close: vi.fn(),
       open: vi.fn((id) => configs[id].onRender()),
     };
-    const unmount = mountDevelopmentWindows({ session, domains, wm });
+    const unmount = mountDevelopmentWindows({ session, domains, wm: attachWindowWidgets(wm) });
     configs.buildings.onRender();
     await vi.waitFor(() => expect(roots.buildings.querySelector('article')).not.toBeNull());
     expect(roots.buildings.querySelector('img')).toBeNull();
     expect(roots.buildings.textContent).toContain('<img src=x>');
+    expect(roots.buildings.querySelector('.game-development-level').textContent).toBe('Stufe 2');
+    expect(roots.buildings.querySelector('.game-development-costs').textContent).toBe('135 metal');
+    expect(roots.buildings.querySelector('.game-development-costs svg').getAttribute('aria-hidden')).toBe('true');
+    expect(roots.buildings.querySelector('.game-development-queue').textContent).toBe('Keine Bauaufträge.');
+    expect(roots.buildings.querySelector('progress')).toBeNull();
     expect(api.post).not.toHaveBeenCalled();
     configs.research.onRender();
     await vi.waitFor(() => expect(roots.research.querySelectorAll('article')).toHaveLength(2));
     expect(roots.research.querySelectorAll('article button')[1].disabled).toBe(true);
+    expect(roots.research.querySelector('[data-type="laser_tech"] [data-order-state]').dataset.orderState).toBe('blocked');
+    expect(roots.research.querySelector('[data-type="energy_tech"] .game-development-costs').textContent).toBe('800 crystal');
+    const prerequisites = roots.research.querySelector('.game-research-prerequisites');
+    expect(prerequisites.getAttribute('aria-label')).toBe('Fehlende Forschungsvoraussetzungen');
+    expect(prerequisites.querySelector('strong').textContent).toBe('energy_tech');
+    expect(prerequisites.textContent).toContain('Benötigt: Stufe 1');
+    expect(prerequisites.textContent).toContain('Vorhanden: Stufe 0');
+    expect(prerequisites.querySelector('meter').value).toBe(0);
+    expect(prerequisites.querySelector('meter').max).toBe(1);
+    expect(roots.research.querySelector('[data-type="energy_tech"] .game-research-prerequisites')).toBeNull();
+    const updatedResearch = structuredClone(research);
+    updatedResearch.research[1].missing_prereqs = [
+      { tech: '<img src=x>', required_level: '4', current_level: '2' },
+      { tech: 'unknown', required_level: null, current_level: '' },
+      { tech: 'server_blocked', required_level: 1, current_level: 3 },
+    ];
+    api.get.mockResolvedValueOnce(updatedResearch);
+    await domains.research.load();
+    const rows = roots.research.querySelectorAll('.game-research-prerequisites li');
+    expect(rows[0].querySelector('meter').value).toBe(2);
+    expect(rows[0].querySelector('meter').max).toBe(4);
+    expect(rows[0].querySelector('strong').textContent).toBe('<img src=x>');
+    expect(roots.research.querySelector('img')).toBeNull();
+    expect(rows[1].querySelector('meter')).toBeNull();
+    expect(rows[1].textContent).toContain('Nicht verfügbar');
+    expect(rows[2].querySelector('meter').value).toBe(1);
+    expect(rows[2].textContent).toContain('Vorhanden: Stufe 3');
+    expect(roots.research.querySelector('[data-type="laser_tech"] button').disabled).toBe(true);
+    const updated = structuredClone(buildings);
+    updated.upgrade_queue = [{ type: 'metal_mine', target_level: 3, status: '<img src=x>', eta: '2030-01-01 10:00:00' }];
+    updated.buildings[0].upgrade_end = '2030-01-01 10:00:00';
+    updated.buildings[0].next_cost = { metal: 'invalid', crystal: 0 };
+    api.get.mockResolvedValueOnce(updated);
+    await domains.buildings.load();
+    expect(roots.buildings.querySelector('[data-order-state="running"]').textContent).toBe('In Arbeit');
+    expect(roots.buildings.querySelector('.game-development-costs').textContent).toBe('Nicht verfügbar metal');
+    expect(roots.buildings.querySelector('.game-development-queue').textContent).toContain('2030-01-01 10:00:00');
+    expect(roots.buildings.querySelector('img')).toBeNull();
+    expect(api.post).not.toHaveBeenCalled();
     const finish = Array.from(roots.research.querySelectorAll('button')).find((entry) => entry.textContent.includes('Fällige'));
     finish.click();
     await vi.waitFor(() => expect(api.post).toHaveBeenCalledOnce());

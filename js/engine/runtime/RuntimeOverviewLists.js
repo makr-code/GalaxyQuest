@@ -13,6 +13,17 @@
       getAudioManager = () => null,
     } = opts;
 
+    function readPercent(...values) {
+      for (const value of values) {
+        if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) continue;
+        const parsed = Number(value);
+        if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 100) {
+          return Math.round(parsed);
+        }
+      }
+      return null;
+    }
+
     function renderFleetList(params = {}) {
       const {
         root = null,
@@ -67,30 +78,21 @@
         const stealthBadge = stealthSec > 0
           ? `<span class="fleet-stealth-badge" title="Vel'Ar stealth: ${stealthSec}s remaining">Stealth ${stealthSec}s</span>`
           : '';
-        const hullDmg = Number(fleet.hull_damage_pct || 0);
+        const hullDmg = readPercent(fleet.hull_damage_pct) ?? 0;
         const hullBadge = hullDmg > 0
           ? `<span class="fleet-hull-badge" title="Kryl'Tha hull damage: -${hullDmg}% attack">Hull ${hullDmg}%</span>`
           : '';
-        const hullIntegrityPct = Math.max(0, Math.min(100, 100 - hullDmg));
-        const rawShieldPct = Number(
+        const shieldPct = readPercent(
           fleet.shield_pct
           ?? fleet.shields_pct
           ?? fleet.shield_integrity_pct
           ?? fleet.defense_shield_pct
-          ?? 100
         );
-        const shieldPct = Number.isFinite(rawShieldPct)
-          ? Math.max(0, Math.min(100, Math.round(rawShieldPct)))
-          : 100;
-        const hullIntegrityTone = hullIntegrityPct < 30 ? 'is-critical' : (hullIntegrityPct < 60 ? 'is-warning' : 'is-good');
-        const shieldTone = shieldPct < 30 ? 'is-critical' : (shieldPct < 60 ? 'is-warning' : 'is-good');
-        const fleetHealthHtml = `
+        const shieldTone = shieldPct === null
+          ? ''
+          : (shieldPct < 30 ? 'is-critical' : (shieldPct < 60 ? 'is-warning' : 'is-good'));
+        const fleetHealthHtml = shieldPct === null ? '' : `
           <div class="entity-bars entity-bars-compact" aria-label="Fleet status bars">
-            <div class="entity-bar-row" title="Fleet hull integrity ${hullIntegrityPct}%">
-              <span class="entity-bar-label">Hull</span>
-              <div class="bar-wrap"><div class="bar-fill bar-integrity ${hullIntegrityTone}" style="width:${hullIntegrityPct}%"></div></div>
-              <span class="entity-bar-value">${hullIntegrityPct}%</span>
-            </div>
             <div class="entity-bar-row" title="Fleet shields ${shieldPct}%">
               <span class="entity-bar-label">Shield</span>
               <div class="bar-wrap"><div class="bar-fill bar-shield ${shieldTone}" style="width:${shieldPct}%"></div></div>

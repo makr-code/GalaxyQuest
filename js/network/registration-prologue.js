@@ -14,7 +14,7 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
   let narrationRevision = 0;
   let timer = null;
   let playbackTimer = null;
-  let duckingTimer = null;
+  let releaseDucking = null;
   let narrationRequest = null;
   let currentClip = null;
   let phase = 'teaser';
@@ -121,11 +121,8 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
   function stopNarration() {
     clearTimeout(timer);
     clearTimeout(playbackTimer);
-    if (duckingTimer !== null) {
-      clearInterval(duckingTimer);
-      window.__GQ_AUDIO_MANAGER?.duckMusicForTts?.(200);
-      duckingTimer = null;
-    }
+    releaseDucking?.();
+    releaseDucking = null;
     timer = null;
     narrationRequest?.abort();
     narrationRequest = null;
@@ -214,6 +211,7 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
       if (!isCurrent()) return;
       audio.src = data.audio_url;
       applyAudioSettings();
+      releaseDucking = window.__GQ_AUDIO_MANAGER?.trackTtsAudio?.(audio) ?? null;
       audio.onended = () => {
         if (isCurrent()) {
           stopNarration();
@@ -229,9 +227,6 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
       clearTimeout(playbackTimer);
       playbackTimer = setTimeout(() => unavailable('Die Wiedergabe des Sprachclips wurde nicht beendet.'),
         Math.max(30000, Number.isFinite(audio.duration) ? audio.duration * 1000 + 10000 : clip.text.split(/\s+/).length * 1000));
-      const duck = () => window.__GQ_AUDIO_MANAGER?.duckMusicForTts?.(3000);
-      duck();
-      duckingTimer = setInterval(duck, 2000);
       element('narration-status').textContent = '';
     } catch (error) {
       unavailable(String(error.message));

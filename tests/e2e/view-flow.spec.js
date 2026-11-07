@@ -141,8 +141,11 @@ async function loginDefaultUser(page, baseURL) {
   await expect(userInput).toHaveValue('default_user');
   await expect(passInput).toHaveValue('User!23456');
   await page.click('#login-form button[type="submit"]');
-  await expect(page.locator('#topbar-section')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('#game-overlay-shell')).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('#auth-section')).toHaveClass(/hidden/, { timeout: 30_000 });
+  await page.locator('#game-command-toggle').click();
+  await expect(page.locator('#game-command-overlay')).toBeVisible();
+  await expect(page.locator('#topbar-section')).toBeVisible({ timeout: 30_000 });
 }
 
 async function primeHomeSelection(page, { enterSystem = false, focusPlanet = false } = {}) {

@@ -57,10 +57,8 @@ async function makeCityOrchestrator(data = scene()) {
   const orchestrator = new SeamlessZoomOrchestrator(canvas);
   orchestrator._backend = backend;
   level._initialised = true;
-  const resolve = vi.spyOn(orchestrator._registry, 'resolve').mockImplementation((depth) => {
-    if (depth !== ZOOM_LEVEL.COLONY_SURFACE) throw new Error('Building must reuse the live surface');
-    return level;
-  });
+  orchestrator.register(ZOOM_LEVEL.COLONY_SURFACE, { threejs: class { constructor() { return level; } } });
+  const resolve = vi.spyOn(orchestrator._registry, 'resolve');
   await orchestrator.zoomTo(ZOOM_LEVEL.COLONY_SURFACE, data);
   for (let frame = 0; frame < 80; frame++) orchestrator.tick(0.016);
   return { ...setup, orchestrator, resolve };
@@ -799,7 +797,8 @@ describe('Isometric camera and shared WebGPU rendering', () => {
     const surface = new ColonySurfaceLevelWebGPU();
     levels.push(surface);
     const galaxy = { initialize: vi.fn(), enter: vi.fn(), exit: vi.fn(), render: vi.fn(), dispose: vi.fn() };
-    orchestrator._registry.resolve = (level) => level === 3 ? surface : galaxy;
+    orchestrator.register(3, { threejs: class { constructor() { return surface; } } });
+    orchestrator.register(0, { threejs: class { constructor() { return galaxy; } } });
     await orchestrator.initialize();
     await orchestrator.zoomTo(ZOOM_LEVEL.GALAXY, null);
     await orchestrator.zoomTo(ZOOM_LEVEL.COLONY_SURFACE, scene());
@@ -819,9 +818,9 @@ describe('Isometric camera and shared WebGPU rendering', () => {
     const orchestrator = new SeamlessZoomOrchestrator(canvas);
     orchestrator._backend = {};
     const incoming = {
-      initialize: vi.fn(), enter: vi.fn(), exit: vi.fn(), render: vi.fn(),
+      initialize: vi.fn(), enter: vi.fn(), exit: vi.fn(), render: vi.fn(), dispose: vi.fn(),
     };
-    orchestrator._registry.resolve = () => incoming;
+    orchestrator.register(ZOOM_LEVEL.PLANET_APPROACH, { threejs: class { constructor() { return incoming; } } });
     const promise = orchestrator.zoomTo(ZOOM_LEVEL.PLANET_APPROACH, {}, { flyDuration: 100 });
     await vi.waitFor(() => expect(orchestrator._active).toBe(incoming));
     orchestrator.tick(0.05);
@@ -846,6 +845,7 @@ describe('Isometric camera and shared WebGPU rendering', () => {
       enter: vi.fn(),
       exit: vi.fn(),
       render: vi.fn(),
+      dispose: vi.fn(),
       setNavigationHandlers: vi.fn((handlers) => { capture(handlers); }),
     });
     const renderers = {
@@ -853,7 +853,9 @@ describe('Isometric camera and shared WebGPU rendering', () => {
       [ZOOM_LEVEL.PLANET_APPROACH]: makeRenderer((handlers) => { planetNavigation = handlers; }),
       [ZOOM_LEVEL.COLONY_SURFACE]: makeRenderer((handlers) => { colonyNavigation = handlers; }),
     };
-    orchestrator._registry.resolve = (level) => renderers[level];
+    for (const [depth, renderer] of Object.entries(renderers)) {
+      orchestrator.register(Number(depth), { threejs: class { constructor() { return renderer; } } });
+    }
 
     await orchestrator.zoomTo(ZOOM_LEVEL.SYSTEM, null);
     await orchestrator.zoomTo(ZOOM_LEVEL.PLANET_APPROACH, { id: 'planet' });
@@ -977,14 +979,15 @@ describe('Integrated colony building depth', () => {
   });
 
   it('unwinds building, colony, planet and system without overwriting the surface parent', async () => {
-    const { level, orchestrator, resolve } = await makeCityOrchestrator();
+    const { level, orchestrator } = await makeCityOrchestrator();
     let planetNavigation;
     const planet = {
-      _initialised: true, enter: vi.fn(), exit: vi.fn(),
+      _initialised: true, enter: vi.fn(), exit: vi.fn(), dispose: vi.fn(),
       setNavigationHandlers: (handlers) => { planetNavigation = handlers; },
     };
-    const system = { _initialised: true, enter: vi.fn(), exit: vi.fn() };
-    resolve.mockImplementation((depth) => ({ 1: system, 2: planet, 3: level })[depth]);
+    const system = { _initialised: true, enter: vi.fn(), exit: vi.fn(), dispose: vi.fn() };
+    orchestrator.register(1, { threejs: class { constructor() { return system; } } });
+    orchestrator.register(2, { threejs: class { constructor() { return planet; } } });
     await orchestrator.zoomTo(5, level._slots[0]);
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(orchestrator._activeLevel).toBe(3);
@@ -1025,6 +1028,95 @@ describe('Colony window integration', () => {
 });
 
 describe('On-demand authoritative snapshot lifecycle', () => {
+  it('does not decode an obsolete HTTP snapshot after a newer refresh has completed', async () => {
+    const { level } = await makeLevel();
+    await level.enter(2, scene({ loadSnapshot: async () => scene({ success: true, economy: {} }) }));
+    await vi.waitFor(() => expect(level._snapshotLoaded).toBe(true));
+    delete level._sceneData.loadSnapshot;
+    let finish;
+    fetch.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const old = level.refreshSnapshot(7);
+    fetch.mockResolvedValueOnce({ ok: true, json: async () => scene({ success: true, economy: {},
+      slots: [{ x: 0, z: 0, type: 'habitat', level: 6 }] }) });
+    await level.refreshSnapshot(7);
+    const decode = vi.fn(async () => scene({ success: true, economy: {}, slots: [] }));
+    finish({ ok: true, json: decode });
+    await old;
+    expect(decode).not.toHaveBeenCalled();
+    expect(level._slots[0].level).toBe(6);
+  });
+
+  it('reports a failed legacy building fallback while retaining confirmed scene data', async () => {
+    const { level, host } = await makeLevel();
+    const failure = new Error('Building snapshot offline');
+    const onError = vi.fn();
+    window.API = { buildings: vi.fn(async () => { throw failure; }) };
+    try {
+      await level.enter(2, scene({ slots: [], onError }));
+      await vi.waitFor(() => expect(window.API.buildings).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(level._request).toBeNull());
+      expect(onError).toHaveBeenCalledExactlyOnceWith(failure);
+      expect(host.textContent).toContain('Building snapshot offline');
+      expect(level._slots).toEqual([]);
+    } finally { delete window.API; }
+  });
+
+  it('ignores a failed legacy fallback after exit and re-entry', async () => {
+    const { level } = await makeLevel();
+    let reject;
+    const onError = vi.fn();
+    window.API = { buildings: vi.fn(() => new Promise((_resolve, rejectPromise) => { reject = rejectPromise; })) };
+    try {
+      await level.enter(2, scene({ slots: [], onError }));
+      await vi.waitFor(() => expect(reject).toBeTypeOf('function'));
+      await level.exit();
+      await level.enter(2, scene({ loadSnapshot: async () => scene({ success: true, economy: {},
+        slots: [{ x: 0, z: 0, type: 'habitat', level: 8 }] }), onError }));
+      await vi.waitFor(() => expect(level._snapshotLoaded).toBe(true));
+      reject(new Error('Obsolete fallback failed'));
+      for (let i = 0; i < 6; i++) await Promise.resolve();
+      expect(onError).not.toHaveBeenCalled();
+      expect(level._slots[0].level).toBe(8);
+      expect(level._snapshotState).toContain('Server snapshot');
+    } finally { delete window.API; }
+  });
+
+  it('reports an unsuccessful legacy response instead of silently accepting it', async () => {
+    const { level, host } = await makeLevel();
+    const onError = vi.fn();
+    window.API = { buildings: vi.fn(async () => ({ success: false, error: 'Building access denied' })) };
+    try {
+      await level.enter(2, scene({ slots: [], onError }));
+      await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+      expect(onError.mock.calls[0][0].message).toBe('Building access denied');
+      expect(host.textContent).toContain('Building access denied');
+      expect(level._slots).toEqual([]);
+    } finally { delete window.API; }
+  });
+
+  it('discards a snapshot body decoded after disposal without callbacks or fallback requests', async () => {
+    const { level } = await makeLevel();
+    let decode;
+    fetch.mockResolvedValueOnce({ ok: true, json: () => new Promise(resolve => { decode = resolve; }) });
+    const onError = vi.fn();
+    const onSnapshotLoaded = vi.fn();
+    window.API = { buildings: vi.fn() };
+    try {
+      await level.enter(2, scene({ onError, onSnapshotLoaded }));
+      await vi.waitFor(() => expect(decode).toBeTypeOf('function'));
+      level.dispose();
+      const apply = vi.spyOn(level, 'setSceneData');
+      decode(scene({ success: true, economy: {} }));
+      for (let i = 0; i < 6; i++) await Promise.resolve();
+      expect(apply).not.toHaveBeenCalled();
+      expect(onError).not.toHaveBeenCalled();
+      expect(onSnapshotLoaded).not.toHaveBeenCalled();
+      expect(window.API.buildings).not.toHaveBeenCalled();
+      expect(level._request).toBeNull();
+      expect(level._hud).toBeNull();
+    } finally { delete window.API; }
+  });
+
   it('refreshes only the matching active colony and preserves camera, selection and terrain residency', async () => {
     let response = scene({ success: true, economy: {} });
     const loadSnapshot = vi.fn(async () => response);

@@ -70,6 +70,72 @@ final class TraderReadSideEffectsTest extends TestCase
         self::assertStringContainsString("\$readEvents = ['status'];", $source);
     }
 
+    public function testManualTraderGameTickUsesTheGlobalSimulationLock(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/traders_events.php');
+        self::assertIsString($source);
+        self::assertStringContainsString("require_once __DIR__ . '/simulation_runtime.php';", $source);
+
+        self::assertStringContainsString("if (\$event === 'game_tick')", $source);
+        self::assertStringContainsString("if (\$event === 'status')", $source);
+
+        $lockHelper = $this->functionBody($source, 'event_with_global_simulation_lock');
+        self::assertStringContainsString("simulation_runtime_with_scope_lock(", $lockHelper);
+        self::assertStringContainsString("'global',", $lockHelper);
+        self::assertStringContainsString("['executed' => true]", $lockHelper);
+        self::assertStringContainsString('json_ok($result)', $lockHelper);
+
+        $event = $this->functionBody($source, 'event_game_tick');
+        self::assertStringContainsString('event_with_global_simulation_lock(', $event);
+        self::assertStringContainsString("static fn(): array => event_game_tick_run(\$db)", $event);
+
+        $tick = $this->functionBody($source, 'event_game_tick_run');
+        self::assertStringContainsString('$db->beginTransaction();', $tick);
+        self::assertStringContainsString('$db->commit();', $tick);
+        self::assertStringContainsString("'executed' => true", $tick);
+        self::assertStringNotContainsString('json_ok(', $tick);
+    }
+
+    public function testEveryManualTraderMutationUsesTheGlobalSimulationLock(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/traders_events.php');
+        self::assertIsString($source);
+
+        foreach ([
+            'event_market_update',
+            'event_opportunity_scan',
+            'event_trader_decisions',
+            'event_route_process',
+            'event_route_create',
+            'event_route_complete',
+            'event_game_tick',
+        ] as $handlerName) {
+            $handler = $this->functionBody($source, $handlerName);
+            self::assertStringContainsString(
+                'event_with_global_simulation_lock(',
+                $handler,
+                $handlerName . ' must share the global trader lock.'
+            );
+        }
+    }
+
+    public function testManualTraderActionTickUsesTheGlobalSimulationLock(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/traders.php');
+        self::assertIsString($source);
+        self::assertStringContainsString("require_once __DIR__ . '/simulation_runtime.php';", $source);
+
+        $tick = $this->functionBody($source, 'action_process_trader_tick');
+        self::assertStringContainsString("only_method('POST');", $tick);
+        self::assertStringContainsString('verify_csrf();', $tick);
+        self::assertStringContainsString('simulation_runtime_with_scope_lock(', $tick);
+        self::assertStringContainsString("'global',", $tick);
+        self::assertStringContainsString("'executed' => true", $tick);
+        self::assertStringContainsString("json_ok(\$result)", $tick);
+        self::assertStringContainsString('process_route_transitions($db)', $tick);
+        self::assertStringContainsString('execute_trader_decisions($db)', $tick);
+    }
+
     private function functionBody(string $source, string $function): string
     {
         $start = strpos($source, 'function ' . $function . '(');

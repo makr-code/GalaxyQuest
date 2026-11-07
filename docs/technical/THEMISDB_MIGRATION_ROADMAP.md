@@ -80,6 +80,17 @@ THEMISDB_DUAL_WRITE=1
 THEMISDB_BASE_URL=http://themisdb:8080
 ```
 
+The custom ThemisDB image runs as UID/GID `10001` and owns `/data`. Before upgrading
+an existing named volume that was initialized by the previous root-running image,
+stop the service and migrate ownership without changing its contents:
+
+```bash
+docker compose --profile themisdb stop themisdb
+docker compose --profile themisdb build themisdb
+docker compose --profile themisdb run --rm --user 0:0 --entrypoint chown themisdb -R 10001:10001 /data
+docker compose --profile themisdb up -d themisdb
+```
+
 ### Smoke-Tests
 
 ```bash

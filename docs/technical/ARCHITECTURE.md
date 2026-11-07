@@ -119,7 +119,7 @@ queue in the database (see [§4.14](#414-projection-runtime)).
    └─ helpers.php: verify_csrf()         — validates token on POST/PUT/DELETE
 
 3. api/game.php switch($action):
-   ├─ build_live_overview_payload(..., false) — assemble state without simulation ticks
+   ├─ build_live_overview_payload(...)    — assemble state without simulation ticks
    ├─ update_all_colonies($db, $uid)     — lazy on-demand colony economy settlement
    ├─ SELECT colonies + planets JOIN     — fetch colony state
    └─ json_ok([...])                     — sends {"success":true, ...} with 200
@@ -1191,8 +1191,269 @@ game.js initSSE()
 | `teaser` | `playTeaser`, `setTeaserVolume`, `setTeaserMuted` | Teaser / ambient clips |
 | `tts` | `playTtsAudio`, `setTtsVolume`, `setTtsMuted` | Spoken TTS alerts |
 
-`duckMusicForTts()` applies a stronger volume-duck to the music channel while TTS
-speech is playing, then restores the level automatically.
+`playTtsAudio()` tracks actual media playback through `trackTtsAudio()`, also used
+by registration narration. Music stays lowered until all audible speech clips
+end, pause or fail, not merely for a fixed timeout. Track changes and short SFX
+ducking cannot release the speech reduction. Restoration uses current user volume.
+The player menu exposes persisted ducking enable/strength controls (enabled by
+default). `duckMusicForTts()` remains available for legacy timed callers.
+Master and per-channel volume/mute changes are applied to active manager-owned
+SFX, teaser, and TTS clips as well as future playback.
+The optional Tone.js procedural synthesizer applies gain per effect rather than
+changing the shared Tone destination, and disposes completed or cancelled nodes.
+The synth remains caller-owned when attached to the manager; its owner must
+dispose it when detaching or tearing down the audio runtime. Disposal attempts
+every active Tone node and aggregates cleanup failures; setup and playback
+failures are logged rather than silently treated as successful playback.
+Procedural frequencies are limited to 20 kHz and effect durations to 30 seconds
+to prevent invalid or unbounded values from reaching Tone.js.
+The Web Audio context used by oscillator fallbacks is resumed when a sound is
+requested from a user gesture, as required by browser autoplay policy.
+Music play requests are tokenized: a late media `play()` promise cannot undo a
+newer pause, overwrite the result of a newer playback request, or restart a
+track selected with autoplay disabled. Preparing a different track explicitly
+pauses both music decks and persists the paused state.
+Music volume and ducking range controls apply synchronously without entering the
+pending state used for track changes, keeping sliders interactive during drags.
+Oscillator fallback tones validate waveform, frequency and duration before
+allocating nodes; partial startup/context failures attempt full cleanup rather
+than leaving disconnected nodes or an unusable context retained.
+
+The manager's asynchronous, idempotent `dispose()` stops both music decks and
+tracked transient clips, removes owned media listeners, cancels fades and
+scheduled SFX callbacks, stops procedural oscillators, and closes its
+`AudioContext`. Callers that destroy the manager should await `dispose()` so
+context shutdown and aggregated cleanup errors are observed.
+All disposal callers receive the same promise, including a pending or failed
+context shutdown. Owned media sources are removed and reloaded to release media
+buffers. `trackTtsAudio()` deduplicates the same external element; disposal
+removes those borrowed listeners without stopping externally owned playback.
+
+Run `npx playwright test tests/e2e/lifecycle-resources.spec.js tests/e2e/game-view-lifecycle.spec.js --project=chromium --workers=1`
+for the isolated browser lifecycle gate (also required by the smoke CI job).
+It uses real `HTMLAudioElement`/`AudioContext` instances over eight cycles,
+checks native listener removal through Chromium DevTools, and requires zero
+pending timers/RAFs after cleanup. Sixteen zoom lifecycles exercise the actual
+orchestrator and galaxy/system wrappers with an injected non-rendering backend,
+checking frame-hook/RAF removal and borrowed ownership. The game-view test
+mounts the actual `createGameGalaxyRenderer` adapter and `PerspectiveSpaceFlight`
+scene eight times, with an injected shared renderer and zoom runtime. It checks
+native canvas listener removal, endpoint-hook cleanup, label-callback release,
+and return to the menu even after a zoom cleanup failure. No server, login or
+physical GPU is needed. These are not GPU-memory or complete authenticated
+colony mount/unmount tests; those remain separate FE-05 acceptance work.
+
+`createGameGalaxyRenderer.destroy()` attempts all view cleanup before surfacing
+an `AggregateError`. It never disposes the borrowed shared renderer. The colony
+zoom bridge clears `window.__GQ_ZOOM_ORCHESTRATOR` in a `finally` block and combines
+rendering and disposal failures instead of leaving its frame callback/global
+alive after an error.
+
+`tests/js/game-colony-gpu-lifecycle.test.js` runs the real game colony bridge,
+persistent-body planet renderer and colony surface with tracked GPU doubles.
+Six cycles include surface-to-orbit return and re-entry; every owned buffer and
+texture must be destroyed exactly once at disposal. Separate regressions verify
+release of surface-owned pointer captures on both exit and disposal.
+Planet and colony `dispose()` are synchronous lifecycle boundaries. They share
+synchronous view cleanup with the awaited `exit()` path, attempt all resource
+releases, clear ownership references, and throw aggregated errors afterward.
+They must not fire-and-forget an asynchronous exit promise. Terrain cache
+cleanup attempts every entry even when one buffer's destruction fails.
+An input cleanup failure before animated surface departure skips that animation,
+completes the remaining cleanup, and rejects the awaited exit.
+View generations invalidate pending entries whenever a newer entry or cleanup
+begins. Colony departure interruption resolves the superseded animation waiter,
+but its obsolete exit continuation cannot clear the newer view. Disposal is
+terminal: subsequent initialization/entry rejects, and a pending colony
+initialization skips restoring scene data after disposal.
+The orchestrator shares pending level initialization between `setSceneData()`
+and `zoomTo()`. Initialization failures release the specific cached instance
+before rejecting; registrations remain available for a fresh retry. Registry
+release checks instance identity so stale failures cannot evict a replacement.
+The outgoing view is not exited before successful incoming initialization.
+If partial cleanup also fails, both causes are reported as an `AggregateError`.
+After the outgoing view exits, the active view reference is cleared until the
+incoming entry succeeds. A transition failure after initialization leaves no
+active zoom view: the failed incoming instance is released, an outgoing instance
+whose exit failed is also released, flight/camera state is cleared, and the
+borrowed backend's zoom-scene flag is reset. All cleanup is attempted before
+the original error (or aggregated failures) is propagated. Registrations remain
+available for retry. This deliberately does not re-enter the old view using a
+potentially stale payload; initialization failures still preserve the old view.
+The game adapter checks the zoom runtime's active level on failure. Missing
+runtime initialization or an explicitly null active level triggers system
+camera recovery before reporting the error. A still-active view is retained
+for pre-transition data/initialization failures. System framing attempts camera
+restoration even if zoom disposal fails; recovery errors are combined with the
+original failure. Awaited ancestor navigation continues to reject to its caller,
+but an aborted old navigation cannot restore over a newer view.
+On a frame-rendering failure, the colony bridge attempts disposal and system
+return independently, then reports the original error and any cleanup/return
+failures together. If the error callback itself throws, its error is aggregated
+with the reported failure and propagated to the frame caller. Disposal settles
+pending camera/entry work before return or reporting callbacks run; a stale
+frame hook cannot repeat recovery after the bridge has been disposed.
+Terrain streaming checks request cancellation before CSRF acquisition, after
+CSRF body decoding and before the terrain POST. Disposal clears the manifest,
+CSRF token, LOD plan and CPU tile caches before aborting pending work. A throwing
+abort still propagates to the caller, but cannot retain stream data or make
+repeated disposal retry it. Late manifest/tile bodies cannot repopulate a
+disposed stream.
+Colony snapshots check active state and request generation both before HTTP
+body decoding and after the awaited result. The legacy building fallback keeps
+confirmed scene data, but reports request failures and unsuccessful responses
+through the HUD, `GQLog` and the scene's existing `onError` callback. Superseded
+or disposed reads cannot report stale fallback errors to a newer view.
+Terminal disposal also releases CPU ownership: planet/colony snapshots,
+navigation callbacks, terrain/material references and colony geometry are
+cleared even when GPU destruction reports errors. Terrain streams clear their
+view callback and the game bridge clears its current payload. A normal exit
+retains scene data for re-entry; disposed renderers reject `setSceneData()` and
+`setNavigationHandlers()` instead of retaining new references. These are
+reference-release checks, not a measurement of browser garbage collection.
+
+`tests/e2e/colony-gpu-lifecycle.spec.js` exercises those same render classes on a
+native shared WebGPU device/context with six round trips, validation scopes and
+tracked allocation/destruction. It also submits work after disposal to check
+that the borrowed device remains usable. Run with `GQ_WEBGPU_SHADER_CI=1` in the
+WebGPU workflow: a missing adapter fails rather than skips. Local runs without
+an adapter are explicitly skipped. This fixture has no authenticated server
+snapshot; it is a buffer/texture lifetime contract, not a proof of total driver
+memory reclamation or the complete logged-in game lifecycle.
+
+The zoom orchestrator shares backend initialization across repeated/concurrent
+callers; failed initialization may be retried. Injected backends are borrowed,
+whereas backends returned by its own renderer-factory call are owned and disposed
+after view cleanup. Late factory results after disposal are disposed immediately
+without installing a loop. Late injected initialization never installs a hook
+or destroys the borrowed backend. Terminal disposal clears canvas, options and
+backend references; late cleanup errors reject the pending initialization.
+
+Event dispatch uses a stable listener snapshot, attempts all callbacks and
+throws an `AggregateError` for callback failures. The owned RAF loop stops and
+disposes the orchestrator on a rendering error, then propagates the original
+error (or render/cleanup aggregate) to the browser. Shared-backend frame hooks
+continue to use the colony bridge's recovery/error-reporting path. Neither
+failure nor disposal during rendering may schedule another owned RAF.
+
+Renderer-triggered building, surface and back navigation returns a promise with
+an attached failure handler. When configured, orchestrator `onError` receives the
+failure after transition cleanup; the game colony bridge forwards it to the
+existing UI recovery/error path. Without that callback the returned promise
+rejects to its caller. Direct `zoomTo()` remains rejecting regardless of this
+option. A throwing error callback produces an aggregate of both errors; late
+navigation failures after disposal do not notify a closed view.
+
+Navigation bindings also check the active renderer, entry generation and
+transition/disposal state. Exiting invalidates the old binding even if the same
+cached renderer is subsequently re-entered. Live building-detail transitions
+retain the current surface binding; failed incoming initialization before exit
+does not invalidate the outgoing view's still-usable binding. Obsolete callbacks
+are cancellation no-ops, not failed user navigation.
+
+Live building-detail fast paths use the same transition-failure cleanup as full
+view switches. The shared renderer is released under its colony-surface registry
+key, not the virtual building level. `validateBuilding()` runs before transition
+mutation so unknown/foreign targets reject without discarding the live surface;
+camera or notification failures after validation clear it and permit fresh entry.
+Disposal during notification prevents publication of a new building level.
+
+Full view switches recheck disposal after synchronous external callbacks:
+exit notifications, transition-source setup, navigation binding and backend
+activation. A callback may close the runtime; the continuation must then stop
+before binding/entering a disposed view or starting a new camera flight.
+The browser wrapper lifecycle gate includes exit-callback disposal for both
+shared frame hooks and owned RAF scheduling.
+
+Pending scene preloads and full view transitions also verify registry instance
+identity after asynchronous initialization/exit/entry. Replacing a registration
+retires its old instance; late continuations cannot update or activate it.
+Retired initialization/entry completion runs idempotent cleanup even on failure,
+without evicting the replacement. This cancellation keeps the new registration
+available for a subsequent transition.
+
+Replacing an active registration also clears its active/camera references,
+invalidates navigation and resolves a pending flight without publishing a late
+entry event. Building detail is detached through its surface registration.
+Rendering and navigation check registry identity even during reentrant disposal;
+transition-source, navigation-binding and backend callbacks cannot restart a
+retired renderer. Cleanup attempts flight cancellation and backend reset even if
+renderer disposal fails, reporting all failures. Invalid registrations leave the
+current view untouched. The colony bridge returns false for cancelled entries.
+Browser wrapper cycles cover active replacement and fresh mount without taking
+ownership of the borrowed backend.
+
+Flight completion is committed only after target resolution and effect callbacks
+have succeeded, including on the final frame. A callback failure clears the
+flight's owned references, rejects its pending promise and throws to the frame
+caller. Transition cleanup handles the rejection; the frame owner remains
+responsible for reporting/recovery of synchronous failures. Successful completion
+also releases target, collider and effect callbacks without losing the returned
+final camera pose. Reentrant disposal/replacement invalidates the old frame before
+remaining callbacks or camera publication; subsequent flights never inherit effects.
+
+Planet and building flight setup validates options, endpoints, target resolution
+and computed control points before committing state or rejecting the old flight.
+Failed setup leaves the previous flight and its pending promise untouched.
+Missing endpoint coordinates retain their zero default; non-finite coordinates,
+duration and blur are rejected. Omitted/non-positive finite duration retains the
+existing default. Options and colliders are snapshots, but the selected target
+object/provider remains live. A generation check after target setup prevents
+reentrant disposal or a newer flight from being overwritten by the old setup.
+
+Active flight frames require a finite, non-negative numeric delta; zero is valid.
+The existing time-unit convention remains: values up to one represent seconds,
+larger values milliseconds. Invalid deltas fail through the same rejection and
+cleanup path as target/effect errors. The driver uses its existing fixed 16 ms
+step, but position, target and control publication now belongs to the guarded
+frame transaction: success is committed only after publication succeeds.
+Setter/control/look-at errors reject the flight, including on its final frame;
+missing active driver context is an explicit error. Reentrant cancellation or
+replacement stops remaining writes/controls updates without affecting the newer
+flight. Already applied camera writes are not rolled back.
+
+The colony bridge invalidates pending surface loads when accepting back/ancestor
+navigation, even when the requested ancestor is already active. Invalid/downward
+or busy navigation does not supersede accepted work. Overlapping approaches are
+rejected before changing the revision or pending approach reference. Surface
+loads still await an accepted approach flight, then require an idle transition
+and confirmed planet entry before entering the colony. Cancelled prerequisites
+cannot be bypassed. Return payloads are committed only after confirmed entry;
+loader failures continue to reject to the caller without discarding a usable
+view. Stale responses cancel without allocating colony resources.
+
+Colony input forwarding (reset, rotate, pan, zoom, selection and nudge) and
+snapshot refresh require an active colony/building renderer and no transition.
+Late UI events during exit, after replacement, or after disposal are ignored.
+
+The galaxy-level camera tween also owns a generation-bound shared frame hook.
+Navigation/disposal invalidates that generation before removing the hook, so a
+captured callback cannot write camera state after it becomes stale even if hook
+removal throws. Invalid time deltas or pose/update callback failures stop the
+tween and are reported once; remover failures are aggregated with the frame
+failure instead of leaving a repeatedly failing callback active.
+
+Fleet endpoint projection observers use the same explicit callback ownership:
+manual removal invalidates publication before detaching, and adapter disposal
+disables callbacks even if native hook removal throws. A failed synchronous
+initial projection rolls back the just-installed observer and aggregates any
+removal error. Reentrant disposal during hook installation does not publish an
+initial snapshot.
+When hook removal fails, the inactive observer remains tracked with its remover
+so the caller or repeated adapter disposal can retry and release the native
+reference. Per-frame projection failures disable the callback, retry removal,
+and report the projection and cleanup errors once.
+
+The colony bridge's owner AbortSignal remains bound after initialization.
+Aborting disposes the runtime, clears its published global and frame hook,
+cancels flights and invalidates pending entry continuations without triggering
+system-return navigation. Disposal and failed initialization remove the listener.
+Signal-event cleanup errors are delivered to the configured error callback;
+manual disposal continues to throw cleanup errors synchronously. Galaxy teardown
+detaches its runtime references and explicitly disposes before aborting its old
+controller in a finally block, preserving its existing error contract.
+Externally supplied data loaders retain responsibility for request cancellation;
+their late results cannot reactivate a disposed runtime.
 
 #### TTS service configuration
 

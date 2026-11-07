@@ -17,6 +17,54 @@ use GalaxyQuest\Simulation\Application\SimulationEventTaxonomy;
  */
 
 /**
+ * @param array<string, mixed> $body
+ * @return array{scope:string,user_id:int,force:bool}
+ */
+function simulation_tick_request_options(array $body, int $authenticatedUserId): array
+{
+    if ($authenticatedUserId <= 0) {
+        throw new InvalidArgumentException('Authenticated user ID must be positive.');
+    }
+
+    $scope = 'user';
+    if (array_key_exists('scope', $body)) {
+        if (!is_string($body['scope'])) {
+            throw new InvalidArgumentException('scope must be either "global" or "user".');
+        }
+        $scope = strtolower(trim($body['scope']));
+    }
+    if (!in_array($scope, ['global', 'user'], true)) {
+        throw new InvalidArgumentException('scope must be either "global" or "user".');
+    }
+
+    $userIdProvided = array_key_exists('user_id', $body);
+    if ($scope === 'global' && $userIdProvided) {
+        throw new InvalidArgumentException('user_id may only be used with scope=user.');
+    }
+    $userId = $authenticatedUserId;
+    if ($userIdProvided) {
+        if (!is_int($body['user_id']) || $body['user_id'] <= 0) {
+            throw new InvalidArgumentException('user_id must be a positive integer.');
+        }
+        $userId = $body['user_id'];
+    }
+
+    $force = false;
+    if (array_key_exists('force', $body)) {
+        if (!is_bool($body['force'])) {
+            throw new InvalidArgumentException('force must be a boolean.');
+        }
+        $force = $body['force'];
+    }
+
+    return [
+        'scope' => $scope,
+        'user_id' => $userId,
+        'force' => $force,
+    ];
+}
+
+/**
  * @return array<string, mixed>
  */
 function simulation_runtime_event_taxonomy(): array
@@ -71,7 +119,14 @@ function simulation_runtime_with_scope_lock(PDO $db, string $scope, string $scop
     $lockName = 'gq:sim:' . substr(hash('sha256', $scope . ':' . $scopeId), 0, 48);
     $acquire = $db->prepare('SELECT GET_LOCK(?, 0)');
     $acquire->execute([$lockName]);
-    if ((string)$acquire->fetchColumn() !== '1') {
+    $acquired = $acquire->fetchColumn();
+    if ($acquired === null) {
+        throw new RuntimeException('MySQL GET_LOCK returned NULL.');
+    }
+    if (!in_array((string)$acquired, ['0', '1'], true)) {
+        throw new RuntimeException('MySQL GET_LOCK returned an unexpected result.');
+    }
+    if ((string)$acquired === '0') {
         return [
             'executed' => false,
             'scope' => $scope,
@@ -144,6 +199,33 @@ function simulation_runtime_measure_subsystem(
 }
 
 /**
+ * @param array<string, mixed> $result
+ * @return array<string, mixed>
+ */
+function simulation_runtime_public_response(array $result): array
+{
+    $hasErrors = (int)($result['error_count'] ?? 0) > 0;
+    if (isset($result['ticks']) && is_array($result['ticks'])) {
+        foreach ($result['ticks'] as &$tick) {
+            if (is_array($tick)) {
+                unset($tick['error']);
+            }
+        }
+        unset($tick);
+    }
+
+    $response = [
+        'success' => !$hasErrors,
+        'simulation' => $result,
+    ];
+    if ($hasErrors) {
+        $response['error'] = 'One or more simulation subsystems failed.';
+    }
+
+    return $response;
+}
+
+/**
  * Execute one subsystem and report its duration, time since its previous run,
  * and error state without allowing telemetry persistence to mask tick results.
  *
@@ -183,7 +265,7 @@ function simulation_runtime_execute_subsystem(
         $startedAtUnix
     );
 
-    if ($supportsStateTracking) {
+    if ($supportsStateTracking && $result['ok']) {
         try {
             app_state_set_int($db, $stateKey, $startedAtUnix);
         } catch (Throwable $e) {
@@ -279,6 +361,18 @@ function simulation_tick_global_locked(PDO $db, bool $force = false): array
         $supportsStateTracking,
         $tickStartedAtUnix
     );
+    $result['ticks']['npc_world'] = simulation_runtime_execute_subsystem(
+        $db,
+        'global',
+        'npc_world',
+        '',
+        static function () use ($db, $force): array {
+            npc_ai_global_tick($db, $force);
+            return [];
+        },
+        $supportsStateTracking,
+        $tickStartedAtUnix
+    );
     $result['ticks']['war_runtime'] = simulation_runtime_execute_subsystem(
         $db,
         'global',
@@ -319,17 +413,17 @@ function simulation_tick_global_locked(PDO $db, bool $force = false): array
         $tickStartedAtUnix
     );
 
-    $hasSuccessfulTick = false;
+    $allTicksSucceeded = true;
     $errorCount = 0;
     foreach ($result['ticks'] as $tick) {
         $errorCount += (int)($tick['error_count'] ?? 0);
-        if (!empty($tick['ok'])) {
-            $hasSuccessfulTick = true;
+        if (empty($tick['ok'])) {
+            $allTicksSucceeded = false;
         }
     }
 
-    if ($hasSuccessfulTick && $supportsStateTracking) {
-        app_state_set_int($db, $stateKey, $now);
+    if ($allTicksSucceeded && $supportsStateTracking) {
+        app_state_set_int($db, $stateKey, time());
     }
 
     $result['duration_ms'] = (int)round((microtime(true) - $tickStart) * 1000);
@@ -406,17 +500,17 @@ function simulation_tick_user_locked(PDO $db, int $userId, bool $force = false):
         $tickStartedAtUnix
     );
 
-    $hasSuccessfulTick = false;
+    $allTicksSucceeded = true;
     $errorCount = 0;
     foreach ($result['ticks'] as $tick) {
-        if (!empty($tick['ok'])) {
-            $hasSuccessfulTick = true;
-        }
         $errorCount += (int)($tick['error_count'] ?? 0);
+        if (empty($tick['ok'])) {
+            $allTicksSucceeded = false;
+        }
     }
 
-    if ($hasSuccessfulTick && $supportsStateTracking) {
-        app_state_set_int($db, $stateKey, $now);
+    if ($allTicksSucceeded && $supportsStateTracking) {
+        app_state_set_int($db, $stateKey, time());
     }
 
     $result['duration_ms'] = (int)round((microtime(true) - $tickStart) * 1000);
