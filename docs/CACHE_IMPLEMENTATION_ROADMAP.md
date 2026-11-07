@@ -1,16 +1,18 @@
 # Cache Implementation Roadmap – GalaxyQuest
 
+> **Historical proposal, not the current project roadmap.** Coverage counts, endpoint priorities, performance projections, sprint estimates, success targets, and next steps below have not been revalidated. Check current endpoint call sites and [ROADMAP.md](../ROADMAP.md) before planning work; no cache optimization should be treated as implemented or production-verified based on this document.
+
 ## Executive Summary
 
-- **Current Coverage:** 10/62 endpoints cached (16.1%)
-- **Missing Coverage:** 52 endpoints (83.9%)
+- **Historical coverage estimate:** 10/62 endpoints cached (16.1%)
+- **Historical estimate:** 52 endpoints not covered (83.9%)
 - **High-Impact Gaps:** economy.php, fleet.php, war.php, market.php, glossary.php
 - **Estimated Impact:** 30–70% reduction in DB queries + LLM costs
 - **Time to Implement:** Phase 1 (CRITICAL): 3–4 sprints
 
 ---
 
-## Priority Queue
+## Historical Priority Queue (Not Current Backlog)
 
 ### 🔴 CRITICAL (Implement First Sprint)
 
@@ -375,7 +377,7 @@ A: Negligible (<1ms per request). Recommended for production to track effectiven
 
 ---
 
-## Next Steps
+## Original Next-Step Proposal (Not Current Backlog)
 
 1. **Review this roadmap with stakeholders**
 2. **Schedule Phase 1 sprint** (1 week)

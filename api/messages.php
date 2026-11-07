@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Messages API
  * GET  /api/messages.php?action=inbox
@@ -6,6 +7,7 @@
  * POST /api/messages.php?action=send   body: {to_username, subject, body}
  * POST /api/messages.php?action=delete body: {id}
  */
+
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/projection.php';
 
@@ -62,7 +64,9 @@ switch ($action) {
         verify_csrf();
         $body = get_json_body();
         $id   = (int)($body['id'] ?? 0);
-        if ($id <= 0) json_error('id is required', 400);
+        if ($id <= 0) {
+            json_error('id is required', 400);
+        }
         $db   = get_db();
         $stmt = $db->prepare(
             'SELECT m.*, COALESCE(u.username, \'System\') AS sender
@@ -72,7 +76,9 @@ switch ($action) {
         );
         $stmt->execute([$id, $uid]);
         $msg = $stmt->fetch();
-        if (!$msg) json_error('Message not found', 404);
+        if (!$msg) {
+            json_error('Message not found', 404);
+        }
         $db->prepare('UPDATE messages SET is_read = 1 WHERE id = ? AND receiver_id = ?')
             ->execute([$id, $uid]);
         $msg['is_read'] = 1;
@@ -95,7 +101,9 @@ switch ($action) {
         $stmt = $db->prepare('SELECT id FROM users WHERE username = ?');
         $stmt->execute([$to]);
         $receiver = $stmt->fetch();
-        if (!$receiver) json_error('Recipient not found.', 404);
+        if (!$receiver) {
+            json_error('Recipient not found.', 404);
+        }
 
         $db->prepare(
             'INSERT INTO messages (sender_id, receiver_id, subject, body) VALUES (?, ?, ?, ?)'

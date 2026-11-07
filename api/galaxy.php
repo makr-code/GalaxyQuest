@@ -73,14 +73,7 @@ if (in_array($action, ['range', 'system_detail'], true)) {
             sessionId: session_id() ?: null,
         );
 
-        // Create retry policy for resilience
-        $retryPolicy = new \GalaxyQuest\Shared\Http\RetryPolicy(
-            maxRetries: 3,
-            baseDelayMs: 100,
-            jitterFactor: 0.1,
-        );
-
-        // Create repository with retry wrapper
+        // Create repository for the read-only galaxy services.
         $galaxyRepository = new \GalaxyQuest\Galaxy\Infrastructure\PdoGalaxyRepository($db);
 
         // Create default encoder (JSON for API responses)

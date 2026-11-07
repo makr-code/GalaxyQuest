@@ -1263,7 +1263,7 @@ validated and ready for renderer integration.
     integration patterns for Galaxy, System, Approach, and Colony views
   - `docs/technical/SELECTION_ACCESSIBILITY_SPEC.md` — Complete accessibility
     requirements with implementation patterns
-  - `SELECTION_UX_PHASE2_COMPLETION_SUMMARY.md` — Executive summary and roadmap
+  - `docs/archive/SELECTION_UX_PHASE2_COMPLETION_SUMMARY.md` — Historical executive summary and roadmap
 
 - **Status:**
   - ✅ Phase 2 specification complete

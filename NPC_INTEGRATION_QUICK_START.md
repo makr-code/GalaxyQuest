@@ -1,8 +1,10 @@
 # NPC Interaction Integration Guide
 
+> This is a manual integration prototype, not an enabled main-game feature. `index.html` currently leaves the NPC panel and handler scripts commented out; use the separate `npc_integration_test.html` harness to inspect the prototype. The current NPC chat API requires an authenticated session and CSRF token and does not provide game-action consequences.
+
 ## Quick Start
 
-Die NPC-Dialoge sind jetzt mit den Spielereignissen verbunden. Es gibt zwei Wege, um ein NPC-Dialogfeld zu öffnen:
+Der NPC-Dialog-Prototyp bietet zwei Wege, ein Dialogfeld zu öffnen. Er ist nicht mit spielverändernden NPC-Aktionen verbunden; der NPC-Chat-Endpoint führt keine Game-Action-Consequences aus.
 
 ### 1. **Direkt per JavaScript-Aufruf**
 

@@ -23,6 +23,8 @@ coverage/
 .nyc_output/
 playwright-report/
 test-results/
+js/**/*.ugl.js.gz
+js/packages/game.boot.bundle*.js.gz
 
 # PHP unit / runtime cache
 .phpunit.cache/
@@ -62,7 +64,11 @@ cache/tts/*.mp3
 # Generated procedural textures (runtime artifacts)
 generated/textures/**/*.png
 generated/textures/**/*.lock
-/generated/comfyui/output/3D/trellis2_teaser_transfer_ship_00001_.glb
+/generated/comfyui/output/3D/*.glb
+/generated/trellis2/*.glb
+/generated/trellis2/fallback_job*.glb
+/generated/trellis2/image2text/*.glb
+/generated/trellis2/text2image/*_prompt.glb
 
 # Locally generated MakeHuman/MPFB development model, not a deployment asset
 generated/dev-only/heralds/*.glb

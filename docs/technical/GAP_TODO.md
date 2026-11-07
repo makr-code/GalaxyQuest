@@ -172,16 +172,16 @@
 ### D-1 GALAXY_POSTPROCESS_ROADMAP.md — veralteter Footer 🔵 ✅
 **Datei:** `docs/technical/GALAXY_POSTPROCESS_ROADMAP.md`
 
-- [x] Footer-Status aktualisiert: alle 5 Phasen ✅ COMPLETE
-- [x] Phase 3a (DOF) und Phase 4c (Atmospheric Glow Halo) als deferred/not implemented markiert
+- [x] Historischen Implementierungsstand ausgewiesen; Phase 2 Visual-Validation weiterhin offen, Phase 3a (DOF) und Phase 4c (Atmospheric Glow Halo) deferred/not implemented
+- [x] Unbelegte FPS-/Visual-Quality-Kriterien nicht mehr als erfüllt markiert
 
 ---
 
-### D-2 PROGRESS_BARS_ROADMAP.md — Phase 9/10 bereits implementiert 🔵 ✅
+### D-2 PROGRESS_BARS_ROADMAP.md — historische Statusclaims zu Phase 9/10 präzisiert 🔵 ✅
 **Datei:** `docs/technical/PROGRESS_BARS_ROADMAP.md`
 
-- [x] Phase 9 Items als ✅ markiert (Colony Events, Fleet Movement, Storage Capacity — alle bereits implementiert)
-- [x] Phase 10 Items als ✅ markiert (Energy Balance ✅, Population ✅ implementiert)
+- [x] Frühere Abschlussmarker als historischen Implementierungsstand gekennzeichnet
+- [x] Klarstellung ergänzt: keine unabhängige Bestätigung für Runtime-Wiring, UX-/Accessibility-Abnahme oder Production-Readiness
 
 ---
 
@@ -212,7 +212,7 @@
 - [x] `LORA_TRAINING_GUIDE.md` → `docs/lore/LORA_TRAINING_GUIDE.md`
 - [x] `WEAPON_FIRE_INTEGRATION.md` → `docs/technical/WEAPON_FIRE_INTEGRATION.md`
 - [x] `IMPLEMENTATION_STATUS_SUMMARY.md` → `docs/technical/IMPLEMENTATION_STATUS_SUMMARY.md`
-- [x] `IMPLEMENTATION_CHECKLIST.md` → `docs/technical/IMPLEMENTATION_CHECKLIST.md`
+- [x] `IMPLEMENTATION_CHECKLIST.md` → `docs/archive/IMPLEMENTATION_CHECKLIST.md` (undatierte VFX-Abschlussbehauptungen als historischen Snapshot gekennzeichnet)
 - [x] `docs/INDEX.md` — Neue Einträge für alle verschobenen Dateien ergänzt
 
 ---
@@ -242,7 +242,10 @@
 |---|---|---|
 | 2026-04-08 | Modul 0 | Dieses Dokument erstellt |
 | 2026-04-08 | Modul 1 (D-1) | GALAXY_POSTPROCESS_ROADMAP.md Footer + Remaining-Work korrigiert |
+| 2026-11-07 | Dokumentations-Audit | Historischen Phase-2-Validierungsstatus mit den Success-Criteria abgeglichen; ungemessene FPS-/Visual-Ziele nicht als Abnahme markiert |
 | 2026-04-08 | Modul 1 (D-2) | PROGRESS_BARS_ROADMAP.md Phase 9+10 als ✅ markiert |
+| 2026-11-07 | Dokumentations-Audit | Progressbar-Roadmap als historischen Implementierungsstand statt aktueller Abnahme gekennzeichnet |
+| 2026-11-07 | Dokumentations-Audit | Quest-Generierungsplan mit fehlendem Production-Call-Site, historische Migration- und Trader-Statusangaben präzisiert |
 | 2026-04-08 | Modul 1 (D-3) | FUTURE_ENHANCEMENTS.md §3.4 auf 🚧 Partial aktualisiert |
 | 2026-04-08 | Modul 2 (D-4) | 18 Root-MDs nach docs/{gamedesign,technical,lore}/ verschoben; INDEX.md vollständig aktualisiert |
 | 2026-04-08 | Modul 3 (A-1) | `sql/migrate_colonization_v1.sql` + `v2.sql` — 5 neue Tabellen + colonies-Erweiterung |

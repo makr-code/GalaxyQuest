@@ -953,8 +953,12 @@ final class MigrationRunnerMySqlTest extends TestCase
         $errors = tmpfile();
         $this->assertIsResource($output);
         $this->assertIsResource($errors);
+        $dsn = (string) getenv('GQ_MIGRATION_TEST_DSN');
+        preg_match('/(?:^|[:;])host=([^;]+)/', $dsn, $hostMatch);
+        preg_match('/(?:^|;)port=([^;]+)/', $dsn, $portMatch);
         $environment = array_merge(getenv(), [
-            'DB_HOST' => '127.0.0.1', 'DB_PORT' => '3306', 'DB_NAME' => $this->database,
+            'DB_HOST' => $hostMatch[1] ?? '127.0.0.1', 'DB_PORT' => $portMatch[1] ?? '3306',
+            'DB_NAME' => $this->database,
             'DB_USER' => $username, 'DB_PASS' => $password, 'XDEBUG_MODE' => 'off',
         ]);
         try {

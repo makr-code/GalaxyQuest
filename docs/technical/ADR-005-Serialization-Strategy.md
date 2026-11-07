@@ -4,6 +4,8 @@
 
 **Date**: 2026-07-31
 
+> **Implementation note (2026-11-07):** The active galaxy endpoint defaults to JSON. Optional binary formats exist on the legacy endpoint, but the normal game client requests JSON; this ADR does not establish a production performance win or release approval.
+
 **Context**: Galaxy context needs to serialize system payload data for API transmission. Must choose between JSON (human-readable, widely supported) and binary (smaller, faster).
 
 ---
@@ -326,10 +328,10 @@ $encoding = $_GET['encoding'] ?? 'json';  // "json" or "binary"
 
 ## Sign-off
 
-✅ Approved by: Architecture Team
-✅ Implemented in: Batch 3
-✅ Tested: Yes (encoding snapshots, performance profiling)
-✅ Production ready: Yes (JSON default, binary optional)
+✅ Decision accepted by: Architecture Team
+🟡 Implementation: JSON is the active default; optional binary encoders/formats exist
+✅ Encoding tests: Present (see `tests/Unit/GalaxyEncodingSnapshotTest.php`)
+❌ Production readiness or performance benefit: Not assessed
 
 ---
 

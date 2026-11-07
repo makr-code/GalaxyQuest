@@ -1,6 +1,8 @@
 # 🛸 Ship Designer Prompt Engine – Quickstart
 
-**Zusammenfassung**: Eine vollständige **Prompt-Engine für spieler-editierbare 3D-Schiffe** basierend auf Fraktionsvorgaben, LoRA-Styling und TRELLIS2.
+**Status**: Prototyp, nicht produktionsbereit. Die Prompt-API ist implementiert, aber der vollständige UI-Generierungspfad ist derzeit nicht erreichbar: `.htaccess` deaktiviert die `/api/vessel_designs`-Rewrite-Regel und blockiert die eigenständige `ship-designer.html`-Seite. Asset-Validierung, Thumbnail-Erstellung und Material-Nachbearbeitung enthalten außerdem Platzhalter.
+
+**Zusammenfassung**: Prompt-Generierung für spieler-editierbare 3D-Schiffsentwürfe auf Basis von Fraktionsvorgaben, Prompt-Stil-Presets und Spieler-Eingaben.
 
 ---
 
@@ -9,7 +11,7 @@
 ### 1. **Backend Prompt Engine** (`api/ship_designer_engine.php`)
 - **FactionShipSignature**: Fraktionsspezifische Visualsignaturen (Silhouette, Materialien, Farben)
 - **ShipClassTemplate**: Schiff-Klassen mit Triangle-Budgets (3k–25k tri)
-- **LoRAStylePreset**: Konsistenz-Styling (faction-optimiert)
+- **LoRAStylePreset**: Prompt-Stil-Presets (keine Aussage über geladene LoRA-Modellgewichte)
 - **ShipDesignerPromptEngine**: Kern-Logik für Prompt-Generierung
 
 **API-Endpunkte**:
@@ -28,11 +30,13 @@ GET    /api/ship_designer_engine.php?action=lora_styles&faction_code=vor_tak
        → LoRA-Styles für eine Fraktion
 ```
 
+Die UI ist für einen getrennten Generierungspfad geschrieben: Sie versucht Entwürfe über `/api/vessel_designs` zu speichern, Jobs über `/api/vessel_designs/{id}/generate` einzureihen, `/api/generation_queue/{id}` abzufragen und Ergebnisse über `/api/asset_generations/{id}` zu laden. Dieser vollständige Pfad ist mit der aktuellen `.htaccess`-Konfiguration nicht verfügbar; behandle die UI-Beispiele als Prototyp, nicht als funktionierende Produktionsintegration.
+
 ### 2. **Frontend Spieler-UI** (`js/ui/ship-designer.js`)
 - Fraktions-Galerie (visuell, 6 Fraktionen)
 - Schiff-Klassen-Selector (mit Budget-Info)
 - Schiff-Name-Input
-- LoRA-Style Multi-Select (mit Beschreibungen)
+- Prompt-Stil-Preset Multi-Select (mit Beschreibungen)
 - **Custom Prompt Editor** (free-text für extra Details)
 - **Prompt-Preview** (collapsible)
 - **3D-Viewer** (GLB-Rendering via Three.js)
@@ -40,27 +44,25 @@ GET    /api/ship_designer_engine.php?action=lora_styles&faction_code=vor_tak
 - Ship-Stats Display (Triangles, Materials, Dateigröße)
 - Save/Export-Buttons
 
-### 3. **Asset-Pipeline Integration** (`js/engine/ShipDesignerAssetPipeline.js`)
-- GLB-Validierung gegen Budgets
-- Signature-Parts-Detektion
-- Quality-Tier-Skalierung
-- Fraktionsspezifische Post-Processing (Farben, Materialien)
-- Thumbnail-Generierung
-- Datenbank-Speicherung
+### 3. **Asset-Pipeline-Prototyp** (`js/engine/ShipDesignerAssetPipeline.js`)
+- GLB-Prüfung verwendet grobe Dateigrößen-Schätzungen statt vollständiger Mesh-Analyse
+- Signaturteile-Erkennung ist ein Stub
+- Quality-Tier-Skalierung ist nicht implementiert
+- Fraktionsspezifisches Post-Processing protokolliert nur vorgesehene Änderungen
+- Thumbnail-Generierung erzeugt ein Platzhalterbild
+- Datenbank-Speicherung über diese Pipeline ist nicht im Prompt-Endpoint implementiert
 
 ### 4. **Unit Tests** (`tests/Unit/ShipDesignerEngineTest.php`)
-- 25+ Test-Cases für alle Komponenten
+- 21 PHPUnit-Testmethoden für Signaturen, Klassen, Stil-Presets und Prompt-Generierung
 - Validierung von Fraktionssignaturen
 - Schiff-Klassen-Templates
 - LoRA-Style-Empfehlungen
 - Prompt-Generierung
 
 ### 5. **Dokumentation** (`docs/technical/SHIP_DESIGNER_PROMPT_ENGINE.md`)
-- 15 Abschnitte
-- API-Referenz
-- Beispiel-Prompts
-- LoRA-Preset-Dokumentation
-- Deployment-Checklist
+- API-Referenz und Implementierungshinweise
+- Beispiel-Prompts und Prompt-Stil-Presets
+- Bekannte Grenzen und offene Produktionsreife-Arbeiten
 
 ---
 
@@ -260,57 +262,34 @@ tests/Unit/ShipDesignerEngineTest.php
 
 ---
 
-## 🔧 Nächste Schritte (Production-Ready)
+## 🔧 Offene Produktionsreife-Arbeiten
 
-1. **Echte TRELLIS2-Integration** (aktuell: Mock)
-   - Async Job Queue für lange Generierungen
-   - WebSocket für Echtzeit-Progress
-   - Error Handling + Retry-Logic
+1. **HTTP-Routing und UI-Aktivierung**
+   - Die `/api/vessel_designs`-Rewrite-Regel ist in `.htaccess` deaktiviert.
+   - `ship-designer.html` ist in `.htaccess` für direkte Auslieferung gesperrt.
+   - Vor Aktivierung Routing, Auth/CSRF, Schema und Worker-Ende-zu-Ende gemeinsam abnehmen.
 
-2. **Three.js GLB Viewer** (aktuell: Placeholder)
-   - GLTFLoader Integration
-   - 3D-Rotation/Zoom
-   - Material-Preview
+2. **Asset-Pipeline vervollständigen**
+   - Echte GLB-Geometrie- und Materialanalyse statt Dateigrößen-Schätzung
+   - Signatur-Erkennung, Quality-Tier-Skalierung und Material-Nachbearbeitung implementieren
+   - Thumbnail aus dem Modell rendern und Asset-Speicherung/Persistenz integrieren
 
-3. **Datenbank-Schema**
-   ```sql
-   CREATE TABLE user_generated_ships (
-     id INT PRIMARY KEY,
-     user_id INT NOT NULL,
-     faction_id INT NOT NULL,
-     ship_class VARCHAR(32) NOT NULL,
-     name VARCHAR(128) NOT NULL,
-     glb_data LONGBLOB NOT NULL,
-     thumbnail MEDIUMBLOB NOT NULL,
-     metadata JSON NOT NULL,
-     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-     FOREIGN KEY (user_id) REFERENCES users(id),
-     FOREIGN KEY (faction_id) REFERENCES npc_factions(id)
-   );
-   ```
-
-4. **GitHub Actions CI/CD**
-   - Mock-based tests (schnell, kein GPU)
-   - Real TRELLIS2 tests (GPU runner)
-
-5. **Performance-Optimierungen**
-   - Model Caching
-   - Batch Generation
-   - Progressive Streaming
+3. **Ende-zu-Ende-Verifikation**
+   - Queue-, Worker-, TRELLIS2-Fehler- und Wiederanlaufpfade testen
+   - Browser- und GPU-Tests ergänzen; vorhandene Prompt-Engine-Tests decken dies nicht ab
+   - Ressourcenbedarf und Latenz mit den tatsächlich unterstützten Modellen messen
 
 ---
 
 ## 📚 Dateien-Übersicht
 
-| Datei | Zeilen | Zweck |
-|-------|--------|-------|
-| `api/ship_designer_engine.php` | 350 | Prompt-Engine + API |
-| `js/ui/ship-designer.js` | 650 | Spieler-UI |
-| `js/engine/ShipDesignerAssetPipeline.js` | 400 | Asset-Validierung |
-| `tests/Unit/ShipDesignerEngineTest.php` | 250 | Unit-Tests |
-| `docs/technical/SHIP_DESIGNER_PROMPT_ENGINE.md` | 400 | Vollständige Doku |
-
-**Total**: ~2,050 Zeilen produktiver Code
+| Datei | Zweck |
+|-------|-------|
+| `api/ship_designer_engine.php` | Prompt-Engine und Katalog-API |
+| `js/ui/ship-designer.js` | Prototypische Spieler-UI |
+| `js/engine/ShipDesignerAssetPipeline.js` | Unvollständige Asset-Pipeline-Helfer |
+| `tests/Unit/ShipDesignerEngineTest.php` | Prompt-Engine-Unit-Tests |
+| `docs/technical/SHIP_DESIGNER_PROMPT_ENGINE.md` | API-Referenz und dokumentierte Grenzen |
 
 ---
 
@@ -323,15 +302,15 @@ tests/Unit/ShipDesignerEngineTest.php
 ✅ **Budget-Validierung** (Triangles, Materials)  
 ✅ **Signature-Part-Detektion** (Fraktions-Erkennung)  
 ✅ **Prompt-Vorschau** (transparent, debuggable)  
-✅ **Asset-Pipeline-Integration** (Speicherung + Quality)  
-✅ **Ausführliche Tests** (25+ Unit-Tests)  
-✅ **Production-ready Dokumentation**
+⚠️ **Asynchrone Erzeugung** ist in der UI gegen separate Vessel-Design- und Queue-APIs vorgesehen, der dokumentierte REST-Pfad ist derzeit aber nicht aktiv
+✅ **Prompt-Engine-Tests** (21 Testmethoden; belegen nicht die Produktionsreife des vollständigen Generierungspfads)
+⚠️ **Asset-Pipeline** (Validierung, Thumbnail und Nachbearbeitung noch teilweise Platzhalter)
 
 ---
 
 ## 💬 Fragen?
 
-Siehe ausführliche Doku: [`docs/technical/SHIP_DESIGNER_PROMPT_ENGINE.md`](../../docs/technical/SHIP_DESIGNER_PROMPT_ENGINE.md)
+Siehe ausführliche Doku: [`docs/technical/SHIP_DESIGNER_PROMPT_ENGINE.md`](docs/technical/SHIP_DESIGNER_PROMPT_ENGINE.md)
 
 **Testen Sie es jetzt**:
 ```bash

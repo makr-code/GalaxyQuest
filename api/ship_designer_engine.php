@@ -4,12 +4,14 @@
  * Generates TRELLIS2 prompts from faction specs + player customization
  * Supports LoRA-based style consistency and real-time generation
  * 
- * POST /api/ship_designer_engine.php?action=generate_prompt         – Generate TRELLIS2 prompt from faction/class
- * POST /api/ship_designer_engine.php?action=queue_generation         – Queue async generation job
- * GET  /api/ship_designer_engine.php?action=generation_status&job_id – Check generation progress
- * POST /api/ship_designer_engine.php?action=save_generated_ship      – Import generated GLB as user ship
- * GET  /api/ship_designer_engine.php?action=ship_templates           – List faction ship templates
- * GET  /api/ship_designer_engine.php?action=lora_styles              – List available LoRA style presets
+ * POST /api/ship_designer_engine.php?action=generate_prompt – Generate a prompt from faction/class
+ * GET  /api/ship_designer_engine.php?action=ship_templates  – List faction ship templates
+ * GET  /api/ship_designer_engine.php?action=faction_ships   – Get faction-specific ship data
+ * GET  /api/ship_designer_engine.php?action=lora_styles     – List prompt style presets
+ *
+ * The UI references separate vessel_designs, generation_queue, and
+ * asset_generations endpoints. The /api/vessel_designs rewrite is currently
+ * disabled in .htaccess, so the documented end-to-end UI flow is unavailable.
  */
 declare(strict_types=1);
 

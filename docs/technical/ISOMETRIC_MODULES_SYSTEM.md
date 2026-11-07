@@ -4,7 +4,9 @@
 
 A unified **3D isometric projection system** for rendering equipment modules (reactors, weapons, shields, armor, etc.) in the shipyard UI. Each module type has a distinct visual signature with support for damage states, upgrade tiers, and interactive selection.
 
-**Status**: ✅ Complete | **Phase**: Shipyard Equipment UI Enhancement
+**Status**: Isometric canvas renderer/editor modules exist; full shipyard/game integration is not complete
+
+> **Integration note:** The renderer and editor are standalone UI modules. The documented shipyard API examples below are proposals, not the current contract: the live endpoint is `api/shipyard.php` with query-string actions, session authentication, CSRF on mutations, and different request/response shapes. The main game entrypoint does not load the Shipyard Blueprint Forge prototype.
 
 ---
 
@@ -352,6 +354,8 @@ Import slots from JSON.
 
 ### Shipyard API Integration
 
+> The following event/fetch snippets are historical integration sketches and are not usable as-is with the current `api/shipyard.php` contract.
+
 **Module Selection Dialog**:
 ```javascript
 window.addEventListener('gq:module-selector-request', (ev) => {
@@ -403,7 +407,7 @@ npx vitest run tests/js/isometric-modules.test.js
 ```
 
 **Coverage**:
-- 25+ test cases
+- historical guide reports 25+ test cases; current pass status and coverage are not established here
 - Module type rendering
 - Damage state progression
 - Tier level validation

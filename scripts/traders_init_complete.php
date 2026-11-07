@@ -283,7 +283,8 @@ try {
                 $acquired = (float)$route['quantity_acquired'];
                 $pricePaid = (float)$route['price_paid'];
                 
-                // Get target system price\n                $tgtSys = $db->query("
+                // Get target system price
+                $tgtSys = $db->query("
                     SELECT cb.galaxy_index, ss.system_index
                     FROM colonies c
                     JOIN celestial_bodies cb ON cb.id = c.body_id

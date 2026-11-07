@@ -1,15 +1,17 @@
 # NPC Quest Generation System — Implementation Plan
 
+> **Status note:** This is an implementation snapshot, not a production-readiness sign-off. The daily faction quest generator has code and tests but is explicitly not wired to a production call site.
+
 ## Overview
 
-A complete technical core for autonomous, believable NPC control combining:
+A planned NPC quest-generation system combining:
 - **YAML-based Behavior-Scripts** — Deterministic decision making
 - **Seeded Randomness** — Reproducible quest variants
 - **LLM Integration** — Narrative richness with caching
 - **Dynamic Generation** — Daily + event-triggered quests
 - **Quest Chains** — Progression with escalating rewards
 
-**Current Status**: Phase 2 Block 2 Complete (Seeded randomness + daily generation)
+**Current Status**: Phase 2 Block 1 code is present. Phase 2 Block 2 has implementation code, but daily generation is not activated in production; later phases remain planned.
 **Next: Phase 2 Block 3, Phase 3 (Offline progression), Phase 4 (Leader personalities), Phase 5 (Balancing)**
 
 ---
@@ -124,14 +126,15 @@ A complete technical core for autonomous, believable NPC control combining:
   - Pre-caching support
   - Minimal LLM load
 
-### Phase 2 Block 2: Global Quest Generation ✅
-**Delivered:**
+### Phase 2 Block 2: Global Quest Generation — Implementation Present, Production Activation Pending
+**Code present; not production-complete:**
 - Daily Quest Generator (`api/npc_faction_daily_quests.php`)
   - Once per 24 hours (rate-limited)
   - Intensity by faction type
   - Respects max_active limit
   - Template selection logic
   - Statistics tracking
+  - No production call site; tests of the entry point do not imply scheduled or runtime activation
 
 - Contextual Trigger System (`api/npc_quest_contextual_trigger.php`)
   - Event-based generation

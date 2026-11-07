@@ -52,8 +52,8 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
   function showPanel(panel, trigger, close) {
     activeTrigger = trigger;
     panel.classList.add('start-cascade-panel');
-    trigger.parentElement.append(panel);
-    panel.show();
+    trigger.insertAdjacentElement('afterend', panel);
+    panel.setAttribute('open', '');
     trigger.setAttribute('aria-expanded', 'true');
     panelListeners = new AbortController();
     const { signal } = panelListeners;
@@ -68,7 +68,10 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
       }
     }, { signal });
     document.addEventListener('pointerdown', (event) => {
-      if (!panel.contains(event.target) && !trigger.contains(event.target)) close();
+      const target = event.target;
+      const switchesPanel = target instanceof Element
+        && target.closest('[data-start-panel], #start-login, #start-dev, #start-register');
+      if (!panel.contains(target) && !trigger.contains(target) && !switchesPanel) close();
     }, { signal });
   }
 

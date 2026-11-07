@@ -103,6 +103,10 @@ export default ({ mode }) => {
             return 'vendor'; // Other node_modules
           }
           
+          if (id.includes('/js/network/auth.js')) {
+            return 'auth';
+          }
+
           // Core game logic
           if (id.includes('/js/api.js') || id.includes('/js/main.js')) {
             return 'core';

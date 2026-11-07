@@ -1,9 +1,12 @@
 <?php
+
 declare(strict_types=1);
 
 final class WordPressSimulation
 {
-    public function __construct(private array $data, private string $publicUrl, private ?string $restUrl = null) {}
+    public function __construct(private array $data, private string $publicUrl, private ?string $restUrl = null)
+    {
+    }
 
     public function request(string $route, array $query, ?array &$pagination = null): array
     {
@@ -16,7 +19,9 @@ final class WordPressSimulation
             }
         }
         $order = strtolower($query['order'] ?? 'desc');
-        if (!in_array($order, ['asc', 'desc'], true)) throw new InvalidArgumentException('order: asc or desc required.');
+        if (!in_array($order, ['asc', 'desc'], true)) {
+            throw new InvalidArgumentException('order: asc or desc required.');
+        }
         if (isset($query['orderby']) && $query['orderby'] !== 'date') {
             throw new InvalidArgumentException('Simulation supports only orderby=date.');
         }
@@ -41,8 +46,10 @@ final class WordPressSimulation
             $terms = array_values(array_filter($terms, static fn(array $term): bool =>
                 !isset($query['slug']) || $term['slug'] === $query['slug']));
             $pagination = self::pagination(count($terms), $limit);
-            return array_map(static fn(array $term): array => self::selectFields($term, $query),
-                self::paginate($terms, $page, $limit));
+            return array_map(
+                static fn(array $term): array => self::selectFields($term, $query),
+                self::paginate($terms, $page, $limit)
+            );
         }
         if ($route !== '/wp/v2/posts' && !preg_match('~^/wp/v2/posts/([1-9][0-9]*)$~D', $route, $match)) {
             throw new OutOfBoundsException('REST route not found.');
@@ -55,26 +62,42 @@ final class WordPressSimulation
             && ($categories === [] || array_intersect($categories, $post['categories']) !== []));
         usort($posts, static fn(array $a, array $b): int =>
             [$b['date_gmt'], $b['id']] <=> [$a['date_gmt'], $a['id']]);
-        if ($order === 'asc') $posts = array_reverse($posts);
-        if ($id === null) $pagination = self::pagination(count($posts), $limit);
+        if ($order === 'asc') {
+            $posts = array_reverse($posts);
+        }
+        if ($id === null) {
+            $pagination = self::pagination(count($posts), $limit);
+        }
         $embed = array_key_exists('_embed', $query)
             && ($query['_embed'] === '' || in_array($query['_embed'], ['1', 'true'], true)
                 || in_array('wp:term', explode(',', $query['_embed']), true));
-        $posts = array_map(fn(array $post): array => $this->wirePost($post, $embed),
-            $id === null ? self::paginate($posts, $page, $limit) : $posts);
+        $posts = array_map(
+            fn(array $post): array => $this->wirePost($post, $embed),
+            $id === null ? self::paginate($posts, $page, $limit) : $posts
+        );
         $posts = array_map(static fn(array $post): array => self::selectFields($post, $query), $posts);
-        if ($id === null) return $posts;
-        if ($posts === []) throw new OutOfBoundsException('Post not found.');
+        if ($id === null) {
+            return $posts;
+        }
+        if ($posts === []) {
+            throw new OutOfBoundsException('Post not found.');
+        }
         return $posts[0];
     }
 
     private static function selectFields(array $item, array $query): array
     {
-        $fields = array_values(array_filter(array_map('trim', explode(',', $query['_fields'] ?? '')),
-            static fn(string $field): bool => $field !== ''));
-        if ($fields === []) return $item;
+        $fields = array_values(array_filter(
+            array_map('trim', explode(',', $query['_fields'] ?? '')),
+            static fn(string $field): bool => $field !== ''
+        ));
+        if ($fields === []) {
+            return $item;
+        }
         $selected = self::filterFields($item, ['id', ...$fields]);
-        if (!isset($selected['_links'])) unset($selected['_embedded']);
+        if (!isset($selected['_links'])) {
+            unset($selected['_embedded']);
+        }
         return $selected;
     }
 
@@ -92,18 +115,24 @@ final class WordPressSimulation
             }
             $nested = [];
             foreach ($fields as $field) {
-                if (str_starts_with($field, $key . '.')) $nested[] = substr($field, strlen($key) + 1);
+                if (str_starts_with($field, $key . '.')) {
+                    $nested[] = substr($field, strlen($key) + 1);
+                }
             }
-            if ($nested !== [] && is_array($value)) $result[$key] = self::filterFields($value, $nested);
+            if ($nested !== [] && is_array($value)) {
+                $result[$key] = self::filterFields($value, $nested);
+            }
         }
         return $result;
     }
 
     private static function positiveInteger(mixed $value, string $parameter, int $maximum): int
     {
-        if ((!is_int($value) && !is_string($value)) || !preg_match('/^[1-9][0-9]*$/D', (string)$value)
+        if (
+            (!is_int($value) && !is_string($value)) || !preg_match('/^[1-9][0-9]*$/D', (string)$value)
             || strlen((string)$value) > strlen((string)$maximum)
-            || (strlen((string)$value) === strlen((string)$maximum) && strcmp((string)$value, (string)$maximum) > 0)) {
+            || (strlen((string)$value) === strlen((string)$maximum) && strcmp((string)$value, (string)$maximum) > 0)
+        ) {
             throw new InvalidArgumentException($parameter . ': Integer between 1 and ' . $maximum . ' required.');
         }
         return (int)$value;
@@ -111,14 +140,21 @@ final class WordPressSimulation
 
     private static function termIds(mixed $value, string $parameter): array
     {
-        if ($value === null || $value === '') return [];
-        if (is_int($value)) $value = [$value];
-        elseif (is_string($value)) $value = explode(',', $value);
+        if ($value === null || $value === '') {
+            return [];
+        }
+        if (is_int($value)) {
+            $value = [$value];
+        } elseif (is_string($value)) {
+            $value = explode(',', $value);
+        }
         if (!is_array($value) || !array_is_list($value) || count($value) > 100) {
             throw new InvalidArgumentException($parameter . ': At most 100 term IDs required.');
         }
         return array_values(array_unique(array_map(
-            static fn(mixed $id): int => self::positiveInteger($id, $parameter, PHP_INT_MAX), $value)));
+            static fn(mixed $id): int => self::positiveInteger($id, $parameter, PHP_INT_MAX),
+            $value
+        )));
     }
 
     private static function paginate(array $items, int $page, int $limit): array
@@ -144,10 +180,14 @@ final class WordPressSimulation
         $terms = [];
         if ($embed) {
             foreach (['categories', 'tags'] as $taxonomy) {
-                $terms[] = array_map(static fn(array $term): array =>
+                $terms[] = array_map(
+                    static fn(array $term): array =>
                     [...$term, 'taxonomy' => $taxonomy === 'tags' ? 'post_tag' : 'category'],
-                    array_values(array_filter($this->data[$taxonomy],
-                        static fn(array $term): bool => in_array($term['id'], $post[$taxonomy], true))));
+                    array_values(array_filter(
+                        $this->data[$taxonomy],
+                        static fn(array $term): bool => in_array($term['id'], $post[$taxonomy], true)
+                    ))
+                );
             }
         }
         $result = [
@@ -156,7 +196,10 @@ final class WordPressSimulation
             'status' => 'publish', 'type' => 'post',
             'link' => $this->publicUrl . '?p=' . $post['id'],
             'title' => ['rendered' => htmlspecialchars($post['title'], ENT_QUOTES, 'UTF-8')],
-            'content' => ['rendered' => '<p>' . nl2br(htmlspecialchars($post['body'], ENT_QUOTES, 'UTF-8')) . '</p>', 'protected' => false],
+            'content' => [
+                'rendered' => '<p>' . nl2br(htmlspecialchars($post['body'], ENT_QUOTES, 'UTF-8')) . '</p>',
+                'protected' => false,
+            ],
             'excerpt' => ['rendered' => htmlspecialchars($post['summary'], ENT_QUOTES, 'UTF-8'), 'protected' => false],
             'categories' => $post['categories'], 'tags' => $post['tags'],
             'meta' => [
@@ -174,7 +217,9 @@ final class WordPressSimulation
                 ],
             ],
         ];
-        if ($embed) $result['_embedded'] = ['wp:term' => $terms];
+        if ($embed) {
+            $result['_embedded'] = ['wp:term' => $terms];
+        }
         return $result;
     }
 }

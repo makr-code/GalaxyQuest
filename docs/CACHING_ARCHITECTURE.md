@@ -1,8 +1,10 @@
 # GalaxyQuest Cache System – Architecture & Best Practices
 
+> **Scope note:** This is a design reference, not a current cache-coverage report. Endpoint counts, endpoint lists, priorities, and scope inventories below are historical snapshots; verify active behavior against `api/cache.php` and each endpoint's call sites. Example configurations and patterns are illustrative.
+
 ## Overview
 
-The GalaxyQuest engine implements a **sophisticated two-tier cache system** designed for efficient game state management while maintaining data freshness and consistency across distributed processes.
+The GalaxyQuest engine implements a **two-tier cache system** designed to reuse data across requests and workers while maintaining freshness through TTLs and versioned keys.
 
 ### Cache Architecture
 
@@ -52,26 +54,26 @@ The GalaxyQuest engine implements a **sophisticated two-tier cache system** desi
 
 ---
 
-## Current Cache Coverage
+## Historical Cache Coverage Snapshot (Not a Current Inventory)
 
 ### By the Numbers
 - **Total API Endpoints:** 62
 - **Cached Endpoints:** 10 (16.1%)
 - **Uncached Endpoints:** 52 (83.9%)
 
-### Currently Cached Endpoints ✅
+### Endpoints Listed in the Historical Inventory
 - `achievements.php` – Achievement list
 - `buildings.php` – Building definitions
 - `faction_relations.php` – Relations between factions
 - `factions.php` – Faction data
-- `galaxy.php` – Star system data (critical binary streaming)
+- `galaxy.php` – Star chunks and base system payloads (JSON is the default; binary formats are optional)
 - `game.php` – Game overview, resources
 - `research.php` – Research tree
 - `shipyard.php` – Shipyard queue
 - `shipyard_queue.php` – Queue management
 - `auth.php` – Minimal caching (likely from 1.x)
 
-### Critical Uncached Endpoints ⚠️
+### Historical Cache Recommendations (Not a Current Prioritized Backlog)
 
 **High-Impact Missing Cache:**
 | Endpoint | Operations | Impact | Priority |
@@ -90,13 +92,13 @@ The GalaxyQuest engine implements a **sophisticated two-tier cache system** desi
 ## Cache Configuration
 
 ### Location
-`/config/config.php` (lines 98–105)
+`config/config.php` cache defaults (currently around lines 123–130)
 
-### Current Settings
+### Default Settings (Overridable via Environment)
 ```php
 define('CACHE_ENABLED',             true);              // Master switch
 define('CACHE_VERSION',             '1');               // Auto-invalidates all
-define('CACHE_DIR',                 sys_get_temp_dir()); // Persistent storage
+define('CACHE_DIR',                 sys_get_temp_dir() . '/gq_cache'); // Default; overridable via environment
 define('CACHE_TTL_STARS',           600);               // 10 minutes
 define('CACHE_TTL_SYSTEM_PAYLOAD',  12);                // 12 seconds
 define('CACHE_TTL_FACTIONS',        120);               // 2 minutes
@@ -174,7 +176,9 @@ json_ok($agreements);
 
 ### 2. Adding Cache to an Endpoint with Binary Payloads
 
-**Pattern: Streaming large binary data**
+**Optional pattern: Streaming a binary payload**
+
+Galaxy system responses default to JSON; this example applies only to endpoints that explicitly return binary data.
 
 ```php
 // BEFORE (uncached)
@@ -235,7 +239,7 @@ gq_invalidate_batch([
 
 ## Cache Scopes (Reference)
 
-### Defined Scopes (In Use)
+### Historically Documented Scopes (Verify Current Call Sites)
 ```
 stars                       – Star system chunk data (10 min)
 system_payload_base         – System details (planets/fleets/colonies) (12 sec)

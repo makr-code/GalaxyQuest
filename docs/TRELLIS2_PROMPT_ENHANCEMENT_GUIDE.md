@@ -1,9 +1,11 @@
 # TRELLIS2 Prompt Enhancement System - Complete Guide
 ## LLM Wiki-Based Species Design & Iterative 3D Generation
 
-**Status:** ✅ COMPLETE & PRODUCTION READY  
+**Status:** Historical implementation guide; not approved for production
 **Date:** 2026-08-02  
 **Version:** 1.0
+
+> TRELLIS2 runtime generation is outside the current launch scope (see [`ROADMAP.md`](../ROADMAP.md)). This 2026 guide does not establish current deployment or production readiness.
 
 ---
 

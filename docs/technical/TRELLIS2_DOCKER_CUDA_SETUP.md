@@ -243,7 +243,7 @@ npm run test:3d-geometry
 ## 14. Verwandte Dokumentation
 
 - [TRELLIS2 Dev Toolset](../technical/TRELLIS2_DEV_TOOLSET.md)
-- [3D Rendering System](../3D_RENDERING_SYSTEM_ANALYSIS.md)
+- [Historische 3D-Rendering-Analyse](../archive/3D_RENDERING_SYSTEM_ANALYSIS.md)
 - [Test Suite](../TESTING_3D_GEOMETRY.md)
 
 ## 15. Support & Performance

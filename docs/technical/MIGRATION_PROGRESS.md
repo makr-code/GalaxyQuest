@@ -1,5 +1,7 @@
 # SOC/OOP Migration Progress Tracker
 
+> **Historical snapshot:** The batch statuses below were last recorded on 2026-07-31. This document is not a live progress tracker or a current production-readiness sign-off.
+
 **Overall Status**: Batches 3-6 Complete (Galaxy Context Phase 1 ✅)
 
 **Last Updated**: 2026-07-31
@@ -76,27 +78,21 @@
 - ✅ `tests/Unit/RetryPolicyTest.php` – 15 unit tests for retry logic (272 lines)
 
 ### Features Implemented
-- ✅ Exponential backoff (base 2, max 3 retries)
-- ✅ Configurable jitter (0.0–1.0 factor)
-- ✅ Transient error classification (timeouts, 5xx, connection failures)
-- ✅ Integration bridge maintains backward compatibility
-- ✅ Range query integration with database
-- ✅ System detail lookup integration
-- ✅ Performance baseline: p95/p99 latency measurements
+- ✅ `RetryPolicy` utility defines exponential backoff, jitter, and transient-error classification; it is not invoked by the Galaxy API path.
+- ⚠️ `api/galaxy.php` routes `range` and `system_detail` through the controller; this is a partial integration, not a general legacy bridge.
+- ✅ Range query and system-detail services use the database repository.
+- ⚠️ Performance test code exists, but its historical p95/p99 figures are not a current measured baseline.
 - ✅ Payload size analysis (JSON vs Binary)
 
 ### Test Results
-- ✅ 6 integration tests passing (range, detail, error scenarios)
-- ✅ 15 retry policy unit tests passing (backoff, errors, edge cases)
-- ✅ 4 performance tests passing (latency profiling, payload sizing)
-- ✅ All tests >80% code coverage
-- ✅ No regressions on legacy endpoints
+- Historical snapshot reported 6 integration tests, 15 retry-policy unit tests, 4 performance tests, and >80% coverage; these figures were not re-run as a complete suite for this status update.
+- The focused current frontend suite `npm run test:unit:js -- tests/js/features/galaxy.test.js` passed 17 tests on 2026-11-07.
 
 ### Status
-- Batch 3 complete and fully tested
-- Backend integration bridge operational
-- Retry mechanism ready for network resilience
-- Performance baseline established (p99 <1ms for both query types)
+- Historical batch status only; this does not establish full integration or production readiness.
+- The Galaxy API delegates `range` and `system_detail` to the controller; legacy actions remain in the endpoint.
+- `RetryPolicy` exists but automatic retries are not wired into the Galaxy API path.
+- The previous p99 <1ms claim is not a current measured performance baseline.
 
 ---
 
@@ -105,7 +101,7 @@
 ### Files Created
 - ✅ `js/features/galaxy/GalaxyService.js` – Business logic with caching (215 lines)
 - ✅ `js/features/galaxy/GalaxyController.js` – State management & event emitter (214 lines)
-- ✅ `tests/js/features/galaxy.test.js` – 30+ integration test cases (326 lines)
+- ✅ `tests/js/features/galaxy.test.js` – focused suite currently passes 17 tests (256 lines at the time of this update)
 - ✅ `js/features/galaxy/legacy-bridge.js` – Adapter for existing game.js calls
 
 ### Features Implemented
@@ -116,22 +112,21 @@
 - ✅ FIFO cache eviction (max 100 items)
 - ✅ Event emitter for UI integration (loading, loaded, error, cleared)
 - ✅ State management (currentRange, currentSystems, currentDetail)
-- ✅ Legacy bridge for gradual migration (promise + callback styles)
+- ✅ Legacy bridge module for gradual migration (promise + callback styles); not loaded from the main entrypoints
 - ✅ Error handling with proper ApiResponse parsing
 
 ### Test Results
-- ✅ 30+ integration test cases defined
+- ✅ 17 focused tests pass with Vitest (verified 2026-11-07)
 - ✅ MockApiClient with ApiResponse envelope simulation
 - ✅ GalaxyService: caching, validation, error handling
 - ✅ GalaxyController: state management, event emission, listener cleanup
 - ✅ GalaxyLegacyBridge: promise and callback API compatibility
-- ✅ All tests define expected behaviors for Jest/Vitest
+- ⚠️ This focused suite is not a complete integration, coverage, or production-readiness gate
 
 ### Status
-- Batch 4 complete and fully tested
-- Frontend service layer operational
-- Legacy bridge maintains backward compatibility with game.js
-- Ready for real integration with mock HTTP server
+- Historical batch status; the focused service/controller/bridge tests pass, but production integration is not established.
+- The service and controller modules exist; the legacy bridge is not loaded from the main entrypoints.
+- The original next-step note was to integrate the frontend with a real API; that end-to-end integration remains unverified.
 
 ---
 
@@ -236,32 +231,15 @@
 
 ---
 
-## Key Achievements
+## Historical Claims and Current Verification
 
-### Backend (PHP)
-- ✅ **Retry Mechanism**: Exponential backoff with jitter for resilience
-- ✅ **Real Database Integration**: PdoGalaxyRepository fully implemented
-- ✅ **Integration Bridge**: api/galaxy.php connects legacy and new code
-- ✅ **Performance Established**: p99 latency <1ms for all queries
-- ✅ **Backward Compatible**: Legacy endpoints unchanged
+The following implementation facts are checked against the current source, but do not establish production readiness:
 
-### Frontend (JavaScript)
-- ✅ **Service Layer**: GalaxyService with caching and validation
-- ✅ **State Management**: GalaxyController with event emitters
-- ✅ **Legacy Bridge**: Maintains compatibility with existing game.js
-- ✅ **Test Coverage**: 30+ integration test cases defined
-
-### Infrastructure
-- ✅ **Linting Rules**: ESLint + PHP CodeSniffer for architecture
-- ✅ **CI Integration**: Lint jobs on every push/PR
-- ✅ **API Contract Tests**: Prevent schema drift
-- ✅ **Snapshot Tests**: Verify encoding consistency
-
-### Documentation
-- ✅ **Architecture Guide**: Updated with Galaxy patterns
-- ✅ **Migration Playbook**: Template for replication
-- ✅ **ADRs**: Key decisions documented
-- ✅ **Knowledge Transfer**: Ready for team onboarding
+- `src/Shared/Http/RetryPolicy.php` exists; automatic retries are not wired into the Galaxy API path.
+- `api/galaxy.php` delegates the `range` and `system_detail` actions to the Galaxy controller; this is not a wholesale replacement of the legacy endpoint paths.
+- `js/features/galaxy/legacy-bridge.js` exists, but no load/import from the main entrypoints was found.
+- Historical p99 latency and integration-test-count claims in earlier versions of this tracker are not current measurements and are not release evidence.
+- The batch and architecture-rule checklists elsewhere in this guide are migration notes; verify actual CI coverage and runtime call sites for each context.
 
 ---
 
@@ -324,7 +302,9 @@
 
 ---
 
-## Files Summary
+## Historical File and Test Inventory
+
+> The following counts are a documentation snapshot, not current coverage or release evidence. Only the focused Galaxy frontend suite listed above was re-run on 2026-11-07.
 
 ### Core Architecture
 - `src/Shared/Http/` – ApiResponse, ApiError, RequestContext (3 files)
@@ -348,7 +328,7 @@
 - `tests/Unit/` – 32 unit test files (ApiResponse, ApiError, RequestContext, RangeValidator, GetStarsRangeService, RetryPolicy, GalaxyEncodingSnapshot, GalaxyApiContract)
 - `tests/Integration/GalaxyIntegrationTest.php` – 6 integration tests (285 lines)
 - `tests/Performance/GalaxyPerformanceTest.php` – 4 performance tests (304 lines)
-- `tests/js/features/galaxy.test.js` – 30+ frontend tests (326 lines)
+- `tests/js/features/galaxy.test.js` – 17 frontend tests in the focused run (256 lines at verification)
 
 ### Configuration
 - `.eslintrc.galaxy.js` – ESLint rules for Galaxy module

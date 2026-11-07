@@ -1,6 +1,8 @@
 # Ship Designer Prompt Engine – Spieler-Editierbare 3D-Schiffe
 
-**Überblick**: Eine vollständige Prompt-Engine, die aus Fraktionsvorgaben, LoRA-Styling und Spieler-Eingaben **TRELLIS2-Ready Prompts** für Text-to-3D-Generierung erzeugt.
+**Status**: Prototypische Prompt- und Designer-Integration, keine Produktionsfreigabe. Die Prompt-API ist von den Vessel-Design-/Generation-APIs getrennt; die Asset-Pipeline enthält noch Platzhalter für Analyse und Nachbearbeitung.
+
+**Überblick**: Die Prompt-API erzeugt aus Fraktionsvorgaben, Prompt-Stil-Presets und Spieler-Eingaben Prompts für den separaten Text-to-3D-Generierungspfad.
 
 ---
 
@@ -12,18 +14,18 @@ Spieler-UI (ship-designer.js)
 Prompt-Engine (ship_designer_engine.php)
   ├── FactionShipSignature: Fraktionsspezifisches visuelles Design
   ├── ShipClassTemplate: Geometrie- & Performance-Budgets
-  ├── LoRAStylePreset: Konsistenz-Styling (faction-spezifisch)
+  ├── LoRAStylePreset: Prompt-Stil-Presets (keine Modellgewichte)
   └── ShipDesignerPromptEngine: Prompt-Generierung
   ↓
-TRELLIS2 WebApp (Docker Container)
-  ├── Text→3D-Generierung mit LoRA-Kontrolle
-  ├── GLB-Export
-  └── HTTP REST API
+Vessel-Design-/Generation-APIs (von der UI aufgerufen, REST-Route aktuell deaktiviert)
+  ├── /api/vessel_designs
+  ├── /api/vessel_designs/{id}/generate
+  ├── /api/generation_queue/{id}
+  └── /api/asset_generations/{id}
   ↓
-Asset Pipeline
-  ├── GLB Import & Validation
-  ├── Budget Enforcement (Triangles, Materials)
-  └── Datenbank-Speicherung (user_generated_ships)
+TRELLIS2 Worker / Generator
+  ↓
+GLB-Asset (separate Asset-Pipeline-Helfer sind noch nicht vollständig integriert)
 ```
 
 ---
@@ -336,41 +338,19 @@ Validiert:
 
 ---
 
-## 🚀 Deployment-Checklist
+## 🚀 Produktionsreife: offene Grenzen
 
-- [ ] `api/ship_designer_engine.php` deployiert
-- [ ] `js/ui/ship-designer.js` in Build-Bundle integriert
-- [ ] Datenbank-Migrations ausgeführt (`user_generated_ships` Tabelle)
-- [ ] Docker TRELLIS2-Container läuft
-- [ ] LoRA-Modelle für alle Fraktionen heruntergeladen
-- [ ] Three.js GLTFLoader in Vite-Bundle integriert
-- [ ] API-Tests grün
-- [ ] Frontend-Tests grün
-- [ ] Performance-Budgets gemessen (Prompt-Gen < 200ms)
+- `ship_designer_engine.php` implementiert Prompt-, Template-, Fraktions- und Stil-Abfragen. Es implementiert keine `queue_generation`, `generation_status` oder `save_generated_ship` Aktionen.
+- Die UI reiht die Generierung über die separaten Vessel-Design- und Queue-APIs ein; deren Laufzeit erfordert die konfigurierte Datenbank, den Worker und den TRELLIS2-Dienst.
+- `ShipDesignerAssetPipeline.js` ist kein vollständiger Produktionspfad: GLB-Statistiken sind Näherungen, Signatur-Erkennung ist ein Stub, Skalierung fehlt, Thumbnail ist ein Platzhalter und Material-Nachbearbeitung wird nicht ausgeführt.
+- Prompt-Stil-Presets belegen nicht, dass die entsprechenden LoRA-Modellgewichte geladen oder bei TRELLIS2 angewendet werden.
+- Die vorhandenen Prompt-Engine-Tests decken nicht den vollständigen Browser-, Queue-, GPU- und Persistenzpfad ab.
 
 ---
 
-## 🔄 TRELLIS2-Integration (nächster Schritt)
+## 🔄 Vorgesehener Generierungsvertrag (derzeit nicht verfügbar)
 
-**Mit echten API-Calls statt Mocks**:
-
-1. Docker-Container läuft und lauscht auf Port 7862 (Image→3D) / 7863 (Text→3D)
-2. Async Job Queue für lange Generierungen
-3. WebSocket für Echtzeit-Progress
-4. GLB-Validation nach Generierung
-5. Budget-Enforcement vor Speicherung
-
-```php
-// api/ship_designer_engine.php - Future Enhancement
-
-async function queueTRELLIS2Generation(string $prompt, array $loraStyles): string {
-    // 1. POST to http://127.0.0.1:7862/api/predict
-    // 2. Get job_id from response
-    // 3. Store in database: generation_queue
-    // 4. Return job_id for polling
-    // 5. Client polls /api/ship_designer_engine.php?action=generation_status&job_id
-}
-```
+`ship_designer_engine.php` erzeugt nur den Prompt und liefert Vorlagen/Stil-Presets. Die UI versucht den Entwurf über `/api/vessel_designs` zu speichern, die Generierung über `/api/vessel_designs/{id}/generate` einzureihen, `/api/generation_queue/{id}` abzufragen und fertige Assets über `/api/asset_generations/{id}` zu laden. Die aktuelle `.htaccess`-Konfiguration deaktiviert jedoch die `/api/vessel_designs`-Rewrite-Regel; außerdem wird die eigenständige `ship-designer.html`-Seite blockiert. Der vollständige Designer-Flow ist daher nicht verfügbar. Die offenen Grenzen der Asset-Pipeline bestehen zusätzlich.
 
 ---
 

@@ -324,7 +324,7 @@ When starting a new bounded context (e.g., Identity/Auth):
 ## Documentation & Tools
 
 - **[docs/adr/](../adr/)** – Architecture Decision Records (ADR-001, ADR-002, ...)
-- **[docs/technical/MIGRATION_PROGRESS.md](./MIGRATION_PROGRESS.md)** – Status tracker
+- **[docs/technical/MIGRATION_PROGRESS.md](./MIGRATION_PROGRESS.md)** – Historical migration status snapshot (last updated 2026-07-31)
 - **[tools/arch-lint.php](../../tools/arch-lint.php)** – Linter for architecture rules
 - **[phpunit.xml](../../phpunit.xml)** – Test runner configuration
 
@@ -352,6 +352,6 @@ A: ~6-8 weeks for all contexts at current pace (2-3 batches/week). Parallelizabl
 ## References
 
 - [MIGRATION_STRATEGY_OOP.md](./MIGRATION_STRATEGY_OOP.md) – Original strategic plan
-- [MIGRATION_PROGRESS.md](./MIGRATION_PROGRESS.md) – Real-time status & burndown
+- [MIGRATION_PROGRESS.md](./MIGRATION_PROGRESS.md) – Historical batch-status snapshot (last updated 2026-07-31)
 - [ADR-001: Error Envelope](../adr/ADR-001-error-envelope.md)
 - [ADR-002: Galaxy Interfaces](../adr/ADR-002-galaxy-interfaces.md)

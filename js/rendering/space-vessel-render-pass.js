@@ -1,8 +1,11 @@
 import {
   Box3, BoxGeometry, ConeGeometry, CylinderGeometry, Group, Matrix3, Matrix4,
-  Mesh, MeshStandardMaterial, ObjectLoader, SphereGeometry, Vector3,
+  Mesh, MeshStandardMaterial, ObjectLoader, Quaternion, SphereGeometry, Vector3,
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { createHeroBattleModel } from './hero-battle-models.js';
+import { fleetVisualLod } from './fleet-visual-lod.js';
+import { isHeroShipActive } from './hero-battle-waves.js';
 
 const VESSEL_SHADER = `
 struct VesselUniforms {
@@ -12,6 +15,8 @@ struct VesselUniforms {
   light: vec4<f32>,
   cameraTime: vec4<f32>,
   effects: vec4<f32>,
+  contact: vec4<f32>,
+  shield: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> uniforms: VesselUniforms;
 struct VertexOutput {
@@ -27,7 +32,8 @@ struct VertexOutput {
 ) -> VertexOutput {
   let worldPosition = uniforms.model * vec4<f32>(position, 1.0);
   var output: VertexOutput;
-  output.position = uniforms.viewProjection * worldPosition;
+  let clip = uniforms.viewProjection * worldPosition;
+  output.position = vec4(clip.xy, (clip.z + clip.w) * 0.5, clip.w);
   output.normal = normalize((uniforms.model * vec4<f32>(normal, 0.0)).xyz);
   output.worldPosition = worldPosition.xyz;
   output.surface = surface;
@@ -35,6 +41,17 @@ struct VertexOutput {
 }
 @fragment fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
   let normal = normalize(input.normal);
+  let facing = max(0.0, dot(normal, normalize(uniforms.contact.xyz + vec3(0.000001))));
+  if (uniforms.effects.w > 0.5) {
+    let distance = acos(clamp(dot(normal, normalize(uniforms.contact.xyz)), -1.0, 1.0));
+    let ring = exp(-pow((distance - uniforms.contact.w * 2.8) * 12.0, 2.0));
+    let spot = pow(facing, 32.0);
+    let viewDirection = normalize(-input.worldPosition);
+    let rim = pow(1.0 - abs(dot(normal, viewDirection)), 2.4);
+    let shimmer = 0.85 + 0.15 * sin(uniforms.cameraTime.w * 2.0 + normal.y * 18.0 + normal.z * 12.0);
+    let ambient = (0.025 + rim * 0.18) * shimmer * uniforms.shield.x;
+    return vec4(vec3(0.12, 0.55, 1.6), ambient + (ring * 0.65 + spot * 0.9) * uniforms.effects.y);
+  }
   let lightDirection = normalize(uniforms.light.xyz);
   let viewDirection = normalize(uniforms.cameraTime.xyz - input.worldPosition);
   let halfDirection = normalize(lightDirection + viewDirection);
@@ -46,7 +63,9 @@ struct VertexOutput {
   let hull = input.surface.rgb * uniforms.tint.rgb
     * (uniforms.light.w + diffuse * 0.9 + specular + rim);
   let emission = input.surface.rgb * (1.1 + pulse * 1.2) * engine;
-  return vec4<f32>(hull * (1.0 - engine) + emission, uniforms.tint.a);
+  let flash = pow(facing, 12.0) * (uniforms.effects.y * vec3(0.25, 0.7, 1.0)
+    + uniforms.effects.z * vec3(1.0, 0.32, 0.08));
+  return vec4<f32>(hull * (1.0 - engine) + emission + flash, uniforms.tint.a);
 }
 `;
 
@@ -203,37 +222,85 @@ export class SpaceVesselRenderPass {
     };
   }
 
-  render(pass, vessels, camera, origin, effectTime) {
+  render(pass, vessels, camera, origin, effectTime, depthEnabled = false, lodHeight = null) {
+    this.frameStats = { near: 0, middle: 0, far: 0, hidden: 0, drawCalls: 0, vertices: 0, shields: 0 };
     if (!this.device || !vessels.length) return;
+    if (this.depthEnabled !== depthEnabled) {
+      this.depthEnabled = depthEnabled;
+      this._destroyPipelines();
+    }
     this._ensurePipelines();
     // Subtract the eye in double precision before uploading planet-scale geometry to f32.
     const viewRotation = camera.matrixWorldInverse.clone().setPosition(0, 0, 0);
     const viewProjection = new Matrix4().multiplyMatrices(camera.projectionMatrix, viewRotation);
     const world = camera.matrixWorld.elements;
     for (const vessel of vessels) {
+      if (!isHeroShipActive(vessel)) continue;
       const resource = this.resources.get(vessel.id);
       const asset = resource?.asset;
       if (!asset?.vertexBuffer) continue;
+      const tier = lodHeight === null ? 'near'
+        : fleetVisualLod(vessel.position, vessel.scale, camera, origin, lodHeight, resource.visualTier).tier;
+      resource.visualTier = tier;
+      this.frameStats[tier]++;
+      if (tier === 'hidden') continue;
+      const draw = (vertices, instances = 1, firstVertex = 0) => {
+        pass.draw(vertices, instances, firstVertex, 0);
+        this.frameStats.drawCalls++;
+        this.frameStats.vertices += vertices * instances;
+      };
       this._ensureBindings(resource);
       const model = new Matrix4().compose(vessel.position.clone().sub(origin).sub(camera.position), vessel.quaternion,
         new Vector3(vessel.scale, vessel.scale, vessel.scale));
-      const uniforms = new Float32Array(48);
+      const uniforms = new Float32Array(56);
       uniforms.set(viewProjection.elements, 0);
       uniforms.set(model.elements, 16);
       uniforms.set(vessel.color, 32);
       uniforms.set([0.38, -0.5, 0.78, 0.24], 36);
       uniforms.set([0, 0, 0, effectTime], 40);
-      uniforms.set([1, 0, 0, 0], 44);
+      const shieldStrength = vessel.heroStatus?.shield ?? 0;
+      const shieldHit = vessel.heroStatus && shieldStrength <= 0 ? 0 : vessel.heroLight?.shield || 0;
+      uniforms.set([1, shieldHit, vessel.heroLight?.hull || 0, 0], 44);
+      uniforms.set([...(vessel.heroContact?.normal.clone().applyQuaternion(vessel.quaternion).toArray() || [0, 0, 1]),
+        vessel.heroContact?.age || 0], 48);
+      uniforms.set([shieldStrength, 0, 0, 0], 52);
       this.device.queue.writeBuffer(resource.uniformBuffer, 0, uniforms);
       pass.setPipeline(this.pipeline);
       pass.setBindGroup(0, resource.bindGroup);
-      pass.setVertexBuffer(0, asset.vertexBuffer);
-      pass.draw(asset.vertexCount, 1, 0, 0);
-      if (asset.engineVertexCount > 0) {
-        pass.draw(asset.engineVertexCount, 1, asset.engineVertexOffset, 0);
+      if (tier === 'far') this._ensureLodBuffer(asset);
+      pass.setVertexBuffer(0, tier === 'far' ? asset.lodBuffer : asset.vertexBuffer);
+      draw(tier === 'far' ? 36 : asset.vertexCount);
+      if (tier !== 'far' && asset.engineVertexCount > 0) {
+        draw(asset.engineVertexCount, 1, asset.engineVertexOffset);
+      }
+      if (tier === 'near' && asset.rig && vessel.turretQuaternion) {
+        resource.turret ||= this._createInstanceResource(vessel, asset);
+        this._ensureBindings(resource.turret);
+        const turretModel = model.clone()
+          .multiply(new Matrix4().makeTranslation(...asset.rig.pivot.toArray()))
+          .multiply(new Matrix4().makeRotationFromQuaternion(vessel.turretQuaternion))
+          .multiply(new Matrix4().makeTranslation(-Math.min(0.04, vessel.turretRecoil || 0), 0, 0));
+        const turretUniforms = uniforms.slice();
+        turretUniforms.set(turretModel.elements, 16);
+        this.device.queue.writeBuffer(resource.turret.uniformBuffer, 0, turretUniforms);
+        pass.setBindGroup(0, resource.turret.bindGroup);
+        pass.setVertexBuffer(0, asset.turretBuffer);
+        draw(asset.rig.vertices.length / 10);
+      }
+      if (this.shieldPipeline && tier !== 'far' && asset.shieldBuffer && (shieldStrength > 0 || shieldHit > 0.01)) {
+        resource.shield ||= this._createInstanceResource(vessel, asset);
+        this._ensureBindings(resource.shield);
+        const shieldUniforms = uniforms.slice();
+        shieldUniforms[47] = 1;
+        this.device.queue.writeBuffer(resource.shield.uniformBuffer, 0, shieldUniforms);
+        pass.setPipeline(this.shieldPipeline);
+        pass.setBindGroup(0, resource.shield.shieldBindGroup);
+        pass.setVertexBuffer(0, asset.shieldBuffer);
+        draw(asset.shieldVertices.length / 10);
+        this.frameStats.shields++;
       }
 
-      if (asset.particleCount === 0) continue;
+      if (tier !== 'near' || asset.particleCount === 0) continue;
       const particleUniforms = new Float32Array(44);
       particleUniforms.set(viewProjection.elements, 0);
       particleUniforms.set(model.elements, 16);
@@ -244,7 +311,7 @@ export class SpaceVesselRenderPass {
       pass.setPipeline(this.particlePipeline);
       pass.setBindGroup(0, resource.particleBindGroup);
       pass.setVertexBuffer(0, asset.particleBuffer);
-      pass.draw(6, asset.particleCount, 0, 0);
+      draw(6, asset.particleCount);
     }
   }
 
@@ -254,24 +321,68 @@ export class SpaceVesselRenderPass {
       if (this.assets.get(asset.key) === asset) this.assets.delete(asset.key);
       return asset;
     }
-    const hullVertices = this._extractVertices(gltf?.scene);
+    const scene = gltf?.scene;
+    scene?.updateMatrixWorld(true);
+    const bounds = scene ? new Box3().setFromObject(scene) : null;
+    const center = bounds?.getCenter(new Vector3());
+    const size = bounds?.getSize(new Vector3());
+    const maxDimension = size ? Math.max(size.x, size.y, size.z) : 0;
+    const normalization = { center, maxDimension, excludeTurrets: true };
+    const hullVertices = this._extractVertices(scene, normalization);
     if (!hullVertices?.length) throw new Error('Space vessel has no triangle geometry.');
     const engineVertices = asset.hasEngineEffects ? this._createEngineFlameVertices() : new Float32Array();
     asset.vertices = new Float32Array(hullVertices.length + engineVertices.length);
     asset.vertices.set(hullVertices);
     asset.vertices.set(engineVertices, hullVertices.length);
     asset.vertexCount = hullVertices.length / 10;
+    asset.lodSize = size.clone().divideScalar(maxDimension);
+    let turret;
+    scene.traverse((node) => { if (node.name === 'turret_primary') turret = node; });
+    if (turret) {
+      const muzzle = turret.getObjectByName('muzzle_primary');
+      if (!muzzle) throw new Error('Model turret_primary requires muzzle_primary');
+      const clone = turret.clone();
+      clone.position.set(0, 0, 0);
+      clone.quaternion.identity();
+      clone.scale.set(1, 1, 1);
+      const pivot = turret.getWorldPosition(new Vector3()).sub(center).divideScalar(maxDimension);
+      const muzzlePosition = muzzle.getWorldPosition(new Vector3())
+        .sub(turret.getWorldPosition(new Vector3()))
+        .applyQuaternion(turret.getWorldQuaternion(new Quaternion()).invert()).divideScalar(maxDimension);
+      asset.rig = { pivot, muzzle: muzzlePosition,
+        vertices: this._extractVertices(clone, { center: new Vector3(), maxDimension }) };
+      const shieldScene = new Group();
+      const geometry = new SphereGeometry(0.65, 32, 24);
+      const shieldMesh = new Mesh(geometry);
+      shieldScene.add(shieldMesh);
+      asset.shieldVertices = this._extractVertices(shieldScene, { center: new Vector3(), maxDimension: 1 });
+      geometry.dispose();
+      shieldMesh.material.dispose();
+    }
     asset.engineVertexOffset = asset.vertexCount;
     asset.engineVertexCount = engineVertices.length / 10;
     asset.particleInstances = asset.hasEngineEffects ? this._buildParticleInstances() : new Float32Array();
     asset.particleCount = asset.particleInstances.length / 4;
     asset.ready = true;
+    if (asset.modelUrl.startsWith('procedural:hero-')) {
+      const materials = new Set();
+      scene.traverse((node) => {
+        node.geometry?.dispose();
+        if (node.material) {
+          for (const material of Array.isArray(node.material) ? node.material : [node.material]) materials.add(material);
+        }
+      });
+      for (const material of materials) material.dispose();
+    }
     if (this.device && asset.refCount > 0) this._uploadAsset(asset);
     if (asset.refCount === 0 && this.assets.get(asset.key) === asset) this.assets.delete(asset.key);
     return asset;
   }
 
   async _loadModel(modelUrl) {
+    if (modelUrl.startsWith('procedural:hero-')) {
+      return { scene: createHeroBattleModel(modelUrl.slice('procedural:hero-'.length)) };
+    }
     if (modelUrl.startsWith('procedural:')) {
       return { scene: this._createProceduralScene(modelUrl.slice('procedural:'.length)) };
     }
@@ -331,7 +442,7 @@ export class SpaceVesselRenderPass {
     return root;
   }
 
-  _extractVertices(scene) {
+  _extractVertices(scene, normalization = {}) {
     if (!scene) return null;
     scene.updateMatrixWorld(true);
     const positions = [];
@@ -341,6 +452,11 @@ export class SpaceVesselRenderPass {
     const position = new Vector3();
     const normal = new Vector3();
     scene.traverse((node) => {
+      if (normalization.excludeTurrets) {
+        for (let ancestor = node; ancestor; ancestor = ancestor.parent) {
+          if (ancestor.name === 'turret_primary') return;
+        }
+      }
       if (!node.isMesh || !node.geometry?.getAttribute('position')) return;
       const geometry = node.geometry;
       if (!geometry.getAttribute('normal')) geometry.computeVertexNormals();
@@ -371,9 +487,9 @@ export class SpaceVesselRenderPass {
       }
     });
     if (!positions.length) return null;
-    const center = bounds.getCenter(new Vector3());
+    const center = normalization.center || bounds.getCenter(new Vector3());
     const size = bounds.getSize(new Vector3());
-    const maxDimension = Math.max(size.x, size.y, size.z);
+    const maxDimension = normalization.maxDimension || Math.max(size.x, size.y, size.z);
     if (!Number.isFinite(maxDimension) || maxDimension <= 0) return null;
     const vertices = new Float32Array((positions.length / 3) * 10);
     for (let index = 0; index < positions.length / 3; index += 1) {
@@ -441,11 +557,32 @@ export class SpaceVesselRenderPass {
     asset.vertexBuffer = this.device.createBuffer({ size: asset.vertices.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     this.device.queue.writeBuffer(asset.vertexBuffer, 0, asset.vertices);
+    if (asset.rig) {
+      asset.turretBuffer = this.device.createBuffer({ size: asset.rig.vertices.byteLength,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+      this.device.queue.writeBuffer(asset.turretBuffer, 0, asset.rig.vertices);
+      asset.shieldBuffer = this.device.createBuffer({ size: asset.shieldVertices.byteLength,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+      this.device.queue.writeBuffer(asset.shieldBuffer, 0, asset.shieldVertices);
+    }
     if (asset.particleInstances.byteLength > 0) {
       asset.particleBuffer = this.device.createBuffer({ size: asset.particleInstances.byteLength,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
       this.device.queue.writeBuffer(asset.particleBuffer, 0, asset.particleInstances);
     }
+  }
+
+  _ensureLodBuffer(asset) {
+    if (asset.lodBuffer) return;
+    const geometry = new BoxGeometry(...asset.lodSize.toArray());
+    const material = new MeshStandardMaterial({ color: 0x8295a8 });
+    const mesh = new Mesh(geometry, material);
+    const vertices = this._extractVertices(mesh, { center: new Vector3(), maxDimension: 1 });
+    geometry.dispose();
+    material.dispose();
+    asset.lodBuffer = this.device.createBuffer({ size: vertices.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    this.device.queue.writeBuffer(asset.lodBuffer, 0, vertices);
   }
 
   _releaseAsset(asset) {
@@ -458,6 +595,12 @@ export class SpaceVesselRenderPass {
   _destroyAssetBuffers(asset) {
     asset.vertexBuffer?.destroy();
     asset.particleBuffer?.destroy();
+    asset.turretBuffer?.destroy();
+    asset.shieldBuffer?.destroy();
+    asset.lodBuffer?.destroy();
+    asset.lodBuffer = null;
+    asset.shieldBuffer = null;
+    asset.turretBuffer = null;
     asset.vertexBuffer = null;
     asset.particleBuffer = null;
   }
@@ -484,6 +627,25 @@ export class SpaceVesselRenderPass {
         },
       }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
+      ...(this.depthEnabled ? { depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less-equal' } } : {}),
+    });
+    if (this.depthEnabled) this.shieldPipeline = device.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module: shader, entryPoint: 'vertexMain', buffers: [{
+        arrayStride: 40, attributes: [
+          { shaderLocation: 0, offset: 0, format: 'float32x3' },
+          { shaderLocation: 1, offset: 12, format: 'float32x3' },
+          { shaderLocation: 2, offset: 24, format: 'float32x4' },
+        ],
+      }] },
+      fragment: { module: shader, entryPoint: 'fragmentMain', targets: [{
+        format: this.format, blend: {
+          color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
+          alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' },
+        },
+      }] },
+      primitive: { topology: 'triangle-list', cullMode: 'back' },
+      ...(this.depthEnabled ? { depthStencil: { format: 'depth32float', depthWriteEnabled: false, depthCompare: 'less-equal' } } : {}),
     });
     const particleShader = device.createShaderModule({ code: VESSEL_PARTICLE_SHADER, label: 'space-vessel-particles' });
     this.particlePipeline = device.createRenderPipeline({
@@ -507,9 +669,11 @@ export class SpaceVesselRenderPass {
   _ensureBindings(resource) {
     if (resource.pipelineVersion === this.pipelineVersion) return;
     this._destroyInstanceBindings(resource);
-    resource.uniformBuffer = this.device.createBuffer({ size: 192,
+    resource.uniformBuffer = this.device.createBuffer({ size: 224,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     resource.bindGroup = this.device.createBindGroup({ layout: this.pipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: resource.uniformBuffer } }] });
+    if (this.shieldPipeline) resource.shieldBindGroup = this.device.createBindGroup({ layout: this.shieldPipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: { buffer: resource.uniformBuffer } }] });
     resource.particleUniformBuffer = this.device.createBuffer({ size: 176,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -521,6 +685,8 @@ export class SpaceVesselRenderPass {
   }
 
   _destroyInstanceBindings(resource) {
+    if (resource.turret) this._destroyInstanceBindings(resource.turret);
+    if (resource.shield) this._destroyInstanceBindings(resource.shield);
     resource.uniformBuffer?.destroy();
     resource.particleUniformBuffer?.destroy();
     resource.uniformBuffer = null;
@@ -532,6 +698,7 @@ export class SpaceVesselRenderPass {
 
   _destroyPipelines() {
     this.pipeline = null;
+    this.shieldPipeline = null;
     this.particlePipeline = null;
     this.pipelineVersion += 1;
   }

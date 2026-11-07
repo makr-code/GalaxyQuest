@@ -186,24 +186,25 @@ body.auth-page #auth-section {
 .start-panel-anchor:has(> [aria-expanded="true"]) { z-index: 1; }
 .start-panel-anchor > .start-button { width: 100%; }
 .start-panel-anchor > .start-button[aria-expanded="true"] { border-color: #a8d7ff; transform: none; }
+.start-panel-anchor:has(> [data-start-panel="news"][aria-expanded="true"]) > #start-news-posts { display: none; }
 .start-cascade-panel {
-  position: absolute;
-  inset: 0 auto auto calc(100% + 12px);
-  margin: 0;
-  width: 360px;
-  max-width: none;
+  position: relative;
+  inset: auto;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  margin: 8px 0 0;
   max-height: none;
   overflow: visible;
-  padding: 20px;
+  padding: 16px;
   border: 1px solid #9cdbff70;
   border-left: 2px solid #90caff66;
   border-radius: 0;
-  background: linear-gradient(90deg, #367ca070, #17365240);
-  backdrop-filter: blur(18px);
+  background: rgba(8, 24, 42, 0.94);
   box-shadow: none;
   letter-spacing: .06em;
 }
-.start-cascade-panel[open] { animation: start-login-slide .25s ease-out; }
+.start-cascade-panel[open] { animation: start-dialog-arrival .25s ease-out; }
 .start-cascade-panel .start-dialog-header { margin-bottom: 20px; }
 .start-cascade-panel input:not([type="checkbox"]) {
   border-radius: 0;
@@ -216,19 +217,6 @@ body.auth-page #auth-section {
   border-radius: 0;
   background: linear-gradient(90deg, #367ca070, #17365240);
   color: #e0eeff;
-}
-@keyframes start-login-slide {
-  from { opacity: 0; transform: translateX(-16px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-@media (max-width: 900px) {
-  .start-cascade-panel {
-    position: relative;
-    inset: auto;
-    width: 100%;
-    margin-top: 8px;
-  }
-  .start-cascade-panel[open] { animation-name: start-dialog-arrival; }
 }
 
 @keyframes start-arrival {

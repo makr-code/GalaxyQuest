@@ -1,6 +1,8 @@
 # VFX Phase 1 Implementation Summary: Weapon Fire Integration
 
-## Status: ✅ COMPLETE
+> Historical implementation snapshot. Its unit-test count and coverage claim are not current-suite measurements; this report itself leaves integration testing, load profiling, and the production gate open.
+
+## Historical phase status: ✅ COMPLETE (phase scope only; not release acceptance)
 
 This document summarizes all modifications made to support weapon-fire event routing and BeamEffect visualization in the galaxy renderer.
 
@@ -287,7 +289,7 @@ window.dispatchEvent(new CustomEvent('gq:combat:weapon-fire', {
 ## Code Quality Metrics
 
 - **Cyclomatic Complexity**: Low (simple if-statements, switch pattern)
-- **Test Coverage**: 15 unit tests, 100% function coverage
+- **Test Coverage**: historical report claimed 15 unit tests and 100% function coverage; not re-measured against the current suite
 - **Documentation**: Inline JSDoc, architecture docs, usage examples
 - **Maintainability**: DRY principle, clear separation of concerns
 - **Extensibility**: Phase 2 stubs pre-positioned for easy expansion

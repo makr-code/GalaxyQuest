@@ -20,7 +20,7 @@
    - 4.2 [Authentication & Session](#42-authentication--session)
    - 4.3 [Database Layer](#43-database-layer)
    - 4.4 [Game Engine (`game_engine.php`)](#44-game-engine-game_enginephp)
-   - 4.5 [Tick-free Resource Model](#45-tick-free-resource-model)
+   - 4.5 [On-Demand Colony Economy](#45-on-demand-colony-economy)
    - 4.6 [Galaxy Generator (`galaxy_gen.php`)](#46-galaxy-generator-galaxy_genphp)
    - 4.7 [Fleet & Mission System](#47-fleet--mission-system)
    - 4.8 [NPC AI Architecture](#48-npc-ai-architecture)
@@ -65,7 +65,7 @@
 ```
 Browser
   │  HTTP (JSON REST over PHP sessions)
-  │  Binary galaxy data (compressed)
+  │  Optional binary galaxy formats
   ▼
 ┌────────────────────────────────────────┐
 │  Apache / Nginx / PHP built-in server  │
@@ -74,9 +74,9 @@ Browser
                  │
         ┌────────▼──────────────┐
         │  index.html           │  unified auth + game shell
-        │  js/runtime/boot-loader.js  – bundle loader
+        │  /js/main.js          – ES module entry point
         └────────┬──────────────┘
-                 │ fetch() JSON calls + binary (gzip)
+                 │ HTTP JSON (default), optional binary encoding, gzip content encoding
         ┌────────▼─────────────────────────────────────────────┐
         │  api/*.php  (one file per domain)                     │
         │                                                       │
@@ -140,7 +140,7 @@ GalaxyQuest uses three distinct data channels between browser and server.
 
 #### A. JSON REST — overview & mutations
 
-The core game state travels as JSON via synchronous `fetch()` calls. `loadOverview()`
+The core game state travels as JSON via asynchronous `fetch()` calls. `loadOverview()`
 is the heartbeat of the game UI — called on page load, after every mutation, and on a
 **60-second polling interval**:
 
@@ -159,31 +159,22 @@ game.js: loadOverview()
 There is no WebSocket or push mechanism for the main game state — the polling model
 keeps the PHP backend fully stateless between requests.
 
-#### B. Binary Galaxy Data — star map bootstrap
+#### B. Galaxy Data — JSON default; optional binary encoders
 
-Galaxy star data is delivered as a gzip-compressed binary stream, decoded
-client-side, and cached in IndexedDB for subsequent sessions:
+The galaxy star loader uses a cache, network fetch, payload adaptation, and
+renderer update. The `api/galaxy.php?action=bootstrap` action returns JSON
+metadata and capability information; it is not a binary star-data response.
+The endpoint's system-payload format defaults to JSON. Binary V1/V2/V3 can be
+requested explicitly, but the decoder script tags in `index.html` are
+commented out, so V3 is not the normal browser-client path.
 
-```
-game.js: loadGalaxyStars3D()
-  │
-  ├─ 1. Check IndexedDB cache (binary-decoder-v3 range key)
-  │       Hit  ──► decode instantly + apply to renderer
-  │       Miss ──►
-  │
-  ├─ 2. GET /api/galaxy.php?action=bootstrap  (gzip binary)
-  │       └─ binary-decoder-v3.js decodes delta-encoded star records
-  │
-  └─ 3. Persist decoded records to IndexedDB for next session
-```
+Available server-side system-payload formats:
 
-Binary protocol versions:
-
-| Version | Server endpoint | Client decoder | Notes |
+| Version | Server encoder | Client decoder | Notes |
 |---|---|---|---|
-| V1 | `api/compression.php` | `js/network/binary-decoder.js` | Full snapshot |
-| V2 | `api/compression-v2.php` | `js/network/binary-decoder-v2.js` | Structured binary |
-| V3 | `api/compression-v3.php` | `js/network/binary-decoder-v3.js` | Delta-encoded; current default |
+| V1 | `api/compression.php` | `js/network/binary-decoder.js` | Optional legacy format |
+| V2 | `api/compression-v2.php` | `js/network/binary-decoder-v2.js` | Optional structured binary |
+| V3 | `api/compression-v3.php` | `js/network/binary-decoder-v3.js` | Optional delta encoding; not the JSON default or active browser default |
 
 See [DELTA_ENCODING_V3.md](DELTA_ENCODING_V3.md) and [BINARY_ENCODING_V2.md](BINARY_ENCODING_V2.md).
 
@@ -291,6 +282,8 @@ fixed-step tick-based with event-driven subsystem communication via EventBus.
 
 ## 3. Directory & Module Map
 
+> This is a representative source inventory, not the active browser import graph. A file's presence here does not imply it is loaded by the current entry point.
+
 ```
 /
 ├── index.html                 Unified shell (auth + game sections)
@@ -327,7 +320,7 @@ fixed-step tick-based with event-driven subsystem communication via EventBus.
 │   │   ├── starfield-webgpu.js        WebGPU starfield renderer
 │   │   ├── starfield.js               WebGL starfield renderer
 │   │   └── planet-textures.js         Procedural planet textures
-│   ├── runtime/               Core game runtime (legacy position)
+│   ├── runtime/               Core game runtime and legacy modules
 │   │   ├── game.js            Main game UI controller
 │   │   ├── wm.js              Floating window manager
 │   │   ├── audio.js           GQAudioManager — 4 channels: music/sfx/teaser/tts
@@ -335,7 +328,6 @@ fixed-step tick-based with event-driven subsystem communication via EventBus.
 │   │   ├── galaxy-model.js    Galaxy data model
 │   │   ├── galaxy-db.js       Galaxy data access layer
 │   │   ├── model_registry.js  Client-side model registry
-│   │   └── boot-loader.js     Bundle loader
 │   ├── telemetry/             Performance monitoring and telemetry
 │   │   ├── space-physics-engine.js      CPU physics engine
 │   │   ├── trajectory-planner.js        Fleet trajectory planning
@@ -354,7 +346,7 @@ fixed-step tick-based with event-driven subsystem communication via EventBus.
 │   │   ├── system-info-panel.js  System information panel
 │   │   ├── ui-kit.js          Reusable UI components
 │   │   └── admin-users.js     Admin user management UI
-│   ├── engine/                WebGPU game engine (see §6)
+│   └── engine/                WebGPU game engine (see §6)
 │   │   ├── index.js           Engine main export
 │   │   ├── GameEngine.js      Top-level engine coordinator
 │   │   ├── GameLoop.js        RAF + fixed-step accumulator
@@ -374,7 +366,7 @@ fixed-step tick-based with event-driven subsystem communication via EventBus.
 │   │   ├── game/              BattleSimulator, ColonySimulation, ResearchTree, etc.
 │   │   ├── zoom/              SeamlessZoom system (Orchestrator, RendererRegistry, CameraFlightPath)
 │   │   └── runtime/           ~140 Runtime* modules (controllers, facades, lifecycle)
-│   └── packages/              Pre-built bundles (game.boot.bundle.*.js.gz)
+
 │
 ├── api/
 │   ├── helpers.php            Foundation: session, auth guard, CSRF, JSON utils
@@ -537,10 +529,10 @@ All cost formulas follow:
 cost(level) = base_cost × factor^(level − 1)
 ```
 
-### 4.5 Tick-free Resource Model
+### 4.5 On-Demand Colony Economy
 
-There is **no cron job** and **no scheduled task** for resource production. Accumulation is
-computed lazily on every read:
+There is **no periodic resource-production scheduler**. Accumulation is
+computed on demand from `last_update` when a colony action requires settlement:
 
 ```php
 function update_colony_resources(PDO $db, int $colonyId): void {
@@ -553,7 +545,7 @@ function update_colony_resources(PDO $db, int $colonyId): void {
 }
 ```
 
-This function is called at the start of every API action that touches a colony.
+The resource update path is called by API actions that touch a colony.
 **Implication**: a colony that has not been visited for days will "catch up" instantly on next access. Storage caps prevent infinite accumulation.
 
 ### 4.6 Galaxy Generator (`galaxy_gen.php`)
@@ -927,39 +919,26 @@ The Galaxy bounded context encapsulates all star system queries, range lookups, 
 
 Maintains backward compatibility while routing new actions to OOP layer:
 
-```php
-// Legacy actions (existing code unchanged)
-if ($action === 'auth_stars') {
-    // Original procedural implementation
-}
-
-// New actions (OOP layer)
-if ($action === 'range') {
-    $controller = new GalaxyController($repository, $retryPolicy);
-    $response = $controller->handleRange($_GET);
-    return json_encode($response->toArray());
-}
-```
+The current `range` and `system_detail` actions build the read-only repository,
+JSON encoder, application services, and `GalaxyController` directly in
+`api/galaxy.php`. The controller receives no `RetryPolicy`; the class exists
+separately but is not applied on this request path.
 
 **Key points**:
-- PSR-4 autoloader bootstraps OOP stack
-- Dependency injection container creates services
-- `RetryPolicy` (exponential backoff) handles transient failures
-- Legacy and new endpoints coexist (zero downtime migration)
+- Composer autoloading is used when available, with a manual development fallback
+- Endpoint code constructs and injects the required services; no dependency-injection container is used here
+- `RetryPolicy` exists, but is not applied in the Galaxy API request path
+- Procedural legacy actions and the newer read-only actions coexist in the same endpoint; this is not evidence of a zero-downtime migration or full OOP conversion
 
-### Performance Characteristics
+### Historical Performance Test Snapshot
 
-**Measured baselines** (see `tests/Performance/GalaxyPerformanceTest.php`):
+`tests/Performance/GalaxyPerformanceTest.php` profiles synthetic data in an in-memory SQLite database. Its timings vary by environment; they are not production database measurements, a stable baseline, or a performance gate. Do not treat previously published p95/p99 figures as current measurements.
 
-| Operation | p95 | p99 | Encoding |
-|-----------|-----|-----|----------|
-| Range query (100 records) | 0.5ms | 0.77ms | JSON (227B/record) |
-| System detail lookup | 0.2ms | 0.33ms | JSON (227B) |
-| Binary encoding (1 record) | 0.02ms | 0.05ms | Binary (239B) |
-
-**Observation**: JSON and Binary payload sizes nearly identical for small results. See [ADR-005](ADR-005-Serialization-Strategy.md) for rationale.
+The test compares JSON and the PHP binary encoder for a small synthetic system, but does not establish a production format recommendation. See [ADR-005](ADR-005-Serialization-Strategy.md) for the historical rationale.
 
 ### Frontend Integration: `js/features/galaxy/`
+
+These modules and their local cache are available in the repository, but `legacy-bridge.js` is not imported by the active `js/main.js` entry point. The example below describes an optional integration path, not the normal runtime.
 
 ```javascript
 // New pattern (OOP)
@@ -974,9 +953,11 @@ getSystemsInRange(10, 20, 5, 30, (err, systems) => {
 });
 ```
 
-**Cache strategy**: 5-minute TTL, FIFO eviction (max 100 results). See [ADR-004](ADR-004-Frontend-Backend-Bridge.md).
+`GalaxyService` implements a 5-minute TTL and FIFO eviction (max 100 results). This cache is not evidence that the optional bridge is active in the normal runtime. See [ADR-004](ADR-004-Frontend-Backend-Bridge.md).
 
 ### Testing Strategy
+
+The counts and coverage claims in this older architecture snapshot are not maintained release metrics.
 
 | Test Type | Location | Count | Purpose |
 |-----------|----------|-------|---------|
@@ -987,7 +968,7 @@ getSystemsInRange(10, 20, 5, 30, (err, systems) => {
 | Contract | `tests/Unit/GalaxyApiContractTest.php` | 12 | API envelope structure |
 | Snapshot | `tests/Unit/GalaxyEncodingSnapshotTest.php` | 6 | Encoding consistency |
 
-**Total**: 52 tests across all layers. Coverage: >95%.
+The listed counts and the former `>95%` coverage claim are historical, not a current suite total or verified coverage result.
 
 ### CI Validation
 
@@ -1022,29 +1003,19 @@ See [`MIGRATION_PLAYBOOK.md`](MIGRATION_PLAYBOOK.md) for detailed checklist and 
 - [ADR-004: Frontend-Backend API Bridge](ADR-004-Frontend-Backend-Bridge.md)
 - [ADR-005: Serialization Strategy (JSON vs Binary)](ADR-005-Serialization-Strategy.md)
 - [MIGRATION_PLAYBOOK.md](MIGRATION_PLAYBOOK.md) – Template for next contexts
-- [MIGRATION_PROGRESS.md](MIGRATION_PROGRESS.md) – Status of Batches 1-6
+- [MIGRATION_PROGRESS.md](MIGRATION_PROGRESS.md) – Historical status snapshot of Batches 1-6 (last updated 2026-07-31)
 
 ---
 
 ## 5. Frontend Architecture
 
-### 5.1 Entry Point & Boot Loader
+> **Runtime note:** `index.html` starts the app with `js/main.js` as an ES module. The legacy script tags near the end of the file are commented out; file presence or an old module inventory alone does not mean a module is loaded.
 
-`index.html` is the single-page application shell. It contains both the auth section and
-the game section in the same HTML file; sections are toggled by JavaScript after login.
+### 5.1 Entry Point and Loading
 
-`js/runtime/boot-loader.js` loads pre-built bundles from `js/packages/`:
+`index.html` is the application shell and loads `/js/main.js` as a module. That entry point imports `js/rendering/starfield.js` and `js/network/auth.js`.
 
-| Bundle | Contents |
-|---|---|
-| `game.boot.bundle.js.gz` | Main bundle |
-| `game.boot.bundle.engine-core.js.gz` | WebGPU engine core |
-| `game.boot.bundle.network.js.gz` | API client + binary decoders |
-| `game.boot.bundle.rendering.js.gz` | Galaxy renderer |
-| `game.boot.bundle.ui.js.gz` | UI components |
-| `game.boot.bundle.telemetry.js.gz` | Telemetry + physics |
-| `game.boot.bundle.legacy.js.gz` | Legacy modules |
-| `game.boot.bundle.tests.js.gz` | Test helpers |
+The previously documented `js/runtime/boot-loader.js` and `js/packages/game.boot.bundle.*` inventory are not present in the current checkout and are not the active loading path.
 
 ### 5.2 Window Manager (`wm.js`)
 
@@ -1065,13 +1036,15 @@ Each window is a `<div class="wm-window">` with:
 Window position/size persisted in `localStorage` as `wm_pos_<id>`.  
 Z-index management: clicking any window calls `bringToFront(el)` — sets z-index to `++zCounter`.
 
-### 5.3 API Client (`api.js`)
+### 5.3 API Client and Galaxy Formats (`api.js`)
 
 `js/network/api.js` — thin fetch wrapper with concurrency management.
 
 ```javascript
-// Concurrency caps per request class:
-// auth:2, overview:1, stars:1, binary:2, mutation:2
+// The optional APIQueue module defines per-class caps:
+// auth:2, overview:1, stars:1, binary:2, mutation:2.
+// The corresponding classic script tag in index.html is commented out;
+// verify the active import path before assuming these caps apply.
 const API = (() => {
   const get  = (url)       => fetch(url, { credentials:'include' }).then(r => r.json());
   const post = (url, body) => fetch(url, {
@@ -1086,8 +1059,7 @@ const API = (() => {
 
 The CSRF token is fetched once on page load via `GET /api/auth.php?action=csrf`.
 
-Binary galaxy data is fetched via `api/galaxy.php?action=bootstrap` and decoded by
-`js/network/binary-decoder-v3.js` (delta-compressed binary protocol).
+`api/galaxy.php?action=bootstrap` returns JSON metadata. System payloads default to JSON; optional binary encoders require explicit format selection. The V1/V2/V3 decoder script tags in `index.html` are commented out, so the V3 decoder is not the normal browser-client path.
 
 `js/network/api-contracts.js` provides DTO schema validators for all server responses.
 

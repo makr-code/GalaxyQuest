@@ -133,14 +133,14 @@ class TRELLIS2E2ETest:
         binary_data = b"\x00" * 48
 
         # Calculate sizes (aligned to 4 bytes)
-        json_padded = json_chunk + b" " * (4 - (len(json_chunk) % 4))
-        binary_padded = binary_data + b" " * (4 - (len(binary_data) % 4))
+        json_padded = json_chunk + b" " * ((-len(json_chunk)) % 4)
+        binary_padded = binary_data + b"\x00" * ((-len(binary_data)) % 4)
 
         json_chunk_header = (len(json_padded)).to_bytes(4, "little") + b"JSON"
         binary_chunk_header = (len(binary_padded)).to_bytes(4, "little") + b"BIN\x00"
 
         total_size = (
-            20
+            12
             + len(json_chunk_header)
             + len(json_padded)
             + len(binary_chunk_header)

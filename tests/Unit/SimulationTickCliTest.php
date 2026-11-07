@@ -114,7 +114,7 @@ final class SimulationTickCliTest extends TestCase
                 throw new RuntimeException('Cannot prepare simulation CLI fixture.');
             }
             $process = proc_open(
-                [PHP_BINARY, $root . '/scripts/run_simulation_tick.php', ...$arguments],
+                [PHP_BINARY, '-n', $root . '/scripts/run_simulation_tick.php', ...$arguments],
                 [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
                 $pipes,
                 $root,

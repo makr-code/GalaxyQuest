@@ -1,14 +1,16 @@
 # 🤝 Traders System — Implementation Status
 
-**Status:** Phase 1 Complete ✅ | Architecture Ready for Phase 2  
-**Date:** April 4, 2026  
+> **Historical implementation snapshot:** This document is not a current API contract, deployment guide, or production-readiness sign-off. Verify the live implementation and authentication requirements before using these instructions.
+
+**Status recorded in this snapshot:** Phase 1 Complete | Architecture Ready for Phase 2
+**Snapshot date:** April 4, 2026
 **Scope:** Supply/Demand-driven autonomous NPC trader system
 
 ---
 
 ## 📦 What You Have Now
 
-### ✅ Fully Implemented
+### ✅ Implemented in the Historical Snapshot
 
 1. **Database Schema** (5 core tables)
    - File: `sql/migrate_traders_system_v1.sql`
@@ -16,8 +18,8 @@
 
 2. **REST API** (6 endpoints)
    - File: `api/traders.php`
-   - Status: All endpoints functional with full JSON responses
-   - Ready to call from frontend or cron jobs
+   - The endpoint list reflects this historical snapshot; verify current actions and response contracts in the code
+   - HTTP requests require an authenticated session; POST actions require CSRF validation
 
 3. **Market Analysis Engine**
    - File: `api/market_analysis.php`
@@ -38,6 +40,8 @@
 ---
 
 ## 🎯 Quick Validation Test
+
+All `curl` examples in this document are illustrative and omit authentication. The API requires an authenticated session; POST actions also require a CSRF token, so the commands will not work as written without those credentials.
 
 ```bash
 # 1. Deploy DB
@@ -68,7 +72,7 @@ Expected output: JSON data showing traders, profitable routes, and system balanc
 │ (Calculate supply/demand per system)│
 │ calculate_system_supply_demand()   │
 └────────────┬────────────────────────┘
-             │ Updates hourly
+             │ Updated by explicit global simulation runs (15-minute subsystem cooldown)
              ↓
     ┌──────────────────────────────┐
     │ market_supply_demand table   │
@@ -146,12 +150,15 @@ GET /api/traders.php?action=market_analysis&system=1&galaxy=1
 ### Process Tick
 ```bash
 POST /api/traders.php?action=process_trader_tick
-→ Runs: Trader lifecycle, opportunity updates (stub for Phase 2)
+→ Runs: route transitions, supply/demand recalculation, opportunity ranking and trader decisions
 ```
+
+The action exists in the current API. The phase labels and historical
+implementation claims elsewhere in this document are not release acceptance.
 
 ---
 
-## 🚀 Next Steps (Priority Order)
+## 🚀 Historical Next Steps (Not Current Backlog)
 
 ### Phase 2: Trader Lifecycle (3-5 days)
 
@@ -282,7 +289,7 @@ docs/
 
 ---
 
-## ⚠️ Known Limitations (To Address in Phase 2)
+## ⚠️ Historical Limitations (Not a Current Gap Assessment)
 
 1. **Traders don't actually trade yet** — `process_route_transitions()` is a stub
 2. **No fleet integration** — Routes exist but aren't dispatched
@@ -313,4 +320,4 @@ See:
 
 ---
 
-**Next session:** Implement Phase 2 trader lifecycle → Watch traders execute real trades! 🚀
+The original next-session suggestion is historical; it is not a current task assignment.

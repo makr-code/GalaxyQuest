@@ -1,8 +1,10 @@
 # Progressbar Implementation Roadmap
 
-## Currently Implemented ✅
+> **Historical implementation snapshot:** The completion labels below reflect a prior implementation review. They are not independent confirmation of current runtime wiring, UX/accessibility acceptance, or production readiness.
 
-### Phase 1-8 (Completed)
+## Features Previously Marked Implemented
+
+### Phase 1-8 (Previously marked completed)
 - Fleet integrity/shield (overview)
 - Colony health/shield (overview)
 - Building health/shield (cards)
@@ -15,12 +17,12 @@
 - Battle reports (power/integrity)
 - Foreign intel (scan-based, optional)
 
-### Phase 9 (Completed)
+### Phase 9 (Previously marked completed)
 - **Colony Events Progress** — `RuntimeColonyViewController.js` (event duration vs. `ends_in_min`, tone-aware)
 - **Fleet Movement Progress** — `RuntimeOverviewLists.js` (departure/arrival timestamps, Transit bar)
 - **Storage Capacity** — `RuntimeOverviewController.js` (Metal/Crystal/Deuterium vs. `max_*`)
 
-### Phase 10 (Completed)
+### Phase 10 (Previously marked completed)
 - **Energy Balance** — `RuntimeOverviewController.js` (energy amount vs. 10 000 cap, DEFICIT/LOW/OK label)
 - **Population Capacity** — `RuntimeOverviewController.js` (pop vs. max_population)
 

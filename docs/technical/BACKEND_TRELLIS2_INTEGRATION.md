@@ -658,5 +658,5 @@ const refined = queueTRELLIS2Refinement(customization);
 
 - [FACTION_RELATIONS.yaml](../../FACTION_RELATIONS.yaml) – Spezies-Vorgaben
 - [TRELLIS2 Docker Setup](../../docker-compose.yml)
-- [3D Asset Pipeline](../../docs/technical/3D_ASSET_PIPELINE.md)
+- [TRELLIS2 Asset Management design notes](../TRELLIS2_ASSET_MANAGEMENT.md)
 - [Original Ship Designer](../../docs/technical/SHIP_DESIGNER_PROMPT_ENGINE.md)

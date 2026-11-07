@@ -38,12 +38,37 @@ describe('repository artifact gate', () => {
     expect(check(repository()).status).toBe(0);
   });
 
-  it('preserves tracked SVG and legacy gzip assets and ignores local caches', () => {
+  it('preserves tracked SVG and unrelated gzip assets and ignores local caches', () => {
     const directory = repository();
     addFile(directory, 'generated/textures/planet/fallback.svg', '<svg/>');
-    addFile(directory, 'js/packages/legacy.js.gz', 'fixture');
+    addFile(directory, 'assets/legacy.js.gz', 'fixture');
     addFile(directory, 'generated/textures/planet/local.png', 'cache', false);
     expect(check(directory).status).toBe(0);
+  });
+
+  it.each([
+    'js/engine/example.ugl.js.gz',
+    'js/packages/game.boot.bundle.runtime.js.gz',
+  ])('rejects tracked legacy JavaScript gzip output: %s', (name) => {
+    const directory = repository();
+    addFile(directory, name, 'generated fixture');
+    const result = check(directory);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('Legacy JavaScript gzip output must not be tracked');
+  });
+
+  it.each([
+    'generated/comfyui/output/3D/model.glb',
+    'generated/trellis2/test_mock_ship.glb',
+    'generated/trellis2/fallback_job42.glb',
+    'generated/trellis2/image2text/generated.glb',
+    'generated/trellis2/text2image/20261107_prompt.glb',
+  ])('rejects tracked generated TRELLIS2 output: %s', (name) => {
+    const directory = repository();
+    addFile(directory, name, 'generated fixture');
+    const result = check(directory);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('Generated TRELLIS2 output must not be tracked');
   });
 
   it.each(['png', 'lock'])('rejects a staged texture-cache %s', (extension) => {

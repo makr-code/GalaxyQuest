@@ -1,5 +1,7 @@
 # 🤝 Traders System — Integration Guide
 
+> Historical integration examples, not a current executable runbook. The traders API requires an authenticated session and CSRF tokens for POST actions. The Quick Start `curl` commands below omit credentials and will not work as written; later mutation examples show the required session and CSRF headers.
+
 ## Quick Start
 
 ```bash
@@ -27,7 +29,7 @@ curl 'http://localhost/api/traders.php?action=list_opportunities&min_margin=10'
 └────────────┬────────────────────┘
              ↓
     ┌─────────────────────────────┐
-    │ market_supply_demand table  │ ← Updated hourly
+    │ market_supply_demand table  │ ← Updated by global simulation runs
     └────────────┬────────────────┘
                  ↓
     ┌────────────────────────────────────────────┐
@@ -65,7 +67,7 @@ curl 'http://localhost/api/traders.php?action=list_opportunities&min_margin=10'
 calculate_system_supply_demand($db, $galaxy, $system)
   → Returns: ['metal' => ['production' => 1000, 'consumption' => 500, ...], ...]
 
-// Aggregates into persistent table (updated hourly)
+// Aggregates into the persistent table when the trader cycle runs
 update_supply_demand_table($db)
   → Updates: market_supply_demand
 
@@ -233,6 +235,9 @@ Get supply/demand breakdown for a system.
 
 Execute a trader update manually. This mutating endpoint requires an authenticated
 session and a CSRF token; it is not a supported cron/worker interface.
+The current action processes route transitions, recalculates supply/demand,
+refreshes opportunities, and makes trader decisions under a global simulation
+lock. Do not rely on the sample response as a complete response schema.
 
 ```bash
 # session.cookies must contain an authenticated session.
@@ -253,10 +258,15 @@ curl -b session.cookies -H "X-CSRF-Token: $CSRF_TOKEN" \
 
 ## Integration Checklist
 
+> This checklist is a historical integration proposal, not the current
+> deployment checklist. Trader-cycle scheduling and locking are documented in
+> [HEADLESS_SIMULATION_ENGINE.md](HEADLESS_SIMULATION_ENGINE.md); do not add a
+> second scheduler based on this list.
+
 - [ ] **Database:** Run migration SQL
 - [ ] **API Endpoints:** Register in game.php or frontend router
 - [ ] **Initialization:** Run initialize_traders_system.php
-- [ ] **Periodic Tasks:** Add a dedicated leased, idempotent trader worker before scheduling ticks; do not cron the HTTP endpoint.
+- [x] **Periodic Tasks:** Use the existing global simulation tick (`php scripts/run_simulation_tick.php --scope=global`); its trader subsystem has a 15-minute cooldown. Do not schedule the HTTP mutation endpoint as a worker.
 - [ ] **Frontend UI:** Create Traders Dashboard window (see UI spec below)
 - [ ] **Market Link:** Ensure api/market.php reflects updated prices
 - [ ] **Testing:** Verify trades execute and prices adjust
@@ -425,10 +435,13 @@ A: Future feature — would require faction_relations extension and collective c
 
 ---
 
-## Next Steps
+## Historical Next Steps (Not Current Backlog)
 
-1. **Immediate:** Deploy + test basic flows (already implemented)
-2. **Week 1:** Implement trader_tick lifecycle transitions (planning→completed)
-3. **Week 2:** Add Trade Director leader integration
-4. **Week 3:** Build frontend dashboard
-5. **Week 4:** Balance & polish, add market events
+The phases below were planning notes from this guide's original snapshot. They are
+not a current delivery plan or evidence that the listed integrations are complete.
+
+1. Deploy + test basic flows
+2. Implement trader lifecycle transitions
+3. Add Trade Director leader integration
+4. Build frontend dashboard
+5. Balance and add market events

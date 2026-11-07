@@ -1,5 +1,7 @@
 # GalaxyQuest AI Texture Generation Integration
 
+> **Integration status:** The AI-generation API and texture-manager methods exist, but that does not establish an active in-game call path. The admin UI is a standalone module; repository references show its example and tests, not a loaded production admin page. Treat the phase labels below as implementation notes, not production acceptance.
+
 ## Overview
 
 This document describes the integration of ComfyUI/SwarmUI for procedurally-generated AI-based PBR (Physically Based Rendering) textures in GalaxyQuest. The system allows generation of:
@@ -475,7 +477,7 @@ Textures regenerated every request
 3. Verify `COMFYUI_CACHE_MODE=disk` in `.env`
 4. Check disk space: `df -h`
 
-## Advanced Features (Phase 3) - IMPLEMENTED
+## Advanced Features (Phase 3) — Code Present; Runtime Adoption Not Established
 
 ### Batch PBR Generation
 
@@ -614,7 +616,7 @@ descriptor = {
 
 These are incorporated into the AI prompt automatically.
 
-## Admin Panel Features (Phase 4) - IMPLEMENTED
+## Admin Panel Features (Phase 4) — Standalone Module; Page Integration Not Established
 
 ### Texture Management API
 
@@ -676,6 +678,8 @@ GET /api/textures-admin.php?action=cache_stats
 Auto-initializes when container exists with ID `#admin-textures`.
 
 **Integration Example:**
+
+This is a manual integration example, not a page currently wired by the main game entrypoint.
 
 ```html
 <!-- In admin panel HTML -->

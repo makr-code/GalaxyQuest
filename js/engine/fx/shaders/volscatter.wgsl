@@ -171,12 +171,11 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     shadowUV.x      =  shadowUV.x * 0.5 + 0.5;
     shadowUV.y      = -shadowUV.y * 0.5 + 0.5;   // Y flip (WebGPU NDC)
 
-    // Skip samples outside shadow frustum
-    if (any(shadowUV.xy < vec2<f32>(0.0)) || any(shadowUV.xy > vec2<f32>(1.0))) {
-      continue;
-    }
-
-    let shadow      = shadowPCF(shadowUV);
+    let inShadowFrustum = all(shadowUV.xy >= vec2<f32>(0.0))
+                       && all(shadowUV.xy <= vec2<f32>(1.0));
+    shadowUV.xy = clamp(shadowUV.xy, vec2<f32>(0.0), vec2<f32>(1.0));
+    let sampledShadow = shadowPCF(shadowUV);
+    let shadow = select(0.0, sampledShadow, inShadowFrustum);
 
     // Angle between ray direction and light direction (for phase function)
     let cosTheta    = dot(rayDir, -params.lightDirView.xyz);

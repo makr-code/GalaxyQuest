@@ -2,20 +2,31 @@
 title: "Phase 4: Shipyard Blueprint Forge - Interactive Ship Configuration UI"
 version: "1.0.0"
 date: "2024"
+status: "historical prototype"
 ---
 
-# Shipyard Blueprint Forge — Complete Interactive Ship Design System
+# Shipyard Blueprint Forge — UI Prototype
+
+> **Status (verified 2026-11-07):** The UI class exists but is not loaded by the main game entrypoint. This guide describes a prototype, not a production-ready feature. Its API examples do not fully match `api/shipyard.php`: module/hull response fields differ, blueprint POST omits the required CSRF token, and the build request uses fields the endpoint does not consume.
 
 ## Overview
 
-The **Shipyard Blueprint Forge** is a comprehensive UI system that enables players to design, customize, and build spacecraft by:
+The **Shipyard Blueprint Forge** prototype sketches a UI for designing and configuring spacecraft by:
 - Selecting hulls (Scout, Cruiser, Battleship, etc.)
 - Assigning modules to available slots (weapons, energy, shields, propulsion)
 - Previewing real-time performance statistics
 - Saving/loading blueprint configurations
 - Building ships from completed blueprints
 
-Built on top of the **isometric module visualization system**, the Forge provides an intuitive, game-quality interface for ship configuration with full API integration.
+The prototype has partial API integration and is not wired into the main game UI. The current shipyard API and its authoritative behavior are documented in the source; do not treat the sample workflows below as a working end-to-end contract.
+
+## Current Integration Gaps
+
+- The class is referenced by its test and demo only; the main game entrypoint does not load it.
+- `list_hulls` returns `slot_profile` and `faction_tag`; the class reads `slot_profile_json` and `faction_affinities`.
+- `list_modules` returns `module_groups`; the class reads `modules_by_group`.
+- `create_blueprint` requires CSRF verification; the class's POST does not send a CSRF token.
+- `build` accepts `type`, `count`, and optional `blueprint_id`; the class sends `hull_code` and `modules` instead, and also omits CSRF.
 
 ## Architecture
 
@@ -325,7 +336,7 @@ energyEfficiency: (100 - 5) / 100 * 100 = 95%
 
 ## API Integration
 
-### Endpoints Used
+### Intended Endpoint Shapes (Not the Current Contract)
 
 **GET /api/shipyard.php?action=list_hulls**
 ```javascript
@@ -443,7 +454,7 @@ window.addEventListener('gq:blueprint-stats-changed', (ev) => {
 
 ## Testing
 
-**Test File**: `tests/js/shipyard-blueprint-forge.test.js` (31 tests, 100% passing)
+**Test File**: `tests/js/shipyard-blueprint-forge.test.js` (historical test-count/pass claims are not a current release gate)
 
 **Coverage**:
 - ✅ Initialization (5 tests) — API loading, hull selection, slot setup
@@ -462,6 +473,8 @@ npx vitest run tests/js/shipyard-blueprint-forge.test.js
 ```
 
 ## Performance
+
+The figures below are unverified historical estimates, not measured current performance.
 
 - **Initialization**: ~100-150ms (API calls + cache)
 - **Module Rendering**: ~2-3ms per module (canvas-based)
@@ -550,4 +563,4 @@ Event listeners use try-catch internally to prevent UI crashes from render error
 **Version**: 1.0.0  
 **Last Updated**: 2024  
 **License**: MIT — makr-code/GalaxyQuest  
-**Status**: Production Ready ✅
+**Status**: Prototype; not integrated into the main game UI and not production-ready.

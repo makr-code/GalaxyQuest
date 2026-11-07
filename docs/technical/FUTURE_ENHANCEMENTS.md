@@ -1,7 +1,7 @@
 # GalaxyQuest — Future Enhancements & Vision
 
-> Strukturierter Ausblick auf geplante Verbesserungen, offene Fragen und die Langzeit-Vision.  
-> **Status:** Living Document — nach jeder Implementierung aktualisieren.  
+> Feature-Backlog mit geplanten Verbesserungen, offenen Fragen und Langzeitideen.
+> **Status:** Kein Release- oder Implementierungsstatus. Einträge und Häkchen benötigen eine aktuelle Code-/Testprüfung.
 > Abgeschlossene Items: siehe Abschnitt "Abgeschlossene Enhancements (Archiv)" am Ende.  
 > Detaillierter Implementierungsstatus: [IMPLEMENTATION_AUDIT.md](IMPLEMENTATION_AUDIT.md)  
 > Sprint-Planung: [ROADMAP.md](ROADMAP.md)
@@ -223,7 +223,7 @@ Items die über den Launch hinaus die Langzeit-Retention und Community sichern.
 - ✅ Extended Research Tree (+7 Technologies: nano_materials, genetic_engineering, quantum_computing, dark_energy_tap, terraforming_tech, stealth_tech, wormhole_theory)
 - ✅ Additional Ship Types: Frigate, Carrier, Mining Drone, Hospital Ship, Science Vessel
 - ✅ Wormhole Network (stabile/instabile Wurmlöcher, Beacon-Unlocks, Quest-Rewards)
-- ✅ FTL-Drive-System (6 fraktionsspezifische Drives, vollständig implementiert)
+- 🟡 FTL-Drive-System: fraktionsspezifische API-Pfade und Drive-Auswahl sind vorhanden; das vollständige Design ist nicht abgenommen (siehe [FTL-Design](../gamedesign/FTL_DRIVE_DESIGN.md)).
 
 ### Phase 6 — Technical Quality ✅
 - ✅ Security Hardening (Security-Headers, Rate-Limiting, Account-Lockout)
@@ -240,8 +240,8 @@ Items die über den Launch hinaus die Langzeit-Retention und Community sichern.
 - ✅ Battle Simulator UI
 - ✅ Building Demolish (50% Ressourcen-Refund)
 - ✅ Keyboard Shortcuts (B = Buildings, R = Research, etc.)
-- ✅ WebGPU-Migration Phase 1–5 (Galaxy3DRenderer, Starfield, HybridPhysics, NPCPathfinding, Hardware-in-Loop CI)
-- ✅ Post-Processing alle 5 Phasen (13 Passes)
+- 🟡 WebGPU-Rendering: Galaxy3DRenderer/Starfield are implemented; HybridPhysics/NPCPathfinding are tested modules without production runtime call sites, and shader CI uses Chromium + SwiftShader rather than physical hardware. See the [current WebGPU status](webgpu_migration_roadmap.md).
+- 🟡 Post-Processing: historische Implementierung der Phasen dokumentiert; DOF/Atmospheric Glow sind deferred und aktuelle visuelle/performance QA ist nicht belegt (siehe [Roadmap](GALAXY_POSTPROCESS_ROADMAP.md))
 - ✅ VFX Phase 1–3 (Weapon Fire, Multi-Entity, Debris Destruction)
 - ✅ Kolonisierungssystem (Empire Sprawl, Sektoren, Gouverneure, Edikte) — GAP_TODO A-1
 - ✅ Empire-Kategorien & Spionage (7 Scores, Spider-Chart, Agenten) — GAP_TODO A-2

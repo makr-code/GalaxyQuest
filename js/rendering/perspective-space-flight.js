@@ -4,6 +4,7 @@ import { SpatialLabelRenderer } from './spatial-label-renderer.js';
 import { createSpaceEntity, normalizeSpaceEntityKind, resolveSpaceEntityModelUrl } from './space-entity.js';
 import { SpaceVessel } from './space-vessel.js';
 import { SpaceVesselRenderPass } from './space-vessel-render-pass.js';
+import { SpaceWeaponRenderPass } from './space-weapon-render-pass.js';
 import { createSpatialStarIndex, resolveSpatialLabels } from './spatial-label-layout.js';
 import { AU_LY, SystemVisualizationLayer } from './system-visualization-layer.js';
 
@@ -344,6 +345,7 @@ export class PerspectiveSpaceFlight {
     this.labelRenderer = labelRenderer;
     if (canvas) this.labelRenderer?.attachCanvas(canvas);
     this.vesselRenderPass = new SpaceVesselRenderPass({ loaderFactory: vesselLoaderFactory });
+    this.weaponRenderPass = new SpaceWeaponRenderPass();
     this.device = null;
     this.spaceEntities = new Map();
     this.spaceVessels = this.spaceEntities;
@@ -577,6 +579,7 @@ export class PerspectiveSpaceFlight {
   }
 
   clearSystem() {
+    this.weaponRenderPass.clear();
     for (const id of this.systemManagedEntityIds) {
       const entity = this.spaceEntities.get(id);
       if (entity) this._removeSpaceEntity(entity);
@@ -995,7 +998,7 @@ export class PerspectiveSpaceFlight {
     this.effectTime += dt;
     this._updateSpaceEntities(dt);
     const flight = this.flight;
-    if (!flight || !dt) return;
+    if (this.heroBattle || !flight || !dt) return;
     const previousOrientation = this.camera.quaternion.clone();
     const previousVelocity = this.velocity.clone();
     const aim = flight.focus.clone().sub(this.camera.position).normalize();
@@ -1141,6 +1144,12 @@ export class PerspectiveSpaceFlight {
 
   renderFrame(device, context, stars, width, height, nebulaField, pixelRatio = 1) {
     const frameStarted = performance.now();
+    const sceneFormat = this.bloom?.sceneFormat || navigator.gpu.getPreferredCanvasFormat();
+    if (this.pipeline && this.pipelineFormat !== sceneFormat) {
+      this.pipeline = null;
+      this.cameraBuffer?.destroy();
+    }
+    this.pipelineFormat = sceneFormat;
     if (!this.pipeline) {
       const shader = device.createShaderModule({ code: SPACE_SHADER, label: 'perspective-space-world' });
       this.pipeline = device.createRenderPipeline({
@@ -1151,7 +1160,7 @@ export class PerspectiveSpaceFlight {
           })),
         }] },
         fragment: { module: shader, entryPoint: 'fs_main', targets: [{
-          format: navigator.gpu.getPreferredCanvasFormat(),
+          format: sceneFormat,
           blend: {
             color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
             alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
@@ -1357,7 +1366,7 @@ export class PerspectiveSpaceFlight {
     const sceneView = this.bloom
       ? this.bloom.sceneTexture.createView()
       : context.getCurrentTexture().createView();
-    const pass = encoder.beginRenderPass({ colorAttachments: [{
+    let pass = encoder.beginRenderPass({ colorAttachments: [{
       view: sceneView, clearValue: { r: 0.001, g: 0.002, b: 0.004, a: 1 },
       loadOp: 'clear', storeOp: 'store',
     }] });
@@ -1370,8 +1379,31 @@ export class PerspectiveSpaceFlight {
     pass.setBindGroup(0, this.cameraBindGroup);
     pass.setVertexBuffer(0, this.instanceBuffer);
     pass.draw(4, count, 0, 0);
+    if (this.heroBattle) {
+      pass.end();
+      const depthView = this.heroBattle.depth.prepare(device, sceneFormat, width, height);
+      const timestampWrites = this.heroBattle.metrics.begin(device);
+      pass = encoder.beginRenderPass({ colorAttachments: [{
+        view: sceneView, loadOp: 'load', storeOp: 'store',
+      }], depthStencilAttachment: { view: depthView, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' },
+      ...(timestampWrites ? { timestampWrites } : {}) });
+      this.heroBattle.depth.render(pass, this.bodies, this.camera);
+    }
     this.vesselRenderPass.render(pass, [...this.spaceVessels.values()], this.camera,
-      this.origin, this.effectTime);
+      this.origin, this.effectTime, !!this.heroBattle, this.heroBattle?.fleetLod ? height : null);
+    if (this.heroBattle?.cinematic) {
+      this.heroBattle.debrisPass.render(pass, device, sceneFormat, this.camera, this.origin,
+        this.heroBattle.time, height);
+    }
+    this.weaponRenderPass.render(pass, device, this.bloom?.sceneFormat || navigator.gpu.getPreferredCanvasFormat(),
+      this.camera, this.origin, performance.now() / 1000, width, height, !!this.heroBattle, this.heroBattle?.time ?? null,
+      this.heroBattle?.fleetLod ? this.heroBattle.primitiveBudget : null);
+    this.heroBattle?.renderPresentation(pass, device, sceneFormat, width, height);
+    this.heroBattle?.recordRenderStats();
+    if (this.heroBattle) {
+      pass.end();
+      pass = encoder.beginRenderPass({ colorAttachments: [{ view: sceneView, loadOp: 'load', storeOp: 'store' }] });
+    }
     if (this.lensFlare) {
       this.lensFlare.setProjectedSources(this.getLensFlareSources());
       this.lensFlare.renderOverlay(pass, device, { aspect, time: this.effectTime });
@@ -1386,7 +1418,9 @@ export class PerspectiveSpaceFlight {
     const labelRenderMs = performance.now() - labelRenderStarted;
     pass.end();
     if (this.bloom) this.bloom.encode(encoder, context.getCurrentTexture().createView());
+    this.heroBattle?.metrics.encode(encoder);
     device.queue.submit([encoder.finish()]);
+    this.heroBattle?.metrics.submitted();
     this.previousView = view.slice();
     this.renderedInstances = count;
     this.renderProfileSamples.push({
@@ -1408,6 +1442,8 @@ export class PerspectiveSpaceFlight {
     this.stop();
     this.clearSpaceVessels();
     this.vesselRenderPass.dispose();
+    this.weaponRenderPass.clear();
+    this.weaponRenderPass.dispose();
     this.lensFlare?.clearSources();
     this.labelRenderer?.dispose();
     this.instanceBuffer?.destroy();

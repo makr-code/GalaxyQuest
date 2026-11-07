@@ -849,4 +849,4 @@ Before submitting PHP code:
 
 **Last Updated:** 2026-08-01  
 **Framework:** PHP 8.1+  
-**Questions?** See FULLSTACK_ARCHITECTURE_ANALYSIS.md for deep dive.
+**Questions?** See the [historical fullstack architecture analysis](../docs/archive/FULLSTACK_ARCHITECTURE_ANALYSIS.md) for the 2026-08-01 deep dive.

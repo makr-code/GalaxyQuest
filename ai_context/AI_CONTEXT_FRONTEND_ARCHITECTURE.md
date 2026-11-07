@@ -654,5 +654,5 @@ this.container.appendChild(heading);
 
 **See also**:
 - [AI_CONTEXT_JAVASCRIPT.md](AI_CONTEXT_JAVASCRIPT.md) – JavaScript coding patterns
-- [JAVASCRIPT_ARCHITECTURE_ANALYSIS.md](../../JAVASCRIPT_ARCHITECTURE_ANALYSIS.md) – Deep dive into current architecture
+- [Historische JavaScript-Architekturanalyse](../docs/archive/JAVASCRIPT_ARCHITECTURE_ANALYSIS.md) – Deep dive into the architecture as of 2026-08-01
 - [AI_CONTEXT_BACKEND_ARCHITECTURE.md](AI_CONTEXT_BACKEND_ARCHITECTURE.md) – Frontend ↔ Backend communication

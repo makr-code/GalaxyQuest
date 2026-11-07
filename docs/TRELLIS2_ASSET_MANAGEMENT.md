@@ -8,6 +8,10 @@
 > with active API columns. Both initializer entry points now fail closed.
 > Do not enable persistence until the schema is defined by a reviewed canonical
 > migration and accepted against actual API/worker paths.
+>
+> Directory layouts, example records, table descriptions, and flow diagrams in
+> this document are design proposals, not evidence that these paths, tables, or
+> integrations are deployed or exercised by the current runtime.
 
 ---
 

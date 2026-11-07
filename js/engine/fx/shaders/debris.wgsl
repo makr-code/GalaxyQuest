@@ -57,7 +57,7 @@ struct DebrisChunk {
   scale     : f32,  // uniform mesh scale
   drag      : f32,  // linear drag coefficient (velocity lost per second)
   lifetime  : f32,  // remaining lifetime (seconds); 0 = permanent
-  active    : f32,  // 1.0 = alive, 0.0 = dead (float for alignment)
+  isAlive   : f32,  // 1.0 = alive, 0.0 = dead (float for alignment)
 
   // Reserved
   _r0       : f32,
@@ -95,7 +95,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   if (i >= arrayLength(&chunks)) { return; }
 
   var c = chunks[i];
-  if (c.active < 0.5) { return; }  // skip dead chunks
+  if (c.isAlive < 0.5) { return; }  // skip dead chunks
 
   let dt = params.dt;
 
@@ -103,7 +103,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   if (c.lifetime > 0.0) {
     c.lifetime -= dt;
     if (c.lifetime <= 0.0) {
-      c.active = 0.0;
+      c.isAlive = 0.0;
       chunks[i] = c;
       return;
     }

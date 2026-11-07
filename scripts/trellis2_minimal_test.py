@@ -5,6 +5,7 @@ Testet die kleinsten verfügbaren Modelle und validiert Integrations-Pipeline
 """
 
 import json
+import struct
 import sys
 from pathlib import Path
 
@@ -97,7 +98,7 @@ class TRELLIS2Tests:
             self.results["summary"]["failed"] += 1
             return False
 
-    def test_4_mock_glb_generation(self):
+    def test_4_mock_glb_generation(self) -> bool:
         """Test: Mock GLB-Datei generieren (ohne echtes Modell)"""
         try:
             print("[4/6] Testing mock GLB generation...", end=" ")
@@ -106,8 +107,6 @@ class TRELLIS2Tests:
             glb_path = GENERATED_DIR / "test_mock_ship.glb"
 
             # Minimal gültiger GLB Header (12 bytes) + JSON Chunk
-            import struct
-
             glb_magic = b"glTF"
             glb_version = struct.pack("<I", 2)
 
@@ -133,14 +132,14 @@ class TRELLIS2Tests:
             }
 
             json_bytes = json.dumps(json_content).encode("utf-8")
-            json_len = len(json_bytes)
+            json_padded = json_bytes + b" " * ((-len(json_bytes)) % 4)
 
             # Mock Binary Buffer (48 bytes für minimal GLB)
             binary_data = b"\x00" * 48
-            binary_len = len(binary_data)
+            binary_padded = binary_data + b"\x00" * ((-len(binary_data)) % 4)
 
             # GLB Total Size
-            total_size = 12 + 8 + json_len + 8 + binary_len
+            total_size = 12 + 8 + len(json_padded) + 8 + len(binary_padded)
 
             # Write GLB
             with open(glb_path, "wb") as f:
@@ -148,15 +147,28 @@ class TRELLIS2Tests:
                 f.write(glb_version)
                 f.write(struct.pack("<I", total_size))
                 # JSON Chunk
-                f.write(struct.pack("<I", json_len))
+                f.write(struct.pack("<I", len(json_padded)))
                 f.write(b"JSON")
-                f.write(json_bytes)
+                f.write(json_padded)
                 # Binary Chunk
-                f.write(struct.pack("<I", binary_len))
+                f.write(struct.pack("<I", len(binary_padded)))
                 f.write(b"BIN\0")
-                f.write(binary_data)
+                f.write(binary_padded)
 
-            assert glb_path.exists(), f"{glb_path} nicht erstellt"
+            glb_data = glb_path.read_bytes()
+            magic, version, declared_size = struct.unpack_from("<4sII", glb_data)
+            assert magic == b"glTF" and version == 2, "Ungültiger GLB-Header"
+            assert declared_size == len(glb_data), "GLB-Dateigröße stimmt nicht"
+            offset = 12
+            for expected_type in (b"JSON", b"BIN\0"):
+                chunk_length, chunk_type = struct.unpack_from("<I4s", glb_data, offset)
+                offset += 8
+                assert chunk_type == expected_type, f"Unerwarteter Chunk: {chunk_type!r}"
+                assert chunk_length % 4 == 0, f"Chunk nicht 4-Byte-ausgerichtet: {chunk_type!r}"
+                offset += chunk_length
+                assert offset <= len(glb_data), f"Chunk abgeschnitten: {chunk_type!r}"
+            assert offset == len(glb_data), "Unerwartete Daten nach GLB-Chunks"
+
             size_kb = glb_path.stat().st_size / 1024
             print(f"✓ PASS ({size_kb:.1f} KB)")
             self.results["tests"].append(

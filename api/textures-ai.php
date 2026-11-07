@@ -1,19 +1,20 @@
 <?php
-declare(strict_types=1);
 
 /**
  * GalaxyQuest AI Texture Generation API
  * Bridge to ComfyUI/SwarmUI for procedurally-generated PBR textures
- * 
+ *
  * Supports: Albedo, Normal, Specular, Roughness, Metallic, Emission, AO maps
  * Generation: Spaceships, planets, atmospheric effects, environmental details
- * 
+ *
  * Advanced Features:
  * - ControlNet-based consistency (same ship gets coherent texture sets)
  * - Progressive loading (low-res → high-res)
  * - Style presets (rusty industrial, clean sci-tech, alien aesthetics)
  * - Batch PBR generation (all maps in one workflow)
  */
+
+declare(strict_types=1);
 
 header('Cache-Control: private, no-store');
 header('Content-Type: application/json; charset=utf-8');
@@ -23,8 +24,24 @@ send_security_headers();
 require_auth();
 
 $action = strtolower((string)($_GET['action'] ?? 'spaceship_texture'));
-$allowedActions = ['spaceship_texture', 'planet_texture', 'atmosphere_texture', 'detail_texture', 'batch_pbr', 'progressive', 'status', 'queue'];
-$generationActions = ['spaceship_texture', 'planet_texture', 'atmosphere_texture', 'detail_texture', 'batch_pbr', 'progressive'];
+$allowedActions = [
+    'spaceship_texture',
+    'planet_texture',
+    'atmosphere_texture',
+    'detail_texture',
+    'batch_pbr',
+    'progressive',
+    'status',
+    'queue',
+];
+$generationActions = [
+    'spaceship_texture',
+    'planet_texture',
+    'atmosphere_texture',
+    'detail_texture',
+    'batch_pbr',
+    'progressive',
+];
 
 if (!in_array($action, $allowedActions, true)) {
     http_response_code(400);
@@ -438,7 +455,7 @@ class GQTextureAiService
 
         // Check if any maps succeeded
         $successCount = count(array_filter($results, fn($r) => $r['success'] ?? false));
-        
+
         return [
             'success' => $successCount > 0,
             'batch' => true,
@@ -509,7 +526,12 @@ class GQTextureAiService
 
             // Generate texture
             $prompt = $this->descriptorToPrompt($normalizedDescriptor);
-            $generatedPath = $this->requestComfyUIGeneration($prompt, $normalizedDescriptor, $normalizedDescriptor['size'], $deadline);
+            $generatedPath = $this->requestComfyUIGeneration(
+                $prompt,
+                $normalizedDescriptor,
+                $normalizedDescriptor['size'],
+                $deadline
+            );
             $this->remainingSeconds($deadline);
 
             if ($generatedPath && is_file($generatedPath)) {
@@ -542,14 +564,18 @@ class GQTextureAiService
 
     private function ensureGenerationDirectories(): void
     {
-        if (!is_dir($this->cacheDir)
+        if (
+            !is_dir($this->cacheDir)
             && !@mkdir($this->cacheDir, 0775, true)
-            && !is_dir($this->cacheDir)) {
+            && !is_dir($this->cacheDir)
+        ) {
             throw new RuntimeException('Cannot create AI texture cache directory');
         }
-        if (!is_dir($this->lockDir)
+        if (
+            !is_dir($this->lockDir)
             && !@mkdir($this->lockDir, 0775, true)
-            && !is_dir($this->lockDir)) {
+            && !is_dir($this->lockDir)
+        ) {
             throw new RuntimeException('Cannot create AI texture lock directory');
         }
     }
@@ -594,7 +620,10 @@ class GQTextureAiService
     private function requestComfyUIGeneration(string $prompt, array $descriptor, int $size, float $deadline): string
     {
         $workflow = $this->buildComfyUIWorkflow($prompt, $descriptor, $size);
-        $json = json_encode(['prompt' => $workflow], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        $json = json_encode(
+            ['prompt' => $workflow],
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+        );
 
         $url = $this->comfyuiBaseUrl . '/prompt';
         $context = stream_context_create([
@@ -612,9 +641,11 @@ class GQTextureAiService
         }
 
         $data = $this->decodeObjectResponse($response);
-        if (!is_string($data['prompt_id'] ?? null) || $data['prompt_id'] === ''
+        if (
+            !is_string($data['prompt_id'] ?? null) || $data['prompt_id'] === ''
             || isset($data['error']) || (array_key_exists('node_errors', $data) && !is_array($data['node_errors']))
-            || !empty($data['node_errors'])) {
+            || !empty($data['node_errors'])
+        ) {
             throw new RuntimeException('Invalid ComfyUI response');
         }
 
@@ -705,16 +736,20 @@ class GQTextureAiService
             if (!is_array($nodeOutput)) {
                 throw new RuntimeException('Invalid ComfyUI output node');
             }
-            if (array_key_exists('images', $nodeOutput) && (!is_array($nodeOutput['images'])
-                || !array_is_list($nodeOutput['images']))) {
+            if (
+                array_key_exists('images', $nodeOutput) && (!is_array($nodeOutput['images'])
+                || !array_is_list($nodeOutput['images']))
+            ) {
                 throw new RuntimeException('Invalid ComfyUI image list');
             }
             if (!empty($nodeOutput['images'])) {
                 $image = $nodeOutput['images'][0];
-                if (!is_array($image) || !is_string($image['filename'] ?? null)
+                if (
+                    !is_array($image) || !is_string($image['filename'] ?? null)
                     || $image['filename'] === ''
                     || (array_key_exists('subfolder', $image) && !is_string($image['subfolder']))
-                    || (array_key_exists('type', $image) && !in_array($image['type'], ['output', 'temp'], true))) {
+                    || (array_key_exists('type', $image) && !in_array($image['type'], ['output', 'temp'], true))
+                ) {
                     throw new RuntimeException('Invalid ComfyUI image metadata');
                 }
                 return [
@@ -910,7 +945,8 @@ class GQTextureAiService
             default => '',
         };
 
-        return "High-quality {$base}{$condition}{$factionHint}, 4K PBR texture, photorealistic, cinematic lighting, no text";
+        return "High-quality {$base}{$condition}{$factionHint}, 4K PBR texture, "
+            . 'photorealistic, cinematic lighting, no text';
     }
 
     /**
@@ -933,7 +969,8 @@ class GQTextureAiService
             },
         };
 
-        return "Seamless {$base}, high-resolution terrain texture, 4K PBR, scientifically accurate colors, no artificial patterns, cinematic";
+        return "Seamless {$base}, high-resolution terrain texture, 4K PBR, scientifically accurate colors, "
+            . 'no artificial patterns, cinematic';
     }
 
     /**
@@ -950,7 +987,8 @@ class GQTextureAiService
             default => 'earth-like clouds, cumulus formations, atmospheric perspective',
         };
 
-        return "Seamless {$atmosphere} texture, volumetric, soft lighting, high-resolution, 4K detail, atmospheric depth, no sharp edges";
+        return "Seamless {$atmosphere} texture, volumetric, soft lighting, high-resolution, 4K detail, "
+            . 'atmospheric depth, no sharp edges';
     }
 
     /**
@@ -971,7 +1009,8 @@ class GQTextureAiService
             default => "{$intensityDesc}surface wear patterns, aging texture",
         };
 
-        return "Seamless detail texture: {$detail}, high-resolution overlay, grayscale, 4K, suitable for layering, professional quality";
+        return "Seamless detail texture: {$detail}, high-resolution overlay, grayscale, 4K, "
+            . 'suitable for layering, professional quality';
     }
 
     /**

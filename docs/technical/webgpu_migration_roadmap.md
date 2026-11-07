@@ -3,6 +3,8 @@
 > **Ziel:** Graduelle Migration von Three.js WebGL zu eigener WebGPU-Engine  
 > **Strategie:** Parallelbetrieb — bestehender Code läuft unverändert weiter
 
+> **Statushinweis:** Häkchen belegen hier höchstens vorhandene Implementierungen oder Tests, keine Produktionsfreigabe. Performancewerte sind ungemessene Schätzungen. GPU-Physik und Steering laufen clientseitig und sind keine autoritative Spielsimulation.
+
 ---
 
 ## Phasenübersicht
@@ -14,7 +16,7 @@
 | **Phase 2** | Woche 4–5 | Scene Graph + Camera | ✅ Erledigt |
 | **Phase 3** | Woche 6–7 | Post-Effects Migration (WGSL) | ✅ Erledigt |
 | **Phase 4** | Woche 8–9 | Galaxy3D + Starfield Integration | ✅ Erledigt |
-| **Phase 5** | Woche 10+ | GPU-Physics (NPC AI + Flotten) | ✅ Erledigt |
+| **Phase 5** | Woche 10+ | GPU-Physik und Steering-Prototypen | 🟡 Teilweise; keine integrierte NPC-/Flotten-Spielsimulation |
 
 ### Technische Verbesserungen (abgeschlossen)
 
@@ -130,9 +132,11 @@ tests/webgpu/                 ← Test-Suite
 
 ---
 
-## Phase 5 — GPU-Physics (NPC AI + Flotten)
+## Phase 5 — Clientseitige GPU-Physik und Steering-Prototypen
 
-**Fokus:** O(N²) Gravity auf GPU auslagern — skaliert auf 1000+ Körper
+**Fokus:** O(N²)-Gravitation und NPC-Steering als optionale, clientseitige Compute-Pfade. Diese Komponenten ändern keine serverautoritativen Spielregeln und belegen keine integrierte NPC- oder Flotten-Simulation.
+
+`WebGPUPhysics` wird optional vom `GameEngine` für dessen lokale Physics-Bodies verwendet. `HybridPhysicsEngine` und `NPCPathfindingCompute` sind eigenständige Module mit Tests, aber ohne Aufrufstelle im produktiven Runtime-Code.
 
 **Architektur:**
 
@@ -157,7 +161,7 @@ cs_main() {
 }
 ```
 
-**Skalierungsziel:**
+**Unverifizierte Skalierungsschätzungen (keine Benchmark-Ergebnisse):**
 
 | N Bodies | CPU (JS) | GPU (WebGPU) | Speedup |
 |---|---|---|---|
@@ -166,11 +170,11 @@ cs_main() {
 | 5000     | ~1000ms  | ~5ms         | 200×    |
 
 **Tasks:**
-- [x] `WebGPUPhysics.js` — Double-Buffering für Async Readback (kein Frame-Blocking)
+- [x] `WebGPUPhysics.js` — Double-Buffering für Async Readback; optionaler clientseitiger Physics-Backend-Pfad
 - [x] `ComputePass.js` — vollständig mit `dispatchCompute()` verdrahtet
-- [x] `HybridPhysicsEngine.js` — CPU+GPU Hybrid-Mode mit Auto-Switch + Sync-Point (`js/engine/webgpu/HybridPhysicsEngine.js`)
-- [x] `SpacePhysicsEngine` — NPC-Pathfinding als separater Compute-Pass (`js/engine/webgpu/NPCPathfindingCompute.js`: Seek/Arrive + Separation WGSL, 41 Tests)
-- [x] `WebGPUPhysics.js` — WGSL Shader final testen mit echtem GPU (Hardware-in-Loop CI: `tests/e2e/webgpu-shader-validation.spec.js` + `.github/workflows/webgpu-shader-validation.yml`, Chromium SwiftShader, 14 Shader × compilationInfo())
+- [x] `HybridPhysicsEngine.js` — CPU+GPU Hybrid-Mode mit Auto-Switch + Sync-Point; Modul- und Unit-Tests vorhanden, nicht in der GameEngine verdrahtet
+- [x] `NPCPathfindingCompute.js` — Seek/Arrive + Separation WGSL und Unit-Tests; eigenständiger Prototyp ohne Runtime-Aufrufstelle
+- [x] WGSL-Kompilierungs-CI — `tests/e2e/webgpu-shader-validation.spec.js` + `.github/workflows/webgpu-shader-validation.yml`; Chromium mit SwiftShader-Software-Renderer, keine Hardware-in-the-Loop-Validierung
 
 ---
 
@@ -218,7 +222,7 @@ localStorage.setItem('gq:rendererHint', 'auto');    // auto (default)
 | System-View (Planeten) | 60+ | 16ms/frame | WebGPU primary |
 | Auth-Starfield | 60+ | 8ms/frame | WebGPU primary |
 | Niedrig-End Fallback | 30+ | 33ms/frame | WebGL2 |
-| GPU-Physics (500 NPCs) | Async | <5ms | WebGPU Compute |
+| GPU-Steering (Agenten-Prototyp) | Ziel noch zu messen | <5ms, unbestätigt | WebGPU Compute |
 
 **Memory-Budget:**
 - GPU: < 256 MB (Galaxy + Effekte)

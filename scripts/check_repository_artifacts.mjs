@@ -27,6 +27,18 @@ for (const record of listing.split('\0').filter(Boolean)) {
   if (/^generated\/textures\/.*\.(?:png|lock)$/i.test(name)) {
     failures.push(`Generated texture cache must not be tracked: ${name}`);
   }
+  if (
+    /^generated\/comfyui\/output\/3d\/[^/]+\.glb$/i.test(name)
+    || /^generated\/trellis2\/[^/]+\.glb$/i.test(name)
+    || /^generated\/trellis2\/fallback_job[^/]*\.glb$/i.test(name)
+    || /^generated\/trellis2\/image2text\/[^/]+\.glb$/i.test(name)
+    || /^generated\/trellis2\/text2image\/[^/]*_prompt\.glb$/i.test(name)
+  ) {
+    failures.push(`Generated TRELLIS2 output must not be tracked: ${name}`);
+  }
+  if (/^js\/.*\.ugl\.js\.gz$/i.test(name) || /^js\/packages\/game\.boot\.bundle(?:\.[^/]+)?\.js\.gz$/i.test(name)) {
+    failures.push(`Legacy JavaScript gzip output must not be tracked: ${name}`);
+  }
   if (bytes > maxBlobBytes) {
     failures.push(`Git blob ${name} is ${bytes} bytes; limit is ${maxBlobBytes}.`);
   }

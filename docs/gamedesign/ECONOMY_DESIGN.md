@@ -440,7 +440,7 @@ Bei fehlendem Konsum:
 
 ### 5.2 Pop-Job-Erweiterung
 
-Die bestehenden Pop-Jobs ([ColonySimulation.js](js/engine/game/ColonySimulation.js)) werden um wirtschaftliche Rollen erweitert:
+Die bestehenden Pop-Jobs ([ColonySimulation.js](../../js/engine/game/ColonySimulation.js)) werden um wirtschaftliche Rollen erweitert:
 
 | Job (neu) | Ausgabe | Benötigt Gebäude |
 |---|---|---|
@@ -586,7 +586,7 @@ Spieler können bestimmte Produktionsbereiche subventionieren:
 
 ### 9.1 Neue Forschungskategorie: ECONOMY
 
-Die bestehende [ResearchTree.js](js/engine/game/ResearchTree.js) wird um die Kategorie `ECONOMY` erweitert:
+Die bestehende [ResearchTree.js](../../js/engine/game/ResearchTree.js) wird um die Kategorie `ECONOMY` erweitert:
 
 ```javascript
 ResearchCategory.ECONOMY = 'economy'; // Handelsrouten, Märkte, Produktionsmethoden
@@ -693,7 +693,7 @@ Im bestehenden Kolonie-Fenster wird ein neuer Bereich **"Wirtschaft"** hinzugef�
 
 ### 10.4 GQUI-Konventionen
 
-Alle neuen Komponenten folgen dem bestehenden [GQUI Fluent DOM-Builder](js/gq-ui.js):
+Alle neuen Komponenten folgen dem bestehenden [GQUI Fluent DOM-Builder](../../js/gq-ui.js):
 
 ```javascript
 // Beispiel: Markt-Preis-Zeile
@@ -916,7 +916,7 @@ Die bestehende Funktion wird um folgende Schritte erweitert:
 
 ### 11.4 Projection-System Integration
 
-Wirtschafts-Snapshots werden in das bestehende [Projection-System](lib/projection_runtime.php) integriert:
+Wirtschafts-Snapshots werden in das bestehende [Projection-System](../../lib/projection_runtime.php) integriert:
 
 ```php
 // scripts/project_economy_snapshot.php
@@ -1096,7 +1096,7 @@ Ziel-Knappheitsindex (pro Ressource):
 
 **Verwandte Dokumente:**
 - [GAMEDESIGN.md](GAMEDESIGN.md) — Haupt-GDD
-- [FUTURE_ENHANCEMENTS.md](FUTURE_ENHANCEMENTS.md) — Feature-Roadmap
+- [FUTURE_ENHANCEMENTS.md](../technical/FUTURE_ENHANCEMENTS.md) — Feature-Roadmap
 - [FTL_DRIVE_DESIGN.md](FTL_DRIVE_DESIGN.md) — FTL-System Design
 - [GAMEPLAY_DATA_MODEL.md](GAMEPLAY_DATA_MODEL.md) — Datenbankschema
 - [VESSEL_MODULE_BLUEPRINT_DESIGN.md](VESSEL_MODULE_BLUEPRINT_DESIGN.md) — Schiffsmodule

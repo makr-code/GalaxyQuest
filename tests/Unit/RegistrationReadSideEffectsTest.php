@@ -50,11 +50,13 @@ final class RegistrationReadSideEffectsTest extends TestCase
         self::assertIsString($portraitService);
         self::assertIsString($handler);
 
+        $normalizedHandler = preg_replace('/\s+/', '', $handler);
+        self::assertIsString($normalizedHandler);
         self::assertStringContainsString(
-            "\$read = in_array(\$action, ['register_catalog', 'register_preview', 'register_status', 'register_portrait_status', 'register_portrait_image'], true);",
-            $handler
+            "\$read=in_array(\$action,['register_catalog','register_preview','register_status','register_portrait_status','register_portrait_image',],true);",
+            $normalizedHandler
         );
-        self::assertStringContainsString("only_method(\$read ? 'GET' : 'POST');", $handler);
+        self::assertStringContainsString("only_method(\$read?'GET':'POST');", $normalizedHandler);
 
         foreach (['catalog', 'preview', 'status'] as $method) {
             $body = $this->methodBody($draftService, $method);

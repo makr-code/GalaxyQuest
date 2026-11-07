@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 require_once __DIR__ . '/helpers.php';
@@ -9,13 +10,23 @@ header('Cache-Control: no-store');
 $action = $_GET['action'] ?? 'list';
 $repository = new DeveloperBlogRepository(get_db());
 $source = null;
-if (!in_array(BLOG_SOURCE, ['local', 'wordpress', 'wordpress-simulation'], true)) json_error('Ungültige Blogquelle.', 503);
-if (BLOG_SOURCE === 'wordpress-simulation' && APP_ENV !== 'dev') json_error('Blogsimulation ist nur im Entwicklungsmodus verfügbar.', 503);
+if (!in_array(BLOG_SOURCE, ['local', 'wordpress', 'wordpress-simulation'], true)) {
+    json_error('Ungültige Blogquelle.', 503);
+}
+if (BLOG_SOURCE === 'wordpress-simulation' && APP_ENV !== 'dev') {
+    json_error('Blogsimulation ist nur im Entwicklungsmodus verfügbar.', 503);
+}
 if (BLOG_SOURCE !== 'local') {
     try {
+        $apiUrl = BLOG_SOURCE === 'wordpress-simulation'
+            ? 'http://127.0.0.1:8080/api/wordpress_sim.php'
+            : BLOG_WORDPRESS_REST_URL;
+        $siteUrl = BLOG_SOURCE === 'wordpress-simulation'
+            ? REGISTRATION_PUBLIC_URL
+            : BLOG_WORDPRESS_SITE_URL;
         $source = new WordPressBlogSource(
-            BLOG_SOURCE === 'wordpress-simulation' ? 'http://127.0.0.1:8080/api/wordpress_sim.php' : BLOG_WORDPRESS_REST_URL,
-            BLOG_SOURCE === 'wordpress-simulation' ? REGISTRATION_PUBLIC_URL : BLOG_WORDPRESS_SITE_URL
+            $apiUrl,
+            $siteUrl
         );
     } catch (InvalidArgumentException $error) {
         error_log('[developer_blog] ' . $error->getMessage());
@@ -47,13 +58,17 @@ if ($action === 'narration') {
         error_log('[developer_blog_narration] ' . $error->getMessage());
         json_error('Blog derzeit nicht verfügbar. Vorlesen wurde nicht gestartet.', 503);
     }
-    if ($post === null) json_error('Beitrag nicht gefunden.', 404);
+    if ($post === null) {
+        json_error('Beitrag nicht gefunden.', 404);
+    }
     if (($body['revision'] ?? null) !== $post['revision']) {
         json_error('Beitrag wurde aktualisiert. Bitte Beiträge neu laden.', 409);
     }
     $chunks = DeveloperBlogRepository::speechChunks($post);
     $index = $body['chunk'] ?? null;
-    if (!is_int($index) || !isset($chunks[$index])) json_error('Ungültiger Sprachabschnitt.', 422);
+    if (!is_int($index) || !isset($chunks[$index])) {
+        json_error('Ungültiger Sprachabschnitt.', 422);
+    }
     require_once __DIR__ . '/tts_client.php';
     $result = tts_synthesise($chunks[$index], ['lang' => 'de']);
     if (!($result['ok'] ?? false)) {
@@ -62,11 +77,17 @@ if ($action === 'narration') {
     }
     json_ok(['audio_url' => $result['audio_url'], 'chunks' => count($chunks), 'chunk' => $index]);
 }
-if (!in_array($action, ['admin_list', 'save'], true)) json_error('Unknown action.', 400);
+if (!in_array($action, ['admin_list', 'save'], true)) {
+    json_error('Unknown action.', 400);
+}
 only_method($action === 'save' ? 'POST' : 'GET');
 $uid = require_auth();
-if (!is_admin_user(get_db(), $uid)) json_error('Admin access required.', 403);
-if ($source !== null) json_error('Externe Blogquelle aktiv. Beiträge bitte im führenden Blog bearbeiten.', 409);
+if (!is_admin_user(get_db(), $uid)) {
+    json_error('Admin access required.', 403);
+}
+if ($source !== null) {
+    json_error('Externe Blogquelle aktiv. Beiträge bitte im führenden Blog bearbeiten.', 409);
+}
 if ($action === 'admin_list') {
     $page = min(100000, positive_int($_GET['page'] ?? null, 1));
     $posts = $repository->administration($page);

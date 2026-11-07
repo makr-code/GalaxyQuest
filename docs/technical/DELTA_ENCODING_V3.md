@@ -1,16 +1,18 @@
 # DELTA-ENCODING V3: Scientific Compression Optimizations
 
-**Status**: Phase 8 - Advanced Compression Research  
+**Status**: Research/prototype; not a production-ready transport
 **Date**: 28. März 2026  
 **Author**: GitHub Copilot + Scientific Literature Review
+
+> The PHP encoder exists and the legacy galaxy endpoint can return binary V3 when explicitly requested. The regular client uses JSON by default, and the V3 browser decoder is not loaded by `index.html`. The comparison figures below are historical estimates, not measured production benchmarks; `js/tests/benchmark-v3.js` is deprecated and estimates V3 sizes.
 
 ---
 
 ## Executive Summary
 
-**Delta-Encoding V3** extends the StringPool deduplication (V2) with academic compression techniques achieving **~96-97% reduction vs JSON** (vs 94% for V2).
+The original design estimated that **Delta-Encoding V3** might reduce size by ~96–97% versus JSON (versus an estimated 94% for V2). These figures are unverified estimates, not measured results.
 
-### Size Comparison (Medium Payload: 8 Planets, 3 Fleets)
+### Historical Size Estimates (Medium Payload: 8 Planets, 3 Fleets; Not Measured)
 
 | Format | Size | Reduction vs JSON | vs V2 | Notes |
 |--------|------|-------------------|-------|-------|
@@ -19,7 +21,7 @@
 | **Binary V1** | 1.1 KB | -92% | — | Fixed offsets |
 | **Binary V2** | 0.85 KB | -94% | — | StringPool |
 | **Binary V3 (Delta)** | 0.68 KB | -96% | -20% | **DPCM + Zigzag** |
-| **V3 + Gzip** | 0.25 KB | -98% | -26% | Production ready |
+| **V3 + Gzip** | 0.25 KB | -98% | -26% | Unverified estimate |
 
 ---
 
@@ -373,10 +375,10 @@ console.timeEnd('V3 decode');
 
 ## Conclusion
 
-**Binary V3 with Delta-Encoding** achieves compression reduction of **96% vs JSON** by combining:
+The original prototype analysis projected **96% reduction versus JSON**, but that result has not been measured. The projection was based on combining:
 - Academic compression literature (DPCM, prediction)
 - Spatial optimization (3D coordinate clustering)
 - Entropy-friendly encoding (zigazag, delta-of-delta)
 - Post-compression friendliness (gzip-optimized)
 
-**Production ready** with comprehensive testing framework and monitoring hooks.
+This is a research conclusion, not production approval. The optional encoder, inactive browser decoder, absence of verified end-to-end decoding tests, and unmeasured size/performance figures must be addressed before considering V3 for the normal client path.

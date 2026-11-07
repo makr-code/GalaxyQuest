@@ -109,7 +109,8 @@ final class TRELLIS2AssetManager {
     /**
      * Load existing design from database
      */
-    public function getDesign(int $design_id, ?int $user_id = null): array {
+    public function getDesign(int $design_id, ?int $user_id = null): array
+    {
         $query = 'SELECT * FROM vessel_designs WHERE id = ? AND is_deleted = 0';
         $params = [$design_id];
         if ($user_id !== null) {

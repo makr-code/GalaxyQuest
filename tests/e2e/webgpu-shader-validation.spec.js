@@ -134,6 +134,11 @@ function buildShaderCatalogue() {
       ),
     },
     {
+      label: 'HeroDebrisRenderPass — depth-writing instanced mesh fragments',
+      type: 'render',
+      source: extractWgslConstant('js/rendering/hero-debris-render-pass.js', 'SHADER'),
+    },
+    {
       label: 'SpaceVesselRenderPass — engine particles',
       type: 'render',
       source: extractWgslConstant(

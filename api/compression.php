@@ -2,13 +2,13 @@
 /**
  * Transit compression helpers.
  * - Auto-gzip (browser standard Accept-Encoding)
- * - Schema-based binary encoding (MessagePack-like for phase 2)
- * - Field trimming to reduce JSON bulk
+ * - Optional schema-based binary encoders (implemented in separate modules)
+ * - Opt-in field trimming to reduce JSON bulk
  */
 
 /**
  * Enable response gzip if supported by client.
- * Most modern browsers+servers do this automatically, but explicit is better.
+ * The server emits gzip when the request advertises support for it.
  */
 function enable_response_gzip(): void {
     // Check if client accepts gzip
@@ -21,8 +21,8 @@ function enable_response_gzip(): void {
 
 /**
  * Trim system payload to minimal fields needed for rendering.
- * Reduces JSON by ~30-40% by removing redundant/unused fields.
- * Client can request full payload with ?trim=0 if needed.
+ * Historical payload reduction estimates were ~30-40%; actual savings depend on data.
+ * Full payload is the default; callers opt in with ?trim=1.
  * 
  * Fields kept:
  *   - star_system: only name, spectral_class, coordinates, planet_count

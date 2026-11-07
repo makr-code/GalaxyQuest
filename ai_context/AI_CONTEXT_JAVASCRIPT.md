@@ -652,4 +652,4 @@ Before submitting JavaScript code:
 
 **Last Updated:** 2026-08-01  
 **Maintained by:** Architecture Team  
-**Questions?** See JAVASCRIPT_ARCHITECTURE_ANALYSIS.md for deep dive.
+**Questions?** See the [historical JavaScript architecture analysis](../docs/archive/JAVASCRIPT_ARCHITECTURE_ANALYSIS.md) for the 2026-08-01 deep dive.

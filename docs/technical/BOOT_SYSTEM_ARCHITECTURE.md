@@ -4,6 +4,12 @@
 **Last Updated:** April 8, 2026  
 **Maintainer:** GalaxyQuest DevOps
 
+> **Historical:** The production shell now boots through the Vite ES-module
+> entry `js/main.js` loaded by `index.html`. The PHP/Uglify gzip bundles and
+> `boot-manifest.js` flow described below are retired from production; generated
+> `*.ugl.js.gz` and `js/packages/game.boot.bundle*.js.gz` files are not tracked.
+> Refer to the current entry point and `vite.config.js` for production builds.
+
 ---
 
 ## Table of Contents

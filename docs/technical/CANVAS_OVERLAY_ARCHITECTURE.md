@@ -2,7 +2,7 @@
 
 **Version:** 1.0  
 **Date:** July 30, 2026  
-**Status:** Phase 1-5 Complete (Foundation + Integration)
+**Status:** Overlay canvas and selected renderer integrations exist; this architecture document remains a design snapshot, not evidence that all proposed features or phases are implemented or validated
 
 ---
 
@@ -21,7 +21,7 @@
 
 ## Overview
 
-The Canvas Overlay & Animation Framework provides a modular, extensible system for rendering 2D overlays on top of the 3D WebGPU galaxy renderer. It supports:
+This document describes a proposed modular system for rendering 2D overlays on the WebGPU galaxy renderer. Some building blocks exist as standalone modules, and the renderer creates an overlay canvas and initializes animation/trajectory helpers. This does not establish that every feature below is implemented or wired into the runtime:
 
 - **Time-based Animations** — Easing functions, tweens, sequences, loops
 - **Selection Overlays** — Pulsing rings, dashed boxes (marquee effect)
@@ -31,7 +31,7 @@ The Canvas Overlay & Animation Framework provides a modular, extensible system f
 - **Labels** — Persistent or auto-expiring text with animations
 - **Particle Systems** — Extensible emitter-based particle effects
 
-All rendering is performed on a dedicated 2D canvas overlay (`_overlayCanvas`) positioned absolutely above the 3D renderer, with pointer events disabled to avoid interference with interaction.
+The renderer creates a dedicated 2D canvas overlay (`_overlayCanvas`) above the 3D renderer. Feature availability and runtime integration must be verified per overlay; the list above is the framework's design scope, not a feature-completion checklist.
 
 ---
 
@@ -518,10 +518,10 @@ const pos = trajectoryRenderer.interpolatePosition(trajectory, 0.5);
 - [ ] WebWorker integration for trajectory math
 - [ ] GPU-accelerated particle system
 
-### Phase 7: Testing & Docs (Planned)
+### Phase 7: Testing & Docs (Partially implemented)
 
-- [ ] Unit tests for easing functions ✓
-- [ ] Integration tests for animation composition ✓
+- [x] Unit tests for easing functions
+- [x] Integration tests for animation composition
 - [ ] Trajectory interpolation benchmarks
 - [ ] E2E tests with Playwright
 - [ ] Performance profiling & optimization guide

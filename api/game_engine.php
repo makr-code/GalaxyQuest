@@ -1225,6 +1225,23 @@ function colony_population_change(
  * Aggregate dynamic empire effects from species, government, civics and faction pressure.
  * Safe fallback: if politics tables are missing, returns neutral values.
  */
+function gq_is_missing_table_exception(PDOException $error, PDO $db): bool
+{
+    if ($error->getCode() === '42S02') {
+        return true;
+    }
+
+    if ($db->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+        return false;
+    }
+
+    $details = $error->errorInfo;
+    return is_array($details)
+        && ($details[1] ?? null) === 1
+        && is_string($details[2] ?? null)
+        && str_starts_with($details[2], 'no such table: ');
+}
+
 function empire_dynamic_effects(PDO $db, int $userId): array {
     static $cache = [];
     if (isset($cache[$userId])) {
@@ -1263,7 +1280,7 @@ function empire_dynamic_effects(PDO $db, int $userId): array {
             $effects = merge_effect_bundle($effects, json_decode((string)($profile['government_effects'] ?? '{}'), true));
         }
     } catch (PDOException $error) {
-        if ($error->getCode() !== '42S02') {
+        if (!gq_is_missing_table_exception($error, $db)) {
             throw $error;
         }
     }
@@ -1280,7 +1297,7 @@ function empire_dynamic_effects(PDO $db, int $userId): array {
             $effects = merge_effect_bundle($effects, json_decode((string)($row['effects_json'] ?? '{}'), true));
         }
     } catch (PDOException $error) {
-        if ($error->getCode() !== '42S02') {
+        if (!gq_is_missing_table_exception($error, $db)) {
             throw $error;
         }
     }
@@ -1331,7 +1348,7 @@ function empire_dynamic_effects(PDO $db, int $userId): array {
             }
         }
     } catch (PDOException $error) {
-        if ($error->getCode() !== '42S02') {
+        if (!gq_is_missing_table_exception($error, $db)) {
             throw $error;
         }
     }
@@ -1375,7 +1392,7 @@ function empire_dynamic_effects(PDO $db, int $userId): array {
             }
         }
     } catch (PDOException $error) {
-        if ($error->getCode() !== '42S02') {
+        if (!gq_is_missing_table_exception($error, $db)) {
             throw $error;
         }
     }

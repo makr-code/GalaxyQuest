@@ -1,8 +1,12 @@
 # Progressive System Loading + Data Compression
 
-## Phase 0 Progressive Rendering (js/galaxy3d.js)
+> **Historical design note:** Timing and bandwidth figures below are unverified estimates, not current measurements. The old renderer path has moved; the current client defaults to JSON, and optional binary formats do not establish an active binary-decoder path.
 
-**Problem solved:** System enter was janky (all 3D assets + textures at once).
+## Progressive Rendering
+
+The older `js/legacy/galaxy3d.js` and `js/rendering/galaxy-renderer-core.js` contain phased system-refinement code. The timings below are illustrative and have not been re-measured on the current renderer.
+
+**Historical problem statement:** System entry was described as janky because all 3D assets and textures loaded at once.
 
 **Solution:** 4-phase lazy loading per planet:
 
@@ -25,31 +29,27 @@ T=...+10ms Phase 3: Cloud shells per planet
 - `_processSystemRefinementQueue()` – Async texture gen in tasks
 - Cleanup: `exitSystemView()` cancels pending tasks
 
-**Result:** System appears in ~0ms, visually complete in ~200-500ms (staggered).
+**Historical estimate:** Initial system rendering was described as immediate, with refinement in ~200–500 ms; this is not a current measured result.
 
 ---
 
-## Data Compression (api/compression.php)
+## Data Compression
 
-**Problem:** System API responses 50-200KB JSON. Transit time bottleneck.
+**Historical problem statement:** System API responses were estimated at 50–200 KB JSON.
 
-**Solution:** 3 tiers:
+**Available mechanisms:** gzip, optional field trimming, and optional binary encoders.
 
-### Tier 1: Browser Gzip (Automatic)
+### Tier 1: Gzip
 - `gzip` header + `ob_gzhandler`
-- Works: ~60-70% reduction (12KB for typical system)
-- Status: **Enabled** in `api/galaxy.php`
+- `api/galaxy.php` calls `enable_response_gzip()`; gzip is emitted when supported by the request/server response path.
+- Reduction percentages and typical payload sizes in this document are historical estimates, not current measurements.
 
-### Tier 2: Payload Trimming (Optional, +30-40% savings)
-- Remove unused fields from response
-- `?trim=1` flag
-- Stripped fields: `server_ts`, `deposit_*`, building details, etc.
-- **Enabled by default** in `API.galaxy()` (`js/api.js`)
+### Tier 2: Payload Trimming (Optional)
+- System payload trimming is opt-in with `?trim=1`; no trimming is applied automatically by the endpoint.
 
-### Tier 3: Binary Encoding (Phase 2)
-- MessagePack-like format: ~40% of gzipped JSON
-- Schema defined in `api/compression.php`
-- **Not implemented** yet (opt-in for future)
+### Tier 3: Optional Binary Encodings
+- Server encoders for V1, V2, and V3 are implemented and can be requested explicitly for system payloads.
+- JSON remains the endpoint default. The binary decoder script tags in `index.html` are commented out; do not assume normal browser clients consume these formats.
 
 ---
 
@@ -57,11 +57,11 @@ T=...+10ms Phase 3: Cloud shells per planet
 
 ### From JS
 ```javascript
-// Trimmed + gzipped (now default):
-const payload = await API.galaxy(1, 1);
+// System responses use JSON by default.
+const payload = await fetch('api/galaxy.php?galaxy=1&system=1').then(r => r.json());
 
-// Full response (backwards compat):
-const fullPayload = await fetch('api/galaxy.php?galaxy=1&system=1').then(r => r.json());
+// Explicitly request a trimmed system payload:
+const trimmedPayload = await fetch('api/galaxy.php?galaxy=1&system=1&trim=1').then(r => r.json());
 ```
 
 ### From PHP
@@ -74,31 +74,25 @@ $response = trim_system_payload_for_transit($payload);
 
 ---
 
-## Bandwidth Savings
+## Historical Bandwidth Estimates — Not Benchmarked
 
 | Format | Size | Time (5G) | Notes |
 |--------|------|----------|-------|
-| Full JSON | 120 KB | 156 ms | Baseline |
-| + Gzip | 16 KB | 21 ms | Browser default |
-| + Trim | 10 KB | 13 ms | Field reduction |
-| **+ Binary** | **4 KB** | **5 ms** | Phase 2 |
+| Full JSON | 120 KB | 156 ms | Historical estimate |
+| + Gzip | 16 KB | 21 ms | Historical estimate |
+| + Trim | 10 KB | 13 ms | Historical estimate |
+| Binary | 4 KB | 5 ms | Historical estimate; normal client decoding not established |
 
-**Current (Gzip + Trim): 91% reduction vs baseline.**
+These values are not a current benchmark or a verified reduction percentage.
 
 ---
 
 ## Future Work
 
-1. **Binary Format** (`?format=bin`)
-   - Implement MessagePack on server (if available)
-   - JS decoder for parsing
-   - Fallback to JSON
-
-2. **Delta API** (`?since_ts=1234567890`)
+1. **Delta API** (`?since_ts=1234567890`)
    - Only fleet/colony changes since last fetch
    - Reduces payload for live updates
 
-3. **GraphQL Variant** (`POST /api/graphql`)
+2. **GraphQL Variant** (`POST /api/graphql`)
    - Client picks exact fields needed
    - 20-30% smaller than REST trim
-

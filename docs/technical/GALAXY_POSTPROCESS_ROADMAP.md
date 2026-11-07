@@ -1,5 +1,7 @@
 # Galaxy Post-Processing Effects Roadmap
 
+> Historical implementation roadmap last updated 2026-04-08. Completion checkboxes and performance/visual targets below are not current validation evidence. Phase 2 visual validation was explicitly pending; DOF and Atmospheric Glow Halo remain deferred in this plan.
+
 ## Vision
 Progressively enhance the visual fidelity of the galaxy renderer with post-processing effects that echo astrophotography and cinematography techniques.
 
@@ -252,16 +254,16 @@ UI will allow toggling + fine-tuning (dev mode).
 
 ## Success Criteria
 
-- ✅ All Phase 2 effects implemented + visually working
-- ✅ FPS maintained >58 on target GPU
-- ✅ Visual consistency between starfield + gameplay galaxy
-- ✅ User perceives galaxy as "premium AAA-quality"
-- ✅ No major artifacts or visual bugs
+- [x] Phase 2 effects implemented (visual validation remains pending in this report)
+- [ ] FPS maintained >58 on target GPU — no current benchmark evidence
+- [ ] Visual consistency between starfield + gameplay galaxy — not verified here
+- [ ] "Premium AAA-quality" perception — subjective design goal, not an acceptance test
+- [ ] No major artifacts or visual bugs — current visual QA not documented here
 
 ---
 
 **Last Updated:** 2026-04-08  
-**Status:** ✅ Phase 1–5 Complete | ⚠️ Phase 3a (DOF) and Phase 4c (Atmospheric Glow Halo) intentionally deferred — not implemented
+**Historical status as recorded 2026-04-08:** implementation phases marked complete; Phase 2 visual validation pending; Phase 3a (DOF) and Phase 4c (Atmospheric Glow Halo) deferred and not implemented. This is not a current release sign-off.
 
 ---
 
@@ -298,4 +300,4 @@ Two effects were intentionally deferred and are not yet implemented:
 - **Phase 3a — Depth of Field**: High performance cost (−15–25 FPS), requires 2–3 extra render-to-texture passes. Deferred pending quality-tier gating.
 - **Phase 4c — Atmospheric Glow Halo**: Animated pulsing corona around black-hole core. Deferred pending scene-composition decision.
 
-All other Phase 1–5 passes are fully implemented and tested.
+The historical plan records the other Phase 1–5 passes as implemented and tested; this claim has not been revalidated against the current release.

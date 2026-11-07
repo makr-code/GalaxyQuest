@@ -108,15 +108,15 @@
 ## 🔗 EXTERNAL REFERENCES
 
 ### **Architectural Deep Dives**
-- [JAVASCRIPT_ARCHITECTURE_ANALYSIS.md](../JAVASCRIPT_ARCHITECTURE_ANALYSIS.md) – Layer mapping, boot sequence, dependency analysis
-- [FULLSTACK_ARCHITECTURE_ANALYSIS.md](../FULLSTACK_ARCHITECTURE_ANALYSIS.md) – Frontend ↔ Backend integration
+- [Historische JavaScript-Architekturanalyse](../docs/archive/JAVASCRIPT_ARCHITECTURE_ANALYSIS.md) – Layer mapping, boot sequence, dependency analysis (2026-08-01)
+- [Historische Fullstack-Architekturanalyse](../docs/archive/FULLSTACK_ARCHITECTURE_ANALYSIS.md) – Frontend ↔ Backend integration (2026-08-01)
 
 ### **Project Standards**
-- [.github/copilot-instructions.md](../.github/copilot-instructions.md) – Python & PHP coding standards
-- [IMPLEMENTATION_ROADMAP.md](../IMPLEMENTATION_ROADMAP.md) – Feature timeline
+- [Copilot coding instructions](../.github/instructions/copilot-instructions.instructions.md) – Python & PHP coding standards
+- [Historical 3D implementation roadmap](../docs/archive/IMPLEMENTATION_ROADMAP.md) – superseded feature timeline
 
 ### **Testing & QA**
-- [TESTING_AND_PROFILING.md](../TESTING_AND_PROFILING.md) – Test suites, performance targets
+- [Historical rendering testing guide](../docs/archive/TESTING_AND_PROFILING.md) – archived test descriptions, not current quality-gate evidence
 - [playwright.config.js](../playwright.config.js) – E2E test configuration
 
 ---
@@ -155,7 +155,7 @@
 - **Python Questions?** → [AI_CONTEXT_PYTHON.md](AI_CONTEXT_PYTHON.md) or `.github/copilot-instructions.md`
 - **JavaScript Questions?** → [AI_CONTEXT_JAVASCRIPT.md](AI_CONTEXT_JAVASCRIPT.md)
 - **Architecture Questions?** → [AI_CONTEXT_FRONTEND_ARCHITECTURE.md](AI_CONTEXT_FRONTEND_ARCHITECTURE.md) + [AI_CONTEXT_BACKEND_ARCHITECTURE.md](AI_CONTEXT_BACKEND_ARCHITECTURE.md)
-- **Integration Questions?** → [FULLSTACK_ARCHITECTURE_ANALYSIS.md](../FULLSTACK_ARCHITECTURE_ANALYSIS.md)
+- **Integration Questions?** → [historical fullstack architecture analysis](../docs/archive/FULLSTACK_ARCHITECTURE_ANALYSIS.md)
 
 ---
 

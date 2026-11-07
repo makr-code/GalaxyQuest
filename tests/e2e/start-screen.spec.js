@@ -30,6 +30,8 @@ async function mockApi(page, { authenticated = false, expireOnResume = false, tw
     if (url.pathname.endsWith('/registration_narration.php')) {
       await route.fulfill({ status: 503, json: { success: false, error: 'Narration not prepared in UI test.' } });
       return;
+    } else if (url.pathname.endsWith('/developer_blog.php') && action === 'list') {
+      data = { success: true, source: 'local', posts: [], flight_targets: [] };
     } else if (url.pathname.endsWith('/server_announcements.php')) {
       data = { success: true, announcements: [] };
     } else if (action === 'me') {
@@ -377,14 +379,48 @@ test('settings, content links and the log bar work on narrow screens', async ({ 
   await expect(page.locator('#start-settings-status')).toContainText('saved');
   await page.keyboard.press('Escape');
   await page.locator('[data-start-panel="news"]').click();
-  await expect(page.locator('#start-panel-news')).toBeVisible();
-  await expect(page.locator('#start-panel-news')).toContainText('Command updates and transmissions');
+  await expect(page.getByRole('dialog', { name: 'News and transmissions' })).toBeVisible();
   await page.keyboard.press('Escape');
   await page.locator('#ui-console-expand').click();
   await expect(page.locator('#ui-console-log')).toBeVisible();
   await page.locator('#ui-console-close').click();
   await expect(page.locator('#ui-console-log')).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('start menu panels expand inline and remain within a narrow viewport', async ({ page }) => {
+  await mockApi(page);
+  await page.setViewportSize({ width: 360, height: 640 });
+  await page.goto('/');
+  await page.locator('[data-start-panel="news"]').click();
+  const newsPanel = page.locator('.start-cascade-panel:has(> #start-panel-news:not([hidden]))');
+  await expect(newsPanel).toBeVisible();
+
+  const layout = await newsPanel.evaluate((panel) => {
+    const trigger = panel.parentElement.querySelector('[data-start-panel="news"]');
+    const panelRect = panel.getBoundingClientRect();
+    const triggerRect = trigger.getBoundingClientRect();
+    return {
+      position: getComputedStyle(panel).position,
+      immediatelyAfterTrigger: trigger.nextElementSibling === panel,
+      previewDisplay: getComputedStyle(panel.parentElement.querySelector('#start-news-posts')).display,
+      panelX: panelRect.x,
+      triggerX: triggerRect.x,
+      panelTop: panelRect.top,
+      triggerBottom: triggerRect.bottom,
+      panelBottom: panelRect.bottom,
+      viewportHeight: innerHeight,
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: innerWidth,
+    };
+  });
+  expect(layout.position).toBe('relative');
+  expect(layout.immediatelyAfterTrigger).toBe(true);
+  expect(layout.previewDisplay).toBe('none');
+  expect(layout.panelX).toBeCloseTo(layout.triggerX);
+  expect(layout.panelTop).toBeGreaterThanOrEqual(layout.triggerBottom);
+  expect(layout.panelBottom).toBeLessThanOrEqual(layout.viewportHeight);
+  expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth);
 });
 
 test('2FA cancellation resets the challenge before the lazy dialog is reopened', async ({ page }) => {
@@ -648,7 +684,7 @@ test('settings flight tour visits DB system preview stages without writing world
   await expect.poll(() => page.evaluate(() => window.__GQ_AUTH_GALAXY_BG_RUNTIME?.renderer?.scene), { timeout: 5000 }).toBeNull();
 });
 
-test('login cascades beside its button on desktop and below it on narrow screens', async ({ page }) => {
+test('login expands inline below its button on desktop and narrow screens', async ({ page }) => {
   await mockApi(page);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/');
@@ -656,11 +692,11 @@ test('login cascades beside its button on desktop and below it on narrow screens
   const panel = page.locator('#start-auth-dialog');
   await expect(panel).toBeVisible();
   await expect(page.locator('#start-login')).toHaveAttribute('aria-expanded', 'true');
-  await expect(panel).toHaveCSS('animation-name', 'start-login-slide');
+  await expect(panel).toHaveCSS('animation-name', 'start-dialog-arrival');
   const buttonBox = await page.locator('#start-login').boundingBox();
   const panelBox = await panel.boundingBox();
-  expect(panelBox.x).toBeGreaterThan(buttonBox.x + buttonBox.width);
-  expect(Math.abs(panelBox.y - buttonBox.y)).toBeLessThan(2);
+  expect(panelBox.y).toBeGreaterThanOrEqual(buttonBox.y + buttonBox.height);
+  expect(Math.abs(panelBox.x - buttonBox.x)).toBeLessThan(2);
   expect(await panel.evaluate((element) => element.matches(':modal'))).toBe(false);
   await page.keyboard.press('Escape');
   await expect(page.locator('#start-login')).toBeFocused();
@@ -682,7 +718,7 @@ test('login cascades beside its button on desktop and below it on narrow screens
   await expect(page.locator('#start-register')).toBeFocused();
 });
 
-test('all other menu panels cascade, toggle and switch without leaving multiple panels open', async ({ page }) => {
+test('menu panels expand inline, toggle and switch without leaving multiple panels open', async ({ page }) => {
   await mockApi(page);
   await page.route(apiAction('auth', 'dev_tools_status'), (route) =>
     route.fulfill({ json: { success: true, enabled: true } }));
@@ -692,13 +728,13 @@ test('all other menu panels cascade, toggle and switch without leaving multiple 
     const trigger = page.locator(selector);
     await trigger.click();
     const panel = page.locator('dialog[open]');
-    await expect(panel).toHaveCount(1);
+    await expect(panel, `open panel for ${selector}`).toHaveCount(1);
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(await panel.evaluate((element) => element.matches(':modal'))).toBe(false);
     await expect.poll(async () => {
       const buttonBox = await trigger.boundingBox();
       const panelBox = await panel.boundingBox();
-      return panelBox.x > buttonBox.x + buttonBox.width && Math.abs(panelBox.y - buttonBox.y) < 2;
+      return panelBox.y >= buttonBox.y + buttonBox.height && Math.abs(panelBox.x - buttonBox.x) < 2;
     }).toBe(true);
   }
   await page.locator('#start-dev').click();

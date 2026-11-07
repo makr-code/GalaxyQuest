@@ -74,7 +74,7 @@ struct Agent {
   maxSpeed        : f32,
   vel             : vec3<f32>,
   maxForce        : f32,
-  target          : vec3<f32>,
+  destination     : vec3<f32>,
   arrivalRadius   : f32,
   separationRadius: f32,
   enabled         : f32,
@@ -95,7 +95,7 @@ struct Params {
 // Seek / Arrive — steer towards target, decelerate inside arrivalRadius
 // -----------------------------------------------------------------------
 fn seek_arrive(agent: Agent) -> vec3<f32> {
-  let toTarget = agent.target - agent.pos;
+  let toTarget = agent.destination - agent.pos;
   let dist     = length(toTarget);
 
   if (dist < 0.001) {
@@ -188,7 +188,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
   out.pos = a.pos + vel * params.dt;
 
   // Mark as arrived (disable) when within a small fraction of arrivalRadius
-  let remaining = length(a.target - out.pos);
+  let remaining = length(a.destination - out.pos);
   if (remaining < a.arrivalRadius * 0.05 && sp < a.maxSpeed * 0.08) {
     out.enabled = 0.0;
     out.vel     = vec3<f32>(0.0);

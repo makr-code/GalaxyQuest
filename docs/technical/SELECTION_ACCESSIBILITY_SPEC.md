@@ -1,18 +1,18 @@
 /**
  * docs/technical/SELECTION_ACCESSIBILITY_SPEC.md
  *
- * Selection UX Accessibility Specification
- * Phase 5 Requirements for Color-Blind Safe, Keyboard-Navigable Selection
+ * Selection UX Accessibility Proposal
+ * Proposed requirements for color-blind-safe, keyboard-navigable selection
  *
- * Status: Specification Complete
- * Implementation: Partial (visual tokens complete, keyboard/ARIA pending)
+ * Status: Proposal; not an accessibility acceptance result
+ * Implementation: Token helpers and tests exist, but integration is incomplete
  */
 
-# Selection UX Accessibility Specification
+# Selection UX Accessibility Proposal
 
 ## Executive Summary
 
-This specification ensures the Selection UX is accessible to users with:
+This proposal describes accessibility goals for users with:
 - Color vision deficiencies (CVD): Deuteranopia, Protanopia, Tritanopia, Monochromacy
 - Motor disabilities (keyboard-only navigation)
 - Visual impairments (screen reader support via aria-live)
@@ -31,7 +31,7 @@ This specification ensures the Selection UX is accessible to users with:
 - Opacity/transparency
 - Position/layering (z-index)
 
-### 1.2 Implemented Patterns
+### 1.2 Proposed Patterns (Runtime Integration Not Verified)
 
 **Selection State Markers:**
 ```
@@ -61,7 +61,7 @@ This specification ensures the Selection UX is accessible to users with:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 1.3 WCAG 2.1 Contrast Compliance
+### 1.3 WCAG 2.1 Contrast Targets (Not Audited)
 
 **Contrast Ratio Requirements:**
 - Normal text: 4.5:1
@@ -69,16 +69,15 @@ This specification ensures the Selection UX is accessible to users with:
 - Graphics/UI components: 3:1
 - Focus indicators: 3:1
 
-**Verified Tokens:**
+**Example Token Values (Not a Contrast Audit):**
 ```javascript
-// All marker tokens meet minimum requirements
+// Alpha colors composite with the actual canvas background; these examples
+// do not establish WCAG contrast compliance across runtime backgrounds.
 marker: {
-  // Selection: Gold (#FFD97A) on space background (#000000)
-  // Contrast: ~4.8:1 ✅
+  // Selection: Gold (#FFD97A) with alpha
   color: 'rgba(255, 217, 122, 0.88)',
   
-  // Hover: Blue (#7AC2FF) on space background (#000000)
-  // Contrast: ~3.2:1 ✅
+  // Hover: Blue (#7AC2FF) with alpha
   color: 'rgba(122, 194, 255, 0.72)',
 }
 ```
@@ -486,6 +485,8 @@ Always provide accessible help:
 ## Part 6: Testing Accessibility
 
 ### 6.1 Automated Tests
+
+The following is a proposed test outline, not a report of tests in the current suite.
 
 ```javascript
 // tests/js/selection-accessibility.test.js

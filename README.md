@@ -12,7 +12,7 @@
 # Docker Desktop
 docker compose up --build
 
-# App: http://localhost:8080
+# App: http://localhost:8081
 # MySQL: localhost:3307  (user: galaxyquest_user / password: galaxyquest_dev)
 ```
 
@@ -59,20 +59,18 @@ The in-game glossary now uses **Ollama LLM with Wikipedia as Retrieval-Augmented
 
 **Features:**
 - 🤖 **AI-Enhanced Definitions** – Ollama generates contextual explanations from Wikipedia excerpts
-- 💾 **Smart Caching** – 5-day TTL for generated definitions (50ms cache hits)
+- 💾 **Smart Caching** – generated definitions are cached for 5 days; response time depends on the database/cache environment
 - 🔄 **Toggle UI** – Switch between Static ↔️ AI definitions in the modal
-- 📊 **Multi-Model Support** – Supports Mistral, Neural-Chat, Llama2, Phi
+- 🧠 **Model Configuration** – selected with `OLLAMA_DEFAULT_MODEL` (development default: `mistral`)
 
 **Getting Started:**
 ```bash
-# Install & start Ollama
-ollama pull mistral
-ollama serve
+# Start the Compose Ollama service and pull the configured development model
+docker compose --profile ai-creative up -d ollama
+docker compose exec ollama ollama pull mistral
 
-# GalaxyQuest detects Ollama on localhost:11434 automatically
-# Optional: Set environment variables
-export OLLAMA_URL=http://localhost:11434
-export OLLAMA_MODEL=mistral
+# The web container connects to http://ollama:11434.
+# The service is exposed to the host on localhost:11435 by default.
 ```
 
 Full setup guide: [→ OLLAMA_SETUP.md](docs/technical/OLLAMA_SETUP.md)
@@ -96,9 +94,9 @@ Content-Type: application/json
 ```
 
 **Fallback Behavior:**
-- Ollama unavailable → Uses static definitions (no delay)
-- Wikipedia unreachable → LLM works without RAG context
-- LLM timeout (>30s) → Shows cached or static definition
+- A cache hit is returned before external Wikipedia/Ollama requests.
+- On a cache miss, the `generate` endpoint requires Wikipedia context and a successful Ollama request; failures return an API error.
+- The endpoint does not itself guarantee a static-definition fallback when generation fails.
 
 ### Local LLM (Ollama, Developer)
 
@@ -126,8 +124,8 @@ Environment variables:
 
 - `OLLAMA_ENABLED` (`1` in dev by default, `0` in production by default)
 - `OLLAMA_LOCAL_ONLY` (`1` by default, only allows localhost/127.0.0.1/::1)
-- `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`)
-- `OLLAMA_DEFAULT_MODEL` (default `llama3.1:8b`)
+- `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`; Docker Compose overrides this with `http://ollama:11434`)
+- `OLLAMA_DEFAULT_MODEL` (default `mistral`)
 - `OLLAMA_TIMEOUT_SECONDS` (default `45`)
 
 Backend endpoint:
@@ -306,37 +304,17 @@ Current suite:
 - `tests/js/wm.test.js` (WM window lifecycle)
 - `tests/js/api.test.js` (API call wrapper / versioned endpoint mapping)
 
-### Frontend JS Optimization (PHP, Uglify + Gzip)
+### Frontend JS Build
 
-The project now uses a PHP-based optimization build focused on uglified + gzip-compressed JavaScript assets.
+The production frontend uses Vite. `index.html` loads the ES-module entry at
+`js/main.js`, and CI builds the versioned assets with `npm run vite:build`.
+The former PHP/Uglify boot bundles (`*.ugl.js.gz` and
+`js/packages/game.boot.bundle*.js.gz`) are not part of the production boot path
+and must not be committed.
 
-Generate optimized runtime assets (default):
-
-```bash
-docker compose exec -T web php scripts/build_minified_js.php
-```
-
-Optional clean rebuild:
-
-```bash
-docker compose exec -T web php scripts/build_minified_js.php --clean
-```
-
-Optional variants:
-
-```bash
-# Keep uncompressed .ugl.js files as well
-docker compose exec -T web php scripts/build_minified_js.php --keep-uncompressed
-
-# Build extra variants (min + uglify + gzip/brotli when available)
-docker compose exec -T web php scripts/build_minified_js.php --all --clean
-```
-
-Result:
-
-- Runtime build generates `js/*.ugl.js.gz` artifacts.
-- `index.html` (unified shell) loads auth and game runtime assets.
-- Optional: Brotli artifacts (`*.br`) are generated when the PHP Brotli extension is available and enabled via CLI option.
+The legacy `scripts/build_minified_js.php` utility remains available for
+compatibility experiments; its generated gzip output is ignored and excluded
+from the production runtime.
 
 <img width="1920" height="1020" alt="Screenshot 2026-03-30 213050" src="https://github.com/user-attachments/assets/fd60806d-42aa-4976-b446-c072ee0663b1" />
 
@@ -506,7 +484,7 @@ window.__GQ_RENDER_TELEMETRY         // → array of render events
 
 ## Architecture & Design Decisions
 
-Current implementation status and verification limits: [Reality Check (29 October 2026)](docs/technical/REALITY_CHECK_2026-10-29.md).
+Dated implementation snapshot and verification limits (29 October 2026): [Reality Check](docs/technical/REALITY_CHECK_2026-10-29.md).
 Path to production readiness: [ROADMAP.md](ROADMAP.md), based on the [Production Readiness Audit (31 October 2026)](docs/technical/PRODUCTION_AUDIT_2026-10-31.md).
 
 ### Vanilla JavaScript and ES Modules
@@ -2141,7 +2119,7 @@ Workspace helpers:
 - `.vscode/extensions.json` recommends the PHP Debug and Docker extensions.
 
 Notes:
-- The app is served at `http://localhost:8080`.
+- The app is served at `http://localhost:8081`.
 - MySQL is exposed on port `3307` to avoid conflicts with a local server.
 - The schema in `sql/schema.sql` is only imported when the named Docker volume is empty.
 - If you need a clean database, run `docker compose down -v` and start again.

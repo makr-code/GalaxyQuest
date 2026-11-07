@@ -4,6 +4,17 @@
  * This file shows how to replace old monolithic code with new domain-based architecture
  */
 
+/**
+ * STATUS: Experimental migration proposal, not the current runtime contract.
+ *
+ * The JavaScript EconomyController/domain exists but is not bootstrapped by the
+ * main game entry point. Its saveEconomyState repository method is an adapter
+ * contract used by tests, not the authoritative persistence path. Gameplay
+ * economy mutations remain server-authoritative through api/economy.php and
+ * colony settlement remains on-demand in PHP. Do not copy the examples below
+ * as if they were an active replacement for those paths.
+ */
+
 // ==================== BEFORE (Old Monolithic Code) ====================
 
 /**
@@ -64,7 +75,7 @@
 //   }
 // };
 
-// ==================== AFTER (New Domain-Based Code) ====================
+// ==================== EXPERIMENTAL JS DOMAIN EXAMPLE (NOT MAIN-RUNTIME) ====================
 
 /**
  * NEW: js/engine/runtime/domains/economy/
@@ -360,7 +371,7 @@
  * });
  */
 
-// ==================== DEPRECATION TIMELINE ====================
+// ==================== DEPRECATION TIMELINE (PROPOSAL, NOT CURRENT SCHEDULE) ====================
 
 /**
  * Phase 1: Shadow Run (Week 1-2)

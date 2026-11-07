@@ -1,7 +1,7 @@
 # GalaxyQuest — Source-Code Reality Check
 
-**Stand:** 29. Oktober 2026  
-**Zweck:** Aktueller, evidenzbasierter Überblick über Implementierung, Integration und Verifikation. Dieser Bericht ersetzt keine vollständige Produktabnahme; er trennt sichtbaren Code von zurzeit nicht ausführbar verifizierten Aussagen.
+**Stichtag:** 29. Oktober 2026
+**Zweck:** Evidenzbasierter Snapshot von Implementierung, Integration und Verifikation zum Stichtag. Änderungen nach diesem Datum sind nicht erfasst, sofern sie nicht ausdrücklich in einem späteren Audit oder der [Production-Readiness-Roadmap](../../ROADMAP.md) dokumentiert sind. Dieser Bericht ersetzt keine vollständige Produktabnahme.
 
 ## Kurzurteil
 
@@ -204,7 +204,7 @@ Der Domain-Bootstrap in `js/main.js` stellt bei fehlenden EventBus-/Repository-O
 
 ## Musiksteuerung auf der Startseite
 
-- Zwei eigene prozedural synthetisierte Melodic-Trance-Drafts wurden ergänzt: [`Aurora_Transit.mp3`](../../music/Aurora_Transit.mp3) mit 128 BPM und [`Quantum_Horizon.mp3`](../../music/Quantum_Horizon.mp3) mit 132 BPM, jeweils **5:00 Minuten**, Stereo, 44,1 kHz und 192 kbit/s. Synthese mit eigenem Bass-/Arpeggio-/Pad-/Drumpattern und Intro, Hauptteilen, Break, Aufbau und Ausklang; keine externen Samples oder nachgeahmten Referenzmelodien. ID3-Metadaten kennzeichnen sie als prozedurale Drafts. Die technische Prüfung ersetzt keine musikalische Hörabnahme.
+- Zum Snapshot-Zeitpunkt wurden zwei eigene prozedural synthetisierte Melodic-Trance-Drafts dokumentiert: `Aurora_Transit.mp3` mit 128 BPM und `Quantum_Horizon.mp3` mit 132 BPM, jeweils **5:00 Minuten**, Stereo, 44,1 kHz und 192 kbit/s. Die beiden MP3-Artefakte sind im aktuellen Checkout nicht vorhanden; die historischen Angaben zu Synthese, ID3-Metadaten und technischen Prüfungen sind keine aktuelle Asset- oder Hörabnahme.
 - Beide MP3s vollständig per FFmpeg dekodiert: jeweils 300 Sekunden, integrierte Lautheit ca. -16,05 LUFS, gemessene True Peaks nach MP3-Kodierung -1,09 bzw. -0,98 dBTP, keine gemeldeten längeren Stilleabschnitte. Der lokale Katalog liefert nun **fünf Titel**; beide neuen Dateien antworten mit HTTP 200. Der Browser-Integrationsflow für echten Katalog, erreichbare Dateien und Titelwechsel bestand mit allen fünf Einträgen.
 
 - Kleines statisches HTML-Overlay oben rechts mit aktuellem Titel, Play/Pause, vorherigem/nächstem Titel und globaler Stummschaltung. Auf schmalen Bildschirmen bleibt Platz oberhalb des Schriftzugs; beim Spielstart wird es mit der Startseite ausgeblendet.

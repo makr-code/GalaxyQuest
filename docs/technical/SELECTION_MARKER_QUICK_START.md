@@ -8,6 +8,11 @@
 
 # Selection Marker System - Quick Start
 
+> **Integration status:** Reference sketches only. The marker modules and
+> renderer bootstrap exist, but the bootstrap/mixin is not loaded by the
+> current game entrypoint. These snippets are not a verified end-to-end setup
+> or evidence of active in-game marker rendering.
+
 ## 30-Second Setup
 
 ```javascript
@@ -38,7 +43,7 @@ const star = { __kind: 'star', galaxy_index: 1, system_index: 5 };
 const position = { x: 100, y: 200 };
 
 GQRuntimeSelectionState.commitSelectionState('active', star, position, 'click');
-// Marker automatically appears at (100, 200) with golden color and pulse animation
+// Intended result after the selection marker overlay is integrated into the renderer
 ```
 
 ### Show Hover Effect
@@ -64,7 +69,7 @@ const cluster = {
 };
 
 GQRuntimeSelectionState.commitSelectionState('active', cluster, position, 'click');
-// System automatically creates 3 green dashed group markers for each star
+// Intended group-marker behavior; runtime integration is not active in the game entrypoint
 ```
 
 ### Clear Selection
@@ -146,7 +151,8 @@ setInterval(() => {
 ### Color-Blind Safe Rendering
 
 ```javascript
-// System automatically uses patterns when colors aren't enough
+// The token library defines patterns; end-to-end rendering and accessibility
+// behavior require integration and manual verification.
 const token = GQSelectionMarkerStyleTokens.getSelectionMarkerToken('group');
 // linePattern: 'dashed' ← helps color-blind users
 
@@ -222,8 +228,9 @@ console.log({
 });
 ```
 
-### Check WCAG Compliance
+### Check a Contrast Pair with the Helper
 
+This helper evaluates one supplied color pair. Its result does not establish WCAG conformance for the application.
 ```javascript
 const token = GQSelectionMarkerStyleTokens.getSelectionMarkerToken('selection');
 const isCompliant = GQSelectionMarkerStyleTokens.isWCAGCompliant(

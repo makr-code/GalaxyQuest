@@ -74,15 +74,6 @@
             "lineHash": "4b64b3f4f2eb125d2f83e5ceffd896f69e88db120a5aab381ffa60f707889ad3",
             "count": 1
         },
-        "009c1a9ad760434b39b54cdd705d59067b1a6aa7db61158480ca83be6f8ae8e5": {
-            "path": "api/textures-ai.php",
-            "source": "PSR12.ControlStructures.ControlStructureSpacing.FirstExpressionLine",
-            "type": "ERROR",
-            "message": "The first expression of a multi-line control structure must be on the line after the opening parenthesis",
-            "column": 13,
-            "lineHash": "be15bfb1719b9bdf71d2c74486f8ec16507306502b510b961cd953289d76ce74",
-            "count": 1
-        },
         "00a86745a1f2c85251c3670604ba0a7fe14c2881aaa0fbba18316befa718aafc": {
             "path": "api/ship_designer_enhanced.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -263,15 +254,6 @@
             "lineHash": "77fede5b3a715a9e45701f6d73515a5effa035db75a631b0a2daa75d045f76c8",
             "count": 1
         },
-        "0174fe0189935c29b564788613579dc166f37518db96bcf3e7dbb1c4ba4d3e7e": {
-            "path": "api/registration_handlers.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 9,
-            "lineHash": "05e394da63ecc8078f4d515fc63c6805b2960d49fc24ca7da9c30039f82cd728",
-            "count": 1
-        },
         "01774a2bb7502fe18acac6c9c8e078b16dd411a2d527cebfd9ec6b3156dc9f20": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceBefore",
@@ -441,15 +423,6 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 16,
             "lineHash": "4379ad91badd28dbae932a2e4b72af506b30bcd5ab431983517eb541b537ad0d",
-            "count": 1
-        },
-        "027f7fb9ba64018313c3acaf5d9488abc68eb880e300c0e7dba3b0e187183744": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 129 characters",
-            "column": 129,
-            "lineHash": "fff4697847fe642f5edb24b96845287195c84f2abca49960ef9efff7070a4241",
             "count": 1
         },
         "02a4536728b30f19c1b7c2772b2799ad25579e37b7a9b59aba5123c540ed6935": {
@@ -767,15 +740,6 @@
             "lineHash": "af8d3e9ee254467530847ec29fa4760bec3f8a888f67dbca0805122c03c5aa1b",
             "count": 1
         },
-        "046a7d17b347d1ad94dc9af96b03059c37770ace26c6b0d96e0b5eb36cd1cc83": {
-            "path": "api/npc_faction_daily_quests.php",
-            "source": "PSR12.Files.FileHeader.IncorrectOrder",
-            "type": "ERROR",
-            "message": "The file-level docblock must follow the opening PHP tag in the file header",
-            "column": 1,
-            "lineHash": "8d64a30d9de151b649006a1d9871037ac5649ab6162ea5d7fd77c54fed07b155",
-            "count": 1
-        },
         "048050c021c2a8f889bd88536db496852673dbb20010fb1e36000d6be51ed804": {
             "path": "api/trellis2_generator.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -1001,15 +965,6 @@
             "lineHash": "230dc6769dbf25ca4cafbd5c0b1d44dc1641555c0c34e4ba4919f7adb88fe31b",
             "count": 1
         },
-        "05e832716fd07118cbcbfa600b9179b741a29eeed054e87e82a88777daaa4782": {
-            "path": "api/game_guide.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 34,
-            "lineHash": "e0e301879cad7e26a61514a98279fb92f42867759c53aac25d14cb4e86c62033",
-            "count": 1
-        },
         "05e9c4b0d3b6787428acd69ca650548172408876bc4f8d1123eabb27baadc5ae": {
             "path": "api/llm.php",
             "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
@@ -1190,6 +1145,15 @@
             "lineHash": "9063b8eb5b437d20d9f4d5f2f5635690825fe40ed629e93767e319a8ea4a8471",
             "count": 1
         },
+        "0710984495aa13791acd44b01d4323c4b67b74b59863944a19950d63031659ca": {
+            "path": "api/diplomacy.php",
+            "source": "PSR2.ControlStructures.SwitchDeclaration.TerminatingComment",
+            "type": "ERROR",
+            "message": "There must be a comment when fall-through is intentional in a non-empty case body",
+            "column": 9,
+            "lineHash": "8ea5ab4ea2dda2ec02657148e053cc14e0312a60fb77084b55aaac83d6962bf9",
+            "count": 1
+        },
         "071699c36dac04a5623cd5a60b408314cda2d526d2534c94783175accfbce803": {
             "path": "api/generation_queue_monitor.php",
             "source": "Squiz.WhiteSpace.ControlStructureSpacing.SpacingBeforeClose",
@@ -1235,6 +1199,15 @@
             "lineHash": "7b51774be9c005a0d25dacfd0fa47c6ae0e352426b52b62d6b009644c384cc13",
             "count": 1
         },
+        "0747d93e1460421d0f98c85e3cd5a166e728f2f4aea6680824d0895c2c051757": {
+            "path": "api/game_guide.php",
+            "source": "PSR2.ControlStructures.SwitchDeclaration.TerminatingComment",
+            "type": "ERROR",
+            "message": "There must be a comment when fall-through is intentional in a non-empty case body",
+            "column": 5,
+            "lineHash": "76a19c3bc6b29e9cbbad70516ec0458cce2b2a04fe5c1c95f8db0decc92a7dbf",
+            "count": 1
+        },
         "0751154abb7e17f0343a870dad2b11a026994cfbb83aaaa81f4ef5f4354eda3f": {
             "path": "api/galaxy_seed.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -1242,15 +1215,6 @@
             "message": "Opening brace should be on a new line",
             "column": 64,
             "lineHash": "3e693f3a55d76ec178ca57dc142269b0f3b7ef449b9337a38c1c63a953da5762",
-            "count": 1
-        },
-        "0761bdd38c464ada83e71f90aec802156ff891c6427a5096bb173e3b98b77499": {
-            "path": "api/textures-ai.php",
-            "source": "PSR12.Files.FileHeader.IncorrectOrder",
-            "type": "ERROR",
-            "message": "The file-level docblock must follow the opening PHP tag in the file header",
-            "column": 1,
-            "lineHash": "8d64a30d9de151b649006a1d9871037ac5649ab6162ea5d7fd77c54fed07b155",
             "count": 1
         },
         "07736099b058a229a9c6524c9abbb11e892f1dfc105ef8307c99d11de5c5240f": {
@@ -1343,6 +1307,15 @@
             "lineHash": "10e53743f44f83d780d84b0a468925f7f32c3474bf3e6588006ae0f6e4e587ec",
             "count": 1
         },
+        "07e74f3429679c46fb8d8d845eb0ea1e091ffffa525fae560ab4b94d9ddcff99": {
+            "path": "api/game_guide.php",
+            "source": "PSR2.ControlStructures.SwitchDeclaration.TerminatingComment",
+            "type": "ERROR",
+            "message": "There must be a comment when fall-through is intentional in a non-empty case body",
+            "column": 5,
+            "lineHash": "3614f816c4e9a9f1b8d283f3a5c22753704059c8f2be3f1f5dac852cb5f626da",
+            "count": 1
+        },
         "07f372b20cfa785d5135e6bdd56791478428f56cff1904339d0185b9bc5017b6": {
             "path": "lib/ServerAnnouncementRepository.php",
             "source": "PSR1.Classes.ClassDeclaration.MissingNamespace",
@@ -1405,15 +1378,6 @@
             "column": 9,
             "lineHash": "46849ffe3cda6d9f776f3ae663a7f817b2bc1cc0aed1f142116c65ec3d8449c2",
             "count": 1
-        },
-        "08503e10d6492b8547e814b6afc296d2fc1cd8abc331e4f679eaa7c750b3a29b": {
-            "path": "api/npc_faction_daily_quests.php",
-            "source": "Squiz.WhiteSpace.ControlStructureSpacing.SpacingBeforeClose",
-            "type": "ERROR",
-            "message": "Blank line found at end of control structure",
-            "column": 1,
-            "lineHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-            "count": 2
         },
         "08569ad2a95e46c0379bd46391c05b27a215107b768647a08fb9f902ddba5936": {
             "path": "api/leaders.php",
@@ -2540,15 +2504,6 @@
             "lineHash": "1434fb14bbe2e7f4c05bd573e51289f41a182dac430698c2af8f57add0e283cf",
             "count": 1
         },
-        "0f266930beeb3acfb5b655ec3f89dcc85972356313aa8774a81e1a5230859b7c": {
-            "path": "api/registration_handlers.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 52,
-            "lineHash": "0179ac4d6eaaeb1aa0dd25545bb8380d0eb111f79f13fc2661b631c4e7c95924",
-            "count": 1
-        },
         "0f2b63c62744d06eb7b03b69e961b84b210b7015e75c882d0894c0a7ce6df05f": {
             "path": "api/faction_relations.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -2567,15 +2522,6 @@
             "lineHash": "5262ee66c04f30209eebd9a8c2ad72b59e892a0a5c150204afdf1061c5cbe703",
             "count": 1
         },
-        "0f6da6152455be1b73e7fd3791e3e1f07f99a77cc75ffe19090c34c5b4e99a84": {
-            "path": "api/alliance_wars.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 42,
-            "lineHash": "a6fb06089487892126f3ee6b2251eeaa95214a4b1ff55ab6adcb116ad3e84a51",
-            "count": 1
-        },
         "0f4fdd6425c1116eeac475f12b96608fb5f3c781c87c6d09d24a401260815e20": {
             "path": "config/api_version.php",
             "source": "Generic.Files.LineEndings.InvalidEOLChar",
@@ -2583,6 +2529,15 @@
             "message": "End of line character is invalid; expected \"\\n\" but found \"\\r\\n\"",
             "column": 1,
             "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
+        "0f6da6152455be1b73e7fd3791e3e1f07f99a77cc75ffe19090c34c5b4e99a84": {
+            "path": "api/alliance_wars.php",
+            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
+            "type": "ERROR",
+            "message": "Opening brace should be on a new line",
+            "column": 42,
+            "lineHash": "a6fb06089487892126f3ee6b2251eeaa95214a4b1ff55ab6adcb116ad3e84a51",
             "count": 1
         },
         "0f791b92f9c7bac3460fcbe870d06996b80ef07b9daa6e0a36a6c73ec31bb289": {
@@ -4817,15 +4772,6 @@
             "lineHash": "ebee367cf8643ac97b02298990e547e2d36533a123ac6f941775f527f2b422f6",
             "count": 1
         },
-        "1c2ac78aec17ee07d6aac0ac94ab3dcb628434a0dd08d39601917d38d3dd3145": {
-            "path": "api/registration_handlers.php",
-            "source": "PSR2.Methods.FunctionCallSignature.MultipleArguments",
-            "type": "ERROR",
-            "message": "Only one argument is allowed per line in a multi-line function call",
-            "column": 94,
-            "lineHash": "775c993882254e61e5eba87cb079f2bd99495746bbbdc1b2623879d120daf1d0",
-            "count": 1
-        },
         "1c4d6cbc223094dc693930f1d2fa53b130474121a6f3be45e7490dcdbd32737d": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceBefore",
@@ -6329,15 +6275,6 @@
             "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
-        "253af200803ec0493f441680924b9367155c73d59896a1d4f0ffa919b170d579": {
-            "path": "api/diplomacy.php",
-            "source": "PSR2.ControlStructures.SwitchDeclaration.TerminatingComment",
-            "type": "ERROR",
-            "message": "There must be a comment when fall-through is intentional in a non-empty case body",
-            "column": 9,
-            "lineHash": "83e2ee70f59595aa3ca24c5b7e081e9f651b04fd8b348b5887e95be548d29e9d",
-            "count": 1
-        },
         "2540f5e3771e39d308f08ea373c1da5d528017b84e0e7135222f25695d9d2732": {
             "path": "api/ship_designer_engine.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -6390,15 +6327,6 @@
             "message": "Inline control structures are not allowed",
             "column": 5,
             "lineHash": "6c2980e49454967e4def0400c1108bf6f3c3ebd3031fc8d1f897057d556b086d",
-            "count": 1
-        },
-        "258d6b690adc02508bd57736ae8e1dd57137fdfe4fd4e6fd45166ef8f84115b0": {
-            "path": "api/registration_handlers.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 9,
-            "lineHash": "01a549d0de283d17c3745055d642681fd7d427f72ec7e28e2a916d0e03dbe465",
             "count": 1
         },
         "258e9203a291e17755a47bdd817c737c84826d9bff065588a9656df1f31dff33": {
@@ -7526,6 +7454,15 @@
             "lineHash": "7a74000056b5d1488ecfd448767f336ef9cd7404acceb3c1fdc905c29d18f4ab",
             "count": 2
         },
+        "2bb776ad8d9a7b43113a5c498129fae568caa786ef5fcf37be42ffb982e42c7a": {
+            "path": "api/game_guide.php",
+            "source": "PSR2.ControlStructures.SwitchDeclaration.TerminatingComment",
+            "type": "ERROR",
+            "message": "There must be a comment when fall-through is intentional in a non-empty case body",
+            "column": 5,
+            "lineHash": "90012930b15cd756e1707375e415cd2300b579549c3a05f81f08d1e64786b7d8",
+            "count": 1
+        },
         "2bb99e97d6b5a8db73edc7f9acf5ce9bd9acfacb67799e49184cc0f4765a312d": {
             "path": "api/llm.php",
             "source": "Generic.WhiteSpace.DisallowTabIndent.TabsUsed",
@@ -7803,15 +7740,6 @@
             "message": "Whitespace found at end of line",
             "column": 1,
             "lineHash": "1a0f564ddc6039457b2fb26b3d6a316c15eba20a886449847c3210c35821a693",
-            "count": 1
-        },
-        "2e0d499b0e67ade00f19c5cac20efe876f0a2dfe1bed9f266316e0c08c237e1f": {
-            "path": "api/diplomacy.php",
-            "source": "PSR2.ControlStructures.SwitchDeclaration.BodyOnNextLineCASE",
-            "type": "ERROR",
-            "message": "The CASE body must start on the line following the statement",
-            "column": 9,
-            "lineHash": "85b3bf46a4ef6212377c0c8dcd3bf3f9baf067f4478c4f84932d5c2dcf262ea4",
             "count": 1
         },
         "2e0f4e0d1271bea648fef433f163d439daf30d4b6b987e9e23641fc58b7d62b2": {
@@ -8246,15 +8174,6 @@
             "lineHash": "da2616af7ff53c95fd64e9e57e8d4ac23655b255a6d0d6cc7028ac18c45d4ab0",
             "count": 1
         },
-        "3087ec1e83c404669002660ae3791fc1f7af5744c05e8a5cb5d3b9bf8f782f63": {
-            "path": "api/game_guide.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 53,
-            "lineHash": "e84895712343456f0c1687a00f10e5bd160d7a6c0cdcc7717aa6464407b985a2",
-            "count": 1
-        },
         "309c467c1b333fa92d42a0b4559d29abb4e977afe15cb45e11019a5141d6a309": {
             "path": "api/factions.php",
             "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
@@ -8361,6 +8280,24 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 142,
             "lineHash": "6d81f8a14e6d940aebd7e1ac360234f4d6d9d732518f9f36da10812e710942a9",
+            "count": 1
+        },
+        "313dbe46292bed698ff97296c5aa6653ffd3202ac238eebefdebf6fd1c265098": {
+            "path": "lib/DraftWorldSimulation.php",
+            "source": "PSR1.Classes.ClassDeclaration.MissingNamespace",
+            "type": "ERROR",
+            "message": "Each class must be in a namespace of at least one level (a top-level vendor name)",
+            "column": 7,
+            "lineHash": "7fb9acace012ffed8a313f40a146f6661235ed3709e61d1b35b5b8c4ba9a4e42",
+            "count": 1
+        },
+        "313ddbb6e170c0af032a944d4b75a9dc61edc441765c49a5cfa304d5c80d5f60": {
+            "path": "api/game_guide.php",
+            "source": "PSR2.ControlStructures.SwitchDeclaration.TerminatingComment",
+            "type": "ERROR",
+            "message": "There must be a comment when fall-through is intentional in a non-empty case body",
+            "column": 5,
+            "lineHash": "699f2eda1589a3a8b522b73d659801316f1e051fa1185ef0b3b328edadb6f868",
             "count": 1
         },
         "31449703d2e83fc2974f35a3cbb43803829df2daf65a3b800f6e7b29ccf2f536": {
@@ -8579,15 +8516,6 @@
             "lineHash": "b336f49c265253c669409ae16c015c856bc7868406c24bc2aaca9b77532014a8",
             "count": 1
         },
-        "3277ac3ba94c662d671d33f9ee0490fdcd1b5a1c967bc20c2eddaa58812b2d1e": {
-            "path": "api/registration_handlers.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 152 characters",
-            "column": 152,
-            "lineHash": "dcdd6934b5f56b1b2f300de0e4edc8c53fd1167fa6eeadfd262d769e9e1dbd3f",
-            "count": 1
-        },
         "328fbffc6018c46e6dd5f77263c9df47aca633a61d9817e0a70ba5a5d8a620cf": {
             "path": "api/trade.php",
             "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
@@ -8622,15 +8550,6 @@
             "message": "Line exceeds 120 characters; contains 182 characters",
             "column": 182,
             "lineHash": "fd0765635d2d9bde7556014f0fafb1c7f556b0bf1b034e3eb98f07aa8670d87d",
-            "count": 1
-        },
-        "32ab41090050b70176839dbee10788076a165cbebb8baff32678fc9b5d51028b": {
-            "path": "api/registration_handlers.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 5,
-            "lineHash": "5b46fdadd3b99d21f53c70fc0130d82aec5740fd042efdb0672765522df2b509",
             "count": 1
         },
         "32c2ed48012816370fc32eac42b7e852b01fadfd4327ad9ccc2d495f52aa4267": {
@@ -8921,15 +8840,6 @@
             "lineHash": "5c19a341f0178fec43da76d4af69da2489241dbd80fc5fd9c54168d7f9b47337",
             "count": 1
         },
-        "345ad6e917c2b2ff6b675f87930531536720449ca9c3e21c9dfa8fe9819ef156": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 300 characters",
-            "column": 300,
-            "lineHash": "23ca908b50b75debc41bbfdf5460a4ed2d37131b2a80cc24521cd3f15825d2c3",
-            "count": 1
-        },
         "345e71555878460b6e0cd21914588ca32b38f81c1ecaffac1f05d373da4c4ea1": {
             "path": "api/llm.php",
             "source": "Generic.WhiteSpace.DisallowTabIndent.TabsUsed",
@@ -8937,15 +8847,6 @@
             "message": "Spaces must be used to indent lines; tabs are not allowed",
             "column": 1,
             "lineHash": "07d6f14955d708ae34e83b08b7fa52d966c127991b3c58d6604120f6a8d6f3ef",
-            "count": 1
-        },
-        "34800b1c028d71cbb5c67f483578a43bf6a5447a2d21132045efe147928c65f3": {
-            "path": "api/textures-ai.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 125 characters",
-            "column": 125,
-            "lineHash": "a9a112f1abe62f0eb36ad1a56d138aa1d87e6bb85a42da8dc7380ef64571e18d",
             "count": 1
         },
         "34938f6e21e3d8fd3b66282205987bb8e04563e969f946687481658d51902154": {
@@ -9281,15 +9182,6 @@
             "lineHash": "05a8475feebbfea685ece06045be63722edc61bb2ade8060a9f03aed6d49f454",
             "count": 6
         },
-        "3676738fba04c352db2ade3dd90154faa9ef2eca33ecc8d6253ad7913975e65d": {
-            "path": "api/messages.php",
-            "source": "PSR12.Files.FileHeader.SpacingAfterTagBlock",
-            "type": "ERROR",
-            "message": "Header blocks must be separated by a single blank line",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
-            "count": 1
-        },
         "36953b94a33632f035ee40f32e715435703414c5a9256cede0110aa0f182adcf": {
             "path": "api/llm.php",
             "source": "Generic.WhiteSpace.DisallowTabIndent.TabsUsed",
@@ -9351,15 +9243,6 @@
             "message": "CASE statements must not use a braced block after the colon",
             "column": 5,
             "lineHash": "4189bd0cabe37f0554a2779aa18e70654954d37dfdd11ca2ac69ade2c6dcbdac",
-            "count": 1
-        },
-        "37342039c48546becbfbe354350fec5839ce3ce116a4ab8be404c164389a2044": {
-            "path": "api/textures-ai.php",
-            "source": "PSR2.ControlStructures.SwitchDeclaration.TerminatingComment",
-            "type": "ERROR",
-            "message": "There must be a comment when fall-through is intentional in a non-empty case body",
-            "column": 5,
-            "lineHash": "d39190df8b52d652c5a8b8c8bc02810cb8e9cd212af6c65bc8137fce61fd6ea0",
             "count": 1
         },
         "3739199e8e927e2cd47a563ff01e891213a95fe7ce5fc197c3319fa8a89ba2ea": {
@@ -9461,15 +9344,6 @@
             "lineHash": "8f54d2e28ca0f1a2a93c20e69601f35cfb05d3159ffb1af72f7ede24e1a138e8",
             "count": 1
         },
-        "37b1053a6981028b78095d9206c35a26245ab907168ff37c3accb1817520d848": {
-            "path": "api/game_guide.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 39,
-            "lineHash": "1ac0172ae932cf46579c3f8af1ef1f2dee1cec59979e7dde21afa906aa8f2225",
-            "count": 1
-        },
         "37b7be7dc2857321180bbf9b60d470699016b9301ff33758fc8775ba5177e841": {
             "path": "api/trade.php",
             "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
@@ -9477,15 +9351,6 @@
             "message": "Line indented incorrectly; expected 0 spaces, found 4",
             "column": 5,
             "lineHash": "d1b180ff4cda7e429938626492deead9556c8a580dca7542d69dd9bb728d6417",
-            "count": 1
-        },
-        "37b8e742e505c29346022496bc1e992021ff45a65f2fa7816b62963a46a499fa": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 309 characters",
-            "column": 309,
-            "lineHash": "0dd5eb3f04cbce38c278f0b69c31b7a4612ab1e098e1adf2a725eac967ab0509",
             "count": 1
         },
         "37e07a688ab4aa82462c1181bec77d24aed85cca85a88641c96ddd845dd87a42": {
@@ -9594,15 +9459,6 @@
             "message": "Line indented incorrectly; expected at least 20 spaces, found 16",
             "column": 17,
             "lineHash": "4c13340eb16626e75dc32c2616af0a712dc6f559e31dfffb0c877e8d942d353e",
-            "count": 1
-        },
-        "387ccf63976f969c24af873906d9bb0a5067a543f5b994da1de644bc8cd45421": {
-            "path": "api/game_guide.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 51,
-            "lineHash": "bf24ce7967f67d771ac0fdb475633b029d7190c72a70f9eff70c849ee01387fc",
             "count": 1
         },
         "38898ef9d072c33c4096593c1033f1d2e7e081bfd587f133c3aff94db62a6557": {
@@ -10694,15 +10550,6 @@
             "lineHash": "7911ae094f5148ee95294065e6d37d264db9bc8a2f1eb04c4f31977fb6180098",
             "count": 1
         },
-        "3f6d945f045a679b53c98d34fc5151f2c3d7f141ee575d624d9c673271e046a6": {
-            "path": "api/textures-ai.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 145 characters",
-            "column": 145,
-            "lineHash": "0dc02ed915083dbfce51375123985f43a49f062682a2d8aa948d4d77da4e02b7",
-            "count": 1
-        },
         "3f7b190c3bb8ba512cc8f7e48c2b6f12fae03fa3518b9eb780c74042763f3c4f": {
             "path": "api/cache.php",
             "source": "Generic.Files.LineLength.TooLong",
@@ -10856,15 +10703,6 @@
             "lineHash": "16f9d984cca84c9999e9d1ca2dd96f70f981464e06987c3d79ad85c3e3967784",
             "count": 1
         },
-        "403205c24caea631a5c56252a41c9c5419736a3731d60e03951b5d6db400b217": {
-            "path": "api/registration_handlers.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 17,
-            "lineHash": "c0c6f74735f083c401ceefb6d7a35300e039cdae648f1e63ca5415e9096f2b47",
-            "count": 1
-        },
         "4038f21033d3289e6f3731f53477b5e63a757544849a20d344c2349fe175cc06": {
             "path": "api/llm.php",
             "source": "Generic.WhiteSpace.DisallowTabIndent.TabsUsed",
@@ -10882,15 +10720,6 @@
             "column": 1,
             "lineHash": "42294ffeb36823b62873cf8129f66ec06c92de21f1dacbaa54e41fefbaca8a8e",
             "count": 1
-        },
-        "4049b6b0a0d04bd93aed31140ec7742b3a68ea1828c48aec3b3f5aa7faa1def2": {
-            "path": "api/game_guide.php",
-            "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
-            "type": "ERROR",
-            "message": "Whitespace found at end of line",
-            "column": 1,
-            "lineHash": "1a0f564ddc6039457b2fb26b3d6a316c15eba20a886449847c3210c35821a693",
-            "count": 31
         },
         "405712557ad72600d931e18e9928bab927c5f0ac5d15f2f36da6d57e963ae84e": {
             "path": "api/galaxy.php",
@@ -11135,15 +10964,6 @@
             "lineHash": "5e6f1badff2401b71fc2d9715ff82ed5a02a876a23f7d722a4e6771823a0ae55",
             "count": 1
         },
-        "418be65edea172a5dcfe0971181b955f8ce83f41b97700a7c52b07a44090b4b3": {
-            "path": "api/npc_faction_daily_quests.php",
-            "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
-            "type": "ERROR",
-            "message": "Whitespace found at end of line",
-            "column": 3,
-            "lineHash": "34bb1fea2555eac5f1543ab10ac5710d1ccd5ee7c0038af49fe38d503663563d",
-            "count": 9
-        },
         "419175cf7957d400e5212bb413733b1b8b7fcc96cd3628276af1fa1c221eef0a": {
             "path": "api/llm.php",
             "source": "Generic.WhiteSpace.DisallowTabIndent.TabsUsed",
@@ -11243,15 +11063,6 @@
             "lineHash": "af31987ed8c660caebd3fd181bd0fb889e6ca151c6bdbb30960cda17cf15d0ef",
             "count": 2
         },
-        "42084fea50d1d566a1b49a8b8158c2e5dc5ef13d7967bd35fdacf5476685facb": {
-            "path": "api/diplomacy.php",
-            "source": "PSR2.ControlStructures.SwitchDeclaration.BodyOnNextLineCASE",
-            "type": "ERROR",
-            "message": "The CASE body must start on the line following the statement",
-            "column": 9,
-            "lineHash": "0a37d3c2ae3f8acfd5cae4db1637158e341927033f343cdbee47d6b1ad49ccfd",
-            "count": 1
-        },
         "420c992e43b9bb8417fd11c95d27ba1abc74ff3c83882c4368933990f7edf1eb": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceAfter",
@@ -11286,15 +11097,6 @@
             "message": "Header blocks must be separated by a single blank line",
             "column": 1,
             "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
-            "count": 1
-        },
-        "422c11cbf150d6f720b17af7655a006634df9ee37712049021c474fff809a080": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 420 characters",
-            "column": 420,
-            "lineHash": "ca768942e31f2c9d9fed198aade0d2b530ddb087213a9afd78bfcfbd4321e306",
             "count": 1
         },
         "424712d4957e10d367c0b5f974e6845af862c8fb0f2d69df13ce80a7a38a4017": {
@@ -11350,15 +11152,6 @@
             "column": 153,
             "lineHash": "77fede5b3a715a9e45701f6d73515a5effa035db75a631b0a2daa75d045f76c8",
             "count": 1
-        },
-        "427c477ff44243a35a88661d623f08049683c0efb38b216e0aae531edc3d732f": {
-            "path": "api/textures-ai.php",
-            "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
-            "type": "ERROR",
-            "message": "Whitespace found at end of line",
-            "column": 3,
-            "lineHash": "34bb1fea2555eac5f1543ab10ac5710d1ccd5ee7c0038af49fe38d503663563d",
-            "count": 2
         },
         "4281cb41f0c0b2305792fb0a406d6a65313860c3e7d0e7ec03c8017abc7c8466": {
             "path": "api/leaders.php",
@@ -13169,15 +12962,6 @@
             "lineHash": "0794fd0a8c3af1a31b8488b81d230fcdfffc60ab592e4f8f021e0a41318474a9",
             "count": 1
         },
-        "4e80ae33ee409588f553aef4720b046e96a7f03553395535c4815ad9908a7b28": {
-            "path": "api/diplomacy.php",
-            "source": "PSR2.ControlStructures.SwitchDeclaration.BodyOnNextLineCASE",
-            "type": "ERROR",
-            "message": "The CASE body must start on the line following the statement",
-            "column": 9,
-            "lineHash": "20ec395217b39b688965e2920ed130667337757b2beb2462e9beae105b5ebd11",
-            "count": 1
-        },
         "4e845cca618e40fb33b023b115ead41589d1d496669fa4ff7a91ad6d5deacd4a": {
             "path": "api/llm.php",
             "source": "Generic.WhiteSpace.DisallowTabIndent.TabsUsed",
@@ -13276,15 +13060,6 @@
             "column": 16,
             "lineHash": "de56f6a4608924b8a6db0fdf9e939d786c95d31bf89ca7122b237c9c33a6a1c5",
             "count": 1
-        },
-        "4ef2a12e09658246870bd009e642e74da348f5fc8841625413cc041efce8dd94": {
-            "path": "api/game_guide.php",
-            "source": "Squiz.WhiteSpace.ControlStructureSpacing.SpacingBeforeClose",
-            "type": "ERROR",
-            "message": "Blank line found at end of control structure",
-            "column": 1,
-            "lineHash": "1a0f564ddc6039457b2fb26b3d6a316c15eba20a886449847c3210c35821a693",
-            "count": 2
         },
         "4efb760f3177fb15f3afde1bacecb4cf220ffc031206c438a36ad1b368f4899c": {
             "path": "api/traders.php",
@@ -13518,15 +13293,6 @@
             "message": "Opening brace should be on a new line",
             "column": 58,
             "lineHash": "0162643b8489840df9bc73d07bd88b6d4b2351f78d684357057f0fcd7f2488a2",
-            "count": 1
-        },
-        "5071cd0f538f8356541d76bc56721ea801f4683249713c9770b64ae615cd767a": {
-            "path": "api/textures-ai.php",
-            "source": "PSR12.Files.FileHeader.SpacingAfterTagBlock",
-            "type": "ERROR",
-            "message": "Header blocks must be separated by a single blank line",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "5071ed046381674f77d733cc72db7ed85ef573ff867dc4f07240920a7aa6c9c1": {
@@ -14013,6 +13779,15 @@
             "message": "Opening brace should be on a new line",
             "column": 79,
             "lineHash": "16aa489451669cdc975adbca6ee33db751871309dde43e80aef4027c924c6b73",
+            "count": 1
+        },
+        "5364f3ed3f222c1487c1bf6767c92dd365047eeeaf17435b94c8173f22a040d5": {
+            "path": "api/game_guide.php",
+            "source": "PSR2.ControlStructures.SwitchDeclaration.TerminatingComment",
+            "type": "ERROR",
+            "message": "There must be a comment when fall-through is intentional in a non-empty case body",
+            "column": 5,
+            "lineHash": "e9b53cf53ff9234549753c32f168fb24f6f2e215c017dc3ebf03d8e50930d037",
             "count": 1
         },
         "53874f3f15019495f5209a9161c26b8adaf3e2eb1351c767113f66ec99323b5c": {
@@ -14537,15 +14312,6 @@
             "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
-        "568d3f3ffc83cae131a117c3d72d07340d0ca361dc1c479c573db32b3e34e350": {
-            "path": "api/messages.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 9,
-            "lineHash": "a328c7d6675231f17314f413f995677d8aaa80bb23a8018e5ef44a1ca890bde9",
-            "count": 1
-        },
         "569df3f9092a3b6b89656818ed3fd5841e772172446e166aac80f7381a812048": {
             "path": "api/market_analysis.php",
             "source": "PSR2.Methods.FunctionCallSignature.MultipleArguments",
@@ -14852,15 +14618,6 @@
             "lineHash": "6683dd5a22b152cdb7bb2438c6057504a5d0eb9cb16d68dff550003666b497ef",
             "count": 1
         },
-        "588f124d985cc2f61f7ae5d80dde51860459a503c465de825a02df5cde3f8c8e": {
-            "path": "api/registration_handlers.php",
-            "source": "PSR12.ControlStructures.ControlStructureSpacing.CloseParenthesisLine",
-            "type": "ERROR",
-            "message": "The closing parenthesis of a multi-line control structure must be on the line after the last expression",
-            "column": 64,
-            "lineHash": "a5b4ef0c58556ca6f414d39cb6117ccd2f5d98e82dfb893b09e7f47351759bb1",
-            "count": 1
-        },
         "589b87b32ba7fcfc87d3f4f88e3afc33dd86d1a2a5355bf1d4c1f022395a9343": {
             "path": "api/factions.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.OneParamPerLine",
@@ -14931,15 +14688,6 @@
             "message": "Each class must be in a namespace of at least one level (a top-level vendor name)",
             "column": 7,
             "lineHash": "7b0ae6e7ff89e75a8e4ec499b4e7e9b1b98e931939b58bca36f0477d35e3de64",
-            "count": 1
-        },
-        "59096187674c639657626cc89ff740dcd798d3fbdae1539c4c1e7cb44acaddf3": {
-            "path": "api/registration_handlers.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 131 characters",
-            "column": 131,
-            "lineHash": "7f70ce6f852e81fc9e22ebb83ab2827f3740c52b0523d4be546c742830a466d7",
             "count": 1
         },
         "591d10539ba22b250353b94e8f33c4b7026b3a061ba06f2554936bd893560694": {
@@ -15455,6 +15203,15 @@
             "lineHash": "7b24471c42ba784c094a0464785be74aa1bdc8afcb1ca8c01e6f98a62ef7768d",
             "count": 1
         },
+        "5b9163490bfd70453141186d2417b59d62df774aef86704fc01ecf68d0c108bf": {
+            "path": "lib/RegistrationPlayService.php",
+            "source": "PSR1.Classes.ClassDeclaration.MissingNamespace",
+            "type": "ERROR",
+            "message": "Each class must be in a namespace of at least one level (a top-level vendor name)",
+            "column": 7,
+            "lineHash": "bd2632c701150becd0ea82203c8d2ed84f887879d70a4272700c411299c2c465",
+            "count": 1
+        },
         "5b9881704ef19733b2f7cdedf52319abab594edc5518716249ce0c496809d66b": {
             "path": "api/registration_handlers.php",
             "source": "PSR2.ControlStructures.SwitchDeclaration.TerminatingComment",
@@ -15471,6 +15228,15 @@
             "message": "Opening brace should be on a new line",
             "column": 82,
             "lineHash": "e20ddd8509a1ef9e9d63f7c5d6adcc38e70155d3440f10670337f54b387fcf5a",
+            "count": 1
+        },
+        "5bbfbd693afdcaa38b9a526487e186522b6e285a9a72683b9a96f4836427b344": {
+            "path": "api/diplomacy.php",
+            "source": "PSR2.ControlStructures.SwitchDeclaration.TerminatingComment",
+            "type": "ERROR",
+            "message": "There must be a comment when fall-through is intentional in a non-empty case body",
+            "column": 9,
+            "lineHash": "51308d4559bcf761915cd480c343253a86742a8297af7214566896780d0f176d",
             "count": 1
         },
         "5be32c68ba850d467c78972f560d0e81e3b82109d5d9370b3760c91392b0b564": {
@@ -15507,15 +15273,6 @@
             "message": "Multi-line function declarations must define one parameter per line",
             "column": 19,
             "lineHash": "e91ac3ce797f79a335ba7b6a004948a1b10bfc11be5317ef8556fe8c448b7c25",
-            "count": 1
-        },
-        "5c0dafc11144f1da3fabb11cd03babb5b9d96d718b22dabafd6053b4360c2726": {
-            "path": "api/game_guide.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 60,
-            "lineHash": "85888f59b86d4a8cf988ff64e5f67a493e55fc20a830107e050f2f0ee70fb9e3",
             "count": 1
         },
         "5c0e9de3782f8fc33321b0ded1fb25394787a3eef91d1e72259bcc08f10e0069": {
@@ -15932,15 +15689,6 @@
             "lineHash": "34bb1fea2555eac5f1543ab10ac5710d1ccd5ee7c0038af49fe38d503663563d",
             "count": 3
         },
-        "5e9cc56a7da9ca3edcaba094383bbddcba79680bab8c2dc73cc15236b19e794f": {
-            "path": "api/game_guide.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 56,
-            "lineHash": "df81a357c1a0882bd227824edf5965f3767e40d66c920f4fde1a630e5403a843",
-            "count": 1
-        },
         "5e9f7cebf2e45da31ec4780cb26cc8048cfcdcca6d3afd7f95e9897452e8812b": {
             "path": "api/npc_ai.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -16346,15 +16094,6 @@
             "lineHash": "84747d87ea17c2c2faa408aeb7830de4d2ccae2c4d718c8379b31064e72d89aa",
             "count": 1
         },
-        "6153c0d0bb155ac8a9c2bb1bb5bb277fa1c9ffcfed49e2a052046453025f8d35": {
-            "path": "api/textures-ai.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 135 characters",
-            "column": 135,
-            "lineHash": "df1ab487bbe58a542c357902f6b9d1dcb2e235af88e1d94b1f207357bcb3f82a",
-            "count": 1
-        },
         "615a24be630d3020543a23d681966a4a1b64ba7e931917294c67f67987b3d3d0": {
             "path": "api/achievements.php",
             "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
@@ -16525,15 +16264,6 @@
             "column": 13,
             "lineHash": "87b372cb0409e54a74252777b1ffd1983cd7192d6bf452cef4f32401cf5ab2ad",
             "count": 2
-        },
-        "621d135607bf06e31a98d2efd0ca90d9de9d70406f194eb7a7008011ad177a29": {
-            "path": "api/game_guide.php",
-            "source": "Squiz.ControlStructures.ControlSignature.SpaceAfterKeyword",
-            "type": "ERROR",
-            "message": "Expected 1 space after MATCH keyword; 0 found",
-            "column": 17,
-            "lineHash": "fcdd7cf7394ceaeed4e370cc37cdc1a0a787bc062b3c0c66084319656f0e459d",
-            "count": 1
         },
         "62263c8413a39f0906bed4cfb8c7de7c5353946a5008e70a573097ea7ba7d005": {
             "path": "api/leaders.php",
@@ -17192,15 +16922,6 @@
             "lineHash": "721c0096d64890327cf946e1191a2cbdd8f37b95d4dd0e926ea1e779d0f2a07d",
             "count": 1
         },
-        "66d8ec2c22c065775cb19981f08678dbcfbb8e23b96154a66cb924a706f1d232": {
-            "path": "api/galaxy_seed.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 194 characters",
-            "column": 194,
-            "lineHash": "52bbf49e5b065b124abc25fe1b5fe77930cd0902bf0f1ce0caa8809569d93288",
-            "count": 1
-        },
         "66b1c2a0dbfc2666bd68135d53eccd35ee6aff5ebefd246cece08f3590da8dd5": {
             "path": "api/trellis2_asset_manager.php",
             "source": "Generic.Files.LineEndings.InvalidEOLChar",
@@ -17208,6 +16929,15 @@
             "message": "End of line character is invalid; expected \"\\n\" but found \"\\r\\n\"",
             "column": 1,
             "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
+        "66d8ec2c22c065775cb19981f08678dbcfbb8e23b96154a66cb924a706f1d232": {
+            "path": "api/galaxy_seed.php",
+            "source": "Generic.Files.LineLength.TooLong",
+            "type": "WARNING",
+            "message": "Line exceeds 120 characters; contains 194 characters",
+            "column": 194,
+            "lineHash": "52bbf49e5b065b124abc25fe1b5fe77930cd0902bf0f1ce0caa8809569d93288",
             "count": 1
         },
         "66e25305ccff447fdf4eb76f4c6c7a17e272820843ba8987b41ec0e0c6ed56c1": {
@@ -17316,15 +17046,6 @@
             "message": "Opening brace should be on a new line",
             "column": 79,
             "lineHash": "b73e55d1639f0e3e48216446a49f05b9db7abd6cc5ff64e4e0ad9287a2825923",
-            "count": 1
-        },
-        "677f838a16041ff9c7f1180bd7c4791a6d2a995cb03b841beac551d5d31e7bb8": {
-            "path": "api/textures-ai.php",
-            "source": "PSR12.ControlStructures.ControlStructureSpacing.FirstExpressionLine",
-            "type": "ERROR",
-            "message": "The first expression of a multi-line control structure must be on the line after the opening parenthesis",
-            "column": 21,
-            "lineHash": "23e436c0b1dea97712e680b47600b209cc43c7039f043b020620c8c36b7f05d5",
             "count": 1
         },
         "67817b757f9b85ee3b5014c08570c963d77703ebfa9caed21c45ab06305bb70d": {
@@ -17505,15 +17226,6 @@
             "message": "Opening brace should be on a new line",
             "column": 68,
             "lineHash": "62f210051934eec9d809e1061ac09bb6da15ef93ebeb2c7cbe7b5fb931b705ae",
-            "count": 1
-        },
-        "68614417c46e287f5e4696cc0c4de8c076e6aeebe840d241f6b489bd94906006": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 122 characters",
-            "column": 122,
-            "lineHash": "32c6f6d91d9b77059c7f2f5ced0d89dde2bdf13e708b277911d6ebd6bad02576",
             "count": 1
         },
         "686b8cee6f226fc4fd5867c6bcddeeea55d6946e8c6a1fac8dea7f39d9178e20": {
@@ -17939,24 +17651,6 @@
             "lineHash": "c5d700004c82f13afdd90b5f46a4d0fbf6a1855bc3cfe9de62528ceaaeee684b",
             "count": 1
         },
-        "6ab98693ea9450e45341b5451b776fe794a5ea5bcb89a8f4f2fc6c4d3455137d": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 166 characters",
-            "column": 166,
-            "lineHash": "acf038ab169055fd29f59e37b7b6dc50c476974f9aa7b15fd1cd8bc352c5fca2",
-            "count": 1
-        },
-        "6ac94d207fe69353594706eeace846176bea58d65d2c9b3c186002eb86c29999": {
-            "path": "api/registration_handlers.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 9,
-            "lineHash": "7f70ce6f852e81fc9e22ebb83ab2827f3740c52b0523d4be546c742830a466d7",
-            "count": 1
-        },
         "6ae077643fb087cdfcd9aabba4b08015a6bddc82eb554a8830e1b3b014961bbb": {
             "path": "lib/FactionHomeworldSeeder.php",
             "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
@@ -18306,6 +18000,15 @@
             "message": "Line indented incorrectly; expected at least 16 spaces, found 12",
             "column": 13,
             "lineHash": "dae794bf23c6f2e73e6f730e9370b47e9b7b39aadd72748081a3f674d34fd505",
+            "count": 1
+        },
+        "6ccddce2d449bdae8024f8dc23272bee361abb7f27ab9d68d390d2b537f0d5a7": {
+            "path": "lib/DeveloperBlogRepository.php",
+            "source": "PSR1.Classes.ClassDeclaration.MissingNamespace",
+            "type": "ERROR",
+            "message": "Each class must be in a namespace of at least one level (a top-level vendor name)",
+            "column": 7,
+            "lineHash": "9c9c9bb322387a6f22d6747136234bd4b5428310e53e4e3dd004eb589a5b615a",
             "count": 1
         },
         "6ce77c91c9245cf3fafcab5962945eea7781e425ed95f241113df9448df454c2": {
@@ -18703,15 +18406,6 @@
             "column": 50,
             "lineHash": "af31987ed8c660caebd3fd181bd0fb889e6ca151c6bdbb30960cda17cf15d0ef",
             "count": 2
-        },
-        "6fc3a72495db86324f52c72c7f24162f53924ac53a67db321bfcbe5670008488": {
-            "path": "api/game_guide.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 61,
-            "lineHash": "f759164d5633af1c56ded4ca24f357dbd76ac925d27eb3f780629fb2948c958a",
-            "count": 1
         },
         "6fc41c9143fb3fb7accd4074d72d05ac06d03094109915d154f8f16e50d76795": {
             "path": "api/leaders.php",
@@ -19289,15 +18983,6 @@
             "lineHash": "28e22cbe383b118ddfebafbf42cd6662017ac6d5e31fab3030b05d06a0d2eb02",
             "count": 1
         },
-        "7331138449e38ac83036924ace7a6c0d7924c87a35d8ec87dad0960c0d415d06": {
-            "path": "api/game_guide.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 56,
-            "lineHash": "dfe0f450725fe8734746985388dc536943694c55f4c9b6d0bcec0edb6499e2c0",
-            "count": 1
-        },
         "73601c1b587c0373b4c387e7458dfebf8ad8126c26455cd74cee01ff4f690bd3": {
             "path": "api/game_engine.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -19323,15 +19008,6 @@
             "message": "Only one argument is allowed per line in a multi-line function call",
             "column": 29,
             "lineHash": "55cf29d0359a351024488502a5136f9cf6329c7c471d4008c23a21487427b7f7",
-            "count": 1
-        },
-        "736e829aa82d07717fb815295055b6f4691cdbab3ccf38bccb59a0d8f5ca1e3a": {
-            "path": "api/registration_handlers.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 122 characters",
-            "column": 122,
-            "lineHash": "0619dc7b988571395a94b3cc1e4af010a4ef7e83f9457095cd4c7bad12e72ef3",
             "count": 1
         },
         "737ae8f0072fd76bf0748483bc8df38283bcb5e7e64600790781cee9f2786847": {
@@ -19451,6 +19127,15 @@
             "lineHash": "bc0ce4ae2efbcb2b02ae5c4bc65e2d64be9c9b72424a1aa2a74e8e17d597301d",
             "count": 1
         },
+        "74216f00fbe6bf434de9297de897f0c50df7177a6cae7da0256102e5ac18ecd6": {
+            "path": "lib/RegistrationPlayService.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 8 and the first side effect is on line 5.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "7423da1f72d9406f648aaf99cb4cf8e14779298b30a67cd73c22895e471e63ab": {
             "path": "lib/MigrationRunner.php",
             "source": "Generic.Files.LineLength.TooLong",
@@ -19514,15 +19199,6 @@
             "lineHash": "fba7fb5c2367ce08fad581350fcba5f39ece6bde220cf6fcd6c9701eeca365d3",
             "count": 1
         },
-        "7476ea38f68257c315b53c64f1c4fb41afee76af1a86841a861610fb738459f8": {
-            "path": "api/registration_handlers.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 7 and the first side effect is on line 4.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
-            "count": 1
-        },
         "747f395b9b8373b23a2dbf19a262238de76ebfa2d3057def230cabc2c293262b": {
             "path": "api/projection.php",
             "source": "PSR2.Methods.FunctionCallSignature.MultipleArguments",
@@ -19575,15 +19251,6 @@
             "message": "Line indented incorrectly; expected 8 spaces, found 4",
             "column": 5,
             "lineHash": "355baadfe4bfdca5bf7f552824a7a3072c1b0eb0567d4305135a5965d32dbdee",
-            "count": 1
-        },
-        "74da8a66779d07b0f639433370d850a97e0e311b7adce190e3a7946e0da319b0": {
-            "path": "api/textures-ai.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 84 and the first side effect is on line 18.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "74de846f4a6eeea3376c59bff6cf410a7636c5f3d4ab7ba38f98c47974e7d35f": {
@@ -19919,15 +19586,6 @@
             "lineHash": "9a2b5b9ecebe08d1d01481436da9745d6945ea9a351a36fc22763dc8e196257d",
             "count": 1
         },
-        "77069b948296da72df03e872270969e1fbe180d0f2f67a6ecc33a9822c2b96dc": {
-            "path": "api/messages.php",
-            "source": "PSR12.Files.FileHeader.SpacingAfterDocblockBlock",
-            "type": "ERROR",
-            "message": "Header blocks must be separated by a single blank line",
-            "column": 2,
-            "lineHash": "533a9f1155720e5ec0eeca021f8c261af4cac8d334f12b856f2c8f3941a2c611",
-            "count": 1
-        },
         "770d477e0dd8e04753db777ef672f20feafc46589e5e28f899228ffed12b1e3f": {
             "path": "api/game_engine.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -20025,15 +19683,6 @@
             "message": "Opening brace should be on a new line",
             "column": 49,
             "lineHash": "9d4d82e88a52373611d8f6053fea9926305482e7fdce98b2fe8ee2ed1482e5c9",
-            "count": 1
-        },
-        "77a11348b422c81e9c27b4bb63f5136b38e575a42d28fb541ddf0c93caa87c43": {
-            "path": "api/diplomacy.php",
-            "source": "PSR2.ControlStructures.SwitchDeclaration.TerminatingComment",
-            "type": "ERROR",
-            "message": "There must be a comment when fall-through is intentional in a non-empty case body",
-            "column": 9,
-            "lineHash": "0a37d3c2ae3f8acfd5cae4db1637158e341927033f343cdbee47d6b1ad49ccfd",
             "count": 1
         },
         "77b61bb2d317e4182d1913bb6527e9b714e1152a67f39647265fac1b6ae9a749": {
@@ -20152,15 +19801,6 @@
             "column": 119,
             "lineHash": "5b2a9f0b5298a1f8d9f08c6441215bc99c5982446d652c0dc8c742893f07bc5c",
             "count": 1
-        },
-        "7878f46bb10cabb23947368f19d2a5bac04de6d06b6c28c2903334a81c234c83": {
-            "path": "api/game_guide.php",
-            "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
-            "type": "ERROR",
-            "message": "Whitespace found at end of line",
-            "column": 1,
-            "lineHash": "8b6fa01313ce51afc09e610f819250da501778ad363cba4f9e312a6ec823d42a",
-            "count": 11
         },
         "787ea5954c2ee86811a6e0aadd9538ecc1ba0e4822c45ea882cd98a18135a17b": {
             "path": "api/galaxy.php",
@@ -20367,15 +20007,6 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 43,
             "lineHash": "32ae55818f7e3b45e1a4e4e947596962048bf9da5a314d7803d5262e0ae76db0",
-            "count": 1
-        },
-        "79b0cfd7b567a7e61b3866fb4a69048ba635e07237a43f9042c4962fbcf5c8be": {
-            "path": "api/game_guide.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 39,
-            "lineHash": "7594f4980e35131e592705383779f0b97e39edd1dc2339c27d45f0dad956f9f0",
             "count": 1
         },
         "79ce5ffca1f9009bc127299e5d2f8604baadc4aa072c81805b10b069ce62118d": {
@@ -20621,6 +20252,15 @@
             "lineHash": "d41e33ff4290f0f4f02df3265192f21a05d9ecd704a6a244ff52028443f74823",
             "count": 1
         },
+        "7b23695e06e7e24c2a4e2db09b480c5b2571d37135dad106df8cb4867779c944": {
+            "path": "api/diplomacy.php",
+            "source": "PSR2.ControlStructures.SwitchDeclaration.TerminatingComment",
+            "type": "ERROR",
+            "message": "There must be a comment when fall-through is intentional in a non-empty case body",
+            "column": 9,
+            "lineHash": "0906f55582d61c30d97f347581a041407011431b6b6738f0bc45871970ceb9bd",
+            "count": 1
+        },
         "7b26101569d7f514b6fff4502b0abfc2cb8d56df0d3a4158496bf3b7dd5eb397": {
             "path": "api/fleet.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -20736,15 +20376,6 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 62,
             "lineHash": "5b5d91d10fa835b8bd04575b9c0f5d4b557650d17a39b84e2064a3dbd432f9b1",
-            "count": 1
-        },
-        "7c1e66845647e2f1bf628fb237bd5dcffe6c5690e5b2956d2083399d6c44cdfd": {
-            "path": "api/registration_handlers.php",
-            "source": "PSR12.ControlStructures.ControlStructureSpacing.FirstExpressionLine",
-            "type": "ERROR",
-            "message": "The first expression of a multi-line control structure must be on the line after the opening parenthesis",
-            "column": 21,
-            "lineHash": "d571557c41103092584899c876a76dbe7afe6cfc9fad51e3bf34f3c5d49ff4ca",
             "count": 1
         },
         "7c2b36bb5ec6692cf016cd3888b06c651be4c8ade051c0aa1c1e38bad19951d6": {
@@ -20907,15 +20538,6 @@
             "message": "Header blocks must be separated by a single blank line",
             "column": 1,
             "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
-            "count": 1
-        },
-        "7ce6526f8b52ee64e8ba8414605899861483d6ddf770ef425dde0e9e3a3e055b": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 133 characters",
-            "column": 133,
-            "lineHash": "278d8ec4af9b88024b02880f41b086e99e0d4941292488dea0ce75f000e54c6e",
             "count": 1
         },
         "7ce68dbb5fa871ae50254939497c38a58c7819836462ff9abe6042c2f4a963e7": {
@@ -21638,15 +21260,6 @@
             "lineHash": "d459050d4c1aa07b9863bcb303defa32a897fa2aa2d70b6cc32ae35ae16648c9",
             "count": 1
         },
-        "80e9f0e6059e02c7dc46ad9b7f50990d7044e5bbc1123821bb05dd66b9afccfc": {
-            "path": "api/diplomacy.php",
-            "source": "PSR2.ControlStructures.SwitchDeclaration.BodyOnNextLineCASE",
-            "type": "ERROR",
-            "message": "The CASE body must start on the line following the statement",
-            "column": 9,
-            "lineHash": "83e2ee70f59595aa3ca24c5b7e081e9f651b04fd8b348b5887e95be548d29e9d",
-            "count": 1
-        },
         "81065d46633cf1ac8f2242b8dbdf13b14ea8feb4cfa7657c54a176160f5b21fb": {
             "path": "api/factions.php",
             "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
@@ -21735,15 +21348,6 @@
             "message": "Expected 1 space after comma in argument list; 2 found",
             "column": 27,
             "lineHash": "a343e7aff868a651e31e5b19173cae47f843cb8a3bdb4976f9ecad3f8c0752df",
-            "count": 1
-        },
-        "81870c7b7fa3a3c964b57993f49704fee50dc4577e1bef8ed0dbdd5f024a9cf4": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 148 characters",
-            "column": 148,
-            "lineHash": "cae903e2fa8e1f6396ba26bdef8e700cf1a86ea3bc839236c49e9e44b11a5a75",
             "count": 1
         },
         "819f42c60c4bdde7d42c146dc0110c62bec80fc1a4b9a681e2d853ff20c15b1f": {
@@ -21843,15 +21447,6 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 46,
             "lineHash": "5f84b51cd5d3bda311889f4138f24901a56d571ac84b2333ad568dceef7189dc",
-            "count": 1
-        },
-        "82158172cf5f54867b3f64e9ebb4ddef8f947b64dfc612771827239bec29f60d": {
-            "path": "api/registration_handlers.php",
-            "source": "PSR2.Methods.FunctionCallSignature.MultipleArguments",
-            "type": "ERROR",
-            "message": "Only one argument is allowed per line in a multi-line function call",
-            "column": 89,
-            "lineHash": "775c993882254e61e5eba87cb079f2bd99495746bbbdc1b2623879d120daf1d0",
             "count": 1
         },
         "8229bcd38a6ba651cc5ca66d37f6c78e4250cada48bde5e97012338b6073d6f3": {
@@ -22268,15 +21863,6 @@
             "lineHash": "09531e97b1b00999daebbab82877b43d6b52dd57a5a2e76059d79f4ea41dacf8",
             "count": 1
         },
-        "84d0a91f450eadef2014146294e34834e9d83ae59d76c06bc1348a3afd8507fb": {
-            "path": "api/registration_handlers.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 17,
-            "lineHash": "74b4f3b2c2412d1e49c9aafb162ff4448480281a08296cfa055e2e10f7552014",
-            "count": 1
-        },
         "84e688ce6ccf1a035b85753ac099b8ce831d27bff01e00919905b643825222a6": {
             "path": "api/factions.php",
             "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
@@ -22680,15 +22266,6 @@
             "message": "Line exceeds 120 characters; contains 131 characters",
             "column": 1,
             "lineHash": "6e15a473b2c273feb97c2b1880162038531402db46d011d286179fa36fddbf8a",
-            "count": 1
-        },
-        "87852501aee9c9e11dede51b2b0a0f36c2048a26265d97573ab439c8128c5bc2": {
-            "path": "api/registration_handlers.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 122 characters",
-            "column": 17,
-            "lineHash": "9364d3e70504afcc507a7991396cd63f6f83d5be91eeac6110dd2cccb9ebdbd3",
             "count": 1
         },
         "8790db6ab916ee4831857253015a551da583c3dcb9c00247953a2221f09b189c": {
@@ -23139,6 +22716,15 @@
             "message": "Opening brace should be on a new line",
             "column": 107,
             "lineHash": "1f1627e2b0531fb9fb3b6b56c65ac1bef5906ffba4c3ccd2637ee08656b8989e",
+            "count": 1
+        },
+        "8ac9e829c694beb0bdf7e7bead267d3aab962529c94266b16672a6d2f0ade666": {
+            "path": "lib/WordPressBlogSource.php",
+            "source": "PSR1.Classes.ClassDeclaration.MissingNamespace",
+            "type": "ERROR",
+            "message": "Each class must be in a namespace of at least one level (a top-level vendor name)",
+            "column": 7,
+            "lineHash": "628a22c22a58beeea0358d506e7b6b616cc15d196ebf3ddb4b5661fa6314347e",
             "count": 1
         },
         "8ad6e02ddb4faf027c66df6f65068cffff595277b3ef722cbae2d1dd13184665": {
@@ -23780,15 +23366,6 @@
             "lineHash": "da8f5876f719872bd9cb1bf2e82cf5e33937779eec4c033ac5dd6ffbc4e63ee3",
             "count": 1
         },
-        "8ee59eb5d32aa0bd4a588dead05025a661fe9a8ed5a82098878091fd23e75b8d": {
-            "path": "api/registration_handlers.php",
-            "source": "PSR2.Methods.FunctionCallSignature.MultipleArguments",
-            "type": "ERROR",
-            "message": "Only one argument is allowed per line in a multi-line function call",
-            "column": 29,
-            "lineHash": "4c4ca397c11853f277dc1aeaafb711a5512beff62626cba979d37d13746cc69b",
-            "count": 1
-        },
         "8eef142b01eb48692207f7706aec2a74f0f9df6a0159b67bbdcbe374dbdfd700": {
             "path": "api/game_engine.php",
             "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
@@ -23978,15 +23555,6 @@
             "lineHash": "7502a3ec0df0c45dab49b9f2d39e56c59c5e3dfedcc88fa04aaf3974f8989d49",
             "count": 1
         },
-        "906cb62f12c6ff0119038d96db79a07e944020c57ee001b955e1372d46f73602": {
-            "path": "api/registration_handlers.php",
-            "source": "PSR2.Methods.FunctionCallSignature.MultipleArguments",
-            "type": "ERROR",
-            "message": "Only one argument is allowed per line in a multi-line function call",
-            "column": 83,
-            "lineHash": "775c993882254e61e5eba87cb079f2bd99495746bbbdc1b2623879d120daf1d0",
-            "count": 1
-        },
         "9077a9c3c308e517112212acda6205d3f36aacfd25dbc3d8c1faa74f5ee47745": {
             "path": "api/llm.php",
             "source": "Generic.WhiteSpace.DisallowTabIndent.TabsUsed",
@@ -24165,15 +23733,6 @@
             "message": "Opening brace should be on a new line",
             "column": 64,
             "lineHash": "c7b0406fe3de98bd62eaacda6442dc015d712ad52511e07c653bbe6948369914",
-            "count": 1
-        },
-        "91bc23f36d83f230b5daa8c5ea70335c971a8f94837e505503421f9f83242f99": {
-            "path": "api/game_guide.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 99 and the first side effect is on line 7.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "91c3d139b53fead3d2115d27d26621557d6c4c1981d9e0571b6729641ff3f32a": {
@@ -24707,15 +24266,6 @@
             "lineHash": "33aeacb83f7a357331d0dffbf420d7b459383d351edb738bf72360f6cf211882",
             "count": 1
         },
-        "9577eb0527f9c1e87b3df14523432d97e106d23c4f6543e06d6b4e083c61f3f0": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 145 characters",
-            "column": 145,
-            "lineHash": "3a8fdd93a4a60e167da5c18c4e8c9512f41525717da108ace0054f04cc09df29",
-            "count": 1
-        },
         "9586509dd2ce513d41c0c750293b7addb8211eaa7ff9c9fe0581dd8dc1a5826e": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceAfter",
@@ -24750,6 +24300,15 @@
             "message": "Opening brace should be on a new line",
             "column": 113,
             "lineHash": "a0f34860f4915b43c6a08ac80e2fae34df21905b31159cf337f8cc89ec1386fe",
+            "count": 1
+        },
+        "95cbc0f4d781a94747a4ace55678fb675caec96149e55f8b4942caa5bfec29f2": {
+            "path": "api/game_guide.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 99 and the first side effect is on line 4.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "95e08faaebf800898247282a4577b47661eb370a688b5fffc96b73f7c0852c6a": {
@@ -24878,15 +24437,6 @@
             "lineHash": "018701ae00aab9ece62fffe8d798498b28936b84eb37a377cb11c53d86077b85",
             "count": 1
         },
-        "969aefe807973fb6856b92be1fac0eea4306118c36c1518c04de2c6ba30e7a14": {
-            "path": "api/textures-ai.php",
-            "source": "PSR12.ControlStructures.ControlStructureSpacing.CloseParenthesisLine",
-            "type": "ERROR",
-            "message": "The closing parenthesis of a multi-line control structure must be on the line after the last expression",
-            "column": 44,
-            "lineHash": "870512c4544a3b63fdf3e58795b93f9b66e9db1f39fb04c84aedeb83fb77d9e6",
-            "count": 1
-        },
         "969bcc1096922300a4481f23da7e84ac99b0bc27eae480708a88e88361072658": {
             "path": "api/trellis2_generator.php",
             "source": "PSR2.Classes.ClassDeclaration.OpenBraceNewLine",
@@ -24923,13 +24473,13 @@
             "lineHash": "2c27701a420241e900366e12f8d37a2094b646de3c672c5799fd94cdbc1ca190",
             "count": 1
         },
-        "96e69b456149543bd5d4bdc9b35a3f8515792d6b72be9e7ec1b0cc3992016bd0": {
-            "path": "api/textures-ai.php",
-            "source": "PSR12.ControlStructures.ControlStructureSpacing.CloseParenthesisLine",
-            "type": "ERROR",
-            "message": "The closing parenthesis of a multi-line control structure must be on the line after the last expression",
-            "column": 58,
-            "lineHash": "28d6ac258dc5d67031b7eca5ce651318b153b3fb3d1f58703530d9ca273e1793",
+        "96beacfcd9e9c241de4564846407cfc444e4a9df036b5506f9db41e9d24aacbb": {
+            "path": "lib/DraftWorldSimulation.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 9 and the first side effect is on line 5.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "9705189d6b0d5d41791dffbf60fe720eb93a358dac06be8449c53ac948cc3d8a": {
@@ -24984,15 +24534,6 @@
             "message": "Line indented incorrectly; expected at least 4 spaces, found 2",
             "column": 3,
             "lineHash": "98c23b91e328a6313a27edb134dd48dae5cf1d821a15e57ba3ee078254141441",
-            "count": 1
-        },
-        "97793a675b4002bce8fd746aa6efac820cd1faa74fbcc81378c476c2be1f5736": {
-            "path": "api/messages.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 9,
-            "lineHash": "433e52cb8dfb198abb62008e8dcc00ba58c1ce6a225f7201ce3724eb188c4ef2",
             "count": 1
         },
         "978cdd16547c3a40b7844cabc7e8b2d0ff188a8ff0d94572de1f0b2858cf79c5": {
@@ -25301,15 +24842,6 @@
             "lineHash": "f4c98a702bb37d1dee6b3ba97db597ce6aad8723cbb63bd1f8b7b1f1038b15be",
             "count": 2
         },
-        "993fd72a505bf6bd9a77655cac3329024c857d263a6c1260b0e3f4463dcb7018": {
-            "path": "api/registration_handlers.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 126 characters",
-            "column": 126,
-            "lineHash": "0d723e525651c55a5797cd7b1d10def15e10d98ddd4699344ac5277b8278997f",
-            "count": 1
-        },
         "9940483c9d5f9a19cdced6f00e076d910ef0710bd5ff5d463bc99bc4e1d788cb": {
             "path": "lib/ServerAnnouncementRepository.php",
             "source": "PSR12.Files.FileHeader.SpacingAfterTagBlock",
@@ -25524,15 +25056,6 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 76,
             "lineHash": "c753da873d2f942a1b2b477e41d18cedaf9892ad687f367cb6daaf35da8b440d",
-            "count": 1
-        },
-        "9a7003d7b2ee0adfad4721e12970037a45d23b1de9a6672880433f4540f7db37": {
-            "path": "api/registration_handlers.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 5,
-            "lineHash": "c9bdd0adedf8c8cc5ece3aef8e8f4e594ab883bba71aaf2f99e3d27687d89f89",
             "count": 1
         },
         "9a7b867cc0217ca7c4e340a6e9bba4cf4179a39da1604e1d0861a38e8016a579": {
@@ -27605,15 +27128,6 @@
             "lineHash": "c3ac385ea1c8dbca8ae4af6f9baf53eefc4cac9f0a805f0aad0cdc27956d3539",
             "count": 1
         },
-        "a688f46cd49db23e652c2a65ac297d2949e1c30f9303c8dbc4a2a7dea9222c41": {
-            "path": "api/textures-ai.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 137 characters",
-            "column": 137,
-            "lineHash": "edc9c3628107c1a22b6226a449d2ec1bb3349bd38b9776e126c70095f6b0e0cc",
-            "count": 1
-        },
         "a68c2964ec55f0f8339ac42a50e8786d9e40f693c839658f5e95ef6fb853f876": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceBefore",
@@ -28514,15 +28028,6 @@
             "lineHash": "019b63395657e38c0981c70bdddaf19e2e87c75cad029d671e530c549633e834",
             "count": 1
         },
-        "ac6d4dfe9186f8f44e00b6bff66792de16fa5b445ec89e58184b5e842f7a9c5b": {
-            "path": "api/registration_handlers.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 124 characters",
-            "column": 124,
-            "lineHash": "4f1c64dd7c2bf512ec58f09ee3b8bcbf0c3327e6d04e5a26d2544b23ae0d5010",
-            "count": 1
-        },
         "ac8f674f06e6ae273d2055d60aa980488e8a284095aa6e6b761135942fbf0749": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceAfter",
@@ -29279,6 +28784,15 @@
             "lineHash": "86afdf70a95436e883aa7fc5c06a2ab083719054438f1218d15ebdaf287b4bac",
             "count": 1
         },
+        "b154038ea945f55343aaf6336c93ae141326672137ca787e11adf440fadd761f": {
+            "path": "api/diplomacy.php",
+            "source": "PSR2.ControlStructures.SwitchDeclaration.TerminatingComment",
+            "type": "ERROR",
+            "message": "There must be a comment when fall-through is intentional in a non-empty case body",
+            "column": 9,
+            "lineHash": "282ad07a5f7d591d34be923fc6c1f6ee62597dedb9cfaec99adacb5690d9f5fd",
+            "count": 1
+        },
         "b19281a7a45468382e61055b3dbac274cfdcb77d003fa0c58ab5a2eea60fe60b": {
             "path": "api/auth.php",
             "source": "Generic.Files.LineLength.TooLong",
@@ -29450,15 +28964,6 @@
             "lineHash": "177aead56f2af7004c58b4781dbddf3fe4d7fbad7191e5e9258c681b0cc0be91",
             "count": 1
         },
-        "b33a83aa9bda0e0f1efb11298aefa8b09dc29634616586758b8d560b39af8081": {
-            "path": "api/diplomacy.php",
-            "source": "PSR2.ControlStructures.SwitchDeclaration.TerminatingComment",
-            "type": "ERROR",
-            "message": "There must be a comment when fall-through is intentional in a non-empty case body",
-            "column": 9,
-            "lineHash": "85b3bf46a4ef6212377c0c8dcd3bf3f9baf067f4478c4f84932d5c2dcf262ea4",
-            "count": 1
-        },
         "b3444e5b3816432fa422b33e93d9b2bed3df3846d826ae6fb721f886323eeda9": {
             "path": "api/factions.php",
             "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
@@ -29592,15 +29097,6 @@
             "message": "Whitespace found at end of line",
             "column": 3,
             "lineHash": "34bb1fea2555eac5f1543ab10ac5710d1ccd5ee7c0038af49fe38d503663563d",
-            "count": 1
-        },
-        "b3deb47bda8102d4310426a51b7120a7bab68934f6d45e92cc9c5956fc2f48cc": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 411 characters",
-            "column": 411,
-            "lineHash": "199e3ba743f62cc7050e1be23ad3ae3bd333b1b83a470108e0a98c9e736f3161",
             "count": 1
         },
         "b3f8eb67e4603464639d0150bdad5c3689e53ccd986366dcc3b524cb0d64041d": {
@@ -29853,15 +29349,6 @@
             "message": "Opening brace should be on a new line",
             "column": 64,
             "lineHash": "bd7b371560c612150075d837d1e462d7e889475df97ed4edf8d3b5b9f47ae242",
-            "count": 1
-        },
-        "b55f742b2299883bc5032eeab2f83225c78f5f5b6d812252bb0ae4858e3690be": {
-            "path": "api/registration_handlers.php",
-            "source": "PSR12.Files.FileHeader.SpacingAfterTagBlock",
-            "type": "ERROR",
-            "message": "Header blocks must be separated by a single blank line",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "b57e960a7554279c189cebd09d630dad3f0607f6bd235095e7722ff1070ccbb3": {
@@ -30304,15 +29791,6 @@
             "column": 1,
             "lineHash": "8b6fa01313ce51afc09e610f819250da501778ad363cba4f9e312a6ec823d42a",
             "count": 6
-        },
-        "b89055fef73d3e4db4f2a58ea0e93e2d891d2cafd2ec3cc32c536049ecb44327": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 373 characters",
-            "column": 373,
-            "lineHash": "f842d8340efeb28e2808c4e12a9b51939e2925f8e01fcf6818cae95b682603cb",
-            "count": 1
         },
         "b8bb7190c7f23b8eb7d1b200934802cb3215b5f0f5cff1072612b1fb1dd99e5c": {
             "path": "api/leaders.php",
@@ -30971,15 +30449,6 @@
             "lineHash": "f3557f952ad4cea234b3e95f0dbf842bac7007dd25049dea881607a8b7e116c5",
             "count": 1
         },
-        "bcdd8fbce91838d0f7c93cbf525b25308c09aef582cdc87af3a5dde2c096e466": {
-            "path": "api/npc_faction_daily_quests.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 29 and the first side effect is on line 16.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
-            "count": 1
-        },
         "bceaca25867af1e2cd04ebcff050b4b4768c6c22d8e575f42ebc84f723be8c89": {
             "path": "api/llm_soc/LlmRequestLogRepository.php",
             "source": "PSR1.Classes.ClassDeclaration.MissingNamespace",
@@ -31439,15 +30908,6 @@
             "lineHash": "8b6fa01313ce51afc09e610f819250da501778ad363cba4f9e312a6ec823d42a",
             "count": 9
         },
-        "c0671dd1366c1540c45d5b9742ae942067f3a626882c2cb66750b5772ee6e62b": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 124 characters",
-            "column": 124,
-            "lineHash": "04e91fbd77231ed6804a4621a61d73f1c870b9fecfa879594fbb7bce0f1358d4",
-            "count": 1
-        },
         "c06e3d5176f0a43cdfec94ab3ccb3720f571427efcfd2d1aacd81795482aa822": {
             "path": "api/factions.php",
             "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
@@ -31646,6 +31106,15 @@
             "lineHash": "9a19a4ad0d58f929a18a321de66666073821787855678a5bc78d8787ffef5241",
             "count": 1
         },
+        "c16bc9e84bf2dd7d3f219dbbde07e242000bb6fb6580edd1fb2c5f1a08e6d760": {
+            "path": "api/registration_handlers.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 8 and the first side effect is on line 5.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "c18c799d2e944d04984bec936efcf6899502c27495045048d4cc1ba9cd85e9a1": {
             "path": "api/tts_client.php",
             "source": "Squiz.Functions.FunctionDeclarationArgumentSpacing.SpacingAfterHint",
@@ -31824,6 +31293,15 @@
             "message": "Opening brace should be on a new line",
             "column": 72,
             "lineHash": "cdbe139f293a4c6b79e9485190d5b869767545272ea5d13ca7a3e4ff5363b2e9",
+            "count": 1
+        },
+        "c2cf4ed9b5a4a87d2fe367b563e9bbf7abb9e44c194c0fec3e8810f01730dacf": {
+            "path": "api/textures-ai.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 112 and the first side effect is on line 19.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "c2f0733d918c78f4b51e7ffe955ebe53f11a5bd53523b9af8f70c99032d26809": {
@@ -32393,15 +31871,6 @@
             "lineHash": "c5189a433be64f75687266b6f8afc2042a1156a13fe43e3e5be1d2cb7924730e",
             "count": 1
         },
-        "c5cf6502c71a4e1d1ee332b2040afd05d266b59a0601f0e30b30b695141f8293": {
-            "path": "api/textures-ai.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 142 characters",
-            "column": 142,
-            "lineHash": "51740b0ab18f7f7a57e5ec927552cc9017935d660b2ea510cf18d38f08eb596f",
-            "count": 1
-        },
         "c5da2b03b683f0a8445824bf97b7057e336423f419aca1a1bd9e158928ca9ce6": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceBefore",
@@ -32573,15 +32042,6 @@
             "lineHash": "ac83deb13521ba4625f6733617634976e6f30fcb0c46d100353e781c2fec5987",
             "count": 1
         },
-        "c6df86a75b7810cfafbd184b58de8e04bac38fd0def0cfb38d138e676f2f0dbc": {
-            "path": "api/shipyard_queue.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 52,
-            "lineHash": "2b5d2f14a65e6e531962e3c285430412f4ffd1ee77a47cd232002b8f7066fc5a",
-            "count": 1
-        },
         "c6d77dc99b7217b5c125bf25b2d249acbc80e8020452734cd96f2800dbd46a06": {
             "path": "api/colonization.php",
             "source": "Generic.Files.LineEndings.InvalidEOLChar",
@@ -32589,6 +32049,15 @@
             "message": "End of line character is invalid; expected \"\\n\" but found \"\\r\\n\"",
             "column": 1,
             "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
+        "c6df86a75b7810cfafbd184b58de8e04bac38fd0def0cfb38d138e676f2f0dbc": {
+            "path": "api/shipyard_queue.php",
+            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
+            "type": "ERROR",
+            "message": "Opening brace should be on a new line",
+            "column": 52,
+            "lineHash": "2b5d2f14a65e6e531962e3c285430412f4ffd1ee77a47cd232002b8f7066fc5a",
             "count": 1
         },
         "c6e1118a6dc81ceff64a3188a9da476421db284a179e08df52088a16dc458179": {
@@ -32670,15 +32139,6 @@
             "message": "Expected 1 space after comma in argument list; 5 found",
             "column": 29,
             "lineHash": "0053a05fab41f0c6af250fa85f68a0006b2f8534adae690f45cd652b8df54b39",
-            "count": 1
-        },
-        "c74c72f337fd7b004c172eccd807848418ec1cad2395a4d7a35681b154260f17": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 225 characters",
-            "column": 225,
-            "lineHash": "33a28d3681eb51839dbcedfd35210e1c37c8ea82b29e6ce78e4416f770eea910",
             "count": 1
         },
         "c7533e7c1e3ed6c4c689d119ce11c5d4cfa9ce48427755da979e80f72b604a99": {
@@ -33345,15 +32805,6 @@
             "message": "Expected at least 1 space before \"=>\"; 0 found",
             "column": 66,
             "lineHash": "25265ead35b65881d01da425f8245318732ad580985afd1164772482786a4618",
-            "count": 1
-        },
-        "cb1fd617e822f8803089e498cc9d7b6b65e00e58739639045d84b0de983bb68b": {
-            "path": "api/diplomacy.php",
-            "source": "PSR2.ControlStructures.SwitchDeclaration.BodyOnNextLineCASE",
-            "type": "ERROR",
-            "message": "The CASE body must start on the line following the statement",
-            "column": 9,
-            "lineHash": "f39f7862c7e0623fb2b5dafe432972c0b719a98a0ab6c55d64f7b2447b6c5a3d",
             "count": 1
         },
         "cb36f447784f1af36b7dccbcfead064347f2ca93dc00304f7689bdb650da8639": {
@@ -34202,15 +33653,6 @@
             "lineHash": "493d86114fe08bfd2f237bca1e8039c90a4b4173b94a291adc758e99acf47f69",
             "count": 1
         },
-        "d0634ae8211ef81efe399783bd188d94ecbaac0fb7f8e3bfeed3d800187a72d2": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 347 characters",
-            "column": 347,
-            "lineHash": "6874a277a09b129e525a82eefbd90e1766dbb21b79bec15f663d30d20ff624a0",
-            "count": 1
-        },
         "d06ae6063551efcfaa61538ef92ffd7bc72a1bb5a900ad029261c1a85724e491": {
             "path": "api/llm.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceBefore",
@@ -34308,15 +33750,6 @@
             "message": "Expected at least 1 space before \"=>\"; 0 found",
             "column": 18,
             "lineHash": "a5802cff88e824f66908198f22bdffbadf7fa99b3e7312d00457c209a79436ad",
-            "count": 1
-        },
-        "d0bd82e044b59dbcd7a458c68a049770e85a8d3b2a9934c4bd9e9c8caca3d2f7": {
-            "path": "api/registration_handlers.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 135 characters",
-            "column": 135,
-            "lineHash": "05e394da63ecc8078f4d515fc63c6805b2960d49fc24ca7da9c30039f82cd728",
             "count": 1
         },
         "d0cf2bc3eb2519f54d9459f7a1e49bd8593024d2ad994e411df072908ab9bed3": {
@@ -34425,15 +33858,6 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 18,
             "lineHash": "aa4a1174a7783f0f5d8494ff81f6c058bfae4c81a302766128b65a1aa59af76d",
-            "count": 1
-        },
-        "d1c2ba2d2ff30a603e80ad7bcae2df63b3c0e6bf38ed238834aa10529e2291ea": {
-            "path": "api/textures-ai.php",
-            "source": "PSR12.ControlStructures.ControlStructureSpacing.FirstExpressionLine",
-            "type": "ERROR",
-            "message": "The first expression of a multi-line control structure must be on the line after the opening parenthesis",
-            "column": 17,
-            "lineHash": "120e548492841ed86495d11f25bb7e31533aa4ada7f0e886a9fc28051e6af4d9",
             "count": 1
         },
         "d1e048a3273bc1d6a0be5948c5bc0d5bc6d288e18bbaccb9cab4eb9b470cbdd1": {
@@ -34634,15 +34058,6 @@
             "lineHash": "fce4502d4c7de666aa0b527de973cacf741a7b2dee0db3a922b545b78cffb47a",
             "count": 1
         },
-        "d365e58468aad08880569184970257b33c577740dc6686adb3cbfe27a112724e": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 188 characters",
-            "column": 188,
-            "lineHash": "648b3b6da03e6f22d0e29765fa6aba0864c132cf24d1d64e5bff9a2a7b090a43",
-            "count": 1
-        },
         "d3805115283418d2142c01eec0203f621634fd0c6ba7a6c6b00a87b55c27648b": {
             "path": "lib/RegistrationDraftService.php",
             "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
@@ -34759,15 +34174,6 @@
             "column": 1,
             "lineHash": "ca2ce8f93af730704f91e70986a7504dd8875e6206e3ce9fc6a0a0b8c494a338",
             "count": 3
-        },
-        "d43ad6f6fa5c43b7894ef978e27ef92469c00c8a56d0366c9c53ac0b7bbc8767": {
-            "path": "api/textures-ai.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 124 characters",
-            "column": 124,
-            "lineHash": "59cdc7ab511f74fbecc086afe99f5b021e435322292d2fdd6c03b8efab58a953",
-            "count": 1
         },
         "d43fcb0d43c0db753778a32d03f4f492a0f76401199f693ff704a87502407666": {
             "path": "api/galaxy_seed.php",
@@ -35381,15 +34787,6 @@
             "lineHash": "ab0288e67d74a5fbc26ecc6b9655cebef82fa81c0004915b6a04fc96c7b121e9",
             "count": 1
         },
-        "d8093d4811a6a49de32d1e7bb8a33cc2be2583d9abd9174df7555d67d1272bb6": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 169 characters",
-            "column": 169,
-            "lineHash": "d03b7ba60d129b588a9c20f88de5f1f3a352381a9358f20b9d9d619a10111318",
-            "count": 1
-        },
         "d8156f017ad1dbb7e6076615f1e783deeb5db86e4a254297221ed39560d7bdf8": {
             "path": "api/game_engine.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceAfter",
@@ -35397,15 +34794,6 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 62,
             "lineHash": "bf6fd8c6a209bc039dac954b2501d3c060c78be476f6f3ad4f8815ed4a972809",
-            "count": 1
-        },
-        "d818bb03e0ee6c116656a56f87b9a9b1508cf488297d1c867d570cfa5aa48c5c": {
-            "path": "api/textures-ai.php",
-            "source": "PSR12.ControlStructures.ControlStructureSpacing.CloseParenthesisLine",
-            "type": "ERROR",
-            "message": "The closing parenthesis of a multi-line control structure must be on the line after the last expression",
-            "column": 113,
-            "lineHash": "69210c31f6d3fbfaa7210fc0eb200c5176d91485f11bc4689ce0c2e136d39203",
             "count": 1
         },
         "d81c76249f55dde0e4937d3221967d68632164bc4744ac6196c8a30ad3bf5a4b": {
@@ -35478,15 +34866,6 @@
             "message": "Line exceeds 120 characters; contains 160 characters",
             "column": 160,
             "lineHash": "4b383cab92a69b90e99b4eef7df3874d427465c485a49f15d037f244918a9ab5",
-            "count": 1
-        },
-        "d88a2b1851a3b5f54e5c0771f42e536fac39dd6df4623812ed7088ea15cedf1f": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 151 characters",
-            "column": 151,
-            "lineHash": "960bf82774afbbcc5ffc6dcf898a057697e7af3bb05ff0f9efa2b44d49b96da6",
             "count": 1
         },
         "d8929b4b5378b8307442a0393b6639d57dd45e5690fea8df72396043ce298742": {
@@ -35849,15 +35228,6 @@
             "lineHash": "14b27c9de0845d1f9ce718625bfbddc6cd39832c551b75ddecd176b43ce4e4f5",
             "count": 1
         },
-        "da313aafa9ebe6edccf48bbb0345a48447c15bd85fb93d38169e8a65c2437d32": {
-            "path": "api/diplomacy.php",
-            "source": "PSR2.ControlStructures.SwitchDeclaration.TerminatingComment",
-            "type": "ERROR",
-            "message": "There must be a comment when fall-through is intentional in a non-empty case body",
-            "column": 9,
-            "lineHash": "f39f7862c7e0623fb2b5dafe432972c0b719a98a0ab6c55d64f7b2447b6c5a3d",
-            "count": 1
-        },
         "da3d5a25ec8cf76c87d32d01d854e995612b0289ca48be92fd78429c1e20aac2": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceAfter",
@@ -35919,15 +35289,6 @@
             "message": "Expected 1 space after comma in argument list; 7 found",
             "column": 57,
             "lineHash": "d73725e7fb44c73f70e306cb0fd326ef1c8f39c510483e14b3b4c88372c43627",
-            "count": 1
-        },
-        "da61256e4130e325cb6f284cce1d9e0de591ce12be70999f5a3e09b14397de57": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 374 characters",
-            "column": 374,
-            "lineHash": "e476bc9379e9dc91eb35e07d34159b8df709dfea71fc414678d7a23e06b90428",
             "count": 1
         },
         "da6523d0b4ab5c75011b96f9cdfc9cab01db2dcfa7806a5de62f68a8cefb145a": {
@@ -36090,6 +35451,15 @@
             "message": "Expected at least 1 space before \"=>\"; 0 found",
             "column": 76,
             "lineHash": "60b6608f086a4caeeed6c026465bf695a01bfe1055febb144525f5fa670006d5",
+            "count": 1
+        },
+        "db76be8f016432277a4deb7e0f6651f3b1d6415b3ea327ae20c0f6964d8cc788": {
+            "path": "api/diplomacy.php",
+            "source": "PSR2.ControlStructures.SwitchDeclaration.TerminatingComment",
+            "type": "ERROR",
+            "message": "There must be a comment when fall-through is intentional in a non-empty case body",
+            "column": 9,
+            "lineHash": "d689ef77af97a7e872c23365a6bd67de904271c6b61dfb0d00d2e1edf60ea713",
             "count": 1
         },
         "db79a09aa2e38909bc23046eeba260bdd7d5e60e79bc3ff44c8c2de6115cb6bd": {
@@ -36875,15 +36245,6 @@
             "lineHash": "dff7215cee635fe84d69e28ba09e83153b6aee23c4f3a3cc69bd89eede18fd1c",
             "count": 1
         },
-        "e021f4a321d151a2b94255d51a6f187774d5503c4578ea52b0599b335b4b3dad": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 141 characters",
-            "column": 141,
-            "lineHash": "fd5ab60c128fa7cdb36e66b69d475d84c6045f50af6f9cb3915ea96a00776686",
-            "count": 1
-        },
         "e04b7fb564261f9d77f94228e1c3c2bbd9487e2b5f51fdfab84d65f1e7c56192": {
             "path": "api/npc_llm_controller.php",
             "source": "Generic.Files.LineLength.TooLong",
@@ -36945,15 +36306,6 @@
             "message": "Line indented incorrectly; expected 8 spaces, found 4",
             "column": 5,
             "lineHash": "ee1d4193cc1788143e5c6df4924657a607f69cf9a96a3c1e148ead5cffb4fb21",
-            "count": 1
-        },
-        "e071e53dcf260c882df9195e70413f41570d3afe3b5ab8d35938950070844215": {
-            "path": "api/game_guide.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 354 characters",
-            "column": 354,
-            "lineHash": "6c76aa706f96bb9afbd763cb046bdf1f126661fd24d4f5d22ca192e9d6cfb963",
             "count": 1
         },
         "e079f11138509ddc16343d21ed0a0deef17cb1777039dff80b399a4dce82cb95": {
@@ -37125,6 +36477,15 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 39,
             "lineHash": "69074934ddf4a3bf5f9c285b375d69b64fd3d997b6e79b1c4c9a8a9a032d62bb",
+            "count": 1
+        },
+        "e145056401213525e5952880879b1c04351cd9642ffbb9495e68bdd295fd30e9": {
+            "path": "api/npc_faction_daily_quests.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 28 and the first side effect is on line 16.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "e1494680c76d2e9259748c5388c3c4adc42b00114be5801ea1e01ef4e8115906": {
@@ -38540,6 +37901,15 @@
             "lineHash": "c753da873d2f942a1b2b477e41d18cedaf9892ad687f367cb6daaf35da8b440d",
             "count": 1
         },
+        "e8b6fd8000ab46783415827f8c53bdee8144ae818df72a1ec0b33ca76e82597c": {
+            "path": "lib/WordPressBlogSource.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 7 and the first side effect is on line 5.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "e8ca2df424e65092024b3a4177a1ea5bc85f7874b42bb6b0adee1acca387332f": {
             "path": "api/shipyard.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -39845,15 +39215,6 @@
             "lineHash": "25506007c39bc1854d76ac1eda6ca5c8bb27b3750241c698d7af6031b97b58c2",
             "count": 1
         },
-        "efaac26a00cc0cfc0dcf9471225b663a6ac8273fd1fa7a9075287de004162cd5": {
-            "path": "api/textures-ai.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 138 characters",
-            "column": 138,
-            "lineHash": "da44072209b37a20b270fd13cbffff6d9b0e12cf4eee0896d7ab6ab91ffa02e7",
-            "count": 1
-        },
         "efab6d321de690f871ce982e40e7b2c9f785079c4268a2e87ab17bcb0982559e": {
             "path": "config/config.php",
             "source": "Generic.Files.LineLength.TooLong",
@@ -39969,15 +39330,6 @@
             "message": "Line exceeds 120 characters; contains 170 characters",
             "column": 170,
             "lineHash": "eb3d04dcadd3dd1615f5a9771c1f1932e9aa4a9d8dd023551267d5cc463606e8",
-            "count": 1
-        },
-        "f062cb50042072fb66197aab214dd3a8c3065dc8faf187f5c0a8adfeb1df9cf1": {
-            "path": "api/diplomacy.php",
-            "source": "PSR2.ControlStructures.SwitchDeclaration.TerminatingComment",
-            "type": "ERROR",
-            "message": "There must be a comment when fall-through is intentional in a non-empty case body",
-            "column": 9,
-            "lineHash": "20ec395217b39b688965e2920ed130667337757b2beb2462e9beae105b5ebd11",
             "count": 1
         },
         "f0640b86590e36f303a93b333776f36ebbf5194aa1d31eb085367a895f30a0ff": {
@@ -40421,15 +39773,6 @@
             "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
-        "f30687b23939768e93ce744368b58ad77664e6e835292cb35c4a4b8864b7c9bd": {
-            "path": "api/textures-ai.php",
-            "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
-            "type": "ERROR",
-            "message": "Whitespace found at end of line",
-            "column": 1,
-            "lineHash": "8b6fa01313ce51afc09e610f819250da501778ad363cba4f9e312a6ec823d42a",
-            "count": 1
-        },
         "f31ffa430716271cc0a81a731efe2089daea82192d67da2b2555aa45582bf48e": {
             "path": "api/npc_llm_controller.php",
             "source": "Generic.Files.LineLength.TooLong",
@@ -40761,15 +40104,6 @@
             "message": "Spaces must be used to indent lines; tabs are not allowed",
             "column": 1,
             "lineHash": "14b8c232596db265060f2418e6407f3ed56f64fcc8a5b036b0013902ca04085c",
-            "count": 1
-        },
-        "f52ea5cc67d488c8a09acbd65ab9d9c515cb4f85fccaca9f7835795b205c6fcf": {
-            "path": "api/game_guide.php",
-            "source": "Squiz.ControlStructures.ControlSignature.SpaceAfterKeyword",
-            "type": "ERROR",
-            "message": "Expected 1 space after MATCH keyword; 0 found",
-            "column": 5,
-            "lineHash": "312ce92ea1ae56628b323d3b8b57fc1776288ec826ea9160c7f0d05f0098d8e9",
             "count": 1
         },
         "f5520799b411f8240916a6c4196352c70b716fd64db5461d4c2122e98951fe39": {
@@ -41762,15 +41096,6 @@
             "lineHash": "60b6608f086a4caeeed6c026465bf695a01bfe1055febb144525f5fa670006d5",
             "count": 1
         },
-        "fc4fd84aa1cf7d4a015617fb5cd2dee503621c788094d402b402137a54d331aa": {
-            "path": "api/game_guide.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 68,
-            "lineHash": "27ab044b9c38fa1df66e3bebb5a84435d095e3ecbc2a98de4ece51c390f518eb",
-            "count": 1
-        },
         "fc536c871469edbffb4fbde7670dd79e6968c23e0963abd87b3721b6c6ded348": {
             "path": "config/config.php",
             "source": "Generic.Functions.FunctionCallArgumentSpacing.TooMuchSpaceAfterComma",
@@ -41987,13 +41312,13 @@
             "lineHash": "d07c699d0c55762cf6e09ce0310a0058fb036d37f5d0e964a40d45c048f62118",
             "count": 1
         },
-        "fdd82abe7f58a501d9e9ab326fd57151a3e98e76d8f5daa73906e9e88ef01513": {
-            "path": "api/game_guide.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
+        "fdc913337645c7e290c386b7048593cdf138cd539c1ecc8ea0143236b79e6103": {
+            "path": "lib/WordPressSimulation.php",
+            "source": "PSR1.Classes.ClassDeclaration.MissingNamespace",
             "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 39,
-            "lineHash": "fae4a2ef0358598a842437668973dd85236fd869fc195871d6c6c9f1e0c91fab",
+            "message": "Each class must be in a namespace of at least one level (a top-level vendor name)",
+            "column": 7,
+            "lineHash": "2e67dec708250ddffbea5252d56ec9fe7a12898463737f4cce8b1b667cd57233",
             "count": 1
         },
         "fddf5d93bd7f71335bd58c88f9f04b804e833e1e4b567e74a1c9f84ac09f6113": {

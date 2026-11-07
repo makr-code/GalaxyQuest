@@ -4,6 +4,8 @@
 
 **Date**: 2026-07-31
 
+> **Implementation note (2026-11-07):** `RetryPolicy` and its unit tests exist, but the galaxy endpoint does not apply the policy to repository reads. A dead policy allocation was removed; safe integration still requires a defined database reconnect strategy. Production readiness is not established.
+
 **Context**: Galaxy context requires resilience against transient failures (network timeouts, temporary service unavailability, 5xx errors). Previous approach was to fail immediately on error.
 
 ---
@@ -161,7 +163,7 @@ Relies on ApiClient retry mechanism (to be implemented in Phase 2).
 
 ## Sign-off
 
-✅ Approved by: Architecture Team
-✅ Implemented in: Batch 3
-✅ Tested: Yes (15 unit tests + integration tests)
-✅ Production ready: Yes
+✅ Decision accepted by: Architecture Team
+🟡 Implementation: Retry utility exists; application integration is incomplete
+✅ Unit tests: Present (see `tests/Unit/RetryPolicyTest.php`)
+❌ Production readiness: Not assessed

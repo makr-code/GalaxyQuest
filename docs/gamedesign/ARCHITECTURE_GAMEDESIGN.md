@@ -63,7 +63,7 @@ GalaxyQuest (Universum)
 |------|--------|----------|--------|
 | [`GAMEDESIGN.md`](GAMEDESIGN.md) | 38 KB | 📘 Hauptdokumentation | ✅ Live |
 | [`README_GAMEDESIGN.md`](README_GAMEDESIGN.md) | 3 KB | 📋 Übersicht | ✅ Live |
-| [`FTL_DRIVE_DESIGN.md`](FTL_DRIVE_DESIGN.md) | ~28 KB | ⚡ FTL-Antriebe: Fraktions-Design + Balancing + Implementierungsplan | ✅ Live |
+| [`FTL_DRIVE_DESIGN.md`](FTL_DRIVE_DESIGN.md) | ~28 KB | ⚡ FTL-Antriebe: Fraktions-Design + Balancing + Implementierungsplan | Design aktiv; Laufzeitumsetzung teilweise |
 | [`ECONOMY_DESIGN.md`](ECONOMY_DESIGN.md) | ~40 KB | 💹 Wirtschaftssystem: Produktionsketten, Markt, Pop-Klassensystem (Anno-Prinzip), Roadmap | ✅ Live |
 | [`FACTION_INTRODUCTION.md`](FACTION_INTRODUCTION.md) | ~30 KB | 🌌 Spielerstart (Rassenwahl), Fraktionspfade, Isolationspfad (vollständig §11.3) | ✅ Live |
 | [`BONUS_MALUS_DESIGN.md`](BONUS_MALUS_DESIGN.md) | ~100 KB | 🎖️ Bonus/Malus-System: alle 13 NPC-Fraktionen, Tier-Modifier, Backend-Spec | ✅ Live |

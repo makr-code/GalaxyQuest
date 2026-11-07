@@ -1,6 +1,6 @@
 # GalaxyQuest — Implementierungs-Audit
 
-> **Aktualitätshinweis (29. Oktober 2026):** Dieser Audit ist ein historischer Snapshot vom 31. Juli 2026. Die damaligen Prozentwerte sind keine aktuelle Messung. Für den gegen den heutigen Checkout abgeglichenen Stand siehe [Reality Check](REALITY_CHECK_2026-10-29.md).
+> **Historischer Snapshot (31. Juli 2026):** Die damaligen Gesamt- und Feature-Prozentwerte sowie Status- und Produktionsreifeurteile sind zurückgezogene Schätzungen, keine aktuelle Messung oder Freigabe. Auch die damalige Stack-Beschreibung ist nicht als aktueller Architekturstand zu verwenden. Der separate [Reality-Check-Snapshot vom 29. Oktober 2026](REALITY_CHECK_2026-10-29.md) enthält spätere Evidenz, aber nicht notwendigerweise Änderungen danach.
 
 > **Stand:** 31. Juli 2026 (Überprüfung und Synchronisation)
 > **Basis:** Vollständige Analyse des Quellcodes, aller API-Endpunkte, SQL-Migrationen, Frontend-Module und Design-Dokumente  
@@ -16,16 +16,18 @@
 | **Tech-Stack** | PHP 8 Backend · Vanilla JS/ES2020 Frontend · MySQL 8.4 · Docker |
 | **Rendering** | WebGPU (primär) · WebGL2/Three.js (Fallback) · Post-Processing-Pipeline |
 | **AI/LLM** | Ollama (lokal) für NPC-Steuerung, Glossar, Portraits, TTS |
-| **Gesamtfortschritt** | **~60 %** des finalen Produkts |
+| **Gesamtfortschritt** | Keine belastbare Gesamt-Prozentzahl; die damalige ~60%-Schätzung ist zurückgezogen |
 | **Codebasis-Alter** | ~14 Tage (gestartet ca. 28.03.2026), sehr aktive Entwicklung |
 | **Größe** | ~148 MB · 60+ API-Endpunkte · 50+ SQL-Migrationen · 20+ Fraktionen |
-| **Architektur** | Kein Framework, kein Build-Step, server-autoritativ, tick-free |
+| **Architektur** | Die damalige Stack-Zusammenfassung ist überholt; spätere Evidenz bis 29.10.2026 steht im [Reality-Check-Snapshot](REALITY_CHECK_2026-10-29.md) |
 
 GalaxyQuest besitzt ein solides Kern-Gameplay (Bauen, Forschen, Kämpfen, Handeln, Diplomatie) und eine bemerkenswert ausgereifte Engine für ein zwei Wochen altes Projekt. Die größten Lücken zum finalen Produkt liegen in der **Tiefe der Wirtschafts-Simulation**, dem **Diplomatie-Eskalationsmodell**, den **Endgame-Mechaniken** und dem **Tutorial/Onboarding**.
 
 ---
 
-## 2. Fortschritts-Dashboard
+## 2. Zurückgezogenes historisches Fortschritts-Dashboard
+
+> Die Prozentwerte und Reife-Labels im folgenden Dashboard wurden am 31. Juli 2026 notiert und sind ausdrücklich zurückgezogen. Sie sind weder aktuelle Messungen noch Produktionsfreigaben.
 
 ```
 GalaxyQuest — Implementierungsfortschritt (Stand 31.07.2026)
@@ -134,7 +136,7 @@ GESAMT (vs. finale Vision)                                  ~60%
 - 3D-Modell-System: 7+ Stationen/Schiffe, 13 Fraktions-Starter-Modelle
 - SeamlessZoom-Orchestrator mit `SPATIAL_DEPTH` 0–4
 - HybridPhysicsEngine + NPCPathfindingCompute (WebGPU-Compute-Shader)
-- Hardware-in-Loop CI für WGSL-Shader-Validierung (14 Shader × `compilationInfo()`)
+- WGSL-Shader-Validierung in Chromium mit SwiftShader-Software-WebGPU (kein Hardware-in-the-Loop-Nachweis)
 
 **Fehlend:**
 - ❌ Isometrisches Colony-Building-Frontend vollständig mit der 3D-Engine verdrahtet
@@ -530,7 +532,7 @@ GESAMT (vs. finale Vision)                                  ~60%
 | `EMPIRE_CATEGORIES.md` | ~80% | ✅ | GAP_TODO A-2 ✅ |
 | `ECONOMY_DESIGN.md` | ~60% | 🟡 | GAP_TODO B-2 🟡 |
 | `VESSEL_MODULE_BLUEPRINT_DESIGN.md` | ~85% | ✅ | Weitgehend umgesetzt |
-| `FTL_DRIVE_DESIGN.md` | ~95% | ✅ | Vollständig implementiert |
+| `FTL_DRIVE_DESIGN.md` | Historische Schätzung zurückgezogen | 🟡 | Fraktionsspezifische Laufzeitpfade vorhanden; vollständige Design-, Balance- und End-to-End-Abnahme nicht belegt |
 | `ONBOARDING_PROLOGUE_DESIGN.md` | ~10% | 🔴 | Nur Design, kein Code |
 | `FACTION_INTRODUCTION.md` | ~10% | 🔴 | Nur Design, Herald-NPCs vorhanden |
 | `BONUS_MALUS_DESIGN.md` | ~70% | 🟡 | Colony-Type-Boni verdrahtet |

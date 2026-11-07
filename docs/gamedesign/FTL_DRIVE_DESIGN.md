@@ -1,9 +1,11 @@
 # ⚡ GalaxyQuest — FTL Drive Design Document
 
 **Version:** 1.3  
-**Status:** Phase 1–5 implementiert (siehe `sql/migrate_vessel_blueprints_v10_ftl_drives.sql`, `v11_ftl_phase4.sql`, `v12_npc_ftl.sql`)  
+**Status:** Historischer Design- und Implementierungsstand. Fraktionsspezifische FTL-Pfade und Drive-Auswahl sind teilweise implementiert; die Designziele und alle Phasen sind nicht vollständig abgenommen.
 **Erstellt:** 2026-03-30  
 **Basis-Docs:** [GAMEDESIGN.md](GAMEDESIGN.md) · [GAMEPLAY_DATA_MODEL.md](GAMEPLAY_DATA_MODEL.md) · [FUTURE_ENHANCEMENTS.md](../technical/FUTURE_ENHANCEMENTS.md)
+
+> Die aktiven Laufzeitpfade liegen in `api/fleet.php`, `api/game.php` und den FTL-Settings-Modulen. Migrationen belegen Schemaänderungen, nicht die vollständige Umsetzung aller hier beschriebenen Mechaniken. Phasen- und „implementiert“-Angaben in diesem Dokument sind historische Planungseinträge, keine Release- oder Balance-Abnahme.
 
 ---
 
@@ -71,11 +73,13 @@ Die Flotte wird durch das **langsamste Schiff** bestimmt (Bottleneck-Prinzip). E
 - **Mechanik:** Instantaner Sprung (30 Sekunden Reisezeit) zwischen zwei fixen Endpunkten
 - **Kosten:** Stabilität -10, Cooldown 15 Minuten
 - **Tabelle:** `wormholes` (stability, cooldown_until, is_active, is_permanent)
-- **Status:** ✅ Vollständig implementiert
+- **Status:** API- und Datenbankpfade für Wormholes sind vorhanden; vollständige Spiel- und Release-Abnahme ist damit nicht belegt.
 
-### 2.3 Lücken im aktuellen System
+### 2.3 Historische Lücken des ursprünglichen Standardmodells
 
-| Problem | Auswirkung |
+> Die Tabelle beschreibt den ursprünglichen Design-Ausgangspunkt vor den fraktionsspezifischen FTL-Pfaden. Sie ist keine aktuelle Bestandsaufnahme.
+
+| Ursprüngliches Problem | Design-Auswirkung |
 |---|---|
 | Alle Fraktionen identisch schnell | Kein Anreiz, Fraktion strategisch zu wählen |
 | Kein fraktionsspezifischer Cooldown | Keine Konsequenz für häufige Sprünge |

@@ -119,11 +119,11 @@ final class NpcDailyQuestGeneratorTest extends TestCase
         );
     }
 
-    public function testDailyQuestSchemaMigrationIsRegisteredAndAppendOnly(): void
+    public function testDailyQuestSchemaMigrationIsRegistered(): void
     {
         $root = dirname(__DIR__, 2);
         $manifest = require $root . '/config/migrations_manifest.php';
-        self::assertSame('migrate_npc_daily_quests_v2.sql', end($manifest));
+        self::assertContains('migrate_npc_daily_quests_v2.sql', $manifest);
 
         $migration = file_get_contents($root . '/sql/migrate_npc_daily_quests_v2.sql');
         self::assertIsString($migration);

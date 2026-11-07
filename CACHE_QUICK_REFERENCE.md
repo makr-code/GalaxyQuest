@@ -1,11 +1,19 @@
 # GalaxyQuest Cache Quick Reference Card
 
+> Diagnostics require an authenticated administrator session. Metrics are not
+> automatically collected by every cache call; cache users must record hits and
+> misses explicitly. Thresholds below are guidance, not universal SLOs.
+>
+> Endpoint coverage and cache-expansion plans in related documents are historical
+> references. Galaxy system responses default to JSON; binary encodings are optional.
+
 ## 🚀 Quick Start (30 seconds)
 
 ### 1. Check Cache Status
 ```bash
-curl http://localhost/api/cache_diagnostics.php | jq .health
-# Shows: status, hit_rate, total_requests
+# Set to the active admin session cookie, then query the admin-only endpoint.
+curl -b "$ADMIN_SESSION_COOKIE" "http://localhost/api/cache_diagnostics.php?action=summary" | jq .health
+# Shows: status, aggregate_hit_rate, total_requests
 ```
 
 ### 2. Add Cache to an Endpoint (2 min)
@@ -40,8 +48,8 @@ gq_invalidate_domain('my_domain', $entity_id);
 |----------|---------|---------|
 | `gq_cache_get($scope, $params)` | Get JSON value | `gq_cache_get('diplomacy', ['uid' => 1])` |
 | `gq_cache_set($scope, $params, $data, $ttl)` | Store JSON value | `gq_cache_set('diplomacy', ['uid' => 1], $data, 60)` |
-| `gq_cache_get_raw($scope, $params)` | Get binary | For Binary-V3 payloads |
-| `gq_cache_set_raw($scope, $params, $bytes, $ttl)` | Store binary | For Binary-V3 payloads |
+| `gq_cache_get_raw($scope, $params)` | Get raw bytes | Raw cache entries; not an indication that V3 is the active client format |
+| `gq_cache_set_raw($scope, $params, $bytes, $ttl)` | Store raw bytes | Raw cache entries; format depends on the caller |
 | `gq_cache_delete($scope, $params)` | Delete entry | `gq_cache_delete('scope', ['key' => $val])` |
 | `gq_cache_flush($scope)` | Clear scope | `gq_cache_flush('diplomacy')` |
 
@@ -56,7 +64,7 @@ gq_invalidate_domain('my_domain', $entity_id);
 ### Metrics
 | Function | Purpose | Example |
 |----------|---------|---------|
-| `gq_metrics_record_hit($scope, $params, $hit, $bytes, $ms)` | Track access | Auto-called if metrics.php loaded |
+| `gq_metrics_record_hit($scope, $params, $hit, $bytes, $ms)` | Record access | Call explicitly after each cache hit or miss |
 | `gq_metrics_query($scope)` | Get scope metrics | `$m = gq_metrics_query('game_overview')` |
 | `gq_metrics_hit_rate($scope)` | Hit rate % | `echo gq_metrics_hit_rate();` |
 | `gq_metrics_export_telemetry()` | Full dashboard | Returns JSON for admin panel |
@@ -122,12 +130,13 @@ $key = ['galaxy' => $g, 'system' => $s];  // System level
 ?action=invalidation_hooks  # Hook registrations
 
 POST ?action=clear_scope&scope=X        # Manual clear
-POST ?action=clear_all&confirm=yes      # Nuke everything
+POST ?action=clear_all&confirm=yes      # Clear all cached entries
 POST ?action=reset_metrics&scope=X      # Reset stats
 ```
+All actions require an authenticated administrator session; POST actions also require CSRF validation.
 
 **Dashboard Shows:**
-- Aggregate hit rate (target: >80%)
+- Aggregate hit rate (health bands: excellent ≥85%, good ≥70%, fair ≥50%)
 - Recommendations (auto-generated based on metrics)
 - Top-performing scopes
 - Disk usage, memory footprint
@@ -142,7 +151,7 @@ POST ?action=reset_metrics&scope=X      # Reset stats
 - [ ] TTL is reasonable (not 0, not infinity)
 - [ ] Mutation endpoints call `gq_invalidate_domain()`
 - [ ] Tested cache hit and cache miss separately
-- [ ] Metrics show >70% hit rate
+- [ ] Metrics are explicitly recorded for representative cache operations; set workload-specific hit-rate targets
 - [ ] Hit rates improving over time (not degrading)
 - [ ] No stale data in testing
 
@@ -164,10 +173,10 @@ var_dump(is_dir(CACHE_DIR));    // Should exist
 4. Check for aggressive invalidation clearing cache too often
 
 ### Disk growing?
-```php
-$size = shell_exec('du -sh ' . CACHE_DIR);
-if ($size > 500) gq_cache_flush();  // Manual cleanup
+```bash
+du -sh "$CACHE_DIR"  # Inspect cache size on Linux
 ```
+Avoid automatically flushing all scopes based only on disk size; investigate and clear a specific scope through the authenticated diagnostics endpoint when appropriate.
 
 ### Memory usage?
 - Check APCu: `php -i | grep apc.shm_size` (default 32MB)
@@ -183,16 +192,16 @@ if ($size > 500) gq_cache_flush();  // Manual cleanup
 | `/api/cache_metrics.php` | Metrics tracking |
 | `/api/cache_invalidation.php` | Domain invalidation |
 | `/api/cache_diagnostics.php` | Admin dashboard |
-| `/config/config.php` (lines 98–105) | Cache configuration |
+| `/config/config.php` (lines 123–130) | Cache configuration |
 | `/docs/CACHING_ARCHITECTURE.md` | Full architecture guide |
 | `/docs/CACHE_IMPLEMENTATION_PATTERNS.php` | Copy-paste code examples |
-| `/docs/CACHE_IMPLEMENTATION_ROADMAP.md` | 3-phase plan |
+| `/docs/CACHE_IMPLEMENTATION_ROADMAP.md` | Historical proposal; not the current project roadmap |
 
 ---
 
 ## 🎓 Learning Path
 
-1. **Start here:** Read `/CACHE_AUDIT_SUMMARY.md` (5 min)
+1. **Historical audit:** Read `/docs/archive/CACHE_AUDIT_SUMMARY.md` (5 min)
 2. **Then:** Review `/docs/CACHING_ARCHITECTURE.md` section 1-3 (10 min)
 3. **Hands-on:** Copy pattern from `/docs/CACHE_IMPLEMENTATION_PATTERNS.php` (5 min)
 4. **Test:** Use `/api/cache_diagnostics.php` to verify metrics (2 min)
@@ -215,10 +224,10 @@ $key = [
 ```
 
 ### Tip 2: Lazy Invalidation
-Use TTL for automatic expiration instead of complex invalidation:
+Use TTL as a safety net, not as a substitute for required invalidation:
 ```php
 gq_cache_set('data', $key, $value, 30);  // Expires in 30s anyway
-// No need for sophisticated hook if TTL is short enough
+// Still invalidate immediately when freshness is required.
 ```
 
 ### Tip 3: Binary Payloads
@@ -249,8 +258,8 @@ gq_cache_set('scope', $key, $data, $ttl);
 
 - **Architecture Deep Dive:** `/docs/CACHING_ARCHITECTURE.md`
 - **Code Patterns:** `/docs/CACHE_IMPLEMENTATION_PATTERNS.php`
-- **Execution Plan:** `/docs/CACHE_IMPLEMENTATION_ROADMAP.md`
-- **Executive Summary:** `/CACHE_AUDIT_SUMMARY.md`
+- **Historical cache proposal:** `/docs/CACHE_IMPLEMENTATION_ROADMAP.md` (not the current project roadmap)
+- **Historical Executive Summary:** `/docs/archive/CACHE_AUDIT_SUMMARY.md`
 
 ---
 
@@ -266,5 +275,5 @@ grep -A 30 "Pattern 2" docs/CACHE_IMPLEMENTATION_PATTERNS.php  # Examples
 ---
 
 **Last Updated:** 2026-07-30  
-**Status:** Production Ready  
+**Status:** Historical local assessment from 2026-07-30; not a production-readiness approval
 **Maintenance:** Check `/api/cache_diagnostics.php` weekly

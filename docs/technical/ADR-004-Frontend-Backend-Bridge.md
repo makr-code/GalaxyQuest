@@ -4,6 +4,8 @@
 
 **Date**: 2026-07-31
 
+> **Implementation note (2026-11-07):** Galaxy service/controller modules and their tests exist, but repository search found no runtime load or call site for `js/features/galaxy/legacy-bridge.js`. The bridge described here is not established as active in the main game entrypoint.
+
 **Context**: Galaxy feature migrating from procedural `game.js` to structured OOP service/controller pattern. Must maintain backward compatibility with legacy code while new pattern establishes.
 
 ---
@@ -341,7 +343,7 @@ game.js adapted or removed.
 
 ## Sign-off
 
-✅ Approved by: Architecture Team
-✅ Implemented in: Batch 4
-✅ Tested: Yes (30+ integration test cases)
-✅ Production ready: Yes (backward compatible)
+✅ Decision accepted by: Architecture Team
+🟡 Implementation: Standalone modules and tests exist; main-entrypoint integration is not established
+✅ Module tests: Present (see `tests/js/features/galaxy.test.js`)
+❌ Production readiness: Not assessed

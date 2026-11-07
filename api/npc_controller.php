@@ -37,7 +37,10 @@ switch ($action) {
 
         $recentCount = 0;
         if ($logAvailable) {
-            $q = $db->prepare('SELECT COUNT(*) FROM npc_llm_decision_log WHERE user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)');
+            $q = $db->prepare(
+                'SELECT COUNT(*) FROM npc_llm_decision_log '
+                . 'WHERE user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)'
+            );
             $q->execute([$uid]);
             $recentCount = (int) $q->fetchColumn();
         }

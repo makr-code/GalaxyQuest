@@ -1,16 +1,16 @@
 # GalaxyQuest System Implementation Status
 
-> **Aktualitätshinweis (29. Oktober 2026):** Dieser Status ist ein historischer Snapshot vom 31. Juli 2026. Die Prozentangabe ist keine aktuelle Messung. Für den gegen den heutigen Checkout abgeglichenen Stand siehe [Reality Check](REALITY_CHECK_2026-10-29.md).
+> **Historischer Snapshot (31. Juli 2026):** Die damaligen Featurelisten sind keine aktuelle Laufzeit- oder Release-Abnahme. Eine belastbare Gesamt-Prozentzahl liegt nicht vor; Prozentangaben aus älteren Statusberichten sind nicht als Fortschrittsmessung zu verwenden. Spätere, ebenfalls datierte Evidenz bis 29.10.2026 steht im [Reality-Check-Snapshot](REALITY_CHECK_2026-10-29.md).
 
 **Last Updated**: 31 July 2026 (Documentation sync)
 **Scope**: Pirates, Economy, War systems + Phase documentation  
-**Status Summary**: ~70% complete with significant incomplete features in Economy integration
+**Status Summary**: Historische Featureübersicht; kein aktueller Gesamtfortschritt oder Release-Status
 
 ---
 
 ## 1. PIRATES SYSTEM
 
-### ✅ Currently Implemented
+### Im Snapshot als implementiert berichtet
 
 **Backend API** (`api/pirates.php`)
 - `GET ?action=status` — List all pirate factions + threat scores
@@ -58,7 +58,7 @@
 
 ## 2. ECONOMY SYSTEM
 
-### ✅ Currently Implemented
+### Im Snapshot als implementiert berichtet
 
 **Backend API** (`api/economy.php`)
 - `GET ?action=get_overview[&colony_id=N]` — Colony economy snapshot
@@ -151,7 +151,7 @@
 
 ## 3. WAR SYSTEM
 
-### ✅ Currently Implemented
+### Im Snapshot als implementiert berichtet
 
 **Backend API** (`api/war.php`)
 - `POST ?action=declare` — Start war (target_user_id, war_goals, casus_belli)

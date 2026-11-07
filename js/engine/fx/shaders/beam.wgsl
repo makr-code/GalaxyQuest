@@ -105,15 +105,15 @@ fn vs_main(
   let quadIdx = QUAD_INDICES[vi];
   let corner  = QUAD_CORNERS[quadIdx];   // (side [-1,1], t [0,1])
 
-  let from = vec3<f32>(b.fromX, b.fromY, b.fromZ);
-  let to   = vec3<f32>(b.toX,   b.toY,   b.toZ);
+  let startPoint = vec3<f32>(b.fromX, b.fromY, b.fromZ);
+  let endPoint   = vec3<f32>(b.toX,   b.toY,   b.toZ);
 
   // World-space point along the beam axis
-  let worldPos = mix(from, to, corner.y);
+  let worldPos = mix(startPoint, endPoint, corner.y);
 
   // Project both endpoints to clip space to derive screen-space direction
-  let clipFrom = params.viewProj * vec4<f32>(from, 1.0);
-  let clipTo   = params.viewProj * vec4<f32>(to,   1.0);
+  let clipFrom = params.viewProj * vec4<f32>(startPoint, 1.0);
+  let clipTo   = params.viewProj * vec4<f32>(endPoint,   1.0);
 
   // Screen-space beam direction (NDC)
   let ndcFrom = clipFrom.xy / clipFrom.w;

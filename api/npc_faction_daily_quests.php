@@ -1,26 +1,26 @@
 <?php
 
-declare(strict_types=1);
-
 /**
  * NPC Faction Daily Quest Generator
- * 
+ *
  * Globally generates new quests for all factions on a daily basis.
  * Runs once per day (coordinated via app_state).
  * Minimum server load: only runs when players are active.
- * 
+ *
  * The generator currently has no production call site.
  * Cooldown: 24 hours (stored in app_state as 'daily_quest_generator:last_run')
  */
+
+declare(strict_types=1);
 
 require_once __DIR__ . '/npc_quest_action_executor.php';
 require_once __DIR__ . '/npc_quest_personalizer.php';
 
 /**
  * Run daily quest generation for all factions globally
- * 
+ *
  * Called by the explicit quest-generation entry point.
- * 
+ *
  * @param PDO $db Database connection
  * @param bool $force Force generation regardless of cooldown
  * @return array Generation statistics
@@ -112,12 +112,12 @@ function npc_faction_daily_quests_generate_run(PDO $db, bool $force): array
 
 /**
  * Generate daily quests for a specific faction
- * 
+ *
  * Decides how many quests to generate based on:
  * - Faction type
  * - Trade willingness
  * - Current active quest count
- * 
+ *
  * @param PDO $db Database connection
  * @param array $faction Faction data
  * @return int Number of quests generated
@@ -195,7 +195,7 @@ function npc_faction_daily_quests_for_faction(PDO $db, array $faction): int
 
 /**
  * Create a single daily quest for a faction
- * 
+ *
  * @param PDO $db Database connection
  * @param array $faction Faction data
  * @return bool True if quest was created
@@ -277,7 +277,7 @@ function npc_faction_daily_quests_create_one(PDO $db, array $faction): bool
 
 /**
  * Select quest templates appropriate for faction type
- * 
+ *
  * @param array $faction Faction data
  * @return array Template codes
  */
@@ -334,7 +334,10 @@ function npc_daily_quest_requirements(
         default => throw new UnexpectedValueException("Unsupported faction quest type '{$questType}'."),
     };
 
-    if ($questType === 'deliver' && !in_array($requirements['resource'], ['metal', 'crystal', 'deuterium', 'rare_earth'], true)) {
+    if (
+        $questType === 'deliver'
+        && !in_array($requirements['resource'], ['metal', 'crystal', 'deuterium', 'rare_earth'], true)
+    ) {
         throw new UnexpectedValueException("Unsupported delivery resource '{$requirements['resource']}'.");
     }
     if (($requirements['amount'] ?? 1) <= 0 || ($requirements['count'] ?? 1) <= 0) {
@@ -393,7 +396,7 @@ function npc_daily_quest_render(string $template, array $params): string
 
 /**
  * Log quest trigger for analytics and audit
- * 
+ *
  * @param PDO $db Database connection
  * @param int $factionId Faction ID
  * @param ?int $userId User ID (null for global generation)

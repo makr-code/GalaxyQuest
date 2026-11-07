@@ -1,5 +1,7 @@
 # Wave 17 – Full Domain Feature Completion
 
+> **Historischer Plan (7. April 2026):** Die Prozentwerte in diesem Plan waren grobe damalige Gap-Schätzungen, keine gemessenen Fertigstellungsgrade. Sie sind nicht auf den aktuellen Checkout übertragbar und stellen keine Release-Abnahme dar.
+
 **Target**: 100% feature parity Pirates + Economy + War  
 **Strategy**: Integrated implementation (dependencies first)  
 **Estimated Effort**: ~240-300 hours  
@@ -359,7 +361,7 @@ Testing & Validation [PHASE 5]
 
 ## Success Metrics
 
-| System | Current | Target | Completion |
+| System | Estimated baseline (2026-04-07) | Target | Gap described in plan |
 |--------|---------|--------|------------|
 | Pirates | 60% | 100% | Gap coverage: Defense + Contracts + Damage |
 | Economy | 75% | 100% | Gap coverage: Pop + Tier3 + War coupling |
@@ -377,4 +379,3 @@ Testing & Validation [PHASE 5]
 4. **NPC reaction logic** — Blocks multiplayer alliance wars
 
 These must be done before parallel work on other features.
-

@@ -1,10 +1,10 @@
 # .github/workflows/webgpu-shader-validation.yml
 #
-# Hardware-in-Loop CI: WGSL Shader Compilation Validation
+# Software-WebGPU CI: WGSL Shader Compilation Validation
 #
 # Validates all GalaxyQuest WGSL shaders by actually compiling them against
 # Chrome's built-in WGSL compiler (Dawn/Tint) using the software WebGPU
-# renderer (SwiftShader via Vulkan).
+# renderer (SwiftShader via Vulkan); this is not physical hardware-in-the-loop.
 #
 # Key approach:
 #   - Uses Chrome's `--use-vulkan=swiftshader` flag to get a real WebGPU
@@ -18,7 +18,7 @@
 #   - Push to the WebGPU migration branch
 #   - PR targeting main that touches any WGSL or WebGPU JS file
 
-name: WebGPU Shader Validation (Hardware-in-Loop)
+name: WebGPU Shader Validation (SwiftShader)
 
 on:
   workflow_dispatch:

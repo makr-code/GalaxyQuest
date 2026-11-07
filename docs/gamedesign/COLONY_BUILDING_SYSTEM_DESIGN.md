@@ -3,9 +3,9 @@
 ## Game Design Dokument (Outline)
 
 **Version:** 1.0  
-**Status:** Design-Blueprint — bereit zur Implementierung  
+**Status:** Historischer Design-Blueprint — nicht als aktuelle Implementierungs- oder Releaseaussage verwenden
 **Stand:** 2026-04-01  
-**Bezug:** [GAMEPLAY_DATA_MODEL.md](GAMEPLAY_DATA_MODEL.md) · [GAMEDESIGN.md](GAMEDESIGN.md) · [FUTURE_ENHANCEMENTS.md](FUTURE_ENHANCEMENTS.md)
+**Bezug:** [GAMEPLAY_DATA_MODEL.md](GAMEPLAY_DATA_MODEL.md) · [GAMEDESIGN.md](GAMEDESIGN.md) · [FUTURE_ENHANCEMENTS.md](../technical/FUTURE_ENHANCEMENTS.md)
 
 ---
 

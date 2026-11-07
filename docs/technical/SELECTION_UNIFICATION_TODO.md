@@ -1,30 +1,32 @@
 # Selection Unification TODO (Galaxy / System / Approach / Colony)
 
+> **Historical implementation snapshot:** Source paths below point to the current tree, but line numbers and the status assessment have not been revalidated. Treat this as a design TODO, not a current inventory or release status.
+
 ## Kurzbefund (Best-Practice + Usability)
 
 1. Selection-Logik ist verteilt auf mehrere Systeme statt zentralen Selection-Store.
-- Three.js Pfad: [js/rendering/galaxy-renderer-core.js](js/rendering/galaxy-renderer-core.js)
-- WebGPU Sternfeld: [js/rendering/Galaxy3DRendererWebGPU.js](js/rendering/Galaxy3DRendererWebGPU.js)
-- UI-Adapter: [js/runtime/game.js](js/runtime/game.js)
+- Three.js Pfad: [galaxy-renderer-core.js](../../js/rendering/galaxy-renderer-core.js)
+- WebGPU Sternfeld: [Galaxy3DRendererWebGPU.js](../../js/rendering/Galaxy3DRendererWebGPU.js)
+- UI-Adapter: [game-galaxy.js](../../js/ui/game-galaxy.js)
 
 2. Ein Marker existiert, ist aber semantisch ein kombinierter Hover/Selection-Marker.
-- Hover-Marker-Build: [js/rendering/galaxy-renderer-core.js#L1192](js/rendering/galaxy-renderer-core.js#L1192)
-- Marker-Update (mischt Hover und Selection): [js/rendering/galaxy-renderer-core.js#L5960](js/rendering/galaxy-renderer-core.js#L5960)
+- Hover-Marker-Build: [galaxy-renderer-core.js](../../js/rendering/galaxy-renderer-core.js)
+- Marker-Update (mischt Hover und Selection): [galaxy-renderer-core.js](../../js/rendering/galaxy-renderer-core.js)
 
 3. Group Selection ist teilweise vorhanden (Cluster), aber nicht als generisches Konzept.
-- Cluster Hover/Select Indizes: [js/rendering/galaxy-renderer-core.js#L400](js/rendering/galaxy-renderer-core.js#L400)
-- Cluster Picking: [js/rendering/galaxy-renderer-core.js#L1985](js/rendering/galaxy-renderer-core.js#L1985)
+- Cluster Hover/Select Indizes: [galaxy-renderer-core.js](../../js/rendering/galaxy-renderer-core.js)
+- Cluster Picking: [galaxy-renderer-core.js](../../js/rendering/galaxy-renderer-core.js)
 
 4. Dynamic Object Selection (Fleets, Installationen, FTL) ist implementiert, aber ebenfalls getrennt von Stern/Planet-Selection.
-- System dynamic selection: [js/rendering/galaxy-renderer-core.js#L4672](js/rendering/galaxy-renderer-core.js#L4672)
-- Galaxy dynamic selection: [js/rendering/galaxy-renderer-core.js#L4730](js/rendering/galaxy-renderer-core.js#L4730)
+- System dynamic selection: [galaxy-renderer-core.js](../../js/rendering/galaxy-renderer-core.js)
+- Galaxy dynamic selection: [galaxy-renderer-core.js](../../js/rendering/galaxy-renderer-core.js)
 
 5. Kolonisierte Welten haben bereits visuelle Merkmale, aber nicht konsistent in allen Views.
-- System-View Aura-Ring pro Kolonie: [js/rendering/galaxy-renderer-core.js#L2337](js/rendering/galaxy-renderer-core.js#L2337)
-- Einfärbung von Sternen nach Empire/Faction (WebGPU): [js/rendering/Galaxy3DRendererWebGPU.js#L438](js/rendering/Galaxy3DRendererWebGPU.js#L438)
+- System-View Aura-Ring pro Kolonie: [galaxy-renderer-core.js](../../js/rendering/galaxy-renderer-core.js)
+- Einfärbung von Sternen nach Empire/Faction (WebGPU): [Galaxy3DRendererWebGPU.js](../../js/rendering/Galaxy3DRendererWebGPU.js)
 
 6. Hover-Usability ist gut (magnetisch, slow-pointer bias), aber unabhängiger Hover gegenüber persistenter Selection ist im Marker visuell nicht sauber getrennt.
-- Magnet-Hover-Logik: [js/rendering/galaxy-renderer-core.js#L4508](js/rendering/galaxy-renderer-core.js#L4508)
+- Magnet-Hover-Logik: [galaxy-renderer-core.js](../../js/rendering/galaxy-renderer-core.js)
 
 ---
 
@@ -72,7 +74,7 @@
 
 1. Persistenten Selection Marker hinzufügen.
 - Eigener Marker statt Wiederverwendung des Hover-Markers.
-- In [js/rendering/galaxy-renderer-core.js#L5960](js/rendering/galaxy-renderer-core.js#L5960) Update in 2 Marker aufteilen.
+- In [galaxy-renderer-core.js](../../js/rendering/galaxy-renderer-core.js) Update in 2 Marker aufteilen.
 - Akzeptanz: Selection bleibt sichtbar, auch wenn Hover auf anderem Objekt liegt.
 
 2. Unabhängigen Hover Marker beibehalten.
@@ -105,10 +107,10 @@
 
 2. Galaxy-View angleichen.
 - Sternfarbe/zusätzlicher Ring konsistent mit System-View Ownership.
-- Referenz: [js/rendering/Galaxy3DRendererWebGPU.js#L438](js/rendering/Galaxy3DRendererWebGPU.js#L438)
+- Referenz: [Galaxy3DRendererWebGPU.js](../../js/rendering/Galaxy3DRendererWebGPU.js)
 
 3. System-View angleichen.
-- Bestehende Aura in [js/rendering/galaxy-renderer-core.js#L2337](js/rendering/galaxy-renderer-core.js#L2337) auf Monde/Stationen/Fleets erweitern.
+- Bestehende Aura in [galaxy-renderer-core.js](../../js/rendering/galaxy-renderer-core.js) auf Monde/Stationen/Fleets erweitern.
 
 4. Approach-/Colony-View angleichen.
 - Ownership-Badge/Halo für Objekt- und Colony-Surface-Darstellung.

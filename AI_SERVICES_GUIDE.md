@@ -4,25 +4,30 @@
 
 GalaxyQuest supports flexible AI service stacks via Docker Compose profiles. Choose based on your GPU capacity and use case:
 
-| Profile | Services | VRAM | Use Case | Start Command |
-|---------|----------|------|----------|---------------|
-| **ai-fast** | vLLM + Stable Diffusion | 10–12 GB | 🚀 Fast NPC dialogue + quick image gen | `docker compose --profile ai-fast up -d` |
-| **ai-creative** | ComfyUI + Ollama | 8–10 GB | 🎨 Advanced asset workflows + lightweight fallback LLM | `docker compose --profile ai-creative up -d` |
-| **ai-full** | ALL services | 18–24 GB | 🔥 Maximum flexibility (resource intensive) | `docker compose --profile ai-full up -d` |
+The profile names below reflect the services configured in `docker-compose.yml`. Starting a profile does not by itself connect every service to gameplay or establish automatic backend fallback.
+
+| Profile | Services | Use Case | Start Command |
+|---------|----------|----------|---------------|
+| **ai-fast** | vLLM + Stable Diffusion | Local LLM and image-generation services | `docker compose --profile ai-fast up -d` |
+| **ai-creative** | Ollama | Local LLM service | `docker compose --profile ai-creative up -d` |
+| **ai-3d** | ComfyUI + TRELLIS2 | 3D-generation workflows | `docker compose --profile ai-3d up -d` |
+| **ai-full** | All AI services | Combined local AI stack | `docker compose --profile ai-full up -d` |
+
+GPU memory requirements depend on the selected models and workloads; measure them on the target deployment rather than relying on fixed estimates.
 
 ---
 
 ## 📋 Quick Start
 
-### Option 1: Fast NPC Dialogue (vLLM + Stable Diffusion)
+### Option 1: vLLM and Stable Diffusion services
 ```bash
 docker compose --profile ai-fast up -d
 ```
 **Available Services:**
-- 🧠 **vLLM** (NPC Chat) → http://localhost:8000
-- 🎨 **Stable Diffusion** (Quick Images) → http://localhost:7860
+- 🧠 **vLLM** (OpenAI-compatible API) → http://localhost:8000
+- 🎨 **Stable Diffusion** (WebUI) → http://localhost:7860
 
-**Example: Generate NPC dialogue in PHP**
+The following is a manual service-call example, not a claim that the game currently routes NPC dialogue through vLLM:
 ```php
 $response = file_get_contents('http://vllm:8000/v1/chat/completions', false, 
   stream_context_create(['http' => [
@@ -40,13 +45,12 @@ $response = file_get_contents('http://vllm:8000/v1/chat/completions', false,
 
 ---
 
-### Option 2: Advanced Creative Assets (ComfyUI + Ollama)
+### Option 2: Local LLM (Ollama)
 ```bash
 docker compose --profile ai-creative up -d
 ```
 **Available Services:**
-- 🔧 **ComfyUI** (Node Workflows) → http://localhost:8188
-- 🧠 **Ollama** (Local LLM Fallback) → http://localhost:11434
+- 🧠 **Ollama** (Local LLM) → http://localhost:11435 by default on the host; port 11434 inside the Compose network
 
 **Example: Pull Mistral-7B locally**
 ```bash
@@ -55,7 +59,7 @@ docker compose -f docker-compose.yml --profile ai-creative exec ollama ollama pu
 
 **Example: Use Ollama for NPC dialogue**
 ```bash
-curl http://localhost:11434/api/generate -X POST -d '{
+curl http://localhost:11435/api/generate -X POST -d '{
   "model": "mistral",
   "prompt": "Generate a pirate trader'\''s greeting:",
   "stream": false
@@ -64,52 +68,57 @@ curl http://localhost:11434/api/generate -X POST -d '{
 
 ---
 
-### Option 3: Everything (All AI Services)
+### Option 3: 3D Generation Workflows (ComfyUI + TRELLIS2)
+```bash
+docker compose --profile ai-3d up -d
+```
+**Available Services:**
+- 🔧 **ComfyUI** (Node Workflows) → http://localhost:8188
+- 🧊 **TRELLIS2** (3D generation) → http://localhost:7862
+
+---
+
+### Option 4: Everything (All AI Services)
 ```bash
 docker compose --profile ai-full up -d
 ```
-Start all services (vLLM, Stable Diffusion, ComfyUI, Ollama) for maximum flexibility. Requires 18–24 GB VRAM.
+Starts all profiled inference services (vLLM, Stable Diffusion, ComfyUI, Ollama, and TRELLIS2). Actual resource requirements depend on the selected models and workloads.
 
 ---
 
 ## 🔧 Environment Variables (Web Service)
 
-The web service automatically detects available AI backends:
+Compose provides these service URLs to the web container. Their presence does not mean every feature uses every backend:
 
 ```yaml
 VLLM_BASE_URL: http://vllm:8000              # vLLM OpenAI API
 STABLE_DIFFUSION_BASE_URL: http://stable-diffusion:7860
 COMFYUI_BASE_URL: http://comfyui:8188        # Advanced workflows
-OLLAMA_BASE_URL: http://ollama:11434         # Lightweight local LLM fallback
+OLLAMA_BASE_URL: http://ollama:11434         # Ollama service on the Compose network
 ```
 
-**Graceful Fallback Logic:**
-1. Try vLLM (if available, `ai-fast` or `ai-full`)
-2. Fallback to Ollama (if available, `ai-creative` or `ai-full`)
-3. Use cached/default responses if both unavailable
+**Backend selection:** There is no global vLLM → Ollama → cached-response fallback chain established by these Compose profiles. Backend selection is feature-specific; verify the implementation for the API being used before assuming a service is active in gameplay.
 
 ---
 
 ## 🎬 Usage Scenarios
 
-### Scenario 1: Player meets NPC, needs dialogue
+### Scenario 1: Manual NPC-dialogue service-call example
 ```
-1. NPC dialogue triggered
-2. PHP calls `http://vllm:8000/v1/chat/completions` (fast)
-3. vLLM generates response in ~500ms
-4. Game displays pirate's witty reply
-```
-
-### Scenario 2: Procedurally generate ship texture
-```
-1. Game requests ship art: "a sleek Orion frigate with blue accents"
-2. PHP submits to Stable Diffusion WebUI at http://localhost:7860/run/predict
-3. SD generates 512x512 texture in ~2s
-4. Asset saved to `stable-diffusion-output/`
-5. Game loads texture into 3D model
+1. A future or separately configured integration sends a request to `http://vllm:8000/v1/chat/completions`
+2. vLLM generates a response
+3. The caller handles and displays the response
 ```
 
-### Scenario 3: Complex multi-step image workflow
+### Scenario 2: Illustrative Stable Diffusion workflow (not wired by this guide)
+```
+1. A separately configured feature requests ship art
+2. Its client calls an API route supported by the deployed Stable Diffusion WebUI
+3. Generated output is stored in the configured volume
+4. The game loads the result only through an implemented asset pipeline
+```
+
+### Scenario 3: Optional ComfyUI workflow (nodes and models must be configured)
 ```
 1. Load base ship outline (img2img)
 2. Apply ControlNet edge conditioning
@@ -117,13 +126,14 @@ OLLAMA_BASE_URL: http://ollama:11434         # Lightweight local LLM fallback
 4. Inpaint details (cockpit, engines)
 5. Export as GLB-embedded texture
 
-→ All done via ComfyUI node workflow (no code needed!)
+→ These steps require matching ComfyUI nodes, models, and a configured workflow; this profile does not guarantee them.
 ```
 
 ---
 
-## 📊 Performance Targets
+## 📊 Historical Performance Estimates
 
+These figures are not verified performance guarantees. Benchmark the selected models, image sizes, and hardware in the target environment.
 | Operation | Service | Target | Notes |
 |-----------|---------|--------|-------|
 | NPC Chat | vLLM | < 1s | Mistral-7B batch=1, max_tokens=256 |
@@ -159,8 +169,8 @@ docker compose --profile ai-creative exec ollama ollama list
 
 ### "ComfyUI page blank or timing out"
 ```bash
-# ComfyUI takes 120s to start (first model load)
-docker compose --profile ai-creative logs comfyui
+# ComfyUI is part of the ai-3d profile
+docker compose --profile ai-3d logs comfyui
 
 # Check health
 curl http://localhost:8188/system_stats
@@ -198,7 +208,7 @@ curl http://localhost:8188/system_stats
    - vLLM: `curl http://localhost:8000/v1/models`
    - Stable Diffusion: `curl http://localhost:7860/info`
    - ComfyUI: `curl http://localhost:8188/system_stats`
-   - Ollama: `curl http://localhost:11434/api/tags`
+   - Ollama: `curl http://localhost:11435/api/tags` (default host port)
 
 4. **Integrate into game:**
    - Update `api/llm.php` to use `VLLM_BASE_URL` or `OLLAMA_BASE_URL`
@@ -213,4 +223,3 @@ curl http://localhost:8188/system_stats
 - **Stable Diffusion WebUI:** https://github.com/AUTOMATIC1111/stable-diffusion-webui
 - **ComfyUI:** https://github.com/comfyanonymous/ComfyUI
 - **Ollama:** https://ollama.ai/
-

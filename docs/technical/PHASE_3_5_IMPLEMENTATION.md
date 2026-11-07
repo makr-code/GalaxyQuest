@@ -1,6 +1,6 @@
 # Post-Processing Phases 3-5 Implementation
 
-**Status**: ✅ COMPLETE  
+**Status**: Historical implementation report; module/API availability is not a production or end-to-end integration sign-off
 **Date**: 31 July 2026  
 **Scope**: Depth of Field, Volumetric Dust, Motion Blur, Tone Mapping, Lens Flares, Corona, Star Scintillation
 
@@ -8,7 +8,7 @@
 
 ## Implementation Summary
 
-Successfully implemented all post-processing effect passes for phases 3-5 with comprehensive test coverage. All passes follow the established pattern from existing effects (BloomPass, VignettePass, ChromaticPass) and are ready for integration into the graphics renderer.
+This report records implementation of post-processing pass modules for phases 3-5. A pass being present does not establish that it is enabled in the active renderer, visually validated, or ready for production.
 
 ---
 
@@ -397,4 +397,3 @@ The renderer integration point (calling `renderer.runDepthOfFieldPass()`, etc.) 
 
 **Reviewed**: 31 July 2026  
 **Sign-Off**: Implementation complete and verified
-

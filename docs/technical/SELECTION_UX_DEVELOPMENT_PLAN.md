@@ -134,7 +134,7 @@ const FACTION_OWNERSHIP_TOKENS = {
 Create `js/engine/runtime/layers/core/AccessibilityColorPalette.js`:
 
 ```javascript
-// WCAG 2.1 AA/AAA compliant colors with patterns
+// Proposed colors and patterns; WCAG 2.1 AA/AAA compliance is not verified.
 const A11Y_PALETTE = {
   // High contrast mode
   highContrast: {
@@ -666,12 +666,12 @@ const userPreferences = {
 - Touch long-press: < 600ms to register
 - Selection accuracy: > 95% first-click success
 
-### Accessibility Metrics
-- WCAG 2.1 AA compliance: 100%
-- Color-blind usability: Verified
-- Keyboard-only navigation: 100% feature parity
-- Screen reader compatibility: Verified with JAWS/NVDA
-- Mobile touch usability: Tested with 5+ device types
+### Accessibility Targets (Not Verified Results)
+- WCAG 2.1 AA compliance: target; no current audit evidence
+- Color-blind usability: validation target; no attached tool report
+- Keyboard-only navigation: target; feature parity not established
+- Screen reader compatibility: target; no current JAWS/NVDA report
+- Mobile touch usability: target; no current multi-device test report
 
 ### Performance Metrics
 - Marker update frame time: < 1ms
@@ -691,7 +691,7 @@ const userPreferences = {
 ✅ **Affordance**: Visual cues show what's interactive  
 
 ### Accessibility Best-Practices
-✅ **WCAG 2.1 AA Compliance**: All features keyboard accessible  
+⚠️ **WCAG 2.1 AA**: Target only; no current audit establishes compliance or full keyboard access
 ✅ **Color Independence**: Not relying on color alone  
 ✅ **High Contrast**: Sufficient contrast ratios  
 ✅ **Focus Management**: Clear focus indicators  

@@ -62,13 +62,13 @@ domains/
    - Event bus coordination
 
 #### Documentation & Guides
-7. **SOC_JAVASCRIPT_IMPLEMENTATION.md** (350 lines)
+7. [Historical SOC JavaScript proof of concept](../../../../docs/archive/SOC_JAVASCRIPT_IMPLEMENTATION.md)
    - Complete architecture explanation
    - Before/after comparison
    - Best practices
    - Integration checklist
 
-8. **MIGRATION_GUIDE_ECONOMY_DOMAIN.md** (300 lines)
+8. [MIGRATION_GUIDE_ECONOMY_DOMAIN.md](../../../../MIGRATION_GUIDE_ECONOMY_DOMAIN.md)
    - Old vs. new code comparison
    - Migration steps
    - Code transformation examples
@@ -229,7 +229,7 @@ Before using in production:
 
 ## Migration from Old Code
 
-See [MIGRATION_GUIDE_ECONOMY_DOMAIN.md](../MIGRATION_GUIDE_ECONOMY_DOMAIN.md) for detailed migration path.
+See [MIGRATION_GUIDE_ECONOMY_DOMAIN.md](../../../../MIGRATION_GUIDE_ECONOMY_DOMAIN.md) for detailed migration path.
 
 Old code `RuntimeEconomyController` → New code `GQGame.domains.economy`
 

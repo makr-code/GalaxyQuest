@@ -122,10 +122,27 @@ final class EmpireReadSideEffectsTest extends TestCase
         self::assertNotFalse($end);
         $effects = substr($engine, $start, $end - $start);
 
-        self::assertSame(4, substr_count($effects, "if (\$error->getCode() !== '42S02')"));
+        self::assertSame(4, substr_count($effects, 'if (!gq_is_missing_table_exception($error, $db))'));
         self::assertSame(4, substr_count($effects, 'catch (PDOException $error)'));
         self::assertSame(4, substr_count($effects, 'throw $error;'));
+        self::assertStringContainsString('function gq_is_missing_table_exception(PDOException $error, PDO $db)', $engine);
         self::assertStringContainsString("case 'status':", $politics);
         self::assertStringContainsString('$effects = empire_dynamic_effects($db, $uid);', $politics);
+    }
+
+    public function testMissingOptionalTableDetectionSupportsSqliteWithoutIgnoringOtherErrors(): void
+    {
+        $db = new \PDO('sqlite::memory:', null, null, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
+
+        try {
+            $db->query('SELECT * FROM absent_optional_table');
+            self::fail('A missing table must raise a PDOException.');
+        } catch (\PDOException $error) {
+            self::assertTrue(gq_is_missing_table_exception($error, $db));
+        }
+
+        $otherError = new \PDOException('no such column: missing_column');
+        $otherError->errorInfo = ['HY000', 1, 'no such column: missing_column'];
+        self::assertFalse(gq_is_missing_table_exception($otherError, $db));
     }
 }

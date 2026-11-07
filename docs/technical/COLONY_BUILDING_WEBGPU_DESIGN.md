@@ -5,7 +5,7 @@
 **Version:** 1.0  
 **Status:** Implemented native WebGPU core; extended blueprint below remains backlog
 **Stand:** 2026-04-01  
-**Bezug:** [COLONY_BUILDING_SYSTEM_DESIGN.md](COLONY_BUILDING_SYSTEM_DESIGN.md) · [ARCHITECTURE.md](ARCHITECTURE.md)  
+**Bezug:** [COLONY_BUILDING_SYSTEM_DESIGN.md](../gamedesign/COLONY_BUILDING_SYSTEM_DESIGN.md) · [ARCHITECTURE.md](ARCHITECTURE.md)
 **Kontext:** Dieses Dokument beschreibt die **technische WebGPU-Umsetzung** des in `COLONY_BUILDING_SYSTEM_DESIGN.md` definierten Bausystems. Es behandelt 3D-Gebäudemodelle (JSON), den isometrischen Raster-Renderer (Stellaris-Stil) und die Integration in die bestehende WebGPU-Infrastruktur.
 
 ---

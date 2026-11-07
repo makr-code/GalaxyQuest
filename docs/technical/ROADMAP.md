@@ -36,9 +36,9 @@ Folgende große Arbeitspakete sind abgeschlossen und bilden das Fundament des Pr
 | ✅ Phase 2 Depth & Polish | Echtzeit-Fleet-Tracking, Trade Routes, Spy Reports, Alliance System, SSE Push |
 | ✅ Phase 3 Multiplayer & Social | Alliance System vollständig, SSE Notifications, Player-to-Player Trading |
 | ✅ VFX Phase 1–3 | Weapon Fire, Multi-Entity Combat, Debris Destruction System |
-| ✅ Post-Processing alle 5 Phasen | Film Grain, Color Grading, Star Scintillation, Disk Rotation, Jet Lighting, Tone Mapping, Lens Flare, Dust Layer, Motion Blur |
-| ✅ WebGPU-Migration Phase 1–5 | Galaxy3DRenderer, Starfield, HybridPhysicsEngine, NPCPathfindingCompute, Hardware-in-Loop CI |
-| ✅ FTL-Drive-System | 6 fraktionsspezifische Drives vollständig implementiert |
+| 🟡 Post-Processing | Implementierung historisch dokumentiert; DOF/Atmospheric Glow deferred, visuelle/performance Abnahme nicht belegt |
+| 🟡 WebGPU-Rendering/Compute-Prototypen | Galaxy3DRenderer und Starfield implementiert; HybridPhysicsEngine und NPCPathfindingCompute sind nicht in die GameEngine integriert; Shader-CI läuft mit SwiftShader, nicht physischer Hardware |
+| 🟡 FTL-Drive-System | Fraktionsspezifische Laufzeitpfade vorhanden; vollständige Design- und Release-Abnahme offen |
 | ✅ Kolonisierungssystem | Empire Sprawl, Sektoren, Gouverneure, Edikte (GAP_TODO A-1) |
 | ✅ Empire-Kategorien & Spionage | 7 Scores, Spider-Chart, Agenten, Missions (GAP_TODO A-2) |
 | ✅ Colony Buildings Backend | Isometrisches System, API, SQL-Migration (GAP_TODO A-3) |

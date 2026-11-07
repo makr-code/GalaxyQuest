@@ -1,5 +1,7 @@
 # Binary Encoding V1 vs V2 Comparison
 
+> **Status:** Optional V2 format specification, not the normal browser-client path. System responses default to JSON, the decoder is not loaded by the current page, and size/savings figures below are illustrative estimates rather than benchmark results.
+
 ## Overview
 
 | Aspekt | V1 (Static) | V2 (Dynamic) |
@@ -175,11 +177,11 @@ const payload = BinaryDecoderV2.decode(buffer);
 
 ## Backward Compatibility
 
-**Migration Path**:
-1. **Phase 1**: V1 live (current)
-2. **Phase 2**: Server offers both (detect via version byte)
-3. **Phase 3**: Client upgrades decoders to V2
-4. **Phase 4**: Server deprecates V1
+**Original migration proposal (not current rollout status)**:
+1. Offer V1 and V2 from the server.
+2. Load and validate client decoders.
+3. Measure compatibility and payload size before considering a default change.
+4. Deprecate older formats only after usage evidence supports it.
 
 **Feature Parity**:
 - V2 can encode all data V1 could
@@ -222,14 +224,16 @@ Saves 2-3 KB per response
 
 ---
 
-## Recommendation
+## Historical Design Guidance — Not a Production Recommendation
 
-**Use V2 for**:
+The following guidance accompanied the original format proposal; it is not a recommendation to switch the current browser client from JSON.
+
+**V2 was proposed for**:
 - Mobile clients (bandwidth-constrained)
 - High-frequency updates (1000s of systems)
 - Future extensibility
 
-**Use V1 for**:
+**V1 was proposed for**:
 - Latency-critical endpoints
 - Simplicity over savings
 
@@ -237,4 +241,3 @@ Saves 2-3 KB per response
 - Default to V2 (`?format=bin` → V2)
 - V1 as fallback for old clients
 - Server serves whichever client prefers (Accept-Encoding-like negotiation)
-

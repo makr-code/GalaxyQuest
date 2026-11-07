@@ -7,7 +7,7 @@
  *   [FieldID (u8)][Type (u8)][Value...]
  * 
  * String pool: Common strings stored once, referenced by index.
- * Result: 20-30% additional savings over v1.
+ * Historical estimate: 20-30% additional savings over V1; not a current benchmark.
  */
 
 // Field IDs (dynamically assigned, but standardized for this schema)

@@ -1,6 +1,8 @@
 # 🤝 GalaxyQuest Traders System — Integration & Implementierung
 
-## Status: In Bearbeitung (Phase E2-E3)
+> **Historischer Architektur-/Umsetzungsentwurf:** Phasenstatus, API-Liste, UI-Vorschläge, Testplan und Definition of Done unten sind keine aktuelle Implementierungs- oder Releaseaussage. Gegenwärtige HTTP-Aktionen und Authentifizierung bitte in `api/traders.php` prüfen; die Aktionsliste dieses Dokuments ist veraltet.
+
+## Status im Entwurf: In Bearbeitung (Phase E2-E3)
 
 **Version:** 2.0  
 **Ziel:** Vollständige Funktionsfähigkeit autonomer NPC-Trader mit Supply/Demand-gesteuerten Handelsrouten
@@ -14,7 +16,8 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Market Supply/Demand Generator                               │
-│ (berechnet Angebot/Nachfrage pro System & Kolonie)          │
+│ (berechnet Angebot/Nachfrage bei Ausführung des globalen     │
+│  Simulationstradersubsystems)                               │
 └────────────────────────┬────────────────────────────────────┘
                          │
                          ↓
@@ -39,7 +42,7 @@
 ### Datenflow
 
 ```
-1. Jede Kolonie produziert + konsumiert → Supply/Demand
+1. Produktions-/Verbrauchsdaten werden bei einem Trader-Zyklus aggregiert
 2. System aggregiert lokale Supply/Demand
 3. Preis = Basis × (Demand/Supply)^0.4 → Price Signals
 4. NPC-Trader erkennen Arbitrage-Chancen
@@ -183,7 +186,8 @@ CREATE TABLE market_supply_demand (
 
 ### Datei: `api/traders.php`
 
-Neue REST-Endpoints:
+Historische API-Liste (nicht mehr maßgeblich; die folgenden Aktionsnamen stimmen
+nicht alle mit dem aktuellen Dispatcher überein):
 
 ```
 GET  /api/traders.php?action=list_traders        → Liste aller Trader + Statistiken
@@ -191,14 +195,12 @@ GET  /api/traders.php?action=list_opportunities  → Verfügbare Handels-Chancen
 GET  /api/traders.php?action=list_routes         → Aktive Trader-Routen
 GET  /api/traders.php?action=market_analysis&system=1  → Supply/Demand eines Systems
 
-POST /api/traders.php?action=create_trader       → Neuen Trader starten
-POST /api/traders.php?action=start_route         → Neue Handelsroute initiieren
-POST /api/traders.php?action=cancel_route        → Laufende Route abbrechen
-
--- Admin/Debug:
-POST /api/traders.php?action=regenerate_opportunities  → Chancen neu berechnen
-POST /api/traders.php?action=process_tick        → Tick-basierte Verarbeitung
+POST /api/traders.php?action=process_trader_tick → Trader-Zyklus (Session + CSRF erforderlich)
+POST /api/traders.php?action=create_trader        → Trader anlegen (Session + CSRF erforderlich)
 ```
+
+Der aktuelle Dispatcher bietet keine `start_route`, `cancel_route`,
+`regenerate_opportunities` oder `process_tick`-Aktionen.
 
 ### Datei: `api/market_analysis.php` (neu)
 

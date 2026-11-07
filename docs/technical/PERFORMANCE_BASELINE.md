@@ -2,6 +2,8 @@
 
 Dokumentation der Baseline-Metriken und Performance-Budgets für GalaxyQuest (2026-03-29).
 
+> **Historische Messung, keine aktuelle Abnahme:** Die Desktopwerte unten stammen aus einem Bericht vom 29. März 2026 und sind nicht als Messung des aktuellen Checkouts oder als CI-Regression-Gate verifiziert. `GQPerformanceBudget` ist ein Laufzeitmonitor; sein Status allein belegt weder diese Messwerte noch eine Release-Freigabe.
+
 ### Baseline Measurement Environment
 
 **Hardware Specification:**
@@ -73,34 +75,24 @@ Dokumentation der Baseline-Metriken und Performance-Budgets für GalaxyQuest (20
 
 ---
 
-### Regression Detection Gates
+### Laufzeit-Monitoring und Grenzwerte
 
-**Automatic Thresholds (via GQPerformanceBudget.THRESHOLDS):**
+`GQPerformanceBudget.THRESHOLDS` definiert Laufzeit-Grenzwerte. Der WebGPU-Renderer aktualisiert den Monitor pro Frame und stellt Messwerte/Status über seine Renderstatistik bereit. Das ist kein automatischer CI-Gate und löst für sich allein keinen Alert aus.
 
 ```javascript
 {
   fpsMinimum: 50,              // DROP BELOW = REGRESSION
-  frameTimeMaxMs: 25,          // 1000/25 = 40 FPS = REGRESSION
-  drawCallsMax: 5000,          // Indicates LOD failure
-  triangleCountMax: 12_000_000,// Indicates geometry not culled
-  geometryCacheMB: 256,        // Memory pool exhaustion
-  textureCacheMB: 200,
+  frameTimeMaxMs: 25,
+  cpuSubmissionMaxMs: 12,
+  gpuTimeMaxMs: 20,
+  drawCallsMax: 5000,
+  triangleCountMax: 12_000_000,
   totalCacheMB: 350,
-  
-  // API & Loading
-  apiLatencyMaxMs: 2000,
-  meshLoadMaxSec: 5,
-  
-  // LOD & Streaming
-  lodTransitionFrames: 30,
-  chunkStreamingLatency: 800,
+  ownedBufferMaxBytes: 128 * 1048576,
 }
 ```
 
-**Violation Detection:**
-- Frame time spike > 20% above threshold → logged as `medium` severity
-- Frame time spike > 50% above threshold → logged as `high` severity
-- All violations accumulated in session log (last 100 kept)
+The monitor evaluates only available samples; missing values are not counted as violations. In the current WebGPU renderer, owned-buffer bytes cover a subset of allocations and `memoryBytes` is passed as `null`, so the monitor does not measure total VRAM/cache usage there. Violations are retained in the monitor's in-memory regression list; this does not establish server-side session logging or alert delivery.
 
 ---
 
@@ -143,35 +135,7 @@ Dokumentation der Baseline-Metriken und Performance-Budgets für GalaxyQuest (20
    budgetMonitor.update(); // Collects metrics every ~16ms
    ```
 
-3. **Session reporting:**
-   ```javascript
-   console.log(budgetMonitor.report());
-   const status = budgetMonitor.getStatus();
-   if (!status.passed) {
-     sendRegressionAlert(status.violations);
-   }
-   ```
-
-**Payload Format (for backend logging):**
-```json
-{
-  "sessionId": "...",
-  "timestamp": 1711788329000,
-  "data": {
-    "metrics": {
-      "fps": "59.8",
-      "frameTimeAvgMs": "16.71",
-      "drawCallsAvg": "2840",
-      "trianglesAvg": "5.2M",
-      "memoryMaxMB": "274.1"
-    },
-    "status": {
-      "passed": true,
-      "violations": []
-    }
-  }
-}
-```
+3. **Status access:** A caller can read `getMetrics()` and `getStatus()` from the monitor. No backend logging or alert callback is implied by these methods.
 
 ---
 
@@ -179,7 +143,7 @@ Dokumentation der Baseline-Metriken und Performance-Budgets für GalaxyQuest (20
 
 | Date | FPS | Frame Time | Draw Calls | Memory | Status |
 |---|---|---|---|---|---|
-| 2026-03-29 | 59.8 | 16.7 ms | 2840 | 274 MB | ✅ BASELINE |
+| 2026-03-29 | 59.8 | 16.7 ms | 2840 | 274 MB | Historical report; not re-measured |
 
 ---
 
@@ -214,6 +178,6 @@ Dokumentation der Baseline-Metriken und Performance-Budgets für GalaxyQuest (20
 ### Related Files
 
 - [ROADMAP.md](ROADMAP.md) — Phase 5 QA gates
-- [js/performance-budget.js](./js/performance-budget.js) — Monitor implementation
-- [js/galaxy-renderer-core.js](./js/galaxy-renderer-core.js) — Debug overlay (FPS display)
-- [js/space-camera-flight-driver.js](./js/space-camera-flight-driver.js) — Flight telemetry source
+- [../../js/telemetry/performance-budget.js](../../js/telemetry/performance-budget.js) — Runtime monitor implementation
+- [../../js/rendering/Galaxy3DRendererWebGPU.js](../../js/rendering/Galaxy3DRendererWebGPU.js) — WebGPU monitor integration
+- [../../js/telemetry/space-camera-flight-driver.js](../../js/telemetry/space-camera-flight-driver.js) — Flight telemetry source

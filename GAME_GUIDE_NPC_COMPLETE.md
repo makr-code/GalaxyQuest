@@ -6,7 +6,7 @@ Der **GameGuide NPC** (Advisor Tau) ist ein intelligenter Onboarding-Assistent, 
 - ✅ Neue Spieler durch das Spiel führt
 - ✅ Kontextuelle Tipps bei Problemen gibt
 - ✅ Spielfortschritt trackt
-- ✅ Direkte Hilfe anbieten kann (Ressourcen, Technologie, etc.)
+- ✅ Hilfsangebote als Aktionsobjekte zurückgeben kann (Ressourcen, Technologie etc.; keine Spielzustandsänderung)
 - ✅ Adaptive Hinweise basierend auf Spieler-Level
 
 ---
@@ -39,13 +39,15 @@ Automatisches Tracking von Fortschritt:
 - Mid Game (Mehrere Kolonien, Produktionsketten)
 - Advanced (Optimierung, Mastery, Dominanz)
 
-### 4. Direkte Hilfe
-Der Guide kann dem Spieler direkt helfen:
+### 4. Hilfsangebote (Prototyp)
+Der Guide kann ein Hilfsangebot als Aktionsobjekt zurückgeben:
 - Startressourcen für Anfänger
 - Forschungs-Boost
 - Notfall-Credits bei Pleite
 - Gebäude für Schnellstart
 - Technologie freischalten
+
+> **Implementierungsgrenze:** `provide_help` prüft die Berechtigung und gibt derzeit ein Aktionsobjekt zurück; es führt die darin beschriebene Ressourcen-, Forschungs-, Gebäude- oder Technologieänderung nicht selbst aus. UI und API müssen deshalb als Vorschlag/Prototyp verstanden werden, nicht als bereits gewährte Spielbelohnung.
 
 ---
 
@@ -275,8 +277,8 @@ const help = await guide.requestDirectHelp(
 );
 
 if (help.ok) {
-  // Aktionen anwenden
-  applyAction(help.action);
+  // The endpoint returns a proposal; it does not apply the game-state change.
+  showHelpOffer(help.action);
 }
 ```
 
@@ -381,6 +383,8 @@ direct_help:
     - "grant_research_points"
     - "grant_credits_emergency"
 ```
+
+> Dieser YAML-Block dokumentiert den historischen Entwurf. Die aktuelle `GameGuideNPC`-Klasse liest `help_topics` und `guide_agent`, aber nicht `direct_help`; ihre direkten Hilfsfunktionen geben derzeit nur Aktionsobjekte zurück.
 
 ---
 
@@ -519,6 +523,6 @@ A: Prüfen Sie Datenbankverbindung und `game_guide_progress` Tabelle
 ## Support & Fragen
 
 Für Fragen zur GameGuide NPC Integration siehe:
-- `NPC_DIALOGUE_INTEGRATION_GUIDE.md` - NPC-Dialogsystem
-- `NPC_GAME_INTEGRATION_ACTIONS.md` - Game Actions
-- `API_NPC_GAME_INTEGRATION_GUIDE.md` - API-Integration
+- [Historischer NPC-Dialog-Prototyp](docs/archive/NPC_DIALOGUE_INTEGRATION_GUIDE.md) - nicht in `index.html` aktiviert; Client/API-Verträge weichen voneinander ab
+- [Historischer NPC-Aktionsprototyp](docs/archive/NPC_GAME_INTEGRATION_ACTIONS.md) - nicht an den aktuellen NPC-Chat-Endpoint angebunden
+- Historical, unimplemented API proposal: [API_NPC_GAME_INTEGRATION_GUIDE.md](docs/archive/API_NPC_GAME_INTEGRATION_GUIDE.md). The proposed consequences handler is not available in the current endpoint.

@@ -931,4 +931,4 @@ Before submitting Python code:
 
 **Last Updated:** 2026-08-01  
 **Framework:** FastAPI 0.100+, Pydantic 2.0+, Python 3.11+  
-**Questions?** See FULLSTACK_ARCHITECTURE_ANALYSIS.md for deep dive.
+**Questions?** See the [historical fullstack architecture analysis](../docs/archive/FULLSTACK_ARCHITECTURE_ANALYSIS.md) for the 2026-08-01 deep dive.

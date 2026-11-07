@@ -1,9 +1,9 @@
 # Selection UX Enhancement - Quick Reference
 ## Issue #108: Persistent Marker & Unified Ownership Visuals
 
-> **Status:** Planning & Foundation Phase Complete  
-> **Documents Created:** 4 comprehensive guides + token system + tests  
-> **Ready for Implementation:** Yes, Phase 1 can start immediately
+> **Status:** Planning artifacts and token/test files exist; runtime integration and accessibility acceptance are not established
+> **Documents Created:** 4 comprehensive guides + token system + tests
+> **Implementation readiness:** Not established by this planning snapshot
 
 ---
 
@@ -58,7 +58,7 @@ getSelectionMarkerToken(state)      // Get marker visual style
 getFactionOwnershipToken(factionId) // Get ownership colors
 getAccessibilityPalette(mode)       // Get accessible colors
 getLinePattern(pattern)             // Get line dash pattern
-isWCAGCompliant(fg, bg, level)      // Check contrast
+isWCAGCompliant(fg, bg, level)      // Check one color pair; does not certify the UI
 ```
 
 #### 4. Comprehensive Unit Tests
@@ -198,11 +198,11 @@ All colors, patterns, animations are centralized in `SelectionMarkerStyleTokens.
 - Accessibility validation built-in
 - No hard-coded colors in renderers
 
-### 3. Accessibility First
+### 3. Accessibility Targets (Not Verified)
 - **Not just colors:** Use patterns + colors (dashed, dotted, dash-dot)
-- **WCAG compliant:** Automatic contrast checking
+- **Contrast checking:** Helper functions are provided; this alone does not establish WCAG compliance
 - **Multiple modes:** Standard, deuteranopia, protanopia, tritanopia, monochromatic, high-contrast
-- **Keyboard accessible:** Full navigation via arrows + Enter
+- **Keyboard accessible:** Planned behavior; full feature parity is not established
 
 ### 4. Performance Optimized
 - GPU-accelerated markers (Three.js Sprite)
@@ -315,11 +315,11 @@ Needs:
 - Keyboard nav speed: 3 objects/sec
 - Touch accuracy: > 95% first-tap success
 
-### Accessibility Metrics
-- WCAG 2.1 AA: 100% compliance
-- Color-blind usability: Verified with tools
-- Keyboard parity: All features accessible
-- Screen reader: Tested with JAWS/NVDA
+### Accessibility Targets (Not Verified Results)
+- WCAG 2.1 AA: target; no current audit evidence
+- Color-blind usability: planned validation, no tool report attached
+- Keyboard parity: target; feature completeness not established
+- Screen reader: target; no current JAWS/NVDA report attached
 
 ### Performance Metrics
 - Marker update: < 1ms

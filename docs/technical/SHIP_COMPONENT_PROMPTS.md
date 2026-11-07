@@ -2,7 +2,9 @@
 
 **Datei**: `api/ship_component_prompts.php`  
 **Zweck**: Zentrale Bibliothek für detaillierte 3D-Generierungs-Prompts  
-**Status**: ✅ Production-ready
+**Status**: Prompt-library code and GET reference endpoint exist; this is not evidence of production 3D asset generation or launch readiness.
+
+> The helper is already included by `api/trellis2_generator.php`. The generator calls the configured TRELLIS2 service, records a returned job in `trellis2_generation_queue`, and provides status/finalization code. This source-level integration does not verify that the service is deployed, its API contract is compatible, the database/storage prerequisites are provisioned, or generated GLBs meet game asset requirements.
 
 ---
 
@@ -237,7 +239,6 @@ curl -s "http://localhost:8080/api/ship_component_prompts.php?action=get_texture
 Die `BaseShipComponentGenerator` klasse nutzt die Prompts automatisch:
 
 ```php
-require_once 'ship_component_prompts.php';
 require_once 'trellis2_generator.php';
 
 $db = new PDO(...);
@@ -251,7 +252,7 @@ $result = $generator->generateBaseHull('vor_tak');
 //   "success": true,
 //   "job_id": "trellis2_job_abc123",
 //   "component_type": "hull",
-//   "source": "ShipComponentPromptLibrary"
+//   "faction_code": "vor_tak"
 // }
 ```
 
@@ -356,26 +357,20 @@ Materials: PBR-compatible
 Textures: 2048x2048 resolution
 ```
 
-Wenn Sie diesen Prompt an TRELLIS2 schicken, erhalten Sie ein hochdetailliertes, spielgerecht optimiertes 3D-Modell. ✅
+Der Prompt beschreibt die gewünschten Eigenschaften; das Ergebnis des externen Generierungsdienstes ist dadurch weder garantiert noch als spielgerecht optimiert oder validiert nachgewiesen.
 
 ---
 
 ## 🚀 Deployment
 
-1. **Kopiere** `ship_component_prompts.php` in `api/`
-2. **Aktualisiere** `trellis2_generator.php` um `require_once`:
-   ```php
-   require_once __DIR__ . '/ship_component_prompts.php';
-   ```
-3. **Test** Prompt-Retrieval:
-   ```bash
-   curl http://localhost:8080/api/ship_component_prompts.php?action=get_hull_prompt&faction_code=vor_tak
-   ```
-4. **Nutze** bei `generateBaseHull()` & anderen Methoden
+1. The library is already included by `api/trellis2_generator.php`; do not copy it or duplicate the include.
+2. Before using the prompt endpoint, confirm the intended public access and rate-limit policy for this read-only reference data.
+3. Validate the PHP syntax and endpoint response in the target environment.
+4. Treat `generateBaseHull()` and related methods as requests to the configured external service; verify deployment, queue persistence, finalization, GLB validity, and in-game suitability independently.
 
 ---
 
-**Status**: ✅ Ready to deploy  
-**Dependencies**: None (standalone PHP class)  
+**Status**: Prompt reference utility and generation-call code exist; production deployment and generation-pipeline approval are not established
+**Dependencies**: PHP API helpers; for queued generation, TRELLIS2 service, database table, and writable asset storage
 **Version**: 1.0  
 **Last Updated**: 2026-08-02

@@ -599,6 +599,10 @@
       return this._perspectiveFlight?.currentLabels?.slice() || [];
     }
     getSpaceView() { return this._perspectiveFlight; }
+    async startHeroBattlePreview(options = {}) {
+      const { startHeroBattlePreview } = await import('./system-battle-preview.js');
+      return startHeroBattlePreview(this, options);
+    }
     getSharedZoomBackend() {
       return {
         device: this._device, context: this._context, externalCameraControls: true,
@@ -791,11 +795,15 @@
       }
       const filterableFloat16 = this._adapter.features?.has('float16-filterable') === true;
       const device = await this._adapter.requestDevice({
-        requiredFeatures: filterableFloat16 ? ['float16-filterable'] : [],
+        requiredFeatures: [
+          ...(filterableFloat16 ? ['float16-filterable'] : []),
+          ...(this._adapter.features?.has('timestamp-query') ? ['timestamp-query'] : []),
+        ],
       });
       if (this._disposed) { device.destroy(); return; }
       this._device = device;
-      this._sceneFormat = filterableFloat16 ? 'rgba16float' : navigator.gpu.getPreferredCanvasFormat();
+      // rgba16float is filterable in core WebGPU; float32 filtering is the optional feature.
+      this._sceneFormat = 'rgba16float';
       this._context = this._canvas.getContext('webgpu');
       if (!this._context) {
         throw new Error('webgpu canvas context unavailable');
