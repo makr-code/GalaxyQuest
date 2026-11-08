@@ -1,0 +1,212 @@
+{
+    "sources": {
+        "migrate_security_v1.sql": "b9f20711cfef795651ae827e0ebeedcce9ad64eb95f8578d63e146e4bcfb2478",
+        "migrate_security_v2_totp.sql": "758130798edf1ba1da08814fc4c9bdb5c4b2956619cd4d17896cbbc7e052a171",
+        "migrate_admin_user_crud_v1.sql": "ef6a41ffe1268e4de12a2d685b433ae31672dcb40c761a027547afd15c7f1566"
+    },
+    "tables": {
+        "login_attempts": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "ip_hash",
+                    "COLUMN_TYPE": "varchar(64)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "attempt_count",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "first_attempt_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "locked_until",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "locked_until",
+                        "COLLATION": "A",
+                        "SUB_PART": null,
+                        "IS_VISIBLE": "YES"
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "ip_hash",
+                        "COLLATION": "A",
+                        "SUB_PART": null,
+                        "IS_VISIBLE": "YES"
+                    }
+                ]
+            ],
+            "foreign_keys": []
+        },
+        "totp_pending_sessions": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "token",
+                    "COLUMN_TYPE": "varchar(64)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "user_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "created_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "expires_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "attempts",
+                    "COLUMN_TYPE": "tinyint",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "remember_me",
+                    "COLUMN_TYPE": "tinyint(1)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "expires_at",
+                        "COLLATION": "A",
+                        "SUB_PART": null,
+                        "IS_VISIBLE": "YES"
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "user_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null,
+                        "IS_VISIBLE": "YES"
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "token",
+                        "COLLATION": "A",
+                        "SUB_PART": null,
+                        "IS_VISIBLE": "YES"
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                {
+                    "COLUMN_NAME": "user_id",
+                    "REFERENCED_TABLE_NAME": "users",
+                    "REFERENCED_COLUMN_NAME": "id",
+                    "UPDATE_RULE": "NO ACTION",
+                    "DELETE_RULE": "CASCADE"
+                }
+            ]
+        },
+        "users": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "totp_enabled",
+                    "COLUMN_TYPE": "tinyint(1)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "totp_secret",
+                    "COLUMN_TYPE": "varchar(64)",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "totp_pending_secret",
+                    "COLUMN_TYPE": "varchar(64)",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "deleted_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "deleted_by",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "deleted_at",
+                        "COLLATION": "A",
+                        "SUB_PART": null,
+                        "IS_VISIBLE": "YES"
+                    }
+                ]
+            ],
+            "foreign_keys": []
+        }
+    }
+}

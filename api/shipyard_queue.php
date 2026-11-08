@@ -6,7 +6,8 @@ function ensure_ship_build_queue_table(PDO $db): void
     \GalaxyQuest\Schema\GalaxySchema::assertShipQueue($db);
 }
 
-function estimate_ship_build_duration(PDO $db, int $colonyId, string $shipType, int $count): int {
+function estimate_ship_build_duration(PDO $db, int $colonyId, string $shipType, int $count): int
+{
     $count = max(1, $count);
     $unitCost = ship_cost($shipType);
     $totalCost = [
@@ -44,7 +45,8 @@ function estimate_ship_build_duration(PDO $db, int $colonyId, string $shipType, 
     return max(1, $secs);
 }
 
-function start_next_ship_build_queue(PDO $db, int $colonyId): ?array {
+function start_next_ship_build_queue(PDO $db, int $colonyId): ?array
+{
     ensure_ship_build_queue_table($db);
 
     $runningStmt = $db->prepare(
@@ -96,7 +98,8 @@ function ensure_built_vessels_table(PDO $db): void
     \GalaxyQuest\Schema\GalaxySchema::assertBuiltVessels($db);
 }
 
-function spawn_built_vessels(PDO $db, int $colonyId, int $ownerId, int $blueprintId, int $quantity): void {
+function spawn_built_vessels(PDO $db, int $colonyId, int $ownerId, int $blueprintId, int $quantity): void
+{
     ensure_built_vessels_table($db);
 
     // fetch snapshot stats from the blueprint
@@ -123,7 +126,8 @@ function spawn_built_vessels(PDO $db, int $colonyId, int $ownerId, int $blueprin
     }
 }
 
-function complete_ship_build_queue(PDO $db, int $colonyId): void {
+function complete_ship_build_queue(PDO $db, int $colonyId): void
+{
     ship_build_queue_with_colony_lock(
         $db,
         $colonyId,
@@ -173,7 +177,8 @@ function ship_build_queue_with_colony_lock(PDO $db, int $colonyId, callable $ope
     }
 }
 
-function complete_ship_build_queue_locked(PDO $db, int $colonyId): void {
+function complete_ship_build_queue_locked(PDO $db, int $colonyId): void
+{
     ensure_ship_build_queue_table($db);
 
     $dueStmt = $db->prepare(
@@ -237,7 +242,8 @@ function complete_ship_build_queue_locked(PDO $db, int $colonyId): void {
     start_next_ship_build_queue($db, $colonyId);
 }
 
-function ship_build_queue_has_pending(PDO $db, int $colonyId): bool {
+function ship_build_queue_has_pending(PDO $db, int $colonyId): bool
+{
     ensure_ship_build_queue_table($db);
     $stmt = $db->prepare(
         'SELECT COUNT(*) FROM ship_build_queue WHERE colony_id = ? AND status IN (\'queued\', \'running\')'
@@ -246,7 +252,8 @@ function ship_build_queue_has_pending(PDO $db, int $colonyId): bool {
     return ((int)$stmt->fetchColumn()) > 0;
 }
 
-function list_ship_build_queue(PDO $db, int $colonyId): array {
+function list_ship_build_queue(PDO $db, int $colonyId): array
+{
     ensure_ship_build_queue_table($db);
 
     $stmt = $db->prepare(
@@ -267,7 +274,9 @@ function list_ship_build_queue(PDO $db, int $colonyId): array {
         $queue[] = [
             'id' => (int)$row['id'],
             'ship_type' => $shipType,
-            'blueprint_id' => isset($row['blueprint_id']) && $row['blueprint_id'] !== null ? (int)$row['blueprint_id'] : null,
+            'blueprint_id' => isset($row['blueprint_id']) && $row['blueprint_id'] !== null
+                ? (int)$row['blueprint_id']
+                : null,
             'label' => is_array($definition) ? (string)($definition['label'] ?? $shipType) : $shipType,
             'quantity' => (int)($row['quantity'] ?? 1),
             'cost' => [
@@ -287,7 +296,8 @@ function list_ship_build_queue(PDO $db, int $colonyId): array {
     return $queue;
 }
 
-function summarize_ship_build_queue(array $queue): array {
+function summarize_ship_build_queue(array $queue): array
+{
     $summary = [];
     foreach ($queue as $entry) {
         $shipType = (string)($entry['ship_type'] ?? '');

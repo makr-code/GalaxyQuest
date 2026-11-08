@@ -97,7 +97,10 @@ function simulation_runtime_supports_state_tracking(): bool
 
     static $warningLogged = false;
     if (!$warningLogged) {
-        error_log('[simulation] state_tracking_unavailable: app_state_get_int/app_state_set_int missing; cooldown enforcement disabled');
+        error_log(
+            '[simulation] state_tracking_unavailable: app_state_get_int/app_state_set_int missing; '
+            . 'cooldown enforcement disabled'
+        );
         $warningLogged = true;
     }
 

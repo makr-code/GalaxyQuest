@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Binary V3 encoder (delta-aware) for system payload transport.
  *

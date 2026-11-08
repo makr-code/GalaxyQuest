@@ -9,6 +9,16 @@ Referenz: GAMEPLAY_DATA_MODEL.md
 
 ## 1. Überblick
 
+Implementierungsstand (07.11.2026): Die Kategorie-/Agenten-/Missionstabellen
+sind lokal als leere Infrastruktur installiert. Die bisherigen Score-Formeln
+werden serverseitig in `lib/empire_scores.php` berechnet; sie sind nicht die
+vollstaendige Umsetzung der unten beschriebenen Zielregeln. Spionageaktionen
+und Empire-Spionagestatus sind bis zur Missionsintegration explizit mit HTTP 503
+gesperrt (nach Authentifizierung und vorhandenen Method-/CSRF-Pruefungen).
+Keine Missionsaufloesung, Anheuerkostenregel, neuen Score-Effekte oder
+NPC-/LLM-Spionage aktiviert. Details:
+[Deployment und Gate](../technical/DATABASE_MIGRATIONS.md#approved-local-category-infrastructure-deployment-2026-11-07).
+
 Das Empire-Kategoriesystem fasst den Gesamtzustand eines Reiches in sieben messbaren
 Dimensionen zusammen. Jede Kategorie besitzt einen normierten Score (0–100), berechnet
 sich aus konkreten Spielzustandsgrößen und erzeugt direkte Spieleffekte.

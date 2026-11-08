@@ -1,4 +1,5 @@
 <?php
+
 if (PHP_SAPI !== 'cli') {
     http_response_code(404);
     exit;
@@ -16,26 +17,25 @@ try {
     if (file_exists(__DIR__ . '/../lib/MiniYamlParser.php')) {
         require_once __DIR__ . '/../lib/MiniYamlParser.php';
     }
-    
+
     // Test database connection
     $host = $_ENV['DB_HOST'] ?? 'db';
     $name = $_ENV['DB_NAME'] ?? 'galaxyquest';
     $user = $_ENV['DB_USER'] ?? 'galaxyquest_user';
     $pass = $_ENV['DB_PASS'] ?? 'galaxyquest_dev';
-    
+
     $dsn = "mysql:host=$host;dbname=$name;charset=utf8mb4";
     $db = new PDO($dsn, $user, $pass, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     ]);
-    
+
     echo json_encode([
         'ok' => true,
         'message' => 'Database connected',
         'action' => $_GET['action'] ?? 'default',
         'tables_check' => checkGameGuideTables($db),
     ]);
-    
 } catch (Exception $e) {
     http_response_code(500);
     echo json_encode([
@@ -46,7 +46,8 @@ try {
     ]);
 }
 
-function checkGameGuideTables($db) {
+function checkGameGuideTables($db)
+{
     try {
         $result = $db->query("SHOW TABLES LIKE 'game_guide%'")->fetchAll();
         return [

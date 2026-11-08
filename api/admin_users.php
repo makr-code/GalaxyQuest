@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Admin User CRUD API
  *
@@ -15,6 +16,7 @@
  *        Scrubs PII, converts the row to a ghost NPC so all FK-linked
  *        game data (colonies, fleets, research, …) is preserved.
  */
+
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/achievements.php';
 require_once __DIR__ . '/galaxy_seed.php';

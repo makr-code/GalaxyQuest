@@ -356,7 +356,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         $db   = get_db();
         ensure_precursor_beacon_quest_seed($db);
 
-        $qRow = $db->prepare('SELECT * FROM faction_quests WHERE id = ? AND active = 1');
+            $qRow = $db->prepare('SELECT * FROM faction_quests WHERE id = ? AND active = 1');
         $qRow->execute([$fqid]);
         $quest = $qRow->fetch();
         if (!$quest) { json_error('Quest not found.', 404); }

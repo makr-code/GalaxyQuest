@@ -249,6 +249,53 @@ describe('Authoritative galaxy playing field', () => {
     expect(document.getElementById('game-galaxy-ui')).toBeNull();
     cleanups.pop();
   });
+  it('starts a pending battle replay only after target-system navigation finishes', async () => {
+    window.GQAuthGalaxyBackgroundControl = {
+      getViewTarget: () => ({ galaxy: 1, system: 10 }),
+    };
+    const renderer = {
+      getRenderStats: () => ({ backend: 'webgpu', cameraControl: { level: 'system', transitioning: false } }),
+      setStars: vi.fn(),
+      fitCameraToStars: vi.fn(),
+      enterSystemView: vi.fn(),
+      exitSystemView: vi.fn(),
+      setGalaxyFleets: vi.fn(),
+      setSpatialLabelMode: vi.fn(() => true),
+      setSystemVisualizationOptions: vi.fn(() => true),
+      playBattleEncounter: vi.fn(() => ({ finished: Promise.resolve() })),
+      resize: vi.fn(),
+      destroy: vi.fn(),
+      refreshColony: vi.fn(),
+      returnTo: vi.fn(async () => true),
+    };
+    cleanups.push(mountGameGalaxy({
+      session,
+      domain,
+      createRenderer: vi.fn().mockResolvedValue(renderer),
+    }));
+    window.dispatchEvent(new CustomEvent('gq:authenticated'));
+    await vi.waitFor(() => expect(domain.getState().system?.system).toBe(10));
+
+    let finishNavigation;
+    api.get.mockImplementationOnce(() => new Promise((resolve) => { finishNavigation = resolve; }));
+    window.dispatchEvent(new CustomEvent('gq:show-battle-encounter', {
+      detail: {
+        id: 21,
+        events: [{
+          event_type: 'encounter_created',
+          payload: { target: { galaxy: 1, system: 10, position: 3 } },
+        }],
+      },
+    }));
+    await vi.waitFor(() => expect(finishNavigation).toBeTypeOf('function'));
+    expect(domain.getState()).toMatchObject({ loading: true, system: { system: 10 } });
+    expect(renderer.playBattleEncounter).not.toHaveBeenCalled();
+
+    finishNavigation({ ...systemPayload(10), server_ts_ms: 11 });
+    await vi.waitFor(() => expect(renderer.playBattleEncounter).toHaveBeenCalledOnce());
+    expect(renderer.enterSystemView.mock.invocationCallOrder.at(-1))
+      .toBeLessThan(renderer.playBattleEncounter.mock.invocationCallOrder[0]);
+  });
   it('filters local system cards with an accurate capped count and no additional reads', async () => {
     cleanups.push(mountGameGalaxy({ session, domain,
       createRenderer: vi.fn().mockRejectedValue(new Error('No GPU in catalogue test')) }));

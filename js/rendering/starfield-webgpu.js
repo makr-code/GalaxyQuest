@@ -603,6 +603,10 @@
       const { startHeroBattlePreview } = await import('./system-battle-preview.js');
       return startHeroBattlePreview(this, options);
     }
+    async startBattleEncounterPresentation(encounter) {
+      const { startBattleEncounterPresentation } = await import('./battle-encounter-presentation.js');
+      return startBattleEncounterPresentation(this, encounter);
+    }
     getSharedZoomBackend() {
       return {
         device: this._device, context: this._context, externalCameraControls: true,

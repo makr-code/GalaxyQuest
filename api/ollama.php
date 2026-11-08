@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Local LLM gateway (Ollama).
  *
@@ -6,6 +7,7 @@
  * POST /api/ollama.php?action=chat      body: {messages[]|prompt, model?, temperature?, options?}
  * POST /api/ollama.php?action=generate  body: {prompt, model?, temperature?, options?}
  */
+
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/ollama_client.php';
 
@@ -87,7 +89,8 @@ switch ($action) {
         json_error('Unknown action');
 }
 
-function normalize_messages(array $body): array {
+function normalize_messages(array $body): array
+{
     if (isset($body['messages']) && is_array($body['messages'])) {
         $out = [];
         foreach ($body['messages'] as $msg) {

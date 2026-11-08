@@ -1,6 +1,7 @@
 <?php
 /**
  * Colonization API
+ * Administration mutations are gated with HTTP 503; GETs are read-only.
  *
  * GET  /api/colonization.php?action=sprawl_status      – Aktueller Sprawl + Malus-Effekte
  * GET  /api/colonization.php?action=list_sectors        – Alle Sektoren mit Gouverneur + Systemen
@@ -25,6 +26,18 @@ require_once __DIR__ . '/../lib/ColonizationEngine.php';
 
 $action = $_GET['action'] ?? '';
 $uid    = require_auth();
+
+if (
+    in_array($action, [
+        'create_sector', 'update_sector', 'delete_sector', 'assign_system', 'remove_system',
+        'appoint_governor', 'dismiss_governor', 'activate_edict', 'deactivate_edict',
+    ], true)
+) {
+    only_method('POST');
+    verify_csrf();
+    json_error('Colonization administration is read-only pending command and cost integration.', 503);
+}
+
 $db     = get_db();
 
 switch ($action) {

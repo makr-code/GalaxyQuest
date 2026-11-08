@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Server-Sent Events endpoint
  *
@@ -18,6 +19,7 @@
  * Session handling: session is read once, then write-closed immediately so
  * other requests from the same user are not blocked by file locking.
  */
+
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
@@ -104,18 +106,21 @@ $snapshot = [
 $db = get_db();
 
 // ─── Helper: send one SSE event ────────────────────────────────────────────
-function sse_event(string $type, array $data): void {
+function sse_event(string $type, array $data): void
+{
     echo "event: $type\n";
     echo 'data: ' . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n\n";
     flush();
 }
 
-function sse_ping(): void {
+function sse_ping(): void
+{
     echo ": ping\n\n";
     flush();
 }
 
-function events_battle_reports_have_fleet_link(PDO $db): bool {
+function events_battle_reports_have_fleet_link(PDO $db): bool
+{
     $stmt = $db->prepare(
         'SELECT COUNT(*)
            FROM information_schema.COLUMNS
@@ -402,7 +407,6 @@ while (true) {
                 throw $error;
             }
         }
-
     } catch (Throwable $e) {
         // Log but don't crash the SSE stream
         error_log('[events.php] Poll error uid=' . $uid . ': ' . $e->getMessage());

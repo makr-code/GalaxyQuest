@@ -550,7 +550,7 @@ const API = (() => {
   };
 
   const sendFleet = async (body, options = {}) => {
-    return post('api/send_fleet.php', body, options);
+    return post('api/fleet.php?action=send', body, options);
   };
 
   const recallFleet = async (body, options = {}) => {

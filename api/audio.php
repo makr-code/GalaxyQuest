@@ -1,9 +1,11 @@
 <?php
+
 /**
  * Audio catalog API
  * GET /api/audio.php?action=list       – list music tracks
  * GET /api/audio.php?action=list_sfx   – list SFX/teaser files
  */
+
 require_once __DIR__ . '/helpers.php';
 
 $action = (string)($_GET['action'] ?? 'list');

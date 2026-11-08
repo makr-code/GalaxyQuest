@@ -292,9 +292,37 @@ describe('Canonical fleet composition and launch', () => {
     expect(api.post).toHaveBeenCalledExactlyOnceWith('api/fleet.php?action=send', {
       origin_colony_id: 1, mission: 'transport', target_galaxy: 2, target_system: 2000, target_position: 4,
       ships: { small_cargo: 2, bp_7: 1 }, cargo: { metal: 12.5, crystal: 0, deuterium: 0 },
+      request_id: expect.any(String),
     }, { signal: expect.any(AbortSignal) });
     expect(changed).toHaveBeenCalledExactlyOnceWith({ colonyId: 1, domain: 'fleet-launch', allColonies: true });
     expect(domain.getState()).toMatchObject({ stale: false, error: '', mutating: false });
+  });
+  it('keeps the same request identity after a lost response even when refreshed inventory is depleted', async () => {
+    await domain.load();
+    api.post.mockRejectedValueOnce(new Error('Response lost after server commit'));
+    await domain.command('send', order());
+    const first = api.post.mock.calls[0][1];
+    expect(first.request_id).toMatch(/^[a-f0-9-]{36}$/);
+    api.get.mockImplementation(async (url) => url.includes('overview') ? overview()
+      : url.includes('ftl_status') ? transit() : { success: true, ships: [], blueprints: [] });
+    await domain.refresh();
+    expect(domain.getState().data.ships).toEqual([]);
+    await domain.command('send', order());
+    expect(api.post.mock.calls[1][1]).toEqual(first);
+    expect(domain.getState().error).toBe('');
+  });
+  it('issues a new identity only for a different order or an already acknowledged new launch', async () => {
+    await domain.load();
+    api.post.mockRejectedValueOnce(new Error('Uncertain result'));
+    await domain.command('send', order());
+    const originalId = api.post.mock.calls[0][1].request_id;
+    await domain.command('send', { ...order(), target_position: 5 });
+    const otherId = api.post.mock.calls[1][1].request_id;
+    expect(otherId).not.toBe(originalId);
+    await domain.command('send', order());
+    expect(api.post.mock.calls[2][1].request_id).toBe(originalId);
+    await domain.command('send', order());
+    expect(api.post.mock.calls[3][1].request_id).not.toBe(originalId);
   });
   it.each([
     { mission: 'unknown' }, { target_galaxy: 10 }, { target_system: 1.5 }, { target_position: 0 },

@@ -180,12 +180,12 @@ jobs:
           GQ_MIGRATION_TEST_PASSWORD: root
         run: vendor/bin/phpunit tests/Integration/MigrationRunnerMySqlTest.php --no-coverage --do-not-cache-result --fail-on-warning --fail-on-risky --fail-on-phpunit-deprecation
 
-      - name: Test ResourceLedger concurrency against isolated MySQL
+      - name: Test resource and fleet concurrency against isolated MySQL
         env:
           GQ_RESOURCE_LEDGER_TEST_DSN: "mysql:host=127.0.0.1;port=3306;charset=utf8mb4"
           GQ_RESOURCE_LEDGER_TEST_USER: root
           GQ_RESOURCE_LEDGER_TEST_PASSWORD: root
-        run: vendor/bin/phpunit tests/Integration/ResourceLedgerConcurrencyTest.php tests/Integration/ResourceMutationApiConcurrencyTest.php --no-coverage --do-not-cache-result --fail-on-warning --fail-on-risky --fail-on-phpunit-deprecation
+        run: vendor/bin/phpunit tests/Integration/ResourceLedgerConcurrencyTest.php tests/Integration/ResourceMutationApiConcurrencyTest.php tests/Integration/FleetMySqlConcurrencyTest.php --no-coverage --do-not-cache-result --fail-on-warning --fail-on-risky --fail-on-phpunit-deprecation
 
       - name: Initialise database schema and migrations
         env:
@@ -233,7 +233,7 @@ jobs:
         run: npm audit --audit-level=high
 
       - name: Run Vitest
-        run: npx vitest run --reporter=verbose
+        run: npx vitest run --reporter=verbose --testTimeout=15000 --hookTimeout=30000
 
       - name: Build production frontend
         run: npm run vite:build

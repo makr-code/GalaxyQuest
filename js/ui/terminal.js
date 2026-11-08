@@ -150,11 +150,12 @@
       const ss = String(ts.getSeconds()).padStart(2, '0');
       const lvl = String(level || 'info').toUpperCase();
       const cls = lvl === 'ERROR' ? 'boot-line-error' : lvl === 'WARN' ? 'boot-line-warn' : 'boot-line-info';
+      const follow = bootLog.hidden || bootLog.scrollHeight - bootLog.scrollTop - bootLog.clientHeight <= 24;
       const row = document.createElement('div');
       row.className = `boot-line ${cls}`;
       row.textContent = `[${hh}:${mm}:${ss}] [${lvl}] [probe] ${String(message || '')}`;
       bootLog.appendChild(row);
-      bootLog.scrollTop = bootLog.scrollHeight;
+      if (follow) bootLog.scrollTop = bootLog.scrollHeight;
     } catch (_) {}
   }
 
@@ -199,9 +200,12 @@
         ta.style.position = 'fixed';
         ta.style.left = '-10000px';
         document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
+        try {
+          ta.select();
+          if (!document.execCommand('copy')) throw new Error('Clipboard copy was rejected');
+        } finally {
+          ta.remove();
+        }
       }
       append('info', ['Boot terminal copied to clipboard'], 'system');
       return true;
@@ -219,6 +223,7 @@
 
   function renderBootTerminal() {
     if (!bootUi?.log) return;
+    const follow = bootUi.log.hidden || bootUi.log.scrollHeight - bootUi.log.scrollTop - bootUi.log.clientHeight <= 24;
     const source = entries.slice(-BOOT_MAX_LINES);
     bootUi.log.innerHTML = source.map((entry) => {
       const ts = new Date(Number(entry?.ts || Date.now()));
@@ -236,7 +241,7 @@
           : 'boot-line-info';
       return `<div class="boot-line ${cls}">[${hh}:${mm}:${ss}] [${levelLabel}] [${src}] ${text}</div>`;
     }).join('');
-    bootUi.log.scrollTop = bootUi.log.scrollHeight;
+    if (follow) bootUi.log.scrollTop = bootUi.log.scrollHeight;
   }
 
   function clearEntriesInternal() {
@@ -637,6 +642,20 @@
 
   const api = {
     entries,
+    importBootEntries(bootEntries) {
+      if (!Array.isArray(bootEntries)) throw new TypeError('Boot entries must be an array');
+      const imported = bootEntries.map((entry) => {
+        if (!entry || !Number.isFinite(entry.ts) || typeof entry.level !== 'string'
+          || typeof entry.source !== 'string' || typeof entry.text !== 'string') {
+          throw new TypeError('Invalid boot entry');
+        }
+        return { ...entry, sessionStartTs: SESSION_START_TS };
+      });
+      entries.push(...imported);
+      entries.sort((a, b) => Number(a.ts) - Number(b.ts));
+      if (entries.length > MAX_ENTRIES) entries.splice(0, entries.length - MAX_ENTRIES);
+      persist(entries);
+    },
     debugEnabled: isDebugEnabled,
     setDebugEnabled(value) {
       try {

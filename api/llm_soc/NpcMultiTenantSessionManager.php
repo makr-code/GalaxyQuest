@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Multi-tenant NPC Chat Session Manager
  * Handles separate conversation contexts for each player-NPC pair
@@ -124,7 +125,7 @@ class NpcMultiTenantSessionManager
         if (!isset($session['messages']) || !is_array($session['messages'])) {
             $session['messages'] = [];
         }
-        
+
         $session['messages'][] = [
             'role' => $role,
             'content' => $content,
@@ -182,8 +183,11 @@ class NpcMultiTenantSessionManager
     /**
      * Get conversation history with context depth limit
      */
-    public function getContextMessages(array $session, bool $includeSystemPrompt = true, string $systemPrompt = ''): array
-    {
+    public function getContextMessages(
+        array $session,
+        bool $includeSystemPrompt = true,
+        string $systemPrompt = ''
+    ): array {
         $messages = $session['messages'] ?? [];
 
         // Apply context depth (limit conversation history)

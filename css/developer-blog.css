@@ -44,7 +44,7 @@
   #start-news-original { width: 36px; min-width: 36px; height: 36px; min-height: 36px; }
 }
 .start-cascade-panel:has(> #start-panel-news:not([hidden])) {
-  max-height: min(80svh, max(0px, calc(100svh - var(--start-panel-top, 0px) - 16px)));
+  max-height: 80svh;
   overflow: auto;
   scroll-padding-block-start: 52px;
 }

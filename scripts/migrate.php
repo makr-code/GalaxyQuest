@@ -17,6 +17,13 @@ declare(strict_types=1);
  *   verify                       Verify complete deployment manifest and checksums without changes.
  *   up      [--step=N] [--dry-run]  Apply pending migrations (default: all).
  *   rollback [--step=N] [--dry-run] Roll back the last N applied migrations.
+ *   adopt-actors [--dry-run]       Adopt verified current actor history without replay.
+ *   adopt-bodies [--dry-run]       Adopt native body history without a legacy import.
+ *   adopt-v2 [--dry-run]           Adopt verified current Legacy-v2 postconditions without replay.
+ *   adopt-economy [--dry-run]      Adopt verified ordered economy history without market replay.
+ *   adopt-auth [--dry-run]         Adopt verified auth history without changing accounts or tokens.
+ *   adopt-vessel-blueprints [--dry-run] Adopt verified vessel/FTL v1-v11 state without SQL replay.
+ *   adopt-wars [--dry-run]         Adopt verified war-history v1 and NPC wars without SQL replay.
  *
  * Options:
  *   --step=N        Limit the number of migrations to apply or roll back.
@@ -94,14 +101,39 @@ foreach ($args as $arg) {
     }
 }
 
-if (!in_array($command, ['status', 'verify', 'up', 'rollback'], true)) {
+if (
+    !in_array(
+        $command,
+        [
+            'status', 'verify', 'up', 'rollback', 'adopt-actors', 'adopt-bodies',
+            'adopt-v2', 'adopt-economy', 'adopt-auth', 'adopt-vessel-blueprints', 'adopt-wars',
+        ],
+        true
+    )
+) {
     migration_usage_error($command === null ? 'No command specified.' : 'Unknown command: ' . $command);
 }
 if (in_array($command, ['status', 'verify'], true) && ($step !== null || $dryRun)) {
     migration_usage_error($command . ' does not accept --step or --dry-run.');
 }
+if (
+    in_array(
+        $command,
+        [
+            'adopt-actors', 'adopt-bodies', 'adopt-v2', 'adopt-economy', 'adopt-auth',
+            'adopt-vessel-blueprints', 'adopt-wars',
+        ],
+        true
+    )
+    && $step !== null
+) {
+    migration_usage_error($command . ' does not accept --step.');
+}
 if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]{0,19}$/D', $env)) {
     migration_usage_error('Environment label must contain 1-20 letters, digits, underscores or hyphens.');
+}
+if (strtoupper($env) === 'ADOPTED') {
+    migration_usage_error('ADOPTED is reserved for verified legacy adoption.');
 }
 if ($sqlDir === '' || !is_dir($sqlDir) || !is_readable($sqlDir)) {
     migration_usage_error('SQL directory does not exist or is unreadable: ' . $sqlDir);
@@ -140,6 +172,29 @@ try {
         case 'rollback':
             cmd_rollback($runner, $step ?? 1, $dryRun);
             break;
+        case 'adopt-actors':
+        case 'adopt-bodies':
+        case 'adopt-v2':
+        case 'adopt-economy':
+        case 'adopt-auth':
+        case 'adopt-vessel-blueprints':
+        case 'adopt-wars':
+            $result = match ($command) {
+                'adopt-actors' => $runner->adoptActorHistory($dryRun),
+                'adopt-bodies' => $runner->adoptBodyHistory($dryRun),
+                'adopt-v2' => $runner->adoptLegacyV2History($dryRun),
+                'adopt-economy' => $runner->adoptEconomyHistory($dryRun),
+                'adopt-auth' => $runner->adoptAuthHistory($dryRun),
+                'adopt-vessel-blueprints' => $runner->adoptVesselBlueprintHistory($dryRun),
+                'adopt-wars' => $runner->adoptWarHistory($dryRun),
+            };
+            printf(
+                "[migrate] %s %d legacy migration(s); no legacy SQL executed.\n",
+                $dryRun ? 'Would adopt' : 'Adopted',
+                count($result['adopted'])
+            );
+            echo json_encode($result['evidence'], JSON_THROW_ON_ERROR) . "\n";
+            break;
     }
 } catch (PDOException | RuntimeException | InvalidArgumentException $e) {
     fwrite(STDERR, "[migrate] Failed: " . $e->getMessage() . "\n");
@@ -164,6 +219,7 @@ function cmd_status(MigrationRunner $runner): void
 
     $pending = 0;
     $applied = 0;
+    $adopted = 0;
 
     echo str_pad('Migration', 60) . str_pad('Status', 12) . "Applied at\n";
     echo str_repeat('-', 100) . "\n";
@@ -171,16 +227,20 @@ function cmd_status(MigrationRunner $runner): void
     foreach ($rows as $row) {
         $appliedAt = $row['applied_at'] ?? '—';
         $status    = $row['status'];
+        $displayStatus = ($row['execution_kind'] ?? '') === 'adopted' ? 'adopted' : $status;
+        if ($displayStatus === 'adopted') {
+            $adopted++;
+        }
         if ($status === 'applied') {
             $applied++;
         } else {
             $pending++;
         }
-        printf("%-60s %-12s %s\n", $row['name'], $status, $appliedAt);
+        printf("%-60s %-12s %s\n", $row['name'], $displayStatus, $appliedAt);
     }
 
     echo str_repeat('-', 100) . "\n";
-    printf("Total: %d applied, %d pending\n", $applied, $pending);
+    printf("Total: %d executed, %d adopted, %d pending\n", $applied - $adopted, $adopted, $pending);
 }
 
 function cmd_up(MigrationRunner $runner, ?int $step, bool $dryRun): void
@@ -265,6 +325,13 @@ Commands:
   verify                          Verify complete manifest/checksums; no DB changes.
   up      [--step=N] [--dry-run]  Apply pending migrations (default: all).
   rollback [--step=N] [--dry-run] Roll back the last N migrations (default: 1).
+  adopt-actors [--dry-run]        Adopt verified actor history; no legacy SQL replay.
+  adopt-bodies [--dry-run]        Adopt verified native bodies; no legacy planet import.
+  adopt-v2 [--dry-run]            Adopt verified current Legacy-v2 history; no SQL replay.
+  adopt-economy [--dry-run]       Adopt ordered economy history; preserve market and policy state.
+  adopt-auth [--dry-run]          Adopt current auth history; preserve accounts and auth material.
+  adopt-vessel-blueprints [--dry-run] Adopt verified vessel/FTL v1-v11 postconditions without replay.
+  adopt-wars [--dry-run]         Adopt verified war-history v1 and NPC wars without replay.
 
 Options:
   --step=N        Positive integer within PHP integer range (up/rollback only).
@@ -284,6 +351,11 @@ Examples:
   php scripts/migrate.php up --dry-run
   php scripts/migrate.php rollback --step=2
   php scripts/migrate.php rollback --dry-run
+  php scripts/migrate.php adopt-actors --dry-run
+  php scripts/migrate.php adopt-bodies --dry-run
+  php scripts/migrate.php adopt-v2 --dry-run
+  php scripts/migrate.php adopt-economy --dry-run
+  php scripts/migrate.php adopt-auth --dry-run
   GQ_ENV=PROD php scripts/migrate.php up
 
 See also:

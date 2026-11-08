@@ -1,4 +1,5 @@
 <?php
+
 /**
  * AI Response Caching System
  * Supports file-based and Redis caching with TTL

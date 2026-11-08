@@ -66,6 +66,344 @@ final class MigrationRunnerMySqlTest extends TestCase
         return $runner;
     }
 
+    public function testFleetDispatchReceiptMigrationIsRepeatableAndKeepsTerminalAcknowledgements(): void
+    {
+        $this->db->exec('CREATE TABLE users (id INT PRIMARY KEY) ENGINE=InnoDB; INSERT INTO users VALUES (7)');
+        $sql = $this->readSqlForTestDatabase('migrate_fleet_dispatch_receipts_v1.sql');
+        $runner = $this->buildRunner($sql);
+        $this->assertCount(1, $runner->runUp());
+        $this->assertSame([], $runner->runUp());
+        $this->db->exec($sql);
+        $this->assertSame('InnoDB', $this->db->query(
+            "SELECT ENGINE FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='fleet_dispatch_receipts'"
+        )->fetchColumn());
+        $insert = $this->db->prepare(
+            'INSERT INTO fleet_dispatch_receipts (user_id,request_id,payload_hash,fleet_id,arrival_time)
+             VALUES (7,?,?,123,?)'
+        );
+        $insert->execute(['request-1234567890', str_repeat('a', 64), '2026-11-07 18:00:00']);
+        $insert->execute(['REQUEST-1234567890', str_repeat('b', 64), '2026-11-07 18:00:00']);
+        $this->assertSame(2, (int)$this->db->query('SELECT COUNT(*) FROM fleet_dispatch_receipts')->fetchColumn());
+        // No fleet foreign key: completed/deleted fleet IDs remain replayable.
+        $this->assertSame(123, (int)$this->db->query('SELECT fleet_id FROM fleet_dispatch_receipts LIMIT 1')->fetchColumn());
+        $this->db->exec('DELETE FROM users WHERE id=7');
+        $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM fleet_dispatch_receipts')->fetchColumn());
+    }
+
+    public function testBattleEncounterMigrationIsRepeatableAndPreservesHistoryWithoutFleet(): void
+    {
+        $sql = $this->readSqlForTestDatabase('migrate_battle_encounters_v1.sql');
+        $runner = $this->buildRunner($sql);
+        $this->assertCount(1, $runner->runUp());
+        $this->assertSame([], $runner->runUp());
+        $this->db->exec($sql);
+        $engines = $this->db->query(
+            "SELECT ENGINE FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME LIKE 'battle_encounter%'"
+        )->fetchAll(PDO::FETCH_COLUMN);
+        $this->assertCount(3, $engines);
+        $this->assertSame(['InnoDB'], array_values(array_unique($engines)));
+        $this->db->prepare(
+            "INSERT INTO battle_encounters
+             (source_fleet_id,target_colony_id,target_body_id,rule_version,seed,status,revision,
+              battle_report_id,outcome_json,resolved_at)
+             VALUES (42,1,2,'legacy-v1',?,'resolved',2,7,'{}',NOW())"
+        )->execute([str_repeat('a', 64)]);
+        $id = (int)$this->db->lastInsertId();
+        $this->db->prepare(
+            "INSERT INTO battle_encounter_participants
+             (encounter_id,side,user_id,controller_kind,initial_ships_json) VALUES (?,'attacker',10,'npc_engine','{}')"
+        )->execute([$id]);
+        $this->db->prepare(
+            "INSERT INTO battle_encounter_events
+             (encounter_id,sequence,event_type,payload_json) VALUES (?,2,'encounter_resolved','{}')"
+        )->execute([$id]);
+        $this->assertSame(42, (int)$this->db->query('SELECT source_fleet_id FROM battle_encounters')->fetchColumn());
+        $this->db->exec($sql);
+        $this->assertSame(1, (int)$this->db->query('SELECT COUNT(*) FROM battle_encounters')->fetchColumn());
+        $this->assertSame(1, (int)$this->db->query('SELECT COUNT(*) FROM battle_encounter_events')->fetchColumn());
+        try {
+            $this->db->exec(
+                "INSERT INTO battle_encounters
+                 (source_fleet_id,target_colony_id,target_body_id,rule_version,seed,status,revision)
+                 SELECT source_fleet_id,target_colony_id,target_body_id,rule_version,seed,'resolving',1
+                 FROM battle_encounters"
+            );
+            $this->fail('One fleet must not create two encounters.');
+        } catch (PDOException $error) {
+            $this->assertSame('23000', $error->getCode());
+        }
+    }
+
+    private function actorAdoptionRunner(): MigrationRunner
+    {
+        $this->db->exec(
+            "CREATE TABLE users (
+                id INT PRIMARY KEY, control_type VARCHAR(24) NOT NULL DEFAULT 'human',
+                auth_enabled TINYINT(1) NOT NULL DEFAULT 1, deleted_at DATETIME NULL,
+                INDEX idx_users_control_type(control_type)
+             ) ENGINE=InnoDB;
+             INSERT INTO users VALUES (1,'human',1,NULL),(2,'npc_engine',0,NULL)"
+        );
+        $names = ['migrate_actor_model_v1.sql', 'migrate_actor_model_v2_drop_is_npc.sql'];
+        foreach (array_merge($names, ['schema_migration_adoptions.sql']) as $name) {
+            copy(__DIR__ . '/../../sql/' . $name, $this->sqlDir . '/' . $name);
+        }
+        file_put_contents($this->sqlDir . '/manifest.php', '<?php return ' . var_export($names, true) . ';');
+        $runner = new MigrationRunner($this->db, $this->sqlDir, 'TEST', $this->sqlDir . '/manifest.php');
+        $runner->bootstrap();
+        return $runner;
+    }
+
+    public function testActorAdoptionPreservesIdentitiesAndRecordsDistinctProvenance(): void
+    {
+        $runner = $this->actorAdoptionRunner();
+        $before = $this->db->query('SELECT * FROM users ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+        $preview = $runner->adoptActorHistory(true);
+        $this->assertTrue($preview['dry_run']);
+        $this->assertCount(2, $preview['adopted']);
+        $this->assertSame(0, $this->trackingCount());
+        $this->assertSame(0, (int)$this->db->query(
+            "SELECT COUNT(*) FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='schema_migration_adoptions'"
+        )->fetchColumn());
+        $result = $runner->adoptActorHistory(false);
+        $this->assertSame(['human' => 1, 'npc_engine' => 1], $result['evidence']['controller_counts']);
+        $this->assertSame($before, $this->db->query('SELECT * FROM users ORDER BY id')->fetchAll(PDO::FETCH_ASSOC));
+        $this->assertSame(2, $this->trackingCount());
+        $this->assertSame(2, (int)$this->db->query('SELECT COUNT(*) FROM schema_migration_adoptions')->fetchColumn());
+        $this->assertSame(['adopted', 'adopted'], array_column($runner->getStatus(), 'execution_kind'));
+        $this->assertSame(2, $runner->verifyDeployment());
+        $this->assertSame([], $runner->adoptActorHistory(false)['adopted']);
+        $this->assertSame([], $runner->runUp());
+        try {
+            $runner->runRollback();
+            $this->fail('Adopted history must not execute a down migration.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('adopted history', $error->getMessage());
+        }
+    }
+
+    #[DataProvider('invalidActorAdoptionStates')]
+    public function testActorAdoptionRejectsInvalidStatesWithoutTracking(string $mutation): void
+    {
+        $runner = $this->actorAdoptionRunner();
+        $this->db->exec($mutation);
+        try {
+            $runner->adoptActorHistory(false);
+            $this->fail('Invalid actor state must not be adopted.');
+        } catch (RuntimeException $error) {
+            $this->assertNotSame('', $error->getMessage());
+        }
+        $this->assertSame(0, $this->trackingCount());
+        $this->assertFalse($this->db->inTransaction());
+    }
+
+    public static function invalidActorAdoptionStates(): array
+    {
+        return [
+            ["ALTER TABLE users ADD COLUMN is_npc TINYINT NOT NULL DEFAULT 0"],
+            ["UPDATE users SET auth_enabled=1 WHERE id=2"],
+            ["UPDATE users SET control_type='unrecognized' WHERE id=2"],
+            ["UPDATE users SET deleted_at=NOW() WHERE id=1"],
+            ["ALTER TABLE users DROP INDEX idx_users_control_type"],
+            ["ALTER TABLE users MODIFY control_type VARCHAR(24) NULL DEFAULT 'human'"],
+        ];
+    }
+
+    public function testActorAdoptionRejectsChangedSourceBeforeAnyWrites(): void
+    {
+        $runner = $this->actorAdoptionRunner();
+        file_put_contents($this->sqlDir . '/migrate_actor_model_v1.sql', "\n-- changed\n", FILE_APPEND);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('changed SQL');
+        $runner->adoptActorHistory(false);
+    }
+
+    public function testActorAdoptionEvidenceAndTrackingRollBackTogether(): void
+    {
+        $runner = $this->actorAdoptionRunner();
+        $this->db->exec(
+            "CREATE TRIGGER reject_tracking BEFORE INSERT ON schema_migrations FOR EACH ROW
+             SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='injected adoption failure'"
+        );
+        try {
+            $runner->adoptActorHistory(false);
+            $this->fail('Tracking failure must roll back evidence.');
+        } catch (PDOException $error) {
+            $this->assertStringContainsString('injected adoption failure', $error->getMessage());
+        }
+        $this->assertSame(0, $this->trackingCount());
+        $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM schema_migration_adoptions')->fetchColumn());
+    }
+
+    public function testActorAdoptionRejectsMissingEvidenceAndBlocksLegacyV2Replay(): void
+    {
+        $runner = $this->actorAdoptionRunner();
+        $runner->adoptActorHistory(false);
+        copy(__DIR__ . '/../../sql/migrate_v2.sql', $this->sqlDir . '/migrate_v2.sql');
+        file_put_contents($this->sqlDir . '/manifest.php',
+            "<?php return ['migrate_v2.sql','migrate_actor_model_v1.sql','migrate_actor_model_v2_drop_is_npc.sql'];");
+        $runner = new MigrationRunner($this->db, $this->sqlDir, 'TEST', $this->sqlDir . '/manifest.php');
+        try {
+            $runner->runUp(null, true);
+            $this->fail('Legacy v2 must not recreate retired flags.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('recreates is_npc', $error->getMessage());
+        }
+        $this->db->exec('DELETE FROM schema_migration_adoptions');
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('provenance');
+        $runner->verifyDeployment();
+    }
+
+    private function bodyAdoptionRunner(): MigrationRunner
+    {
+        $source = file_get_contents(__DIR__ . '/../../sql/migrate_unified_bodies_v1.sql');
+        $start = strpos($source, 'CREATE TABLE IF NOT EXISTS celestial_bodies');
+        $end = strpos($source, ') ENGINE=InnoDB;', $start) + strlen(') ENGINE=InnoDB;');
+        $this->db->exec(substr($source, $start, $end - $start));
+        $this->db->exec(
+            "CREATE TABLE planets (id INT PRIMARY KEY,galaxy INT,`system` INT,position INT) ENGINE=InnoDB;
+             CREATE TABLE colonies (id INT PRIMARY KEY,body_id BIGINT UNSIGNED NOT NULL,planet_id INT NULL,
+               UNIQUE KEY unique_colony_body(body_id),KEY idx_colonies_body_id(body_id),
+               CONSTRAINT fk_colonies_body_id FOREIGN KEY(body_id) REFERENCES celestial_bodies(id) ON DELETE CASCADE
+             ) ENGINE=InnoDB;
+             CREATE TABLE battle_reports (id INT PRIMARY KEY,body_id BIGINT UNSIGNED NOT NULL,
+               KEY idx_battle_body_id(body_id)) ENGINE=InnoDB;
+             CREATE TABLE spy_reports (id INT PRIMARY KEY,target_body_id BIGINT UNSIGNED NULL,
+               KEY idx_spy_target_body(target_body_id)) ENGINE=InnoDB;
+             INSERT INTO celestial_bodies
+               (id,body_uid,galaxy_index,system_index,position,body_type,name)
+               VALUES (10,'native-planet-10',1,2,1,'planet','Native planet'),
+                      (11,'native-moon-11',1,2,NULL,'moon','Native moon');
+             UPDATE celestial_bodies SET parent_body_id=10 WHERE id=11;
+             INSERT INTO planets VALUES (1,1,2,1),(99,9,9,9);
+             INSERT INTO colonies VALUES (1,10,1),(2,11,NULL);
+             INSERT INTO battle_reports VALUES (1,10);
+             INSERT INTO spy_reports VALUES (1,11),(2,NULL)"
+        );
+        $names = ['migrate_unified_bodies_v1.sql', 'migrate_unified_bodies_v2_hardcut.sql'];
+        foreach (array_merge($names, ['schema_migration_adoptions.sql']) as $name) {
+            copy(__DIR__ . '/../../sql/' . $name, $this->sqlDir . '/' . $name);
+        }
+        file_put_contents($this->sqlDir . '/manifest.php', '<?php return ' . var_export($names, true) . ';');
+        $runner = new MigrationRunner($this->db, $this->sqlDir, 'TEST', $this->sqlDir . '/manifest.php');
+        $runner->bootstrap();
+        return $runner;
+    }
+
+    public function testBodyAdoptionKeepsNativeIdentitiesAndNeverImportsUninhabitedLegacyPlanets(): void
+    {
+        $runner = $this->bodyAdoptionRunner();
+        $before = $this->db->query('SELECT * FROM celestial_bodies ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+        $preview = $runner->adoptBodyHistory(true);
+        $this->assertCount(2, $preview['adopted']);
+        $this->assertSame(0, $this->trackingCount());
+        $result = $runner->adoptBodyHistory(false);
+        $this->assertSame(2, $result['evidence']['body_count']);
+        $this->assertSame(2, $result['evidence']['colony_count']);
+        $this->assertSame('preserve-native-catalogue-no-uninhabited-legacy-import', $result['evidence']['policy']);
+        $this->assertSame($before, $this->db->query('SELECT * FROM celestial_bodies ORDER BY id')->fetchAll(PDO::FETCH_ASSOC));
+        $this->assertSame(2, $runner->verifyDeployment());
+        $this->assertSame([], $runner->runUp());
+        $this->assertSame([], $runner->adoptBodyHistory(false)['adopted']);
+        $this->assertSame(['adopted', 'adopted'], array_column($runner->getStatus(), 'execution_kind'));
+        $this->assertSame(2, (int)$this->db->query('SELECT COUNT(*) FROM schema_migration_adoptions')->fetchColumn());
+    }
+
+    #[DataProvider('invalidBodyAdoptionStates')]
+    public function testBodyAdoptionRejectsInvalidMappingOrSchema(string $mutation): void
+    {
+        $runner = $this->bodyAdoptionRunner();
+        $this->db->exec($mutation);
+        try {
+            $runner->adoptBodyHistory(false);
+            $this->fail('Incomplete native body state cannot be adopted.');
+        } catch (RuntimeException $error) {
+            $this->assertNotSame('', $error->getMessage());
+        }
+        $this->assertSame(0, $this->trackingCount());
+        $this->assertFalse($this->db->inTransaction());
+    }
+
+    public static function invalidBodyAdoptionStates(): array
+    {
+        return [
+            ["ALTER TABLE colonies MODIFY body_id BIGINT UNSIGNED NULL"],
+            ["ALTER TABLE colonies DROP FOREIGN KEY fk_colonies_body_id"],
+            ["ALTER TABLE celestial_bodies DROP FOREIGN KEY fk_celestial_parent"],
+            ["ALTER TABLE celestial_bodies DROP INDEX idx_body_type"],
+            ["ALTER TABLE celestial_bodies MODIFY body_uid VARCHAR(65) NOT NULL"],
+            ["ALTER TABLE battle_reports ADD COLUMN planet_id INT NULL"],
+            ["UPDATE battle_reports SET body_id=999"],
+            ["UPDATE spy_reports SET target_body_id=999"],
+            ["UPDATE planets SET position=2 WHERE id=1"],
+            ["UPDATE colonies SET planet_id=99 WHERE id=2"],
+            ["UPDATE celestial_bodies SET parent_body_id=id WHERE id=11"],
+        ];
+    }
+
+    public function testBodyAdoptionTrackingFailureRollsBackProvenance(): void
+    {
+        $runner = $this->bodyAdoptionRunner();
+        $this->db->exec(
+            "CREATE TRIGGER reject_tracking BEFORE INSERT ON schema_migrations FOR EACH ROW
+             SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='injected adoption failure'"
+        );
+        try {
+            $runner->adoptBodyHistory(false);
+            $this->fail('Evidence must not outlive failed tracking.');
+        } catch (PDOException $error) {
+            $this->assertStringContainsString('injected adoption failure', $error->getMessage());
+        }
+        $this->assertSame(0, $this->trackingCount());
+        $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM schema_migration_adoptions')->fetchColumn());
+    }
+
+    public function testBodyAdoptionRejectsWrongContractProvenance(): void
+    {
+        $runner = $this->bodyAdoptionRunner();
+        $runner->adoptBodyHistory(false);
+        $this->db->exec("UPDATE schema_migration_adoptions SET contract_id='actor-current-v1'");
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('provenance');
+        $runner->verifyDeployment();
+    }
+
+    public function testBodyAdoptionRejectsChangedSourceWithoutTracking(): void
+    {
+        $runner = $this->bodyAdoptionRunner();
+        file_put_contents($this->sqlDir . '/migrate_unified_bodies_v1.sql', "\n-- drift\n", FILE_APPEND);
+        try {
+            $runner->adoptBodyHistory(false);
+            $this->fail('New source bytes require a reviewed contract.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('changed SQL', $error->getMessage());
+        }
+        $this->assertSame(0, $this->trackingCount());
+    }
+
+    public function testBodyAdoptionRejectsPolicyDriftAndCannotRollBack(): void
+    {
+        $runner = $this->bodyAdoptionRunner();
+        $runner->adoptBodyHistory(false);
+        try {
+            $runner->runRollback();
+            $this->fail('Native body adoption must not execute historical rollback.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('adopted history', $error->getMessage());
+        }
+        $this->db->exec(
+            "UPDATE schema_migration_adoptions
+             SET evidence_json=JSON_SET(evidence_json,'$.policy','import-all-legacy-planets')"
+        );
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('policy or schema evidence');
+        $runner->getStatus();
+    }
+
     private function trackingCount(): int
     {
         return (int)$this->db->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn();
@@ -105,6 +443,18 @@ final class MigrationRunnerMySqlTest extends TestCase
         yield 'rollback preview' => ['rollback', true];
         yield 'bootstrap' => ['bootstrap', false];
         yield 'verify' => ['verify', false];
+        yield 'actor adoption' => ['adopt', false];
+        yield 'actor adoption preview' => ['adopt', true];
+        yield 'body adoption' => ['adopt-bodies', false];
+        yield 'body adoption preview' => ['adopt-bodies', true];
+        yield 'V2 adoption' => ['adopt-v2', false];
+        yield 'V2 adoption preview' => ['adopt-v2', true];
+        yield 'economy adoption' => ['adopt-economy', false];
+        yield 'economy adoption preview' => ['adopt-economy', true];
+        yield 'auth adoption' => ['adopt-auth', false];
+        yield 'auth adoption preview' => ['adopt-auth', true];
+        yield 'war adoption' => ['adopt-wars', false];
+        yield 'war adoption preview' => ['adopt-wars', true];
     }
 
     #[DataProvider('lockedOperations')]
@@ -125,6 +475,12 @@ final class MigrationRunnerMySqlTest extends TestCase
                     'rollback' => $runner->runRollback(1, $dryRun),
                     'bootstrap' => $runner->bootstrap(),
                     'verify' => $runner->verifyDeployment(),
+                    'adopt' => $runner->adoptActorHistory($dryRun),
+                    'adopt-bodies' => $runner->adoptBodyHistory($dryRun),
+                    'adopt-v2' => $runner->adoptLegacyV2History($dryRun),
+                    'adopt-economy' => $runner->adoptEconomyHistory($dryRun),
+                    'adopt-auth' => $runner->adoptAuthHistory($dryRun),
+                    'adopt-wars' => $runner->adoptWarHistory($dryRun),
                 };
                 $this->fail('Expected competing migration rejection.');
             } catch (RuntimeException $error) {
@@ -432,6 +788,41 @@ final class MigrationRunnerMySqlTest extends TestCase
         return implode(";\n", $statements) . ';';
     }
 
+    public function testGalaxyMetadataMigrationAndPrecisionRepairPreserveIntendedSeed(): void
+    {
+        $names = ['migrate_galaxies_metadata.sql', 'migrate_galaxy_metadata_precision_v1.sql'];
+        foreach ($names as $name) {
+            file_put_contents($this->sqlDir . '/' . $name, $this->readSqlForTestDatabase($name));
+        }
+        file_put_contents($this->sqlDir . '/manifest.php', '<?php return ' . var_export($names, true) . ';');
+        $runner = new MigrationRunner($this->db, $this->sqlDir, 'TEST', $this->sqlDir . '/manifest.php');
+        $runner->bootstrap();
+
+        $this->assertCount(2, $runner->runUp());
+        $column = $this->db->query(
+            "SELECT COLUMN_TYPE,COLUMN_DEFAULT FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='galaxies' AND COLUMN_NAME='smbh_tidal_radius_ly'"
+        )->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame('decimal(8,2)', $column['COLUMN_TYPE']);
+        $this->assertSame('0.15', $column['COLUMN_DEFAULT']);
+        $this->assertSame('0.15', $this->db->query(
+            'SELECT CAST(smbh_tidal_radius_ly AS CHAR) FROM galaxies WHERE id=1'
+        )->fetchColumn());
+        $this->assertSame([], $runner->runUp());
+
+        $this->db->exec(
+            "INSERT INTO galaxies (id,name,smbh_tidal_radius_ly) VALUES (2,'Custom Galaxy',0.30)"
+        );
+        $repair = $this->readSqlForTestDatabase('migrate_galaxy_metadata_precision_v1.sql');
+        $this->db->exec($repair);
+        $this->assertSame('0.15', $this->db->query(
+            'SELECT CAST(smbh_tidal_radius_ly AS CHAR) FROM galaxies WHERE id=1'
+        )->fetchColumn());
+        $this->assertSame('0.30', $this->db->query(
+            'SELECT CAST(smbh_tidal_radius_ly AS CHAR) FROM galaxies WHERE id=2'
+        )->fetchColumn());
+    }
+
     public function testVerifyFreshDatabaseNeverCreatesTrackingAndReleasesLock(): void
     {
         file_put_contents($this->sqlDir . '/manifest.php', "<?php return ['migration.sql'];");
@@ -551,6 +942,386 @@ final class MigrationRunnerMySqlTest extends TestCase
             "SELECT COUNT(*) FROM information_schema.COLUMNS
              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets' AND COLUMN_NAME = 'user_id'"
         )->fetchColumn());
+    }
+
+    private function gameplayPoliticsRunner(): MigrationRunner
+    {
+        $this->db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+        $this->db->exec(
+            "CREATE TABLE users (
+                id INT PRIMARY KEY,control_type VARCHAR(24) NOT NULL DEFAULT 'human',
+                auth_enabled TINYINT(1) NOT NULL DEFAULT 1,deleted_at DATETIME NULL
+             ) ENGINE=InnoDB;
+             CREATE TABLE colonies (
+                id INT PRIMARY KEY,user_id INT NOT NULL,metal DECIMAL(20,4) NOT NULL,
+                last_update DATETIME NOT NULL
+             ) ENGINE=InnoDB;
+             INSERT INTO users VALUES (710001,'human',1,NULL),(710002,'npc_engine',0,NULL);
+             INSERT INTO colonies VALUES (1,710002,12345.6789,'2026-11-07 10:00:00')"
+        );
+        $names = ['migrate_gameplay_model_v1.sql', 'migrate_politics_model_v1.sql'];
+        foreach ($names as $name) {
+            file_put_contents($this->sqlDir . '/' . $name, $this->readSqlForTestDatabase($name));
+        }
+        file_put_contents($this->sqlDir . '/manifest.php', '<?php return ' . var_export($names, true) . ';');
+        $runner = new MigrationRunner($this->db, $this->sqlDir, 'TEST', $this->sqlDir . '/manifest.php');
+        $runner->bootstrap();
+        return $runner;
+    }
+
+    public function testGameplayPoliticsMigrationsCreateCompleteBaselineForBothActorKinds(): void
+    {
+        $runner = $this->gameplayPoliticsRunner();
+        $actors = $this->db->query('SELECT * FROM users ORDER BY id')->fetchAll();
+        $colonies = $this->db->query('SELECT * FROM colonies ORDER BY id')->fetchAll();
+        $this->assertCount(2, $runner->runUp(null, true));
+        $this->assertSame(0, $this->trackingCount());
+        $this->assertSame(0, (int)$this->db->query(
+            "SELECT COUNT(*) FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='user_empire_profile'"
+        )->fetchColumn());
+        $this->assertCount(2, $runner->runUp());
+        $this->assertSame([], $runner->runUp());
+        $this->assertSame(2, $runner->verifyDeployment());
+        $this->assertSame($actors, $this->db->query('SELECT * FROM users ORDER BY id')->fetchAll());
+        $this->assertSame($colonies, $this->db->query('SELECT * FROM colonies ORDER BY id')->fetchAll());
+        foreach (['situation_states', 'situation_stage_log', 'faction_approval_history', 'user_empire_modifiers'] as $table) {
+            $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn());
+        }
+        foreach ([710001, 710002] as $id) {
+            $query = $this->db->prepare('SELECT faction_key,approval,support,issues_json FROM user_faction_state
+                WHERE user_id=? ORDER BY faction_key');
+            $query->execute([$id]);
+            $this->assertSame([
+                ['faction_key' => 'civic_union', 'approval' => '50.00', 'support' => '0.00', 'issues_json' => '[]'],
+                ['faction_key' => 'industrialists', 'approval' => '50.00', 'support' => '0.00', 'issues_json' => '[]'],
+                ['faction_key' => 'scientists', 'approval' => '50.00', 'support' => '0.00', 'issues_json' => '[]'],
+                ['faction_key' => 'security_bloc', 'approval' => '50.00', 'support' => '0.00', 'issues_json' => '[]'],
+            ], $query->fetchAll());
+            $query = $this->db->prepare('SELECT primary_species_key,government_key,ethic_axis_json
+                FROM user_empire_profile WHERE user_id=?');
+            $query->execute([$id]);
+            $profile = $query->fetch();
+            $this->assertSame('adaptive_humans', $profile['primary_species_key']);
+            $this->assertSame('stellar_republic', $profile['government_key']);
+            $this->assertEquals(
+                ['order_vs_freedom' => 0, 'industry_vs_ecology' => 0, 'science_vs_tradition' => 0],
+                json_decode($profile['ethic_axis_json'], true, 512, JSON_THROW_ON_ERROR)
+            );
+            $query = $this->db->prepare('SELECT civic_key,slot_index FROM user_empire_civics
+                WHERE user_id=? ORDER BY slot_index');
+            $query->execute([$id]);
+            $this->assertSame([
+                ['civic_key' => 'meritocracy', 'slot_index' => 1],
+                ['civic_key' => 'adaptive_bureaucracy', 'slot_index' => 2],
+            ], $query->fetchAll());
+        }
+        $this->assertSame(3, (int)$this->db->query('SELECT COUNT(*) FROM species_profiles')->fetchColumn());
+        $this->assertSame(3, (int)$this->db->query('SELECT COUNT(*) FROM government_forms')->fetchColumn());
+        $this->assertSame(4, (int)$this->db->query('SELECT COUNT(*) FROM government_civics')->fetchColumn());
+        $this->assertSame(10, (int)$this->db->query(
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND ENGINE='InnoDB'
+             AND TABLE_NAME IN ('situation_states','situation_stage_log','user_faction_state','faction_approval_history',
+                 'species_profiles','government_forms','government_civics','user_empire_profile',
+                 'user_empire_civics','user_empire_modifiers')"
+        )->fetchColumn());
+    }
+
+    public function testGameplayPoliticsSqlRepeatPreservesCustomizedAssignmentsAndHistory(): void
+    {
+        $runner = $this->gameplayPoliticsRunner();
+        $runner->runUp();
+        $this->db->exec(
+            "UPDATE user_empire_profile SET primary_species_key='lithoid_miners',government_key='martial_command',
+                ethic_axis_json=JSON_OBJECT('order_vs_freedom',5) WHERE user_id=710002;
+             UPDATE user_empire_civics SET civic_key='industrial_war_machine' WHERE user_id=710002 AND slot_index=1;
+             UPDATE user_faction_state SET approval=23.45,support=67.89,issues_json=JSON_ARRAY('retained')
+                WHERE user_id=710002 AND faction_key='scientists';
+             INSERT INTO situation_states (user_id,colony_id,situation_type,progress) VALUES (710002,1,'retained',37.50);
+             INSERT INTO situation_stage_log (situation_id,user_id,old_stage,new_stage)
+                SELECT id,user_id,1,2 FROM situation_states;
+             INSERT INTO faction_approval_history (user_id,faction_key,approval_before,approval_after)
+                VALUES (710002,'scientists',50,23.45);
+             INSERT INTO user_empire_modifiers (user_id,source_type,source_key,modifier_key,modifier_value)
+                VALUES (710002,'manual','retained','resource_output_mult',0.1234)"
+        );
+        $tables = ['users', 'colonies', 'user_empire_profile', 'user_empire_civics', 'user_faction_state',
+            'situation_states', 'situation_stage_log', 'faction_approval_history', 'user_empire_modifiers'];
+        $before = [];
+        foreach ($tables as $table) {
+            $before[$table] = $this->db->query('SELECT * FROM ' . $table . ' ORDER BY id')->fetchAll();
+        }
+        foreach (['migrate_gameplay_model_v1.sql', 'migrate_politics_model_v1.sql'] as $name) {
+            $this->db->exec($this->readSqlForTestDatabase($name));
+        }
+        foreach ($tables as $table) {
+            $this->assertSame($before[$table], $this->db->query('SELECT * FROM ' . $table . ' ORDER BY id')->fetchAll());
+        }
+        $this->assertSame(2, $this->trackingCount());
+    }
+
+    public function testGameplayPoliticsBaselineEffectsAreExplicitAndDoNotSimulate(): void
+    {
+        $runner = $this->gameplayPoliticsRunner();
+        // Different IDs prevent the existing request-local effects cache from masking the transition.
+        $before = empire_dynamic_effects($this->db, 710003);
+        $this->assertSame(0.0, $before['resource_output_mult']);
+        $this->assertSame(0.0, $before['happiness_flat']);
+        $runner->runUp();
+        $this->db->exec("INSERT INTO users VALUES (710004,'npc_engine',0,NULL)");
+        foreach (['migrate_gameplay_model_v1.sql', 'migrate_politics_model_v1.sql'] as $name) {
+            $this->db->exec($this->readSqlForTestDatabase($name));
+        }
+        $colonyBefore = $this->db->query('SELECT * FROM colonies')->fetchAll();
+        $effects = empire_dynamic_effects($this->db, 710004);
+        foreach ([
+            'resource_output_mult' => 0.06, 'food_output_mult' => 0.03, 'pop_growth_mult' => 0.08,
+            'research_speed_mult' => 0.06, 'happiness_flat' => 8.0, 'public_services_flat' => 4.0,
+            'faction_pressure_mult' => -0.20, 'faction_pressure_score' => 50.0,
+            'fleet_readiness_mult' => 0.0, 'unrest_active' => 0.0,
+        ] as $key => $value) {
+            $this->assertEqualsWithDelta($value, $effects[$key], 0.000000001, $key);
+        }
+        $this->assertSame($colonyBefore, $this->db->query('SELECT * FROM colonies')->fetchAll());
+        $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM situation_states')->fetchColumn());
+        $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM faction_approval_history')->fetchColumn());
+    }
+
+    private function legacyV2AdoptionRunner(bool $repairIcon = true): MigrationRunner
+    {
+        $this->db->exec($this->readSqlForTestDatabase('schema.sql'));
+        $parser = new MigrationRunner($this->db, $this->sqlDir, 'TEST');
+        foreach ($parser->splitStatements($this->readSqlForTestDatabase('migrate_v2.sql')) as $statement) {
+            if (str_starts_with($statement, 'CREATE TABLE IF NOT EXISTS trade_proposals')) {
+                $this->db->exec($statement);
+            }
+        }
+        $this->db->exec('ALTER TABLE users ADD COLUMN deleted_at DATETIME NULL');
+        $this->db->exec($this->readSqlForTestDatabase('migrate_star_spectral_wd_v1.sql'));
+        $this->db->exec(
+            "INSERT INTO users (id,username,email,password_hash,control_type,auth_enabled)
+             VALUES (1,'test-human','human@example.invalid','fixture','human',1),
+                    (2,'test-npc','npc@example.invalid','fixture','npc_engine',0);
+             INSERT INTO celestial_bodies (id,body_uid,galaxy_index,system_index,position,body_type,name)
+             VALUES (1,'native-test-planet',1,2,1,'planet','Native');
+             INSERT INTO colonies (id,body_id,user_id) VALUES (1,1,2);
+             INSERT INTO buildings (colony_id,type,level) VALUES (1,'metal_mine',3);
+             INSERT INTO ships (colony_id,type,count) VALUES (1,'light_fighter',7)"
+        );
+        if ($repairIcon) {
+            $this->db->exec($this->readSqlForTestDatabase('migrate_npc_icon_default_v1.sql'));
+        } else {
+            $this->db->exec("ALTER TABLE npc_factions ALTER COLUMN icon SET DEFAULT 'bad'");
+        }
+        foreach (['migrate_v2.sql', 'schema_migration_adoptions.sql'] as $name) {
+            copy(__DIR__ . '/../../sql/' . $name, $this->sqlDir . '/' . $name);
+        }
+        file_put_contents($this->sqlDir . '/manifest.php', "<?php return ['migrate_v2.sql'];");
+        $runner = new MigrationRunner($this->db, $this->sqlDir, 'TEST', $this->sqlDir . '/manifest.php');
+        $runner->bootstrap();
+        return $runner;
+    }
+
+    public function testLegacyV2AdoptionRecordsFullProofWithoutReplayOrDataMutation(): void
+    {
+        $runner = $this->legacyV2AdoptionRunner();
+        $before = $this->db->query('SELECT * FROM users ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+        $preview = $runner->adoptLegacyV2History(true);
+        $this->assertSame(['migrate_v2.sql'], $preview['adopted']);
+        $this->assertSame(27, count($preview['evidence']['tables']));
+        $this->assertSame(13, $preview['evidence']['achievement_seed_count']);
+        $this->assertSame(0, $this->trackingCount());
+        $this->assertSame(0, (int)$this->db->query(
+            "SELECT COUNT(*) FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='schema_migration_adoptions'"
+        )->fetchColumn());
+        $result = $runner->adoptLegacyV2History(false);
+        $this->assertSame($preview['evidence'], $result['evidence']);
+        $this->assertSame($before, $this->db->query('SELECT * FROM users ORDER BY id')->fetchAll(PDO::FETCH_ASSOC));
+        $this->assertSame(7, (int)$this->db->query('SELECT count FROM ships')->fetchColumn());
+        $this->assertSame(['adopted'], array_column($runner->getStatus(), 'execution_kind'));
+        $this->assertSame(1, $runner->verifyDeployment());
+        $this->assertSame([], $runner->adoptLegacyV2History(false)['adopted']);
+        $this->assertSame([], $runner->runUp());
+        $this->assertSame(0, (int)$this->db->query(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='users' AND COLUMN_NAME='is_npc'"
+        )->fetchColumn());
+        try {
+            $runner->runRollback();
+            $this->fail('Legacy V2 adoption must not execute rollback SQL.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('adopted history', $error->getMessage());
+        }
+    }
+
+    /** @return iterable<string,array{string,string}> */
+    public static function invalidLegacyV2AdoptionStates(): iterable
+    {
+        yield 'missing quest field' => ['ALTER TABLE faction_quests DROP COLUMN generated_timestamp', 'faction_quests.generated_timestamp'];
+        yield 'changed quest default' => ['ALTER TABLE faction_quests ALTER COLUMN active SET DEFAULT 0', 'faction_quests.active'];
+        yield 'silent JSON default' => ["ALTER TABLE faction_quests MODIFY requirements_json TEXT NOT NULL DEFAULT ('{}')", 'faction_quests.requirements_json'];
+        yield 'invalid JSON' => ["UPDATE faction_quests SET requirements_json='invalid' LIMIT 1", 'Syntax error'];
+        yield 'non-object JSON' => ["UPDATE faction_quests SET requirements_json='[]' LIMIT 1", 'explicit JSON objects'];
+        yield 'missing seed' => ["DELETE FROM achievements WHERE code='combat_first_win'", 'achievement seed'];
+        yield 'changed reward' => ["UPDATE achievements SET reward_metal=99 WHERE code='combat_first_win'", 'achievement seed'];
+        yield 'retired flag' => ['ALTER TABLE users ADD COLUMN is_npc TINYINT DEFAULT 0', 'actor schema'];
+        yield 'legacy backfill input' => ['ALTER TABLE ships ADD COLUMN planet_id INT', 'retired backfill inputs'];
+        yield 'orphan ship' => ['SET FOREIGN_KEY_CHECKS=0; UPDATE ships SET colony_id=999; SET FOREIGN_KEY_CHECKS=1', 'orphan reference'];
+        yield 'narrowed star type' => ["ALTER TABLE star_systems MODIFY spectral_class ENUM('O','B','A','F','G','K','M') NOT NULL DEFAULT 'G'", 'star_systems.spectral_class'];
+        yield 'invisible composite index' => ['ALTER TABLE achievements ALTER INDEX code INVISIBLE', 'visible index'];
+        yield 'unique prefix is insufficient' => [
+            'ALTER TABLE achievements DROP INDEX code, ADD UNIQUE KEY partial_code(code(63))', 'visible index',
+        ];
+        yield 'wider uniqueness is insufficient' => [
+            'ALTER TABLE user_achievements ADD UNIQUE KEY wider_unique(user_id,achievement_id,progress),
+             DROP INDEX unique_user_achievement', 'visible index',
+        ];
+        yield 'missing foreign key' => [
+            'ALTER TABLE trade_proposals DROP FOREIGN KEY trade_proposals_ibfk_1', 'foreign key mismatch',
+        ];
+        yield 'invalid player quest progress' => [
+            "INSERT INTO user_faction_quests (user_id,faction_quest_id,progress_json)
+             SELECT 2,id,'[]' FROM faction_quests LIMIT 1", 'explicit JSON objects',
+        ];
+        yield 'nontransactional table' => ['ALTER TABLE trade_proposals DROP FOREIGN KEY trade_proposals_ibfk_1,
+            DROP FOREIGN KEY trade_proposals_ibfk_2; ALTER TABLE trade_proposals ENGINE=MyISAM', 'InnoDB'];
+    }
+
+    #[DataProvider('invalidLegacyV2AdoptionStates')]
+    public function testLegacyV2AdoptionRejectsSchemaDataAndSeedDriftWithoutHistory(string $mutation, string $message): void
+    {
+        $runner = $this->legacyV2AdoptionRunner();
+        $this->db->exec($mutation);
+        try {
+            $runner->adoptLegacyV2History(false);
+            $this->fail('Invalid Legacy V2 state must reject adoption.');
+        } catch (RuntimeException | JsonException $error) {
+            $this->assertStringContainsString($message, $error->getMessage());
+        }
+        $this->assertSame(0, $this->trackingCount());
+        $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM schema_migration_adoptions')->fetchColumn());
+        $this->assertFalse($this->db->inTransaction());
+        $this->assertMigrationLockFree();
+    }
+
+    public function testLegacyV2AdoptionRejectsUncorrectedIconDefault(): void
+    {
+        $runner = $this->legacyV2AdoptionRunner(false);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('correct NPC icon default');
+        $runner->adoptLegacyV2History(true);
+    }
+
+    public function testLegacyV2AdoptionRejectsChangedSourceBeforeWrites(): void
+    {
+        $runner = $this->legacyV2AdoptionRunner();
+        file_put_contents($this->sqlDir . '/migrate_v2.sql', "\n-- changed\n", FILE_APPEND);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('changed SQL');
+        $runner->adoptLegacyV2History(false);
+    }
+
+    public function testLegacyV2AdoptionEvidenceAndTrackingRollBackTogether(): void
+    {
+        $runner = $this->legacyV2AdoptionRunner();
+        $this->db->exec(
+            "CREATE TRIGGER reject_tracking BEFORE INSERT ON schema_migrations FOR EACH ROW
+             SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='injected V2 adoption failure'"
+        );
+        try {
+            $runner->adoptLegacyV2History(false);
+            $this->fail('Tracking failure must roll back V2 evidence.');
+        } catch (PDOException $error) {
+            $this->assertStringContainsString('injected V2 adoption failure', $error->getMessage());
+        }
+        $this->assertSame(0, $this->trackingCount());
+        $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM schema_migration_adoptions')->fetchColumn());
+    }
+
+    public function testLegacyV2AdoptionStatusRejectsDriftedEvidence(): void
+    {
+        $runner = $this->legacyV2AdoptionRunner();
+        $runner->adoptLegacyV2History(false);
+        $proof = $this->db->query('SELECT evidence_json FROM schema_migration_adoptions')->fetchColumn();
+        $original = json_decode($proof, true, 512, JSON_THROW_ON_ERROR);
+        $mutations = [
+            ['policy', 'replay-old-sql'], ['descriptor_sha256', str_repeat('0', 64)],
+            ['schema_sha256', 'malformed'], ['achievement_seed_count', 12],
+            ['tables', []], ['identity_sha256', str_repeat('0', 64)],
+        ];
+        foreach ($mutations as [$key, $value]) {
+            $evidence = $original;
+            $evidence[$key] = $value;
+            $this->db->prepare('UPDATE schema_migration_adoptions SET evidence_json=?')
+                ->execute([json_encode($evidence, JSON_THROW_ON_ERROR)]);
+            try {
+                $runner->getStatus();
+                $this->fail('Drifted V2 evidence must reject status: ' . $key);
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('Legacy V2', $error->getMessage());
+            }
+        }
+        $this->db->prepare('UPDATE schema_migration_adoptions SET evidence_json=?')->execute([$proof]);
+        $this->assertSame(1, $runner->verifyDeployment());
+    }
+
+    public function testNpcIconDefaultRepairIsRepeatableAndPreservesExistingValues(): void
+    {
+        $this->db->exec("CREATE TABLE npc_factions (id INT PRIMARY KEY,icon VARCHAR(4) NOT NULL DEFAULT 'bad') ENGINE=InnoDB");
+        $this->db->exec("INSERT INTO npc_factions VALUES (1,'old')");
+        $runner = $this->buildRunner($this->readSqlForTestDatabase('migrate_npc_icon_default_v1.sql'));
+        $this->assertCount(1, $runner->runUp());
+        $this->assertSame([], $runner->runUp());
+        $this->db->exec($this->readSqlForTestDatabase('migrate_npc_icon_default_v1.sql'));
+        $this->db->exec('INSERT INTO npc_factions (id) VALUES (2)');
+        $this->assertSame(['6F6C64', 'F09F91BE'], $this->db->query('SELECT HEX(icon) FROM npc_factions ORDER BY id')->fetchAll(PDO::FETCH_COLUMN));
+        $this->assertSame(1, $this->trackingCount());
+    }
+
+    /** @return array<string, array{bool}> */
+    public static function dailyQuestSchemaProvider(): array
+    {
+        return ['legacy missing columns' => [true], 'current base schema' => [false]];
+    }
+
+    #[DataProvider('dailyQuestSchemaProvider')]
+    public function testDailyQuestMigrationPreservesCatalogueWithoutActivatingGeneration(bool $legacy): void
+    {
+        $this->db->exec($this->readSqlForTestDatabase('schema.sql'));
+        if ($legacy) {
+            $this->db->exec(
+                'ALTER TABLE faction_quests DROP COLUMN active, DROP COLUMN template_code,
+                 DROP COLUMN generated_by_npc, DROP COLUMN generated_timestamp'
+            );
+        }
+        $columns = $this->db->query(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='faction_quests' ORDER BY ORDINAL_POSITION"
+        )->fetchAll(PDO::FETCH_COLUMN);
+        $projection = implode(',', array_map(static fn(string $column): string => '`' . $column . '`', $columns));
+        $catalogue = $this->db->query('SELECT ' . $projection . ' FROM faction_quests ORDER BY id')
+            ->fetchAll(PDO::FETCH_ASSOC);
+        $this->assertNotEmpty($catalogue);
+        $runner = $this->buildRunner($this->readSqlForTestDatabase('migrate_npc_daily_quests_v2.sql'));
+        $this->assertCount(1, $runner->runUp());
+        $this->assertSame([], $runner->runUp());
+        $this->db->exec($this->readSqlForTestDatabase('migrate_npc_daily_quests_v2.sql'));
+        $this->assertSame($catalogue, $this->db->query(
+            'SELECT ' . $projection . ' FROM faction_quests ORDER BY id'
+        )->fetchAll(PDO::FETCH_ASSOC));
+        $this->assertSame(0, (int)$this->db->query(
+            'SELECT COUNT(*) FROM faction_quests
+             WHERE active<>1 OR generated_by_npc<>0 OR template_code IS NOT NULL OR generated_timestamp IS NOT NULL'
+        )->fetchColumn());
+        $this->assertSame(4, (int)$this->db->query('SELECT COUNT(*) FROM quest_templates')->fetchColumn());
+        $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM npc_quest_generation_log')->fetchColumn());
+        $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM user_faction_quests')->fetchColumn());
+        $this->assertSame(0, (int)$this->db->query(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='users' AND COLUMN_NAME='is_npc'"
+        )->fetchColumn());
+        $this->assertSame(1, $this->trackingCount());
     }
 
     public function testLegacyBackfillsPreserveOwnershipResourcesAndExistingLinks(): void
@@ -878,6 +1649,793 @@ final class MigrationRunnerMySqlTest extends TestCase
         \GalaxyQuest\Schema\GalaxySchema::assertSystemProjection($this->db);
         $this->assertSame([], $runner->runUp());
         $this->assertFalse($this->db->inTransaction());
+    }
+
+    private function economyHistoryRunner(): MigrationRunner
+    {
+        $manifest = [
+            'migrate_economy_v1.sql',
+            'migrate_economy_v2.sql',
+            'migrate_economy_v3.sql',
+            'migrate_economy_policies_v1.sql',
+            'migrate_economy_shortage_v1.sql',
+        ];
+        foreach ($manifest as $file) {
+            file_put_contents($this->sqlDir . '/' . $file, $this->readSqlForTestDatabase($file));
+        }
+        file_put_contents($this->sqlDir . '/manifest.php', '<?php return ' . var_export($manifest, true) . ';');
+        $runner = new MigrationRunner($this->db, $this->sqlDir, 'TEST', $this->sqlDir . '/manifest.php');
+        $runner->bootstrap();
+        return $runner;
+    }
+
+    public function testEconomyHistoryRepeatPreservesEvolvedMarketsPoliciesAndInventories(): void
+    {
+        $this->db->exec('SET SESSION information_schema_stats_expiry=0');
+        $runner = $this->economyHistoryRunner();
+        $this->assertCount(5, $runner->runUp());
+        $this->assertSame(23, (int)$this->db->query('SELECT COUNT(*) FROM economy_market_prices')->fetchColumn());
+        $this->db->exec(<<<'SQL'
+            UPDATE economy_market_prices SET supply=123.4567,demand=7.8901,price_mult=1.2345;
+            INSERT INTO economy_market_prices (good_type,supply,demand,price_mult)
+                VALUES ('future_good',12,34,2);
+            INSERT INTO economy_policies
+                (user_id,global_policy,tax_income,tax_production,tax_trade,subsidy_research)
+                VALUES (7,'mercantilism',0.2345,0.1234,0.0678,1);
+            INSERT INTO economy_processed_goods
+                (colony_id,good_type,quantity,capacity,production_rate_per_hour,
+                 consumption_rate_per_hour,last_calculated_at)
+                VALUES (3,'steel_alloy',234.5678,6789.1234,12.3456,2.3456,'2026-01-02 03:04:05');
+            INSERT INTO economy_pop_classes
+                (colony_id,pop_class,count,satisfaction_index,employment_level,migration_rate,
+                 wage_requirement,last_satisfaction_calc)
+                VALUES (3,'citizen',123,61.23,78.90,1.23,111.2345,'2026-01-02 03:04:05');
+            SQL);
+        $tables = $this->db->query(
+            "SELECT TABLE_NAME FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME LIKE 'economy\\_%' ORDER BY TABLE_NAME"
+        )->fetchAll(PDO::FETCH_COLUMN);
+        $this->assertCount(11, $tables);
+        $before = [];
+        $definitions = [];
+        foreach ($tables as $table) {
+            $before[$table] = $this->db->query('SELECT * FROM ' . $table . ' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+            $definitions[$table] = preg_replace(
+                '/ AUTO_INCREMENT=\d+/',
+                '',
+                $this->db->query('SHOW CREATE TABLE ' . $table)->fetch(PDO::FETCH_NUM)[1]
+            );
+        }
+        $marketSequence = (int)$this->db->query(
+            "SELECT AUTO_INCREMENT FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='economy_market_prices'"
+        )->fetchColumn();
+        $this->assertSame([], $runner->runUp());
+        // Recreate the untracked-history case, then replay the original scripts without settlement.
+        $this->db->exec('DELETE FROM schema_migrations');
+        $this->assertCount(5, $runner->runUp());
+        $this->assertSame(5, $runner->verifyDeployment());
+        foreach ($tables as $table) {
+            $this->assertSame($before[$table], $this->db->query(
+                'SELECT * FROM ' . $table . ' ORDER BY id'
+            )->fetchAll(PDO::FETCH_ASSOC));
+            $this->assertSame($definitions[$table], preg_replace(
+                '/ AUTO_INCREMENT=\d+/',
+                '',
+                $this->db->query('SHOW CREATE TABLE ' . $table)->fetch(PDO::FETCH_NUM)[1]
+            ));
+        }
+        // INSERT IGNORE retains rows but still allocates IDs for its 23 attempted seed inserts.
+        $this->assertSame($marketSequence + 23, (int)$this->db->query(
+            "SELECT AUTO_INCREMENT FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='economy_market_prices'"
+        )->fetchColumn());
+        $columns = $this->db->query(
+            "SELECT COLUMN_NAME,COLUMN_TYPE FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='economy_policies'"
+        )->fetchAll(PDO::FETCH_KEY_PAIR);
+        $this->assertSame('varchar(32)', $columns['global_policy']);
+        $this->assertSame('decimal(5,4)', $columns['tax_income']);
+        $this->assertArrayHasKey('tax_production', $columns);
+        $this->assertArrayNotHasKey('tax_resources', $columns);
+        $this->assertArrayNotHasKey('happiness_policy_weight', $columns);
+        $this->assertFalse($this->db->inTransaction());
+    }
+
+    public function testEconomyPolicyStandaloneDefinitionDoesNotDescribeCanonicalReplay(): void
+    {
+        $this->db->exec('CREATE TABLE users (id INT PRIMARY KEY) ENGINE=InnoDB');
+        $runner = $this->buildRunner($this->readSqlForTestDatabase('migrate_economy_policies_v1.sql'));
+        $this->assertCount(1, $runner->runUp());
+        $this->db->exec('INSERT INTO users VALUES (7); INSERT INTO economy_policies (user_id) VALUES (7)');
+        $row = $this->db->query(
+            'SELECT global_policy,tax_income,tax_trade,tax_resources,
+                    subsidy_agriculture,subsidy_research,subsidy_military,happiness_policy_weight
+             FROM economy_policies'
+        )->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame([50, 20, 15, 10, 5, 10, 3], array_map('intval', array_slice(array_values($row), 0, 7)));
+        $this->assertSame(0.5, (float)$row['happiness_policy_weight']);
+        $this->assertSame([], $runner->runUp());
+        $this->db->exec('DELETE FROM users WHERE id=7');
+        $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM economy_policies')->fetchColumn());
+    }
+
+    #[DataProvider('economyMarkerGuardCases')]
+    public function testEconomyHistoryMarkerGuardsDoNotProveCompleteSiblingColumns(
+        string $table,
+        string $marker,
+        string $sibling
+    ): void {
+        $runner = $this->economyHistoryRunner();
+        $this->assertCount(5, $runner->runUp());
+        $this->db->exec('ALTER TABLE ' . $table . ' DROP COLUMN ' . $sibling);
+        $this->db->exec('DELETE FROM schema_migrations');
+        $this->assertCount(5, $runner->runUp());
+        $q = $this->db->prepare(
+            'SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?'
+        );
+        $q->execute([$table]);
+        $columns = $q->fetchAll(PDO::FETCH_COLUMN);
+        $this->assertContains($marker, $columns);
+        $this->assertNotContains($sibling, $columns);
+        // A successful replay/verify only checks tracked source bytes, not this missing schema postcondition.
+        $this->assertSame(5, $runner->verifyDeployment());
+    }
+
+    public static function economyMarkerGuardCases(): array
+    {
+        return [
+            'rate sibling missing' => ['economy_processed_goods', 'last_calculated_at', 'consumption_rate_per_hour'],
+            'satisfaction sibling missing' => ['economy_pop_classes', 'satisfaction_index', 'employment_level'],
+        ];
+    }
+
+    public function testEmpireCategoriesHistoryRequiresSeparateEspionageApiReconciliation(): void
+    {
+        $runner = $this->buildRunner($this->readSqlForTestDatabase('migrate_empire_categories_v1.sql'));
+        $this->assertCount(1, $runner->runUp());
+        foreach (['empire_category_scores', 'espionage_agents', 'espionage_missions'] as $table) {
+            $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn());
+        }
+        $this->assertSame([], $runner->runUp());
+        $this->db->exec('INSERT INTO empire_category_scores (user_id) VALUES (7)');
+        $this->assertSame(0, (int)$this->db->query('SELECT total_score FROM empire_category_scores')->fetchColumn());
+        $this->assertSame('D', $this->db->query(
+            "SELECT COLLATION FROM information_schema.STATISTICS
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='empire_category_scores' AND INDEX_NAME='idx_ecs_total'"
+        )->fetchColumn());
+        $columns = $this->db->query(
+            "SELECT COLUMN_NAME,COLUMN_TYPE FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='espionage_missions'"
+        )->fetchAll(PDO::FETCH_KEY_PAIR);
+        $this->assertArrayHasKey('resolves_at', $columns);
+        $this->assertArrayNotHasKey('completes_at', $columns);
+        $this->assertSame("enum('active','success','failure','captured')", $columns['status']);
+        $this->assertStringNotContainsString('military_recon', $columns['mission_type']);
+        try {
+            // The retired API projection is incompatible with the immutable historical schema.
+            $this->db->query('SELECT id,completes_at FROM espionage_missions');
+            $this->fail('Historical tables alone must not be declared API-ready.');
+        } catch (PDOException $error) {
+            $this->assertSame(1054, $error->errorInfo[1]);
+        }
+        $this->db->exec(
+            "INSERT INTO espionage_agents (id,user_id,name,skill_level) VALUES (1,7,'Preserved agent',6);
+             INSERT INTO espionage_missions (agent_id,owner_user_id,mission_type,status,resolves_at)
+             VALUES (1,7,'gather_intel','success','2026-01-02 03:04:05')"
+        );
+        $before = [];
+        foreach (['empire_category_scores', 'espionage_agents', 'espionage_missions'] as $table) {
+            $before[$table] = $this->db->query('SELECT * FROM ' . $table . ' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+        }
+        $this->db->exec('DELETE FROM schema_migrations');
+        $this->assertCount(1, $runner->runUp());
+        $this->assertSame(1, $runner->verifyDeployment());
+        foreach ($before as $table => $rows) {
+            $this->assertSame($rows, $this->db->query(
+                'SELECT * FROM ' . $table . ' ORDER BY id'
+            )->fetchAll(PDO::FETCH_ASSOC));
+        }
+        $this->assertSame([], $runner->runUp());
+    }
+
+    private function economyAdoptionRunner(): MigrationRunner
+    {
+        $this->db->exec(
+            'SET SESSION information_schema_stats_expiry=0;
+             CREATE TABLE users (id INT PRIMARY KEY) ENGINE=InnoDB;
+             CREATE TABLE colonies (id INT PRIMARY KEY,user_id INT NOT NULL,last_update DATETIME,
+                 metal DECIMAL(14,4) NOT NULL DEFAULT 0) ENGINE=InnoDB;
+             INSERT INTO users VALUES (7);
+             INSERT INTO colonies VALUES (3,7,"2026-01-02 03:04:05",987.6543)'
+        );
+        $setup = $this->economyHistoryRunner();
+        $setup->runUp();
+        $this->db->exec(<<<'SQL'
+            DELETE FROM schema_migrations;
+            UPDATE economy_market_prices SET supply=123.4567,demand=7.8901,price_mult=1.2345;
+            INSERT INTO economy_market_prices (good_type,supply,demand,price_mult)
+                VALUES ('future_good',12,34,2);
+            INSERT INTO economy_policies
+                (user_id,global_policy,tax_income,tax_production,tax_trade,subsidy_research)
+                VALUES (7,'mercantilism',0.2345,0.1234,0.0678,1);
+            INSERT INTO economy_processed_goods
+                (colony_id,good_type,quantity,production_rate_per_hour,last_calculated_at)
+                VALUES (3,'steel_alloy',234.5678,12.3456,'2026-01-02 03:04:05');
+            INSERT INTO economy_pop_classes
+                (colony_id,pop_class,count,satisfaction_index,last_satisfaction_calc)
+                VALUES (3,'citizen',123,61.23,'2026-01-02 03:04:05');
+            SQL);
+        foreach (
+            [
+                'migrate_economy_v1.sql', 'migrate_economy_v2.sql', 'migrate_economy_v3.sql',
+                'migrate_economy_policies_v1.sql', 'migrate_economy_shortage_v1.sql', 'schema_migration_adoptions.sql',
+            ] as $file
+        ) {
+            copy(__DIR__ . '/../../sql/' . $file, $this->sqlDir . '/' . $file);
+        }
+        return new MigrationRunner($this->db, $this->sqlDir, 'TEST', $this->sqlDir . '/manifest.php');
+    }
+
+    public function testEconomyAdoptionPreservesAllRowsSequencesAndRepeatProofWithoutReplay(): void
+    {
+        $runner = $this->economyAdoptionRunner();
+        $tables = $this->db->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
+        $before = [];
+        $definitions = [];
+        foreach ($tables as $table) {
+            $before[$table] = $this->db->query(
+                'SELECT * FROM `' . $table . '` ORDER BY id'
+            )->fetchAll(PDO::FETCH_ASSOC);
+            $definitions[$table] = $this->db->query('SHOW CREATE TABLE `' . $table . '`')->fetch(PDO::FETCH_NUM)[1];
+        }
+        $preview = $runner->adoptEconomyHistory(true);
+        $this->assertCount(5, $preview['adopted']);
+        $this->assertCount(11, $preview['evidence']['tables']);
+        $this->assertSame(23, $preview['evidence']['market_seed_count']);
+        $this->assertSame(0, $this->trackingCount());
+        $this->assertSame(0, (int)$this->db->query(
+            "SELECT COUNT(*) FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='schema_migration_adoptions'"
+        )->fetchColumn());
+        $result = $runner->adoptEconomyHistory(false);
+        $this->assertSame($preview['adopted'], $result['adopted']);
+        $this->assertSame($preview['evidence'], $result['evidence']);
+        $this->assertFalse($result['dry_run']);
+        foreach ($tables as $table) {
+            if ($table === 'schema_migrations') {
+                continue;
+            }
+            $this->assertSame($before[$table], $this->db->query(
+                'SELECT * FROM `' . $table . '` ORDER BY id'
+            )->fetchAll(PDO::FETCH_ASSOC));
+            $this->assertSame($definitions[$table], $this->db->query(
+                'SHOW CREATE TABLE `' . $table . '`'
+            )->fetch(PDO::FETCH_NUM)[1]);
+        }
+        $tracking = $this->db->query('SELECT * FROM schema_migrations ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+        $proofs = $this->db->query(
+            'SELECT * FROM schema_migration_adoptions ORDER BY migration_name'
+        )->fetchAll(PDO::FETCH_ASSOC);
+        $this->assertCount(5, $proofs);
+        $this->assertSame(['ADOPTED'], array_values(array_unique(array_column($tracking, 'environment'))));
+        $this->assertSame(
+            ['adopted'],
+            array_values(array_unique(array_column($runner->getStatus(), 'execution_kind')))
+        );
+        $this->assertSame(5, $runner->verifyDeployment());
+        $this->assertSame([], $runner->runUp());
+        $repeat = $runner->adoptEconomyHistory(false);
+        $this->assertSame([], $repeat['adopted']);
+        $this->assertSame($preview['evidence'], $repeat['evidence']);
+        $this->assertSame($tracking, $this->db->query(
+            'SELECT * FROM schema_migrations ORDER BY id'
+        )->fetchAll(PDO::FETCH_ASSOC));
+        $this->assertSame($proofs, $this->db->query(
+            'SELECT * FROM schema_migration_adoptions ORDER BY migration_name'
+        )->fetchAll(PDO::FETCH_ASSOC));
+        try {
+            $runner->runRollback();
+            $this->fail('Economy adoption must not execute rollback SQL.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('adopted history', $error->getMessage());
+        }
+        $this->assertFalse($this->db->inTransaction());
+        $this->assertMigrationLockFree();
+    }
+
+    /** @return iterable<string,array{string,string}> */
+    public static function invalidEconomyAdoptionStates(): iterable
+    {
+        yield 'missing rate sibling' => [
+            'ALTER TABLE economy_processed_goods DROP COLUMN consumption_rate_per_hour',
+            'economy_processed_goods.consumption_rate_per_hour',
+        ];
+        yield 'missing satisfaction sibling' => [
+            'ALTER TABLE economy_pop_classes DROP COLUMN employment_level', 'economy_pop_classes.employment_level',
+        ];
+        yield 'wrong tax units' => [
+            'ALTER TABLE economy_policies MODIFY tax_income INT NOT NULL DEFAULT 20', 'economy_policies.tax_income',
+        ];
+        yield 'wrong policy type' => [
+            "ALTER TABLE economy_policies MODIFY global_policy VARCHAR(64) NOT NULL DEFAULT 'free_market'",
+            'economy_policies.global_policy',
+        ];
+        yield 'narrowed precision' => [
+            'ALTER TABLE economy_processed_goods MODIFY quantity DECIMAL(12,2) NOT NULL DEFAULT 0',
+            'economy_processed_goods.quantity',
+        ];
+        yield 'wrong nullability' => [
+            'ALTER TABLE economy_processed_goods MODIFY last_calculated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP',
+            'economy_processed_goods.last_calculated_at',
+        ];
+        yield 'incomplete unique key' => [
+            'ALTER TABLE economy_processed_goods DROP INDEX uq_colony_good,
+             ADD UNIQUE KEY partial_good(colony_id,good_type(32))', 'visible index',
+        ];
+        yield 'widened uniqueness' => [
+            'ALTER TABLE economy_processed_goods DROP INDEX uq_colony_good,
+             ADD UNIQUE KEY wider_good(colony_id,good_type,quantity)', 'visible index',
+        ];
+        yield 'invisible lookup' => [
+            'ALTER TABLE economy_pop_classes ALTER INDEX idx_satisfaction INVISIBLE', 'visible index',
+        ];
+        yield 'missing market key' => [
+            "DELETE FROM economy_market_prices WHERE good_type='food'", 'market seed key: food',
+        ];
+        yield 'nontransactional log' => ['ALTER TABLE economy_shortage_events ENGINE=MyISAM', 'InnoDB'];
+        yield 'unaudited foreign key' => [
+            'ALTER TABLE economy_market_transactions ADD CONSTRAINT extra_actor
+             FOREIGN KEY (user_id) REFERENCES economy_policies(user_id)', 'unaudited foreign keys',
+        ];
+    }
+
+    #[DataProvider('invalidEconomyAdoptionStates')]
+    public function testEconomyAdoptionRejectsIncompleteOrUnauditedStateWithoutHistory(
+        string $mutation,
+        string $message
+    ): void {
+        $runner = $this->economyAdoptionRunner();
+        $this->db->exec($mutation);
+        try {
+            $runner->adoptEconomyHistory(false);
+            $this->fail('Invalid Economy state must reject adoption.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString($message, $error->getMessage());
+        }
+        $this->assertSame(0, $this->trackingCount());
+        $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM schema_migration_adoptions')->fetchColumn());
+        $this->assertFalse($this->db->inTransaction());
+        $this->assertMigrationLockFree();
+    }
+
+    public function testEconomyAdoptionRollsBackWholeFiveFileBatchOnTrackingFailureAndCanRetry(): void
+    {
+        $runner = $this->economyAdoptionRunner();
+        $this->db->exec(
+            "CREATE TRIGGER fail_economy_tracking BEFORE INSERT ON schema_migrations FOR EACH ROW
+             BEGIN IF NEW.migration_name='migrate_economy_v3.sql' THEN
+             SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='fixture tracking failure'; END IF; END"
+        );
+        $before = $runner->adoptEconomyHistory(true)['evidence'];
+        try {
+            $runner->adoptEconomyHistory(false);
+            $this->fail('Tracking failure must abort the complete batch.');
+        } catch (PDOException $error) {
+            $this->assertStringContainsString('fixture tracking failure', $error->getMessage());
+        }
+        $this->assertSame(0, $this->trackingCount());
+        $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM schema_migration_adoptions')->fetchColumn());
+        $this->assertFalse($this->db->inTransaction());
+        $this->assertMigrationLockFree();
+        $this->db->exec('DROP TRIGGER fail_economy_tracking');
+        $result = $runner->adoptEconomyHistory(false);
+        $this->assertSame($before, $result['evidence']);
+        $this->assertCount(5, $result['adopted']);
+        $this->assertSame(5, $runner->verifyDeployment());
+    }
+
+    public function testEconomyAdoptionRejectsChangedSourceBeforeAnyEvidenceWrites(): void
+    {
+        $runner = $this->economyAdoptionRunner();
+        file_put_contents($this->sqlDir . '/migrate_economy_v2.sql', "\n-- changed\n", FILE_APPEND);
+        try {
+            $runner->adoptEconomyHistory(false);
+            $this->fail('Changed source must not be adopted.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('changed SQL', $error->getMessage());
+        }
+        $this->assertSame(0, $this->trackingCount());
+        $this->assertSame(0, (int)$this->db->query(
+            "SELECT COUNT(*) FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='schema_migration_adoptions'"
+        )->fetchColumn());
+    }
+
+    /** @return iterable<string,array{string}> */
+    public static function invalidEconomyProofFields(): iterable
+    {
+        foreach (
+            ['policy', 'descriptor_sha256', 'schema_sha256', 'market_seed_count', 'tables', 'identity_sha256'] as $key
+        ) {
+            yield $key => [$key];
+        }
+    }
+
+    #[DataProvider('invalidEconomyProofFields')]
+    public function testEconomyAdoptionVerificationRejectsCorruptedProof(string $key): void
+    {
+        $runner = $this->economyAdoptionRunner();
+        $result = $runner->adoptEconomyHistory(false);
+        $evidence = $result['evidence'];
+        $evidence[$key] = $key === 'tables' ? [] : 'invalid';
+        $this->db->prepare(
+            'UPDATE schema_migration_adoptions SET evidence_json=? WHERE migration_name=?'
+        )->execute([json_encode($evidence, JSON_THROW_ON_ERROR), 'migrate_economy_v2.sql']);
+        try {
+            $runner->getStatus();
+            $this->fail('Status must reject corrupt proof.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('evidence', $error->getMessage());
+        }
+        $this->expectException(RuntimeException::class);
+        $runner->runUp();
+    }
+
+    public function testEconomyAdoptionPreservesExecutedSubsetAndFutureGameplayMayEvolve(): void
+    {
+        $runner = $this->economyAdoptionRunner();
+        $this->db->prepare(
+            'INSERT INTO schema_migrations (migration_name,checksum,environment,execution_ms) VALUES (?,?,?,?)'
+        )->execute(['migrate_economy_v1.sql', md5_file($this->sqlDir . '/migrate_economy_v1.sql'), 'TEST', 123]);
+        $before = $this->db->query('SELECT * FROM schema_migrations')->fetchAll(PDO::FETCH_ASSOC);
+        $result = $runner->adoptEconomyHistory(false);
+        $this->assertCount(4, $result['adopted']);
+        $this->assertSame($before, $this->db->query(
+            "SELECT * FROM schema_migrations WHERE migration_name='migrate_economy_v1.sql'"
+        )->fetchAll(PDO::FETCH_ASSOC));
+        $this->db->exec('UPDATE economy_market_prices SET demand=demand+1');
+        $this->assertSame(5, $runner->verifyDeployment());
+        $repeat = $runner->adoptEconomyHistory(true);
+        $this->assertSame([], $repeat['adopted']);
+        $this->assertNotSame($result['evidence']['identity_sha256'], $repeat['evidence']['identity_sha256']);
+    }
+
+    private function authAdoptionRunner(): MigrationRunner
+    {
+        $this->db->exec('ALTER DATABASE `' . $this->database . '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+        $this->db->exec(
+            "CREATE TABLE users (id INT PRIMARY KEY,ftl_cooldown_until DATETIME NULL,last_npc_tick DATETIME NULL,
+                is_admin TINYINT NOT NULL DEFAULT 0,control_type VARCHAR(32) NOT NULL DEFAULT 'human',
+                auth_enabled TINYINT NOT NULL DEFAULT 1) ENGINE=InnoDB;
+             INSERT INTO users (id) VALUES (7);
+             INSERT INTO users (id,control_type,auth_enabled) VALUES (8,'npc_engine',0)"
+        );
+        $manifest = ['migrate_security_v1.sql', 'migrate_security_v2_totp.sql', 'migrate_admin_user_crud_v1.sql'];
+        $parser = new MigrationRunner($this->db, $this->sqlDir);
+        foreach ($manifest as $file) {
+            copy(__DIR__ . '/../../sql/' . $file, $this->sqlDir . '/' . $file);
+            foreach ($parser->splitStatements($this->readSqlForTestDatabase($file)) as $sql) {
+                $this->db->exec($sql);
+            }
+        }
+        copy(__DIR__ . '/../../sql/schema_migration_adoptions.sql', $this->sqlDir . '/schema_migration_adoptions.sql');
+        file_put_contents($this->sqlDir . '/manifest.php', '<?php return ' . var_export($manifest, true) . ';');
+        $runner = new MigrationRunner($this->db, $this->sqlDir, 'TEST', $this->sqlDir . '/manifest.php');
+        $runner->bootstrap();
+        $this->db->exec(
+            "UPDATE users SET totp_enabled=1,totp_secret='synthetic-test-material',
+                totp_pending_secret='synthetic-pending-material',deleted_at='2026-01-02 03:04:05',deleted_by=8
+                WHERE id=7"
+        );
+        $this->db->prepare(
+            "INSERT INTO login_attempts (ip_hash,attempt_count,locked_until) VALUES (?,7,'2030-01-01 00:00:00')"
+        )->execute([str_repeat('a', 64)]);
+        $this->db->prepare(
+            "INSERT INTO totp_pending_sessions (token,user_id,expires_at,attempts,remember_me)
+             VALUES (?,7,'2030-01-01 00:00:00',3,1)"
+        )->execute([str_repeat('b', 64)]);
+        return $runner;
+    }
+
+    public function testAuthAdoptionPreservesAccountsAuthMaterialAndLockoutsWithoutReplay(): void
+    {
+        $runner = $this->authAdoptionRunner();
+        $before = [];
+        foreach (['users', 'login_attempts', 'totp_pending_sessions'] as $table) {
+            $before[$table] = $this->db->query('SELECT * FROM ' . $table)->fetchAll(PDO::FETCH_ASSOC);
+        }
+        $preview = $runner->adoptAuthHistory(true);
+        $this->assertCount(3, $preview['adopted']);
+        $this->assertSame(0, $this->trackingCount());
+        $result = $runner->adoptAuthHistory(false);
+        $this->assertSame($preview['evidence'], $result['evidence']);
+        $this->assertStringNotContainsString('synthetic-test-material', json_encode($result['evidence']));
+        foreach ($before as $table => $rows) {
+            $this->assertSame($rows, $this->db->query('SELECT * FROM ' . $table)->fetchAll(PDO::FETCH_ASSOC));
+        }
+        $this->assertSame(3, $runner->verifyDeployment());
+        $this->assertSame([], $runner->runUp());
+        $proofs = $this->db->query('SELECT * FROM schema_migration_adoptions ORDER BY migration_name')->fetchAll();
+        $this->assertSame([], $runner->adoptAuthHistory(false)['adopted']);
+        $this->assertSame($proofs, $this->db->query(
+            'SELECT * FROM schema_migration_adoptions ORDER BY migration_name'
+        )->fetchAll());
+        $this->assertSame(
+            ['adopted'],
+            array_values(array_unique(array_column($runner->getStatus(), 'execution_kind')))
+        );
+        try {
+            $runner->runRollback();
+            $this->fail('Adopted auth history must not run down SQL.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('adopted history', $error->getMessage());
+        }
+        $this->assertFalse($this->db->inTransaction());
+        $this->assertMigrationLockFree();
+    }
+
+    /** @return iterable<string,array{string,string}> */
+    public static function invalidAuthAdoptionStates(): iterable
+    {
+        yield 'missing soft-delete index behind marker' => [
+            'ALTER TABLE users DROP INDEX idx_users_deleted', 'visible index',
+        ];
+        yield 'missing setup field' => [
+            'ALTER TABLE users DROP COLUMN totp_pending_secret', 'users.totp_pending_secret',
+        ];
+        yield 'wrong TOTP flag default' => [
+            'ALTER TABLE users ALTER COLUMN totp_enabled SET DEFAULT 1', 'users.totp_enabled',
+        ];
+        yield 'missing remember choice' => [
+            'ALTER TABLE totp_pending_sessions DROP COLUMN remember_me', 'totp_pending_sessions.remember_me',
+        ];
+        yield 'short token key' => [
+            'ALTER TABLE totp_pending_sessions DROP PRIMARY KEY, ADD UNIQUE KEY partial_token(token(32))',
+            'visible index',
+        ];
+        yield 'invisible lockout lookup' => [
+            'ALTER TABLE login_attempts ALTER INDEX idx_locked_until INVISIBLE', 'visible index',
+        ];
+        yield 'changed FK rule' => [
+            'ALTER TABLE totp_pending_sessions DROP FOREIGN KEY totp_pending_sessions_ibfk_1,
+             ADD CONSTRAINT alternate_fk FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE RESTRICT',
+            'foreign key mismatch',
+        ];
+        yield 'missing pending FK' => [
+            'ALTER TABLE totp_pending_sessions DROP FOREIGN KEY totp_pending_sessions_ibfk_1', 'foreign key mismatch',
+        ];
+        yield 'orphan pending session' => [
+            'SET FOREIGN_KEY_CHECKS=0; UPDATE totp_pending_sessions SET user_id=999; SET FOREIGN_KEY_CHECKS=1',
+            'orphan TOTP',
+        ];
+        yield 'nontransactional lockout' => ['ALTER TABLE login_attempts ENGINE=MyISAM', 'InnoDB'];
+    }
+
+    #[DataProvider('invalidAuthAdoptionStates')]
+    public function testAuthAdoptionRejectsIncompletePostconditionsWithoutHistory(string $sql, string $message): void
+    {
+        $runner = $this->authAdoptionRunner();
+        $this->db->exec($sql);
+        try {
+            $runner->adoptAuthHistory(false);
+            $this->fail('Incomplete auth schema must reject adoption.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString($message, $error->getMessage());
+        }
+        $this->assertSame(0, $this->trackingCount());
+        $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM schema_migration_adoptions')->fetchColumn());
+        $this->assertFalse($this->db->inTransaction());
+        $this->assertMigrationLockFree();
+    }
+
+    public function testAuthAdoptionWholeBatchRollsBackAndRetryPreservesEarlierExecutedRecord(): void
+    {
+        $runner = $this->authAdoptionRunner();
+        $this->db->prepare(
+            'INSERT INTO schema_migrations (migration_name,checksum,environment,execution_ms) VALUES (?,?,?,?)'
+        )->execute(['migrate_security_v1.sql', md5_file($this->sqlDir . '/migrate_security_v1.sql'), 'TEST', 123]);
+        $before = $this->db->query('SELECT * FROM schema_migrations')->fetchAll();
+        $this->db->exec(
+            "CREATE TRIGGER fail_auth_tracking BEFORE INSERT ON schema_migrations FOR EACH ROW BEGIN
+             IF NEW.migration_name='migrate_admin_user_crud_v1.sql' THEN
+             SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='auth fixture write failure'; END IF; END"
+        );
+        try {
+            $runner->adoptAuthHistory(false);
+            $this->fail('Tracking failure must abort both new auth pairs.');
+        } catch (PDOException $error) {
+            $this->assertStringContainsString('auth fixture write failure', $error->getMessage());
+        }
+        $this->assertSame($before, $this->db->query('SELECT * FROM schema_migrations')->fetchAll());
+        $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM schema_migration_adoptions')->fetchColumn());
+        $this->db->exec('DROP TRIGGER fail_auth_tracking');
+        $this->assertCount(2, $runner->adoptAuthHistory(false)['adopted']);
+        $this->assertSame($before, $this->db->query(
+            "SELECT * FROM schema_migrations WHERE migration_name='migrate_security_v1.sql'"
+        )->fetchAll());
+        $this->assertSame(3, $runner->verifyDeployment());
+    }
+
+    public function testAuthAdoptionRejectsChangedSourceAndCorruptProof(): void
+    {
+        $runner = $this->authAdoptionRunner();
+        $file = $this->sqlDir . '/migrate_security_v1.sql';
+        $original = file_get_contents($file);
+        file_put_contents($file, $original . "\n-- modified");
+        try {
+            $runner->adoptAuthHistory(false);
+            $this->fail('Changed SQL must reject adoption.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('changed SQL', $error->getMessage());
+        }
+        $this->assertSame(0, $this->trackingCount());
+        file_put_contents($file, $original);
+        $runner->adoptAuthHistory(false);
+        $this->db->exec(
+            "UPDATE schema_migration_adoptions SET evidence_json=JSON_SET(evidence_json,'$.policy','wrong')"
+        );
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('evidence');
+        $runner->getStatus();
+    }
+
+    public function testRbacInfrastructureSeedsNoAccountRolesAndRepeatPreservesAssignments(): void
+    {
+        $this->db->exec('CREATE TABLE users (id INT PRIMARY KEY,is_admin TINYINT NOT NULL DEFAULT 0) ENGINE=InnoDB;
+            INSERT INTO users VALUES (7,0),(8,1)');
+        $runner = $this->buildRunner($this->readSqlForTestDatabase('migrate_rbac_v1.sql'));
+        $this->assertCount(1, $runner->runUp());
+        foreach (
+            ['rbac_groups' => 5, 'rbac_profiles' => 6, 'rbac_group_profiles' => 5, 'rbac_user_groups' => 0] as $t => $c
+        ) {
+            $this->assertSame($c, (int)$this->db->query('SELECT COUNT(*) FROM ' . $t)->fetchColumn());
+        }
+        $this->assertSame([0, 1], array_map('intval', $this->db->query(
+            'SELECT is_admin FROM users ORDER BY id'
+        )->fetchAll(PDO::FETCH_COLUMN)));
+        $parents = $this->db->query(
+            'SELECT p.profile_key,parent.profile_key FROM rbac_profiles p
+             LEFT JOIN rbac_profiles parent ON parent.id=p.parent_profile_id ORDER BY p.profile_key'
+        )->fetchAll(PDO::FETCH_KEY_PAIR);
+        $this->assertSame(['admin' => 'user', 'base' => null, 'guest' => 'base',
+            'root' => 'admin', 'service' => 'base', 'user' => 'base'], $parents);
+        $this->db->exec(
+            "INSERT INTO rbac_user_groups (user_id,group_id,assigned_by,assigned_reason)
+             SELECT 7,id,8,'fixture approved assignment' FROM rbac_groups WHERE group_key='users';
+             UPDATE rbac_profiles SET profile_json=JSON_OBJECT('custom',true) WHERE profile_key='user'"
+        );
+        $assigned = $this->db->query('SELECT * FROM rbac_user_groups')->fetchAll();
+        $this->db->exec('DELETE FROM schema_migrations');
+        $this->assertCount(1, $runner->runUp());
+        $this->assertSame($assigned, $this->db->query('SELECT * FROM rbac_user_groups')->fetchAll());
+        $profile = json_decode($this->db->query(
+            "SELECT profile_json FROM rbac_profiles WHERE profile_key='user'"
+        )->fetchColumn(), true, 512, JSON_THROW_ON_ERROR);
+        ksort($profile);
+        $this->assertSame(['can_admin' => false, 'can_login' => true, 'ui_scope' => 'player'], $profile);
+        $this->assertSame([], $runner->runUp());
+        $this->assertSame(1, $runner->verifyDeployment());
+        $this->db->exec('DELETE FROM users WHERE id=8');
+        $this->assertNull($this->db->query('SELECT assigned_by FROM rbac_user_groups')->fetchColumn());
+        $this->db->exec('DELETE FROM users WHERE id=7');
+        $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM rbac_user_groups')->fetchColumn());
+    }
+
+    public function testAuthAdoptionRejectsMalformedSnapshotProofAndAllowsFutureAccountChanges(): void
+    {
+        $runner = $this->authAdoptionRunner();
+        $evidence = $runner->adoptAuthHistory(false)['evidence'];
+        foreach (['descriptor_sha256', 'schema_sha256', 'identity_sha256', 'tables'] as $field) {
+            $corrupt = $evidence;
+            $corrupt[$field] = $field === 'tables' ? [] : 'invalid';
+            try {
+                \GalaxyQuest\Migrations\AuthMigrationAdoption::validateEvidence($corrupt);
+                $this->fail('Corrupt auth proof field must reject: ' . $field);
+            } catch (RuntimeException $error) {
+                $this->assertStringContainsString('evidence', $error->getMessage());
+            }
+        }
+        $corrupt = $evidence;
+        $corrupt['tables']['users']['count'] = -1;
+        try {
+            \GalaxyQuest\Migrations\AuthMigrationAdoption::validateEvidence($corrupt);
+            $this->fail('Negative snapshot count must reject.');
+        } catch (RuntimeException $error) {
+            $this->assertStringContainsString('snapshot evidence', $error->getMessage());
+        }
+        $this->db->exec('UPDATE login_attempts SET attempt_count=attempt_count+1');
+        $this->assertSame(3, $runner->verifyDeployment());
+        $repeat = $runner->adoptAuthHistory(true);
+        $this->assertSame([], $repeat['adopted']);
+        $this->assertNotSame($evidence['identity_sha256'], $repeat['evidence']['identity_sha256']);
+    }
+
+    private function colonizationHistoryRunner(): MigrationRunner
+    {
+        $this->db->exec(
+            "CREATE TABLE users (id INT PRIMARY KEY) ENGINE=InnoDB;
+             CREATE TABLE star_systems (id INT PRIMARY KEY,galaxy_index INT,system_index INT) ENGINE=InnoDB;
+             CREATE TABLE celestial_bodies (id BIGINT UNSIGNED PRIMARY KEY,galaxy_index INT,system_index INT)
+                ENGINE=InnoDB;
+             CREATE TABLE colonies (id INT PRIMARY KEY,user_id INT NOT NULL,body_id BIGINT UNSIGNED NOT NULL,
+                population INT NOT NULL,metal DECIMAL(14,4) NOT NULL DEFAULT 123.4567,
+                last_update DATETIME NOT NULL DEFAULT '2026-01-02 03:04:05') ENGINE=InnoDB;
+             CREATE TABLE fleets (id INT PRIMARY KEY,user_id INT,ships_json JSON,`returning` TINYINT DEFAULT 0)
+                ENGINE=InnoDB;
+             INSERT INTO users VALUES (7);
+             INSERT INTO star_systems VALUES (101,1,1),(201,2,1);
+             INSERT INTO celestial_bodies VALUES (11,1,1),(21,2,1),(22,2,1)"
+        );
+        $manifest = ['migrate_colonization_v1.sql', 'migrate_colonization_v2.sql'];
+        foreach ($manifest as $file) {
+            file_put_contents($this->sqlDir . '/' . $file, $this->readSqlForTestDatabase($file));
+        }
+        file_put_contents($this->sqlDir . '/manifest.php', '<?php return ' . var_export($manifest, true) . ';');
+        $runner = new MigrationRunner($this->db, $this->sqlDir, 'TEST', $this->sqlDir . '/manifest.php');
+        $runner->bootstrap();
+        return $runner;
+    }
+
+    public function testColonizationHistoryInitializesExactPhaseBoundariesAndPreservesNativeStocks(): void
+    {
+        $runner = $this->colonizationHistoryRunner();
+        $populations = [0, 500, 501, 2000, 2001, 10000, 10001, 50000, 50001];
+        foreach ($populations as $index => $population) {
+            $this->db->prepare('INSERT INTO colonies (id,user_id,body_id,population) VALUES (?,7,11,?)')
+                ->execute([$index + 1, $population]);
+        }
+        $columns = 'id,user_id,body_id,population,metal,last_update';
+        $before = $this->db->query('SELECT ' . $columns . ' FROM colonies ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+        $this->assertCount(2, $runner->runUp());
+        $this->assertSame([0, 0, 1, 1, 2, 2, 3, 3, 4], array_map('intval', $this->db->query(
+            'SELECT phase FROM colonies ORDER BY id'
+        )->fetchAll(PDO::FETCH_COLUMN)));
+        $this->assertSame($before, $this->db->query(
+            'SELECT ' . $columns . ' FROM colonies ORDER BY id'
+        )->fetchAll(PDO::FETCH_ASSOC));
+        foreach (['sectors', 'sector_systems', 'governors', 'empire_edicts', 'empire_sprawl_cache'] as $table) {
+            $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn());
+        }
+        $this->assertSame(0, (int)$this->db->query('SELECT SUM(energy_balance) FROM colonies')->fetchColumn());
+        $this->assertSame(0, (int)$this->db->query(
+            'SELECT COUNT(*) FROM colonies WHERE sector_id IS NOT NULL'
+        )->fetchColumn());
+        $this->assertSame(2, $runner->verifyDeployment());
+        $this->assertSame([], $runner->runUp());
+        try {
+            $this->db->exec($this->readSqlForTestDatabase('migrate_colonization_v2.sql'));
+            $this->fail('Raw V2 replay must not be mistaken for idempotent tracked Up.');
+        } catch (PDOException $error) {
+            $this->assertStringContainsString('Duplicate foreign key constraint name', $error->getMessage());
+        }
+    }
+
+    public function testColonizationNativeSprawlReadsDoNotPersistOrActivateEdicts(): void
+    {
+        require_once __DIR__ . '/../../lib/ColonizationEngine.php';
+        $runner = $this->colonizationHistoryRunner();
+        $runner->runUp();
+        $this->db->exec(
+            "INSERT INTO colonies (id,user_id,body_id,population) VALUES (1,7,11,100),(2,7,21,100),(3,7,22,100)"
+        );
+        $this->db->exec('SET SESSION TRANSACTION READ ONLY');
+        $this->db->beginTransaction();
+        try {
+            $result = ColonizationEngine::calculateSprawl($this->db, 7);
+            $this->assertSame(3.5, $result['sprawl_value']);
+            $this->assertSame(50, $result['admin_cap']);
+            $this->assertSame(7, $result['sprawl_pct']);
+            $edicts = ColonizationEngine::listEdicts($this->db, 7);
+            $this->assertCount(6, $edicts);
+            $this->assertSame([false], array_values(array_unique(array_column($edicts, 'active'))));
+            foreach (['sectors', 'governors', 'empire_edicts', 'empire_sprawl_cache'] as $table) {
+                $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn());
+            }
+        } finally {
+            $this->db->rollBack();
+            $this->db->exec('SET SESSION TRANSACTION READ WRITE');
+        }
     }
 
     public function testOnDemandEconomyUsesCanonicalMySqlSchemaAndNativePrepares(): void
@@ -1457,11 +3015,7 @@ final class MigrationRunnerMySqlTest extends TestCase
     {
         $source = file_get_contents(__DIR__ . '/../../api/fleet.php');
         if (!function_exists('resolve_wormhole_route')) {
-            $start = strpos($source, 'function resolve_wormhole_route(');
-            $end = strpos($source, 'function recall_fleet(', $start);
-            $this->assertNotFalse($start);
-            $this->assertNotFalse($end);
-            eval(str_replace('__DIR__', var_export(realpath(__DIR__ . '/../../api'), true), substr($source, $start, $end - $start)));
+            require_once __DIR__ . '/../../lib/fleet_launch.php';
         }
         // Keep the actual list body; return its payload instead of exiting via HTTP serialization.
         $start = strpos($source, 'function list_wormholes(');
@@ -3111,4 +4665,251 @@ final class MigrationRunnerMySqlTest extends TestCase
         $this->assertSame(1, $this->trackingCount());
         $this->assertFalse($this->db->inTransaction());
     }
+
+    private function vesselBlueprintAdoptionRunner(): MigrationRunner
+    {
+        $this->db->exec(
+            "CREATE TABLE users (
+                id INT PRIMARY KEY,
+                control_type VARCHAR(24) NOT NULL DEFAULT 'human',
+                ftl_drive_type VARCHAR(30) NOT NULL DEFAULT 'aereth',
+                ftl_cooldown_until DATETIME DEFAULT NULL
+            ) ENGINE=InnoDB;
+            CREATE TABLE fleets (
+                id INT PRIMARY KEY,
+                mission ENUM('attack','transport','colonize','harvest','spy','recall') NOT NULL DEFAULT 'transport'
+            ) ENGINE=InnoDB;
+            CREATE TABLE colonies (id INT PRIMARY KEY) ENGINE=InnoDB;
+            CREATE TABLE npc_factions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                code VARCHAR(32) NOT NULL UNIQUE,
+                name VARCHAR(128) NOT NULL,
+                description TEXT NOT NULL,
+                faction_type VARCHAR(32) NOT NULL,
+                aggression INT NOT NULL,
+                trade_willingness INT NOT NULL,
+                base_diplomacy INT NOT NULL,
+                power_level INT NOT NULL,
+                home_galaxy_min INT NOT NULL,
+                home_galaxy_max INT NOT NULL,
+                color VARCHAR(16) NOT NULL,
+                icon VARCHAR(32) NOT NULL,
+                tts_voice VARCHAR(64) DEFAULT NULL
+            ) ENGINE=InnoDB;
+            CREATE TABLE user_character_profiles (
+                user_id INT PRIMARY KEY,
+                race VARCHAR(80) NOT NULL
+            ) ENGINE=InnoDB;
+            CREATE TABLE research (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                type VARCHAR(64) NOT NULL,
+                level INT NOT NULL DEFAULT 0,
+                research_start DATETIME DEFAULT NULL,
+                research_end DATETIME DEFAULT NULL,
+                UNIQUE KEY uq_research_user_type (user_id,type)
+            ) ENGINE=InnoDB;
+            CREATE TABLE faction_quests (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                faction_id INT NOT NULL,
+                code VARCHAR(64) NOT NULL,
+                title VARCHAR(255) NOT NULL,
+                description TEXT NOT NULL,
+                quest_type VARCHAR(32) NOT NULL,
+                requirements_json TEXT NOT NULL,
+                reward_metal INT NOT NULL DEFAULT 0,
+                reward_crystal INT NOT NULL DEFAULT 0,
+                reward_deuterium INT NOT NULL DEFAULT 0,
+                reward_rare_earth INT NOT NULL DEFAULT 0,
+                reward_dark_matter INT NOT NULL DEFAULT 0,
+                reward_rank_points INT NOT NULL DEFAULT 0,
+                reward_standing INT NOT NULL DEFAULT 0,
+                min_standing INT NOT NULL DEFAULT 0,
+                difficulty VARCHAR(32) NOT NULL DEFAULT 'normal',
+                repeatable TINYINT(1) NOT NULL DEFAULT 1,
+                UNIQUE KEY uq_faction_quest (faction_id,code)
+            ) ENGINE=InnoDB"
+        );
+        $this->db->exec(
+            "INSERT INTO npc_factions
+                (code,name,description,faction_type,aggression,trade_willingness,base_diplomacy,
+                 power_level,home_galaxy_min,home_galaxy_max,color,icon)
+             VALUES
+                ('empire','Empire','fixture','military',50,50,0,100,1,9,'#000000','E'),
+                ('guild','Guild','fixture','trade',50,50,0,100,1,9,'#000000','G'),
+                ('pirates','Pirates','fixture','military',50,50,0,100,1,9,'#000000','P'),
+                ('precursors','Precursors','fixture','ancient',50,50,0,100,1,9,'#000000','A'),
+                ('science','Science','fixture','science',50,50,0,100,1,9,'#000000','S')"
+        );
+        $insertUser = $this->db->prepare(
+            "INSERT INTO users (id,control_type,ftl_drive_type) VALUES (?, 'npc_engine', 'aereth')"
+        );
+        for ($id = 1; $id <= 10; $id++) {
+            $insertUser->execute([$id]);
+        }
+
+        $names = [
+            'migrate_vessel_blueprints_v1.sql',
+            'migrate_vessel_blueprints_v2.sql',
+            'migrate_vessel_blueprints_v3.sql',
+            'migrate_vessel_blueprints_v4.sql',
+            'migrate_vessel_blueprints_v5.sql',
+            'migrate_vessel_blueprints_v6_planetary_events.sql',
+            'migrate_vessel_blueprints_v7_research_phase5.sql',
+            'migrate_vessel_blueprints_v8_wormholes.sql',
+            'migrate_vessel_blueprints_v9_wormhole_beacons.sql',
+            'migrate_vessel_blueprints_v10_ftl_drives.sql',
+            'migrate_vessel_blueprints_v11_ftl_phase4.sql',
+        ];
+        foreach ($names as $name) {
+            copy(__DIR__ . '/../../sql/' . $name, $this->sqlDir . '/' . $name);
+        }
+        copy(__DIR__ . '/../../sql/schema_migration_adoptions.sql', $this->sqlDir . '/schema_migration_adoptions.sql');
+        copy(__DIR__ . '/../../sql/schema_migrations.sql', $this->sqlDir . '/schema_migrations.sql');
+        file_put_contents($this->sqlDir . '/manifest.php', '<?php return ' . var_export($names, true) . ';');
+        $parser = new MigrationRunner($this->db, $this->sqlDir, 'TEST');
+        foreach ($names as $name) {
+            foreach ($parser->splitStatements($this->readSqlForTestDatabase($name)) as $statement) {
+                $result = $this->db->query($statement);
+                $result->closeCursor();
+            }
+        }
+
+        $this->db->exec(
+            'CREATE TABLE npc_faction_memberships (
+                user_id INT NOT NULL PRIMARY KEY,
+                faction_id INT NOT NULL,
+                KEY idx_npc_membership_faction (faction_id),
+                CONSTRAINT fk_npc_membership_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                CONSTRAINT fk_npc_membership_faction FOREIGN KEY (faction_id) REFERENCES npc_factions(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB'
+        );
+        $membership = $this->db->prepare(
+            'INSERT INTO npc_faction_memberships (user_id,faction_id)
+             SELECT ?,id FROM npc_factions WHERE code=?'
+        );
+        foreach ([
+            1 => 'empire', 2 => 'empire',
+            3 => 'guild', 4 => 'guild',
+            5 => 'pirates', 6 => 'pirates',
+            7 => 'precursors', 8 => 'precursors',
+            9 => 'science', 10 => 'science',
+        ] as $userId => $code) {
+            $membership->execute([$userId, $code]);
+            $membership->closeCursor();
+        }
+
+        $runner = new MigrationRunner($this->db, $this->sqlDir, 'TEST', $this->sqlDir . '/manifest.php');
+        $runner->bootstrap();
+        return $runner;
+    }
+
+    public function testVesselBlueprintHistoryAdoptionVerifiesWithoutReplayingV12(): void
+    {
+        $runner = $this->vesselBlueprintAdoptionRunner();
+        $beforeUsers = $this->db->query('SELECT id,ftl_drive_type FROM users ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+        $preview = $runner->adoptVesselBlueprintHistory(true);
+        $this->assertCount(11, $preview['adopted']);
+        $this->assertSame(0, $this->trackingCount());
+        $this->assertSame(
+            $beforeUsers,
+            $this->db->query('SELECT id,ftl_drive_type FROM users ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)
+        );
+
+        $adopted = $runner->adoptVesselBlueprintHistory(false);
+        $this->assertSame($preview['evidence'], $adopted['evidence']);
+        $this->assertCount(11, $adopted['adopted']);
+        $this->assertSame(11, $runner->verifyDeployment());
+        $this->assertSame([], $runner->runUp());
+        $this->assertSame([], $runner->adoptVesselBlueprintHistory(false)['adopted']);
+        $this->assertSame(10, (int)$this->db->query(
+            "SELECT COUNT(*) FROM users
+             WHERE control_type='npc_engine' AND ftl_drive_type='aereth'"
+        )->fetchColumn());
+        $this->assertSame(0, (int)$this->db->query(
+            "SELECT COUNT(*) FROM schema_migrations
+             WHERE migration_name='migrate_vessel_blueprints_v12_npc_ftl.sql'"
+        )->fetchColumn());
+    }
+
+    private function warHistoryAdoptionRunner(): MigrationRunner
+    {
+        $this->db->exec(
+            'CREATE TABLE users (id INT PRIMARY KEY) ENGINE=InnoDB;
+             INSERT INTO users VALUES (1),(2)'
+        );
+        $names = ['migrate_combat_v1_wars.sql', 'migrate_npc_wars_v1.sql'];
+        foreach (array_merge($names, ['schema_migration_adoptions.sql']) as $name) {
+            copy(__DIR__ . '/../../sql/' . $name, $this->sqlDir . '/' . $name);
+        }
+        file_put_contents($this->sqlDir . '/manifest.php', '<?php return ' . var_export($names, true) . ';');
+        $parser = new MigrationRunner($this->db, $this->sqlDir, 'TEST');
+        foreach ($names as $name) {
+            foreach ($parser->splitStatements($this->readSqlForTestDatabase($name)) as $statement) {
+                $result = $this->db->query($statement);
+                $result->closeCursor();
+            }
+        }
+        $this->db->exec(
+            "INSERT INTO wars (attacker_user_id,defender_user_id,status,npc_aggressor_faction_id)
+             VALUES (NULL,2,'active',21)"
+        );
+        $warId = (int)$this->db->lastInsertId();
+        $this->db->prepare(
+            "INSERT INTO war_goals (war_id,side,goal_type,score_value) VALUES (?,'attacker','occupy',4)"
+        )->execute([$warId]);
+        $this->db->prepare(
+            "INSERT INTO peace_offers (war_id,from_user_id,terms_json,expires_at)
+             VALUES (?,2,'{\"status\":\"fixture\"}','2030-01-01 00:00:00')"
+        )->execute([$warId]);
+
+        $runner = new MigrationRunner($this->db, $this->sqlDir, 'TEST', $this->sqlDir . '/manifest.php');
+        $runner->bootstrap();
+        return $runner;
+    }
+
+    public function testWarHistoryAdoptionPreservesNpcWarAndRelatedRowsWithoutReplay(): void
+    {
+        $runner = $this->warHistoryAdoptionRunner();
+        $before = [];
+        foreach (['wars', 'war_goals', 'peace_offers'] as $table) {
+            $before[$table] = $this->db->query('SELECT * FROM `' . $table . '` ORDER BY id')
+                ->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        $preview = $runner->adoptWarHistory(true);
+        $this->assertSame(['migrate_combat_v1_wars.sql', 'migrate_npc_wars_v1.sql'], $preview['adopted']);
+        $this->assertSame(0, $this->trackingCount());
+
+        $adopted = $runner->adoptWarHistory(false);
+        $this->assertSame($preview['evidence'], $adopted['evidence']);
+        $this->assertSame(2, $runner->verifyDeployment());
+        $this->assertSame([], $runner->runUp());
+        $this->assertSame([], $runner->adoptWarHistory(false)['adopted']);
+        foreach (['wars', 'war_goals', 'peace_offers'] as $table) {
+            $this->assertSame(
+                $before[$table],
+                $this->db->query('SELECT * FROM `' . $table . '` ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)
+            );
+        }
+        $this->assertSame(1, (int)$this->db->query(
+            "SELECT COUNT(*) FROM wars
+             WHERE attacker_user_id IS NULL AND npc_aggressor_faction_id=21 AND status='active'"
+        )->fetchColumn());
+        $this->assertSame(0, (int)$this->db->query(
+            "SELECT COUNT(*) FROM schema_migrations
+             WHERE migration_name IN ('migrate_combat_model_v1.sql','migrate_war_v3.sql')"
+        )->fetchColumn());
+    }
+
+    public function testWarHistoryAdoptionRejectsSchemaDriftWithoutWritingHistory(): void
+    {
+        $runner = $this->warHistoryAdoptionRunner();
+        $this->db->exec('ALTER TABLE wars DROP INDEX idx_wars_status');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('War-history adoption index mismatch: wars');
+        $runner->adoptWarHistory(false);
+    }
+
 }

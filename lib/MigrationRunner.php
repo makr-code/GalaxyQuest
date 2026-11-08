@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 /**
  * MigrationRunner – database migration runner for GalaxyQuest.
  *
@@ -27,15 +25,26 @@ declare(strict_types=1);
  * @see config/migrations_manifest.php
  * @see docs/technical/DATABASE_MIGRATIONS.md
  */
+
+declare(strict_types=1);
+
+use GalaxyQuest\Migrations\ActorMigrationAdoption;
+use GalaxyQuest\Migrations\BodyMigrationAdoption;
+use GalaxyQuest\Migrations\LegacyV2MigrationAdoption;
+use GalaxyQuest\Migrations\EconomyMigrationAdoption;
+use GalaxyQuest\Migrations\AuthMigrationAdoption;
+use GalaxyQuest\Migrations\VesselBlueprintMigrationAdoption;
+use GalaxyQuest\Migrations\WarHistoryMigrationAdoption;
+
 class MigrationRunner
 {
     private const TRACKING_TABLE = 'schema_migrations';
 
-    private PDO    $db;
+    private PDO $db;
     private string $sqlDir;
     private string $environment;
     /** @var list<string> */
-    private array  $manifest;
+    private array $manifest;
     private bool $migrationLockHeld = false;
 
     /**
@@ -45,7 +54,7 @@ class MigrationRunner
      * @param string $manifestFile Absolute path to the migrations_manifest.php file.
      */
     public function __construct(
-        PDO    $db,
+        PDO $db,
         string $sqlDir,
         string $environment = 'unknown',
         string $manifestFile = ''
@@ -53,6 +62,9 @@ class MigrationRunner
         $this->db          = $db;
         $this->sqlDir      = rtrim($sqlDir, '/\\');
         $this->environment = $environment;
+        if (strtoupper($environment) === 'ADOPTED') {
+            throw new InvalidArgumentException('ADOPTED is reserved for verified legacy adoption.');
+        }
 
         if ($manifestFile === '') {
             $manifestFile = dirname(__DIR__) . '/config/migrations_manifest.php';
@@ -108,7 +120,8 @@ class MigrationRunner
     /**
      * Return the status of every migration in the manifest.
      *
-     * @return list<array{name:string,status:string,applied_at:string|null,checksum:string|null,environment:string|null}>
+     * @return list<array{name:string,status:string,applied_at:string|null,checksum:string|null,
+     *     environment:string|null,execution_kind?:string}>
      */
     public function getStatus(): array
     {
@@ -118,12 +131,16 @@ class MigrationRunner
         foreach ($this->manifest as $name) {
             if (isset($applied[$name])) {
                 $row = $applied[$name];
+                if ($row['environment'] === 'ADOPTED') {
+                    $this->verifyAppliedChecksums([$name => $row]);
+                }
                 $result[] = [
                     'name'        => $name,
                     'status'      => 'applied',
                     'applied_at'  => $row['applied_at'],
                     'checksum'    => $row['checksum'],
                     'environment' => $row['environment'],
+                    'execution_kind' => $row['environment'] === 'ADOPTED' ? 'adopted' : 'executed',
                 ];
             } else {
                 $result[] = [
@@ -152,6 +169,130 @@ class MigrationRunner
             throw new InvalidArgumentException('Migration steps must be positive.');
         }
         return $this->withMigrationLock(fn(): array => $this->runUpLocked($steps, $dryRun));
+    }
+
+    /** @return array{adopted:list<string>,evidence:array<string,mixed>,dry_run:bool} */
+    public function adoptActorHistory(bool $dryRun = true): array
+    {
+        require_once __DIR__ . '/ActorMigrationAdoption.php';
+        return $this->adoptValidatedHistory(ActorMigrationAdoption::class, $dryRun);
+    }
+
+    /** @return array{adopted:list<string>,evidence:array<string,mixed>,dry_run:bool} */
+    public function adoptBodyHistory(bool $dryRun = true): array
+    {
+        require_once __DIR__ . '/BodyMigrationAdoption.php';
+        return $this->adoptValidatedHistory(BodyMigrationAdoption::class, $dryRun);
+    }
+
+    /** @return array{adopted:list<string>,evidence:array<string,mixed>,dry_run:bool} */
+    public function adoptLegacyV2History(bool $dryRun = true): array
+    {
+        require_once __DIR__ . '/LegacyV2MigrationAdoption.php';
+        return $this->adoptValidatedHistory(LegacyV2MigrationAdoption::class, $dryRun);
+    }
+
+    /** @return array{adopted:list<string>,evidence:array<string,mixed>,dry_run:bool} */
+    public function adoptEconomyHistory(bool $dryRun = true): array
+    {
+        require_once __DIR__ . '/EconomyMigrationAdoption.php';
+        return $this->adoptValidatedHistory(EconomyMigrationAdoption::class, $dryRun);
+    }
+
+    /** @return array{adopted:list<string>,evidence:array<string,mixed>,dry_run:bool} */
+    public function adoptAuthHistory(bool $dryRun = true): array
+    {
+        require_once __DIR__ . '/AuthMigrationAdoption.php';
+        return $this->adoptValidatedHistory(AuthMigrationAdoption::class, $dryRun);
+    }
+
+    /** @return array{adopted:list<string>,evidence:array<string,mixed>,dry_run:bool} */
+    public function adoptVesselBlueprintHistory(bool $dryRun = true): array
+    {
+        require_once __DIR__ . '/VesselBlueprintMigrationAdoption.php';
+        return $this->adoptValidatedHistory(VesselBlueprintMigrationAdoption::class, $dryRun);
+    }
+
+    /** @return array{adopted:list<string>,evidence:array<string,mixed>,dry_run:bool} */
+    public function adoptWarHistory(bool $dryRun = true): array
+    {
+        require_once __DIR__ . '/WarHistoryMigrationAdoption.php';
+        return $this->adoptValidatedHistory(WarHistoryMigrationAdoption::class, $dryRun);
+    }
+
+    /**
+     * @param class-string<ActorMigrationAdoption>|class-string<BodyMigrationAdoption>
+     *     |class-string<LegacyV2MigrationAdoption>|class-string<EconomyMigrationAdoption>
+     *     |class-string<AuthMigrationAdoption>|class-string<VesselBlueprintMigrationAdoption>
+     *     |class-string<WarHistoryMigrationAdoption> $contract
+     * @return array{adopted:list<string>,evidence:array<string,mixed>,dry_run:bool}
+     */
+    private function adoptValidatedHistory(string $contract, bool $dryRun): array
+    {
+        return $this->withMigrationLock(function () use ($contract, $dryRun): array {
+            if (!$this->ensureTrackingTable(true)) {
+                throw new RuntimeException('Adoption requires existing migration tracking.');
+            }
+            $applied = $this->loadAppliedMigrations();
+            foreach ($applied as $name => $row) {
+                if (!in_array($name, $this->manifest, true)) {
+                    throw new RuntimeException('Foreign migration blocks legacy adoption: ' . $name);
+                }
+            }
+            $this->verifyAppliedChecksums($applied);
+            $pending = [];
+            foreach ($contract::SOURCES as $name => $pin) {
+                if (!in_array($name, $this->manifest, true)) {
+                    throw new RuntimeException('Legacy adoption source is absent from the manifest.');
+                }
+                $hash = hash('sha256', str_replace("\r\n", "\n", $this->readMigrationSql($name)));
+                if (!hash_equals($pin, $hash)) {
+                    throw new RuntimeException('Legacy adoption contract does not cover changed SQL: ' . $name);
+                }
+                if (!isset($applied[$name])) {
+                    $pending[] = $name;
+                }
+            }
+            if (!$dryRun && $pending !== []) {
+                $sql = file_get_contents($this->sqlDir . '/schema_migration_adoptions.sql');
+                if ($sql === false) {
+                    throw new RuntimeException('Cannot read adoption infrastructure schema.');
+                }
+                $this->db->exec($sql);
+                $engine = $this->db->query(
+                    "SELECT ENGINE FROM information_schema.TABLES
+                     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='schema_migration_adoptions'"
+                )->fetchColumn();
+                if ($engine !== 'InnoDB') {
+                    throw new RuntimeException('Adoption evidence requires InnoDB.');
+                }
+            }
+            $this->db->beginTransaction();
+            try {
+                $evidence = $contract::validate($this->db);
+                if (!$dryRun) {
+                    foreach ($pending as $name) {
+                        $this->db->prepare(
+                            'INSERT INTO schema_migration_adoptions
+                             (migration_name,contract_id,source_sha256,evidence_json,deployment_environment)
+                             VALUES (?,?,?,?,?)'
+                        )->execute([$name, $contract::CONTRACT, $contract::SOURCES[$name],
+                            json_encode($evidence, JSON_THROW_ON_ERROR), $this->environment]);
+                        $this->db->prepare(
+                            "INSERT INTO schema_migrations (migration_name,checksum,environment,execution_ms)
+                             VALUES (?,?,'ADOPTED',0)"
+                        )->execute([$name, md5($this->readMigrationSql($name))]);
+                    }
+                }
+                $this->db->commit();
+            } catch (Throwable $error) {
+                if ($this->db->inTransaction()) {
+                    $this->db->rollBack();
+                }
+                throw $error;
+            }
+            return ['adopted' => $pending, 'evidence' => $evidence, 'dry_run' => $dryRun];
+        });
     }
 
     /**
@@ -190,6 +331,12 @@ class MigrationRunner
             $this->manifest,
             static fn(string $n) => !isset($applied[$n])
         ));
+        if (
+            in_array('migrate_v2.sql', $pending, true)
+            && ($applied['migrate_actor_model_v1.sql']['environment'] ?? '') === 'ADOPTED'
+        ) {
+            throw new RuntimeException('Legacy v2 replay recreates is_npc; reconcile it before running Up.');
+        }
 
         if ($steps !== null) {
             $pending = array_slice($pending, 0, $steps);
@@ -239,6 +386,9 @@ class MigrationRunner
         $toRollback = array_slice(array_reverse($appliedInOrder), 0, $steps);
 
         foreach ($toRollback as $name) {
+            if ($applied[$name]['environment'] === 'ADOPTED') {
+                throw new RuntimeException('Rollback cannot undo adopted history: ' . $name);
+            }
             $downName = $this->resolveDownFileName($name);
             if (!file_exists($this->sqlDir . '/' . $downName)) {
                 return [[
@@ -314,7 +464,9 @@ class MigrationRunner
             }
             throw new RuntimeException(
                 'Migration "' . $name . '" failed: ' . $e->getMessage()
-                . (!$transactionActive ? ' Changes may already be committed; inspect the database before retrying.' : ''),
+                . (!$transactionActive
+                    ? ' Changes may already be committed; inspect the database before retrying.'
+                    : ''),
                 0,
                 $e
             );
@@ -379,7 +531,9 @@ class MigrationRunner
             }
             throw new RuntimeException(
                 'Rollback of "' . $name . '" failed: ' . $e->getMessage()
-                . (!$transactionActive ? ' Changes may already be committed; inspect the database before retrying.' : ''),
+                . (!$transactionActive
+                    ? ' Changes may already be committed; inspect the database before retrying.'
+                    : ''),
                 0,
                 $e
             );
@@ -457,6 +611,70 @@ class MigrationRunner
                     'Applied migration checksum mismatch: ' . $name
                     . '. Restore the originally applied SQL file; do not rewrite tracking checksums.'
                 );
+            }
+            if ($applied[$name]['environment'] === 'ADOPTED') {
+                require_once __DIR__ . '/ActorMigrationAdoption.php';
+                require_once __DIR__ . '/BodyMigrationAdoption.php';
+                require_once __DIR__ . '/LegacyV2MigrationAdoption.php';
+                require_once __DIR__ . '/EconomyMigrationAdoption.php';
+                require_once __DIR__ . '/AuthMigrationAdoption.php';
+                require_once __DIR__ . '/VesselBlueprintMigrationAdoption.php';
+                require_once __DIR__ . '/WarHistoryMigrationAdoption.php';
+                $query = $this->db->prepare(
+                    'SELECT contract_id,source_sha256,evidence_json
+                     FROM schema_migration_adoptions WHERE migration_name=?'
+                );
+                $query->execute([$name]);
+                $proof = $query->fetch(PDO::FETCH_ASSOC);
+                $contract = match ($proof['contract_id'] ?? null) {
+                    ActorMigrationAdoption::CONTRACT => ActorMigrationAdoption::class,
+                    BodyMigrationAdoption::CONTRACT => BodyMigrationAdoption::class,
+                    LegacyV2MigrationAdoption::CONTRACT => LegacyV2MigrationAdoption::class,
+                    EconomyMigrationAdoption::CONTRACT => EconomyMigrationAdoption::class,
+                    AuthMigrationAdoption::CONTRACT => AuthMigrationAdoption::class,
+                    VesselBlueprintMigrationAdoption::CONTRACT => VesselBlueprintMigrationAdoption::class,
+                    WarHistoryMigrationAdoption::CONTRACT => WarHistoryMigrationAdoption::class,
+                    default => null,
+                };
+                $pin = $contract === null ? null : ($contract::SOURCES[$name] ?? null);
+                if (
+                    !$proof || $pin === null
+                    || !hash_equals($pin, $proof['source_sha256'])
+                    || !hash_equals($pin, hash('sha256', str_replace("\r\n", "\n", $this->readMigrationSql($name))))
+                ) {
+                    throw new RuntimeException('Missing or incompatible legacy adoption provenance: ' . $name);
+                }
+                $evidence = json_decode($proof['evidence_json'], true, 512, JSON_THROW_ON_ERROR);
+                if (
+                    ($evidence['contract'] ?? '') !== $contract::CONTRACT
+                    || !is_string($evidence['identity_sha256'] ?? null)
+                    || !preg_match('/^[a-f0-9]{64}$/D', $evidence['identity_sha256'])
+                ) {
+                    throw new RuntimeException('Invalid legacy adoption evidence: ' . $name);
+                }
+                if (
+                    $contract === BodyMigrationAdoption::class
+                    && (($evidence['policy'] ?? '') !== 'preserve-native-catalogue-no-uninhabited-legacy-import'
+                        || !is_string($evidence['schema_sha256'] ?? null)
+                        || !preg_match('/^[a-f0-9]{64}$/D', $evidence['schema_sha256']))
+                ) {
+                    throw new RuntimeException('Invalid native body adoption policy or schema evidence: ' . $name);
+                }
+                if ($contract === LegacyV2MigrationAdoption::class) {
+                    LegacyV2MigrationAdoption::validateEvidence($evidence);
+                }
+                if ($contract === EconomyMigrationAdoption::class) {
+                    EconomyMigrationAdoption::validateEvidence($evidence);
+                }
+                if ($contract === AuthMigrationAdoption::class) {
+                    AuthMigrationAdoption::validateEvidence($evidence);
+                }
+                if ($contract === VesselBlueprintMigrationAdoption::class) {
+                    VesselBlueprintMigrationAdoption::validateEvidence($evidence);
+                }
+                if ($contract === WarHistoryMigrationAdoption::class) {
+                    WarHistoryMigrationAdoption::validateEvidence($evidence);
+                }
             }
         }
     }

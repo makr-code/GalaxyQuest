@@ -16,6 +16,7 @@ define('DB_CHARSET', env_value('DB_CHARSET', 'utf8mb4'));
 // Game configuration
 define('GAME_SPEED', (int) env_value('GAME_SPEED', 1));   // Resource/fleet speed multiplier
 define('ON_DEMAND_ECONOMY_ENABLED', (int) env_value('ON_DEMAND_ECONOMY_ENABLED', 0));
+define('BATTLE_ENCOUNTERS_ENABLED', (int) env_value('BATTLE_ENCOUNTERS_ENABLED', 0));
 define('GALAXY_MAX', (int) env_value('GALAXY_MAX', 9));   // Max galaxies
 define('SYSTEM_MAX', (int) env_value('SYSTEM_MAX', 25000)); // Max systems per galaxy
 define('POSITION_MAX', (int) env_value('POSITION_MAX', 15)); // Max planets per system
@@ -23,7 +24,10 @@ define('SESSION_LIFETIME', (int) env_value('SESSION_LIFETIME', 3600)); // Second
 define('REMEMBER_ME_DAYS', (int) env_value('REMEMBER_ME_DAYS', 30)); // Persistent login cookie lifetime
 define('APP_ENV', env_value('APP_ENV', 'production'));
 define('REGISTRATION_MAILPIT_URL', rtrim((string)env_value('REGISTRATION_MAILPIT_URL', ''), '/'));
-define('REGISTRATION_PUBLIC_URL', rtrim((string)env_value('REGISTRATION_PUBLIC_URL', APP_ENV === 'dev' ? 'http://localhost:8081' : ''), '/'));
+define(
+    'REGISTRATION_PUBLIC_URL',
+    rtrim((string)env_value('REGISTRATION_PUBLIC_URL', APP_ENV === 'dev' ? 'http://localhost:8081' : ''), '/')
+);
 define('ENABLE_DEV_AUTH_TOOLS', (int) env_value('ENABLE_DEV_AUTH_TOOLS', APP_ENV === 'dev' ? 1 : 0));
 define('BLOG_SOURCE', (string)env_value('BLOG_SOURCE', APP_ENV === 'dev' ? 'wordpress-simulation' : 'local'));
 define('BLOG_WORDPRESS_REST_URL', rtrim((string)env_value('BLOG_WORDPRESS_REST_URL', ''), '/'));

@@ -56,6 +56,16 @@ describe('API wrapper versioning', () => {
     expect(calledEndpoint).toBe('https://example.com/api/ping');
   });
 
+  it('sends the legacy fleet helper through the canonical action with its retry identity unchanged', async () => {
+    const API = loadApiScript();
+    const body = { origin_colony_id: 1, ships: { light_fighter: 40 }, request_id: 'stable-request-123' };
+    await API.sendFleet(body);
+    const [endpoint, request] = global.fetch.mock.calls.at(-1);
+    expect(String(endpoint)).toBe('api/v1/fleet.php?action=send');
+    expect(JSON.parse(request.body)).toEqual(body);
+    expect(request.method).toBe('POST');
+  });
+
   it('exposes war list and status getters on the shared API wrapper', async () => {
     const API = loadApiScript();
 

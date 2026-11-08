@@ -201,7 +201,8 @@ final class TRELLIS2AssetManager {
     /**
      * Get generation queue position and estimated completion
      */
-    public function getQueueStatus(int $queue_id, int $user_id): array {
+    public function getQueueStatus(int $queue_id, int $user_id): array
+    {
         $stmt = $this->db->prepare(
             'SELECT
                 queue.id, queue.status, queue.priority, queue.created_at,
@@ -242,7 +243,8 @@ final class TRELLIS2AssetManager {
     /**
      * Get generation status (from asset_generations table)
      */
-    public function getGenerationStatus(int $generation_id, int $user_id): array {
+    public function getGenerationStatus(int $generation_id, int $user_id): array
+    {
         $stmt = $this->db->prepare(
             'SELECT 
                 id, user_id, generation_uuid, status, glb_path, glb_file_size,
@@ -504,7 +506,8 @@ final class TRELLIS2AssetManager {
     /**
      * Get generation history for a design
      */
-    public function getDesignGenerations(int $design_id, int $user_id): array {
+    public function getDesignGenerations(int $design_id, int $user_id): array
+    {
         $stmt = $this->db->prepare(
             'SELECT generation.*
              FROM asset_generations AS generation

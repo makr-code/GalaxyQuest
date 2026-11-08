@@ -1,4 +1,5 @@
 <?php
+
 /**
  * NPC Agent Manager - Load and manage YAML-based agent configurations
  * Handles personality, context rules, and response constraints

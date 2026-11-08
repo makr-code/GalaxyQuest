@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 /**
  * GalaxyQuest — canonical ordered migration manifest.
  *
@@ -24,6 +22,8 @@ declare(strict_types=1);
  * @see lib/MigrationRunner.php
  * @see docs/technical/DATABASE_MIGRATIONS.md
  */
+
+declare(strict_types=1);
 
 return [
     // ── Core schema evolution (legacy v2 path) ────────────────────────────
@@ -148,4 +148,8 @@ return [
     'migrate_developer_blog_v3.sql',
     'migrate_developer_blog_v4.sql',
     'migrate_battle_report_fleet_link_v1.sql',
+    'migrate_fleet_dispatch_receipts_v1.sql',
+    'migrate_battle_encounters_v1.sql',
+    'migrate_npc_icon_default_v1.sql',
+    'migrate_galaxy_metadata_precision_v1.sql',
 ];

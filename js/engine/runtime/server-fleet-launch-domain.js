@@ -44,7 +44,13 @@ export function parseShipInventory(data) {
 export function createFleetLaunchDomain({ api, session }) {
   let stale = false;
   let inventoryRevision = 0;
+  const pendingOrders = new Map();
+  let submittedOrder = null;
   const unsubscribe = session.events.on('colony:mutation-accepted', (event) => {
+    if (event.domain === 'fleet-launch' && submittedOrder !== null) {
+      pendingOrders.delete(submittedOrder);
+      submittedOrder = null;
+    }
     if (event.domain === 'fleet-launch' || (['shipyard', 'fleets'].includes(event.domain)
       && (event.allColonies || Number(event.colonyId) === Number(session.getColony()?.id)))) {
       inventoryRevision++;
@@ -73,7 +79,6 @@ export function createFleetLaunchDomain({ api, session }) {
     },
     prepareCommand(action, value, state) {
       if (action !== 'send') throw new Error('Unbekannter Flottenbefehl.');
-      if (stale || state.loading || !state.data) throw new Error('Bitte zuerst den Schiffsbestand aktualisieren.');
       if (!value || !Object.hasOwn(FLEET_MISSIONS, value.mission)
         || !integer(value.target_galaxy, 1) || Number(value.target_galaxy) > 9
         || !integer(value.target_system, 1) || !integer(value.target_position, 1)) {
@@ -81,7 +86,7 @@ export function createFleetLaunchDomain({ api, session }) {
       }
       if (!value.ships || Array.isArray(value.ships) || typeof value.ships !== 'object'
         || !Object.keys(value.ships).length || Object.entries(value.ships).some(([type, count]) =>
-          !integer(count, 1) || !state.data.ships.some((ship) => ship.type === type && Number(ship.count) >= Number(count)))) {
+          !integer(count, 1))) {
         throw new Error('Mindestens ein verfügbares Schiff auswählen; Mengen müssen ganze Zahlen sein.');
       }
       const cargo = {};
@@ -93,15 +98,29 @@ export function createFleetLaunchDomain({ api, session }) {
         }
         cargo[key] = Number(amount);
       }
-      return { endpoint: 'api/fleet.php?action=send', body: {
+      const body = {
         origin_colony_id: Number(state.colonyId), mission: value.mission,
         target_galaxy: Number(value.target_galaxy), target_system: Number(value.target_system),
         target_position: Number(value.target_position),
-        ships: Object.fromEntries(Object.entries(value.ships).map(([type, count]) => [type, Number(count)])),
+        ships: Object.fromEntries(Object.entries(value.ships).sort(([a], [b]) => a.localeCompare(b))
+          .map(([type, count]) => [type, Number(count)])),
         cargo,
-      } };
+      };
+      const signature = JSON.stringify(body);
+      let requestId = pendingOrders.get(signature);
+      if (!requestId) {
+        if (stale || state.loading || !state.data) throw new Error('Bitte zuerst den Schiffsbestand aktualisieren.');
+        if (Object.entries(body.ships).some(([type, count]) =>
+          !state.data.ships.some((ship) => ship.type === type && Number(ship.count) >= count))) {
+          throw new Error('Mindestens ein verfügbares Schiff auswählen; Mengen müssen ganze Zahlen sein.');
+        }
+        requestId = crypto.randomUUID();
+        pendingOrders.set(signature, requestId);
+      }
+      submittedOrder = signature;
+      return { endpoint: 'api/fleet.php?action=send', body: { ...body, request_id: requestId } };
     },
   });
   return { ...domain, getState: () => ({ ...domain.getState(), stale }),
-    shutdown() { unsubscribe(); domain.shutdown(); } };
+    shutdown() { unsubscribe(); pendingOrders.clear(); domain.shutdown(); } };
 }

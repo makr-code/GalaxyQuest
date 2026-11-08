@@ -19,11 +19,15 @@ final class RegistrationRememberCookieTest extends TestCase
         self::assertGreaterThan($cookie, $ack);
         self::assertMatchesRegularExpression(
             '/hash_equals\(\$_SESSION\[\'registration_confirmation_hash\'\],[\s\S]*?'
-            . 'if \(\$action === \'confirm\'\) issue_remember_me_token\(\$uid\)/',
+            . 'if\s*\(\$action\s*===\s*\'confirm\'\s*\)\s*\{\s*'
+            . 'issue_remember_me_token\(\$uid\)\s*;/',
             $source
         );
-        $enter = substr($source, strpos($source, "if (\$action === 'enter')"),
-            strpos($source, "if (\$action === 'confirm') {") - strpos($source, "if (\$action === 'enter')"));
+        $enterStart = strpos($source, "if (\$action === 'enter')");
+        self::assertNotFalse($enterStart);
+        $confirmStart = strpos($source, "if (\$action === 'confirm') {", $enterStart);
+        self::assertNotFalse($confirmStart);
+        $enter = substr($source, $enterStart, $confirmStart - $enterStart);
         self::assertStringNotContainsString('issue_remember_me_token', $enter,
             'Unconfirmed drafts must remain private and must not receive account login cookies.');
     }

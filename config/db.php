@@ -1,4 +1,5 @@
 <?php
+
 require_once __DIR__ . '/config.php';
 
 /**
@@ -8,7 +9,9 @@ require_once __DIR__ . '/config.php';
 class LoggingStatement extends PDOStatement
 {
     // PDOStatement's constructor is hidden; the subclass constructor must be protected.
-    protected function __construct() {}
+    protected function __construct()
+    {
+    }
 
     public function execute(?array $params = null): bool
     {
@@ -28,7 +31,8 @@ class LoggingStatement extends PDOStatement
     }
 }
 
-function get_db(): PDO {
+function get_db(): PDO
+{
     static $pdo = null;
     if ($pdo === null) {
         $dsn = 'mysql:host=' . DB_HOST . ';port=' . DB_PORT

@@ -43,6 +43,41 @@ class MigrationRunner {
         }
     }
     public function bootstrap(): void {}
+    public function adoptActorHistory(bool $dryRun): array {
+        $this->checkFailure();
+        fwrite(STDERR, "ADOPT:" . (int)$dryRun . "\n");
+        return ['adopted' => ['actor.sql'], 'evidence' => ['contract' => 'fixture'], 'dry_run' => $dryRun];
+    }
+    public function adoptBodyHistory(bool $dryRun): array {
+        $this->checkFailure();
+        fwrite(STDERR, "ADOPT_BODIES:" . (int)$dryRun . "\n");
+        return ['adopted' => ['body.sql'], 'evidence' => ['contract' => 'fixture'], 'dry_run' => $dryRun];
+    }
+    public function adoptLegacyV2History(bool $dryRun): array {
+        $this->checkFailure();
+        fwrite(STDERR, "ADOPT_V2:" . (int)$dryRun . "\n");
+        return ['adopted' => ['migrate_v2.sql'], 'evidence' => ['contract' => 'fixture'], 'dry_run' => $dryRun];
+    }
+    public function adoptEconomyHistory(bool $dryRun): array {
+        $this->checkFailure();
+        fwrite(STDERR, "ADOPT_ECONOMY:" . (int)$dryRun . "\n");
+        return ['adopted' => ['economy.sql'], 'evidence' => ['contract' => 'fixture'], 'dry_run' => $dryRun];
+    }
+    public function adoptAuthHistory(bool $dryRun): array {
+        $this->checkFailure();
+        fwrite(STDERR, "ADOPT_AUTH:" . (int)$dryRun . "\n");
+        return ['adopted' => ['auth.sql'], 'evidence' => ['contract' => 'fixture'], 'dry_run' => $dryRun];
+    }
+    public function adoptVesselBlueprintHistory(bool $dryRun): array {
+        $this->checkFailure();
+        fwrite(STDERR, "ADOPT_VESSEL_BLUEPRINTS:" . (int)$dryRun . "\n");
+        return ['adopted' => ['vessel.sql'], 'evidence' => ['contract' => 'fixture'], 'dry_run' => $dryRun];
+    }
+    public function adoptWarHistory(bool $dryRun): array {
+        $this->checkFailure();
+        fwrite(STDERR, "ADOPT_WARS:" . (int)$dryRun . "\n");
+        return ['adopted' => ['wars.sql'], 'evidence' => ['contract' => 'fixture'], 'dry_run' => $dryRun];
+    }
     public function getStatus(): array { return []; }
     public function verifyDeployment(): int {
         $this->checkFailure();
@@ -130,6 +165,14 @@ PHP);
         yield 'status preview' => [['status', '--dry-run']];
         yield 'verify step' => [['verify', '--step=1']];
         yield 'verify preview' => [['verify', '--dry-run']];
+        yield 'adoption step' => [['adopt-actors', '--step=1']];
+        yield 'body adoption step' => [['adopt-bodies', '--step=1']];
+        yield 'V2 adoption step' => [['adopt-v2', '--step=1']];
+        yield 'economy adoption step' => [['adopt-economy', '--step=1']];
+        yield 'auth adoption step' => [['adopt-auth', '--step=1']];
+        yield 'vessel adoption step' => [['adopt-vessel-blueprints', '--step=1']];
+        yield 'war adoption step' => [['adopt-wars', '--step=1']];
+        yield 'reserved adoption environment' => [['up', '--env=ADOPTED']];
         yield 'long env' => [['up', '--env=' . str_repeat('a', 21)]];
         yield 'invalid env' => [['up', '--env=TEST!']];
         yield 'empty env' => [['up', '--env=']];
@@ -151,6 +194,20 @@ PHP);
     {
         yield 'up defaults' => [['up'], 'UP:all:0'];
         yield 'verify defaults' => [['verify'], 'VERIFY'];
+        yield 'adopt preview' => [['adopt-actors', '--dry-run'], 'ADOPT:1'];
+        yield 'adopt execution' => [['adopt-actors'], 'ADOPT:0'];
+        yield 'body adoption preview' => [['adopt-bodies', '--dry-run'], 'ADOPT_BODIES:1'];
+        yield 'body adoption execution' => [['adopt-bodies'], 'ADOPT_BODIES:0'];
+        yield 'V2 adoption preview' => [['adopt-v2', '--dry-run'], 'ADOPT_V2:1'];
+        yield 'V2 adoption execution' => [['adopt-v2'], 'ADOPT_V2:0'];
+        yield 'economy adoption preview' => [['adopt-economy', '--dry-run'], 'ADOPT_ECONOMY:1'];
+        yield 'economy adoption execution' => [['adopt-economy'], 'ADOPT_ECONOMY:0'];
+        yield 'auth adoption preview' => [['adopt-auth', '--dry-run'], 'ADOPT_AUTH:1'];
+        yield 'auth adoption execution' => [['adopt-auth'], 'ADOPT_AUTH:0'];
+        yield 'vessel adoption preview' => [['adopt-vessel-blueprints', '--dry-run'], 'ADOPT_VESSEL_BLUEPRINTS:1'];
+        yield 'vessel adoption execution' => [['adopt-vessel-blueprints'], 'ADOPT_VESSEL_BLUEPRINTS:0'];
+        yield 'war adoption preview' => [['adopt-wars', '--dry-run'], 'ADOPT_WARS:1'];
+        yield 'war adoption execution' => [['adopt-wars'], 'ADOPT_WARS:0'];
         yield 'verify directory and env' => [['verify', '--sql-dir=sql', '--env=PROD'], 'ENV:PROD'];
         yield 'rollback default' => [['rollback'], 'ROLLBACK:1:0'];
         yield 'preview' => [['up', '--step=2', '--dry-run'], 'UP:2:1'];
@@ -174,6 +231,8 @@ PHP);
         $this->assertSame(0, $exit);
         $this->assertStringContainsString('Usage:', $output);
         $this->assertStringContainsString('verify', $output);
+        $this->assertStringContainsString('adopt-vessel-blueprints', $output);
+        $this->assertStringContainsString('adopt-wars', $output);
         $this->assertStringNotContainsString('DB_CONNECT', $errors);
     }
 
@@ -181,7 +240,7 @@ PHP);
     {
         [$exit, $output] = $this->request(['status']);
         $this->assertSame(0, $exit);
-        $this->assertStringContainsString('0 applied, 0 pending', $output);
+        $this->assertStringContainsString('0 executed, 0 adopted, 0 pending', $output);
     }
 
     public function testVerifySummaryOnlyAfterSuccessfulVerification(): void
@@ -201,6 +260,30 @@ PHP);
         $this->assertSame(1, $exit);
         $this->assertStringNotContainsString('Verified', $output);
         $this->assertStringNotContainsString('Fatal error', $errors);
+        $this->assertStringContainsString(
+            $mode === 'connection' ? 'Database connection failed:' : '[migrate] Failed:',
+            $errors
+        );
+    }
+
+    #[DataProvider('failures')]
+    public function testEconomyAdoptionFailuresNeverPrintSuccess(string $mode): void
+    {
+        [$exit, $output, $errors] = $this->request(['adopt-economy'], $mode);
+        $this->assertSame(1, $exit);
+        $this->assertStringNotContainsString('Adopted', $output);
+        $this->assertStringContainsString(
+            $mode === 'connection' ? 'Database connection failed:' : '[migrate] Failed:',
+            $errors
+        );
+    }
+
+    #[DataProvider('failures')]
+    public function testAuthAdoptionFailuresNeverPrintSuccess(string $mode): void
+    {
+        [$exit, $output, $errors] = $this->request(['adopt-auth'], $mode);
+        $this->assertSame(1, $exit);
+        $this->assertStringNotContainsString('Adopted', $output);
         $this->assertStringContainsString(
             $mode === 'connection' ? 'Database connection failed:' : '[migrate] Failed:',
             $errors

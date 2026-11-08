@@ -21,13 +21,13 @@ final class EspionageReadSideEffectsTest extends TestCase
 
         $postOffset = strpos($handler, "only_method('POST');");
         $csrfOffset = strpos($handler, 'verify_csrf();');
-        $updateOffset = strpos($handler, 'UPDATE espionage_agents');
+        $gateOffset = strpos($handler, 'require_espionage_runtime();');
         self::assertNotFalse($postOffset);
         self::assertNotFalse($csrfOffset);
-        self::assertNotFalse($updateOffset);
+        self::assertNotFalse($gateOffset);
         self::assertLessThan($csrfOffset, $postOffset);
-        self::assertLessThan($updateOffset, $csrfOffset);
-        self::assertStringContainsString('WHERE id = ? AND user_id = ? AND mission_id = ?', $handler);
+        self::assertLessThan($gateOffset, $csrfOffset);
+        self::assertStringNotContainsString('UPDATE espionage_agents', $handler);
     }
 
     public function testEspionageReadActionsRemainGetOnly(): void

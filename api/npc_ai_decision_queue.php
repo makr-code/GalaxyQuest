@@ -321,8 +321,13 @@ function npc_ai_decision_queue_apply_claim_updates(
 /**
  * @param array<string,mixed> $result
  */
-function npc_ai_decision_queue_complete(PDO $db, int $queueId, bool $ok, array $result = [], string $errorMessage = ''): void
-{
+function npc_ai_decision_queue_complete(
+    PDO $db,
+    int $queueId,
+    bool $ok,
+    array $result = [],
+    string $errorMessage = ''
+): void {
     if ($queueId <= 0 || !npc_ai_decision_queue_available($db)) {
         return;
     }
@@ -459,7 +464,14 @@ function npc_ai_decision_queue_complete_claimed(
                AND claimed_by_worker_id = ?
                AND claim_token = ?"
         );
-        $failed->execute([$retryBackoffSeconds, substr($errorMessage, 0, 255), $resultJson, $queueId, $workerId, $claimToken]);
+        $failed->execute([
+            $retryBackoffSeconds,
+            substr($errorMessage, 0, 255),
+            $resultJson,
+            $queueId,
+            $workerId,
+            $claimToken,
+        ]);
         return $failed->rowCount() === 1;
     }
 

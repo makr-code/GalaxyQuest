@@ -30,16 +30,16 @@ final class NpcBehaviorScript
 {
     /** @var array<string, mixed> */
     private array $scriptData = [];
-    
+
     private string $behavior = '';
     private string $personalityKey = '';
-    
+
     /** @var array<array<string, mixed>> */
     private array $conditions = [];
-    
+
     /** @var array<array<string, mixed>> */
     private array $actions = [];
-    
+
     private string $fallback = 'none';
 
     /**
@@ -285,7 +285,7 @@ final class NpcBehaviorScript
 
         foreach ($lines as $line) {
             $trimmed = trim($line);
-            
+
             if ($trimmed === '' || $trimmed[0] === '#') {
                 continue;
             }

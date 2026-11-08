@@ -436,25 +436,31 @@ try {
         case 'list':
             only_method('GET');
             json_response(handle_list($db, $uid));
+            break;
         case 'trust_threat':
             only_method('GET');
             json_response(handle_trust_threat($db, $uid));
+            break;
         case 'propose_play':
             only_method('POST');
             verify_csrf();
             json_response(handle_propose_play($db, $uid));
+            break;
         case 'counter_play':
             only_method('POST');
             verify_csrf();
             json_response(handle_counter_play($db, $uid));
+            break;
         case 'mobilize':
             only_method('POST');
             verify_csrf();
             json_response(handle_mobilize($db, $uid));
+            break;
         case 'resolve':
             only_method('POST');
             verify_csrf();
             json_response(handle_resolve($db, $uid));
+            break;
         default:              json_error('Unknown action', 400);
     }
 } catch (PDOException $e) {

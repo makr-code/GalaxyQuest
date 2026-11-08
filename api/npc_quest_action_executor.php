@@ -1,13 +1,13 @@
 <?php
 
-declare(strict_types=1);
-
 /**
  * NPC Quest Action Executor
  *
  * Handles quest generation triggered by NPC decisions (from Behavior-Scripts or LLM).
  * Manages quest template selection, personalization, and user assignment.
  */
+
+declare(strict_types=1);
 
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/npc_quest_chain_manager.php';
@@ -204,8 +204,10 @@ function npc_calculate_quest_rewards(array $rewardTemplate, array $params): arra
         $multiplier = (float) ($rewardTemplate['multipliers'][0] ?? 1.0);
 
         // Apply amount-based scaling
-        if (!in_array($resource, ['standing', 'rank_points'], true)
-            && isset($rewardTemplate['multipliers']['by_amount'])) {
+        if (
+            !in_array($resource, ['standing', 'rank_points'], true)
+            && isset($rewardTemplate['multipliers']['by_amount'])
+        ) {
             $amount = (int) ($params['amount'] ?? 0);
             $base += (int) ($amount * (float) $rewardTemplate['multipliers']['by_amount']);
         }
@@ -251,8 +253,7 @@ function npc_insert_generated_quest(
     array $questData,
     int $userId,
     ?string $templateCode = null
-): int
-{
+): int {
     $code = 'generated_quest_' . $userId . '_' . gmdate('YmdHis') . '_' . bin2hex(random_bytes(4));
 
     $stmt = $db->prepare(

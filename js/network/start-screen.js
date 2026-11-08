@@ -36,6 +36,7 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
     panelListeners?.abort();
     panelListeners = null;
     activeTrigger?.setAttribute('aria-expanded', 'false');
+    activeTrigger?.removeAttribute('aria-controls');
     activeTrigger = null;
   }
 
@@ -55,12 +56,9 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
     trigger.insertAdjacentElement('afterend', panel);
     panel.setAttribute('open', '');
     trigger.setAttribute('aria-expanded', 'true');
+    trigger.setAttribute('aria-controls', panel.id);
     panelListeners = new AbortController();
     const { signal } = panelListeners;
-    const fitPanel = () => panel.style.setProperty('--start-panel-top', `${Math.max(0, panel.getBoundingClientRect().top)}px`);
-    fitPanel();
-    window.addEventListener('resize', fitPanel, { signal });
-    window.addEventListener('scroll', fitPanel, { signal, passive: true });
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -69,8 +67,8 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
     }, { signal });
     document.addEventListener('pointerdown', (event) => {
       const target = event.target;
-      const switchesPanel = target instanceof Element
-        && target.closest('[data-start-panel], #start-login, #start-dev, #start-register');
+      const nextTrigger = target instanceof Element && target.closest('.start-panel-anchor > .start-button');
+      const switchesPanel = nextTrigger && menu.contains(nextTrigger);
       if (!panel.contains(target) && !trigger.contains(target) && !switchesPanel) close();
     }, { signal });
   }

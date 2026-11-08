@@ -15,17 +15,24 @@ final class FleetReadSideEffectsTest extends TestCase
         self::assertNotFalse($start);
         self::assertNotFalse($end);
         $dispatch = substr($source, $start, $end - $start);
-        $inventory = strpos($dispatch, "gq_cache_delete('shipyard_list', ['uid' => \$uid, 'cid' => \$originCid])");
-        $overview = strpos($dispatch, "gq_cache_delete('game_overview', ['uid' => \$uid])");
-        $error = strpos($dispatch, '} catch (DomainException $error)');
-        $ack = strpos($dispatch, "json_ok(['fleet_id'");
+        $library = file_get_contents(__DIR__ . '/../../lib/fleet_launch.php');
+        self::assertIsString($library);
+        $shared = $this->functionBody($library, 'launch_fleet_dispatch');
+        $inventory = strpos($shared, "gq_cache_delete('shipyard_list', ['uid' => \$uid, 'cid' => \$originCid])");
+        $overview = strpos($shared, "gq_cache_delete('game_overview', ['uid' => \$uid])");
+        $transaction = strpos($shared, 'transactionWithColony(');
+        $ack = strrpos($shared, 'return $result;');
         self::assertNotFalse($inventory);
         self::assertNotFalse($overview);
-        self::assertNotFalse($error);
+        self::assertNotFalse($transaction);
         self::assertNotFalse($ack);
-        self::assertGreaterThan($error, $inventory);
+        self::assertGreaterThan($transaction, $inventory);
         self::assertGreaterThan($inventory, $ack);
         self::assertGreaterThan($overview, $ack);
+        self::assertStringContainsString('launch_fleet_dispatch($db, $uid, $body)', $dispatch);
+        self::assertStringContainsString('json_ok($result)', $dispatch);
+        $locked = $this->functionBody($library, 'launch_fleet_dispatch_locked');
+        self::assertStringContainsString("enqueue_dirty_user(\$db, \$uid, 'fleet_sent')", $locked);
     }
 
     public function testFleetListIsReadOnlyAndArrivalProcessingRequiresPostAndCsrf(): void
@@ -55,6 +62,25 @@ final class FleetReadSideEffectsTest extends TestCase
         self::assertStringContainsString('process_fleet_arrivals($db)', $checkHandler);
         self::assertStringContainsString("return ['executed' => true]", $checkHandler);
         self::assertStringContainsString('json_ok($result)', $checkHandler);
+    }
+
+    public function testEncounterReadActionIsGatedAuthenticatedAndDoesNotSimulate(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/fleet.php');
+        self::assertIsString($source);
+        $start = strpos($source, "case 'battle_encounter':");
+        $end = strpos($source, "case 'list':", $start);
+        self::assertNotFalse($start);
+        self::assertNotFalse($end);
+        $handler = substr($source, $start, $end - $start);
+        self::assertStringContainsString("only_method('GET')", $handler);
+        self::assertStringContainsString('if (!BATTLE_ENCOUNTERS_ENABLED)', $handler);
+        self::assertStringContainsString('->read($uid, $encounterId)', $handler);
+        self::assertStringNotContainsString('process_fleet_arrivals(', $handler);
+        self::assertStringNotContainsString('simulation_runtime_', $handler);
+        $authentication = strpos($source, '$uid    = require_auth();');
+        self::assertNotFalse($authentication);
+        self::assertLessThan($start, $authentication);
     }
 
     public function testCombatPreviewsProjectDueShipBuildsWithoutCompletingTheQueue(): void

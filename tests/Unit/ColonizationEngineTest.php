@@ -151,6 +151,19 @@ final class ColonizationEngineTest extends TestCase
         ];
     }
 
+    public function testSprawlCountsSameSystemCoordinateInDifferentGalaxiesSeparately(): void
+    {
+        $this->db->exec(
+            "INSERT INTO celestial_bodies VALUES (40,1,2,1),(50,1,2,2);
+             INSERT INTO colonies (id,user_id,body_id,population) VALUES (3,1,40,100),(4,1,50,100)"
+        );
+        $result = ColonizationEngine::calculateSprawl($this->db, 1);
+        $this->assertSame(5.0, $result['sprawl_value']);
+        $this->assertSame(50, $result['admin_cap']);
+        $this->assertSame(10, $result['sprawl_pct']);
+        $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM empire_sprawl_cache')->fetchColumn());
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // getMalusEffects
     // ──────────────────────────────────────────────────────────────────────────

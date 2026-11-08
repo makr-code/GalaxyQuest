@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Shared SwarmUI client for local Stable Diffusion image generation.
  *
@@ -14,6 +15,7 @@
  *   2. POST /API/GenerateText2Image { session_id, prompt, model, ... } → image paths
  *   3. GET  /[image_path] → binary PNG
  */
+
 require_once __DIR__ . '/../config/config.php';
 
 // ── Session cache (per-process) ───────────────────────────────────────────────
@@ -250,10 +252,10 @@ function swarmui_http_request(string $path, array $payload, int $timeout = 30): 
     $url = rtrim((string) SWARMUI_BASE_URL, '/') . $path;
 
     $body = json_encode($payload, JSON_UNESCAPED_UNICODE);
-        // json_encode([]) produces "[]" (JSON array); SwarmUI always expects a JSON object.
-        if ($body === '[]') {
-            $body = '{}';
-        }
+    // json_encode([]) produces "[]" (JSON array); SwarmUI always expects a JSON object.
+    if ($body === '[]') {
+        $body = '{}';
+    }
     if ($body === false) {
         return ['ok' => false, 'status' => 400, 'error' => 'JSON encode failed.'];
     }
@@ -301,7 +303,12 @@ function swarmui_http_request(string $path, array $payload, int $timeout = 30): 
 
     $data = json_decode((string) $raw, true);
     if (!is_array($data)) {
-        return ['ok' => false, 'status' => $httpCode, 'error' => 'Invalid JSON response from SwarmUI.', 'raw_body' => $raw];
+        return [
+            'ok' => false,
+            'status' => $httpCode,
+            'error' => 'Invalid JSON response from SwarmUI.',
+            'raw_body' => $raw,
+        ];
     }
 
     if (isset($data['error'])) {

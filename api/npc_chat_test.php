@@ -1,4 +1,5 @@
 <?php
+
 if (PHP_SAPI !== 'cli') {
     http_response_code(404);
     exit;
@@ -30,7 +31,9 @@ try {
     }
 
     // Build system prompt for NPC personality
-    $systemPrompt = "You are $npcName from the $faction faction in a space strategy game. Respond naturally and in-character. Keep responses brief (1-3 sentences). Maintain a consistent personality.";
+    $systemPrompt = "You are $npcName from the $faction faction in a space strategy game. "
+        . 'Respond naturally and in-character. Keep responses brief (1-3 sentences). '
+        . 'Maintain a consistent personality.';
 
     $messages = [
         ['role' => 'system', 'content' => $systemPrompt],

@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Shared TTS client for the GalaxyQuest TTS microservice.
  *
@@ -9,6 +10,7 @@
  *       // $result['audio_url'] is the web-accessible path to the cached MP3
  *   }
  */
+
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/cache.php';
 
@@ -187,7 +189,7 @@ function tts_request(
     string $path,
     ?array $payload,
     array $options = [],
-    string $method  = 'POST'
+    string $method = 'POST'
 ): array {
     if (!tts_is_enabled()) {
         return ['ok' => false, 'status' => 503, 'error' => 'TTS is disabled.'];
@@ -222,9 +224,9 @@ function tts_request(
 function _tts_curl(
     string $url,
     string $method,
-    array  $headers,
+    array $headers,
     ?string $body,
-    int    $timeout
+    int $timeout
 ): array {
     $ch = curl_init($url);
     if ($ch === false) {
@@ -257,9 +259,9 @@ function _tts_curl(
 function _tts_stream(
     string $url,
     string $method,
-    array  $headers,
+    array $headers,
     ?string $body,
-    int    $timeout
+    int $timeout
 ): array {
     $ctx = stream_context_create([
         'http' => [
@@ -274,7 +276,11 @@ function _tts_stream(
     $raw = @file_get_contents($url, false, $ctx);
     if ($raw === false) {
         $err = error_get_last();
-        return ['ok' => false, 'status' => 502, 'error' => 'TTS request failed: ' . (string) ($err['message'] ?? 'stream error')];
+        return [
+            'ok' => false,
+            'status' => 502,
+            'error' => 'TTS request failed: ' . (string) ($err['message'] ?? 'stream error'),
+        ];
     }
 
     $status = 200;
@@ -306,7 +312,11 @@ function _tts_decode(string $raw, int $status, string $ctype): array
     // JSON error / info response
     $decoded = json_decode($raw, true);
     if (!is_array($decoded)) {
-        return ['ok' => false, 'status' => $status, 'error' => trim($raw) ?: ('TTS service responded with HTTP ' . $status)];
+        return [
+            'ok' => false,
+            'status' => $status,
+            'error' => trim($raw) ?: ('TTS service responded with HTTP ' . $status),
+        ];
     }
 
     if ($status < 200 || $status >= 300) {

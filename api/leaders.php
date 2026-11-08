@@ -856,8 +856,12 @@ function fc_is_hostile_system_for_user(PDO $db, int $uid, int $galaxy, int $syst
     foreach ($warRows as $row) {
         $oa = (int)($row['other_alliance_id'] ?? 0);
         $ou = (int)($row['other_user_id'] ?? 0);
-        if ($oa > 0) $enemyAllianceIds[] = $oa;
-        if ($ou > 0) $enemyUserIds[] = $ou;
+        if ($oa > 0) {
+            $enemyAllianceIds[] = $oa;
+        }
+        if ($ou > 0) {
+            $enemyUserIds[] = $ou;
+        }
     }
 
     if (!$enemyAllianceIds && !$enemyUserIds) {
@@ -1262,7 +1266,8 @@ function marketplace_pool(): array {
 /**
  * Return the user's current marketplace candidates without modifying state.
  */
-function fetch_marketplace_candidates(PDO $db, int $uid): array {
+function fetch_marketplace_candidates(PDO $db, int $uid): array
+{
     $rows = $db->prepare(
         'SELECT * FROM leader_marketplace WHERE user_id=? AND expires_at > NOW() ORDER BY is_hired ASC, rarity DESC, created_at ASC'
     );
@@ -1273,7 +1278,8 @@ function fetch_marketplace_candidates(PDO $db, int $uid): array {
 /**
  * Generate a daily batch only when none of the user's candidates remain active.
  */
-function ensure_marketplace_candidates(PDO $db, int $uid): void {
+function ensure_marketplace_candidates(PDO $db, int $uid): void
+{
     $db->beginTransaction();
     try {
         $user = $db->prepare('SELECT id FROM users WHERE id = ? FOR UPDATE');

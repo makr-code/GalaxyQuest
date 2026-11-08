@@ -23,7 +23,9 @@ describe('Authoritative fleet commands and window', () => {
   beforeEach(async () => {
     current = [fleet()];
     api = {
-      get: vi.fn(async (url) => url.includes('overview') ? overview() : { success: true, fleets: structuredClone(current) }),
+      get: vi.fn(async (url) => url.includes('overview') ? overview()
+        : url.includes('battle_reports') ? { success: true, battle_reports: [] }
+          : { success: true, fleets: structuredClone(current) }),
       post: vi.fn(async (url) => {
         current = url.endsWith('recall') ? [{ ...fleet(), returning: '1' }] : [];
         return { success: true };
@@ -49,6 +51,20 @@ describe('Authoritative fleet commands and window', () => {
     const copy = domain.getState();
     copy.fleets[0].ships.small_cargo = 99;
     expect(domain.getState().fleets[0].ships.small_cargo).toBe(2);
+  });
+  it('uses participant-scoped read endpoints for battle reports without issuing commands', async () => {
+    const controller = new AbortController();
+    api.get.mockResolvedValueOnce({ success: true, battle_reports: [] });
+    expect(await domain.battleReports({ signal: controller.signal })).toEqual({
+      success: true, battle_reports: [],
+    });
+    expect(api.get).toHaveBeenLastCalledWith('api/reports.php?action=battle_reports', {
+      signal: controller.signal,
+    });
+    await domain.battleEncounterForReport(38);
+    expect(api.get).toHaveBeenLastCalledWith('api/fleet.php?action=battle_encounter&report_id=38', {});
+    await expect(domain.battleEncounterForReport(0)).rejects.toThrow('Ungültige Schlachtbericht-ID');
+    expect(api.post).not.toHaveBeenCalled();
   });
   it('recalls a loaded outbound fleet then refreshes overview and canonical list without optimistic progress', async () => {
     await domain.load();
@@ -232,6 +248,65 @@ describe('Authoritative fleet commands and window', () => {
     expect(galaxy.navigate).toHaveBeenCalledTimes(2);
     expect(wm.close).toHaveBeenCalledWith('fleet');
     expect(config.onRender).toBeNull();
+  });
+  it('opens a Hero replay only from a participant-authorized completed encounter', async () => {
+    const report = { id: 38, role: 'attacker', replay_available: true, created_at: '2026-11-08 12:00:00',
+      report: { attacker_wins: true } };
+    const encounter = { id: 21, status: 'resolved', battle_report_id: 38 };
+    api.get.mockImplementation(async (url) => {
+      if (url.includes('action=battle_reports')) return { success: true, battle_reports: [report] };
+      if (url.includes('action=battle_encounter')) return { success: true, encounter };
+      if (url.includes('action=list')) return { success: true, fleets: structuredClone(current) };
+      return { success: true };
+    });
+    const root = document.createElement('div');
+    document.body.append(root);
+    let config;
+    const wm = { body: () => root, register: vi.fn((id, options) => { config = options; }),
+      close: vi.fn(), minimize: vi.fn(), open: vi.fn(() => config.onRender()) };
+    unmount = mountFleetWindow({ domain, galaxy: {}, wm: attachWindowWidgets(wm) });
+    const onReplay = vi.fn();
+    window.addEventListener('gq:show-battle-encounter', onReplay);
+
+    wm.open('fleet');
+    await vi.waitFor(() => expect(root.querySelector('[data-battle-replay-report="38"]')).not.toBeNull());
+    root.querySelector('[data-battle-replay-report="38"]').click();
+    await vi.waitFor(() => expect(onReplay).toHaveBeenCalledOnce());
+
+    expect(onReplay.mock.calls[0][0].detail).toBe(encounter);
+    expect(api.get).toHaveBeenCalledWith(
+      'api/fleet.php?action=battle_encounter&report_id=38',
+      { signal: expect.any(AbortSignal) },
+    );
+    expect(wm.minimize).toHaveBeenCalledWith('fleet');
+    window.removeEventListener('gq:show-battle-encounter', onReplay);
+  });
+  it('does not offer Hero replay for historical reports without a resolved encounter journal', async () => {
+    const reports = [
+      { id: 38, role: 'attacker', replay_available: true, report: { attacker_wins: true } },
+      { id: 39, role: 'defender', replay_available: false, report: { attacker_wins: false } },
+      { id: 40, role: 'attacker', report: { attacker_wins: true } },
+    ];
+    api.get.mockImplementation(async (url) => url.includes('action=battle_reports')
+      ? { success: true, battle_reports: reports }
+      : { success: true, fleets: structuredClone(current) });
+    const root = document.createElement('div');
+    document.body.append(root);
+    let config;
+    const wm = { body: () => root, register: vi.fn((id, options) => { config = options; }),
+      close: vi.fn(), minimize: vi.fn(), open: vi.fn(() => config.onRender()) };
+    unmount = mountFleetWindow({ domain, galaxy: {}, wm: attachWindowWidgets(wm) });
+
+    wm.open('fleet');
+    await vi.waitFor(() => expect(root.querySelectorAll('[data-battle-report-id]').length).toBe(3));
+
+    expect(root.querySelector('[data-battle-replay-report="38"]')).not.toBeNull();
+    expect(root.querySelector('[data-battle-report-id="39"] [data-battle-replay-report]')).toBeNull();
+    expect(root.querySelector('[data-battle-report-id="40"] [data-battle-replay-report]')).toBeNull();
+    expect(root.querySelectorAll('.game-development-card p').length).toBeGreaterThan(0);
+    expect(root.querySelector('[data-battle-report-id="39"]').textContent)
+      .toContain('Replay ist für diesen Bericht nicht verfügbar.');
+    expect(root.querySelector('[data-battle-report-id="39"]').textContent).not.toContain('historischer Bericht');
   });
   it('uses linked local filter fields and preserves each fleet disclosure independently across updates and filtering', async () => {
     current = [fleet(), { ...fleet(), id: '8', returning: '1' }];

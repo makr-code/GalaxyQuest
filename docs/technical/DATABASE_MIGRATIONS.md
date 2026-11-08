@@ -11,6 +11,1004 @@ companion `_down.sql` files.
 
 ## Quick Start
 
+### Verified actor-history adoption
+
+```bash
+php scripts/migrate.php adopt-actors --dry-run
+php scripts/migrate.php adopt-actors
+```
+
+This narrow reconciliation contract adopts only
+`migrate_actor_model_v1.sql` and `migrate_actor_model_v2_drop_is_npc.sql`.
+It does not execute either SQL file and does not adopt the other pending
+migrations. Adoption requires the canonical sources to match reviewed SHA-256
+pins (LF-normalized for Windows checkouts), existing tracking with valid
+checksums, and the current InnoDB actor schema without `users.is_npc`.
+Controller column types/defaults, the controller index, every controller/login
+identity and deleted-account invariants are checked under transaction locks.
+
+`schema_migration_adoptions.sql` creates operator-only evidence infrastructure
+on explicit adoption, not during gameplay or a dry-run. Evidence records the
+contract ID, source pin, deployment environment, aggregate controller counts
+and a hash of the inspected identity snapshot. The original identities are not
+copied into the evidence. Evidence and tracking entries commit together;
+tracking uses reserved environment `ADOPTED`, not a claim of SQL execution.
+CLI status distinguishes `executed` and `adopted`. Missing/tampered provenance
+blocks adopted status and deployment verification. Adopted entries cannot
+execute rollback SQL. `--step` is invalid for this bounded operation.
+
+The contract is a point-in-time adoption proof, not an immutable promise that
+gameplay can never subsequently create or change an actor. It deliberately
+does not infer current NPC identities from retired legacy flags.
+
+Pending `migrate_v2.sql` is blocked by Up after actor adoption because it
+recreates `is_npc`. Reconcile that migration's remaining schema/data effects
+before running a general Up. Do not bypass this guard through direct SQL or
+partial manifests. Unified-body adoption and other historical contracts are
+not implemented by `adopt-actors`.
+
+Local application on 2026-11-07 preserved the same identity snapshot:
+3 human accounts and 44 non-login NPC accounts. History now contains
+14 executed entries, 2 adopted entries and 69 pending migrations.
+Readiness remains 503. The targeted acceptance passed 18 MySQL tests /
+121 assertions (adoption and migration locks), plus 145 runner/CLI/health
+tests / 542 assertions. Targeted PHPStan and new-class PHPCS passed; existing
+style findings in legacy runner/CLI files were not claimed clean or rewritten.
+
+### Verified native-body adoption
+
+```bash
+php scripts/migrate.php adopt-bodies --dry-run
+php scripts/migrate.php adopt-bodies
+```
+
+The operator-approved `body-native-v1` contract recognizes the current native
+catalogue as authoritative. It adopts only `migrate_unified_bodies_v1.sql`
+and `migrate_unified_bodies_v2_hardcut.sql`, without executing the obsolete
+uninhabited legacy-planet import. Existing native and legacy-prefixed body
+identities are preserved, not rewritten, deleted, merged or duplicated.
+
+Required column types/nullability, InnoDB, complete identity indexes and
+parent/colony foreign-key rules are validated. Colony and report identities
+are locked and checked for missing body references; linked legacy planets
+must agree with the native planet's coordinates. Null spy targets remain
+allowed. Old report identity columns must already be retired. Self-parented
+bodies, inconsistent mappings, missing indexes/constraints, source drift
+and unknown provenance reject adoption explicitly.
+
+This contract intentionally does **not** require a body for every uninhabited
+legacy planet. The accepted policy, schema hash and colony/report identity
+hash are recorded with the common adoption provenance. CLI status and
+verification check the body-specific policy/schema evidence; rollback cannot
+execute SQL against adopted history.
+
+On 2026-11-07, local adoption preserved 566,764 bodies, 47 colony mappings,
+44 NPCs and three human accounts. No body import or gameplay mutation occurred.
+History now contains 14 executed, 4 adopted and 67 pending entries.
+
+Final actor/body adoption and advisory-lock acceptance passed 36 real MySQL
+tests / 209 assertions, including source/policy drift and rollback rejection.
+The runner/CLI/health suite passed 148 tests / 550 assertions. Targeted PHPStan
+and the new body-contract PHPCS checks passed. Repeated live dry-run adopted
+zero entries and reproduced the same identity/schema hashes; liveness is 200,
+while full readiness remains 503.
+
+Legacy-v2 remains blocked separately. A schema-only audit against an isolated
+copy found added redundant colony indexes, a differently named equivalent
+planet/system foreign key, a leader-column charset declaration normalization,
+and recreation of `users.is_npc`. That initial audit was not full data/seed acceptance:
+V2 includes achievement catalogue inserts, legacy colony/inventory mappings
+and other schema surfaces. No V2 adoption was inferred from table existence,
+and no old SQL or tracking checksum was changed.
+
+### Full Legacy-v2 postcondition audit (2026-11-07)
+
+A subsequent audit copied all table definitions and a consistent read-only
+snapshot of the 27 V2 data surfaces (205,807 rows) into an isolated replay
+database. The large native-body catalogue was not copied or mutated; its
+definition was present only to keep reference metadata local. The immutable
+V2 source was pinned by LF-normalized SHA-256:
+`ae261cb047830139909ebe3266df78dfad5a237718ae0a546ede5940b8cff262`.
+Only the `USE galaxyquest` statement was omitted in the isolated replay.
+
+All 306 remaining statements succeeded. Complete original-column row counts
+and strict UTF-8 SHA-256 hashes were identical before/after across all 27
+copied tables, not merely aggregate resource totals. V2 still recreated the
+retired actor flag and added duplicate-name-equivalent planet/system and
+inventory indexes. No V2 statement was executed on the live connection.
+
+Separately, V2's CREATE/ADD declarations built an empty independent reference
+schema. This bypasses the misleading `CREATE TABLE IF NOT EXISTS` no-op:
+an existing but incomplete table is **not** proof that V2 is satisfied.
+Required columns, defaults, complete index groups and foreign-key groups
+were compared by semantics rather than constraint name alone.
+
+| Surface | Finding / reconciliation requirement |
+|---|---|
+| Actor flag | `users.is_npc` remains intentionally absent; require the adopted current actor contract, never recreate it. |
+| Native colonies and inventory | Nullable legacy planet identity, retired planet FK/unique key, mandatory colony references and native body uniqueness reflect later models. Buildings/ships have covering composite indexes rather than V2's redundant standalone index; a future contract must verify complete prefixes and current constraints explicitly. |
+| Star, resource, faction and event types | `WD`, fractional deposit precision, `envoy` and `archaeological_find` are later schema extensions, not permission to narrow types by replay. |
+| Achievement catalogue | All 13 stable codes exist with identical categories, titles, rewards and ordering. Three descriptions say `colonies` instead of `planets`, matching the current base schema and colony-based achievement evaluator. No seed insertion or reward rewrite is needed. |
+| Quest catalogue | Four genuine missing columns: `active`, `template_code`, `generated_by_npc`, `generated_timestamp`. The existing pending `migrate_npc_daily_quests_v2.sql` is the repair path; V2 replay does not add them to an already-existing table. |
+| Quest JSON defaults | `requirements_json` and `progress_json` have no default, matching the current base schema's explicit-input contract rather than historical V2's `{}` expression. Do not silently change this policy during adoption. |
+| Faction icon default | Live default bytes are `C3B0C5B8E28098C2BE`, a mojibake variant of the source's `F09F91BE`. MySQL's `information_schema.COLUMNS.COLUMN_DEFAULT` also returns `?` for supplementary Unicode defaults, confirmed with an isolated hex-literal probe; use exact DDL/bytes when proving this surface, not that metadata value alone. No live icon/default rewrite was performed. |
+
+Buildings, ships and fleet origins had zero missing colony references;
+colonies had zero missing owners. All four legacy backfill input columns
+(`planets.user_id`, `buildings.planet_id`, `ships.planet_id`,
+`fleets.origin_planet_id`) are retired, so their backfills are superseded,
+not a reason to infer ownership from astronomical planets again.
+
+The existing daily-quest migration was tested against both an old catalogue
+missing the four fields and the current base schema. First apply, second
+runner no-op and direct SQL repeat preserve every original catalogue field;
+the four templates exist exactly once, no player quest or generation-log
+entry is created, and no retired actor flag is added. Together with the
+existing V2/current-base and legacy-backfill cases: four real MySQL tests /
+60 assertions passed. This does not activate the unwired generator.
+
+V2 is still pending: this audit establishes evidence and genuine repair
+prerequisites, not an adoption contract or permission to stamp history.
+At the end of the audit, live history was 14 executed, 4 adopted and 67
+pending, with readiness 503. Additional live repair required an explicitly
+scoped deployment.
+Both isolated databases and the supplementary-Unicode probe were removed.
+
+### Approved local quest-schema repair (2026-11-07)
+
+The operator subsequently approved applying only the existing
+`migrate_npc_daily_quests_v2.sql`. Before deployment, the three existing
+affected tables (`faction_quests`, `schema_migrations`,
+`schema_migration_adoptions`) were backed up and the persisted copy's SHA-256
+was verified. `quest_templates` and `npc_quest_generation_log` did not yet
+exist.
+
+A temporary scoped manifest contained the 18 already-tracked entries plus
+this one approved migration, preserving canonical order. The existing runner
+preflight selected exactly that file; 20 statements executed, a repeated Up
+was a no-op, and scoped verification validated all 19 entries. Every original
+tracking row/checksum was unchanged. This scoped verification is **not** full
+manifest readiness or adoption of the other historical scripts.
+
+All original fields of the 28 catalogue rows were unchanged. Four missing
+columns now have the migration's canonical definitions; four templates were
+seeded once, and the generation log is empty. The 47 actor identities and
+566,764 native bodies were preserved; no player quest was created, no NPC
+generator was wired, and no icon/JSON-default policy was changed.
+
+Current local history: **15 executed, 4 adopted, 66 pending**. Liveness
+remains 200; full readiness remains 503. Legacy-v2 still requires a tested
+explicit postcondition/adoption contract for superseded schemas, seeds and
+the icon-default discrepancy. Temporary deployment helpers were removed;
+the pre-deployment backup remains outside the repository.
+
+### Verified current Legacy-v2 adoption
+
+```bash
+php scripts/migrate.php adopt-v2 --dry-run
+php scripts/migrate.php adopt-v2
+```
+
+`LegacyV2MigrationAdoption` adopts only `migrate_v2.sql`, never executes it,
+and uses the same advisory lock and atomic evidence/tracking mechanism as
+actor/body adoption. Its source and generated schema descriptor are pinned
+by LF-normalized SHA-256. The descriptor was generated in an isolated
+reference schema from all V2 CREATE/ADD declarations: 27 tables, 284 introduced
+columns, complete grouped indexes/foreign keys and 13 achievement seeds.
+It is not a snapshot of the live schema, and is not a gameplay migration.
+
+The contract first validates the current actor and native-body contracts,
+then every required InnoDB table, introduced column type/nullability/default,
+collation and extra properties. Known later models are explicit:
+`WD`, fractional planet deposits, `envoy`, `archaeological_find`, mandatory
+colony inventory/origin references, native colony body identity, colony-based
+achievement descriptions and explicit quest JSON inputs. The original leader
+role set or its later `advisor` extension is accepted, not arbitrary enum
+changes. Additional later columns are allowed; missing required fields are
+not.
+
+Index names are not authoritative: nonunique lookups may use a complete
+visible leading prefix of a unique composite index, but required uniqueness
+must cover exactly the complete original column group. Column order,
+prefix lengths and visibility matter. Foreign keys must have the complete
+required column group and delete/update rules and remain within this
+database. Native-body identity replaces the old unique/cascading colony
+planet relationship. Inventory and fleet origins must still reference real
+colonies, and the retired ownership/backfill input columns must be absent.
+
+Every V2 data table is read under row locks and hashed without persisting
+row contents. User locks precede colony locks; current body/report proofs
+are reused. All 13 seed codes and original fields are checked, with only the
+three documented colony-description substitutions. Quest requirements and
+progress must be explicit JSON objects; invalid JSON, arrays, incompatible
+defaults or missing fields reject rather than silently substituting `{}`.
+Evidence records table counts/hashes, schema hash and actor/body identity
+hashes. Stored JSON key order is canonicalized before proof validation
+because MySQL reorders JSON object keys. Status and verify validate evidence;
+rollback cannot execute historical SQL against adopted V2.
+
+The approved icon policy requires the correct supplementary-Unicode default.
+`migrate_npc_icon_default_v1.sql` is an additive, repeatable repair of **only**
+the NPC faction icon default for future inserts. It does not overwrite any
+existing faction row, regenerate factions, enable quests or launch battles.
+Proof uses exact `SHOW CREATE TABLE` default bytes rather than MySQL's lossy
+`information_schema` representation of supplementary characters.
+
+Before deployment, the live dry-run rejected the uncorrected icon default explicitly.
+Neither this new migration nor V2 adoption is implicitly authorized by the
+previous quest repair; use a separately scoped deployment with backup.
+Until applied and verified, the canonical manifest also includes this new
+pending repair entry, and full readiness remains blocked.
+
+Local acceptance: 89 V2/CLI/advisory-lock tests / 499 assertions, plus five
+additional structural/provenance cases / 52 assertions; 26 existing actor/body
+tests / 119 assertions; 129 runner/CLI tests / 471 assertions and 22 health
+probe tests / 88 assertions passed. These selectors overlap and their totals
+must not be added as a unique test count. Targeted PHPStan and the new contract
+PHPCS gate passed; immutable migration checks verified 83 baseline files and
+three append-only additions.
+
+### Approved local V2 adoption deployment (2026-11-07)
+
+After separate operator approval, the exact affected tables
+`npc_factions`, `schema_migrations` and `schema_migration_adoptions` were
+backed up; persisted and container backup SHA-256 hashes agreed.
+A bounded manifest containing the 19 existing tracked entries and only the
+new icon repair selected exactly one statement. First Up executed it, second
+Up was a no-op, and scoped verification validated all 20 records.
+
+The full canonical runner then previewed and adopted only `migrate_v2.sql`
+through `adopt-v2`. Its 27-table evidence was identical before adoption and
+in a subsequent zero-candidate dry-run. V2 SQL was never replayed. Evidence
+and the `ADOPTED` tracking record committed together; all 19 prior tracking
+rows and four prior adoption proofs were unchanged.
+
+The 32 existing faction rows/icons, 44 NPCs, three human accounts and
+566,764 bodies were preserved. Only the future-insert faction icon default
+changed. The recorded V2 schema SHA-256 is
+`edfd931b3c39cf84d71dbe4e34ec3f89d65acba59c9a82be073fe9f5d9ca7efd`;
+the complete table-snapshot identity SHA-256 is
+`c81c26e5900d0caa3282ecc3154f314e067cc27e12de979f92d57c00696ac42b`.
+
+Current local history: **16 executed, 5 adopted, 65 pending**. Scoped
+verification does not claim full-manifest readiness; no other pending
+migration was executed. Liveness remains 200; readiness remains 503.
+No gameplay phase, NPC generator or LLM control was activated. Task-owned
+reference schemas/helpers/caches were removed; the backup remains outside
+the repository.
+
+### Approved local gameplay/politics deployment (2026-11-07)
+
+Unlike V2/actor/body reconciliation, all ten tables introduced by
+`migrate_gameplay_model_v1.sql` and `migrate_politics_model_v1.sql` were absent
+locally. Their postconditions did not already exist: adoption would falsely
+claim satisfied history. These scripts therefore required actual execution.
+
+The operator explicitly approved both migrations after reviewing their
+behavioral impact: the original politics seed assigns **all** existing
+accounts, including engine-controlled NPCs, the same baseline
+`adaptive_humans` / `stellar_republic` profile and the `meritocracy` and
+`adaptive_bureaucracy` civics. This is a separate internal politics/effect
+profile, not an overwrite of actor control, faction-specific FTL or existing
+character data. The already-wired `empire_dynamic_effects()` reader now
+returns the following baseline for those accounts:
+
+| Effect field | Baseline |
+|---|---:|
+| `resource_output_mult` | +0.06 |
+| `food_output_mult` | +0.03 |
+| `pop_growth_mult` | +0.08 |
+| `research_speed_mult` | +0.06 |
+| `happiness_flat` | +8 |
+| `public_services_flat` | +4 |
+| `faction_pressure_mult` | -0.20 |
+| `faction_pressure_score` | 50 |
+| `fleet_readiness_mult`, `unrest_active` | 0 |
+
+These are the engine's dynamic-effect read-model values; deployment itself
+does not simulate time, recalculate balances, advance situations, start a
+battle or run NPC/LLM generation. Future consumers apply the values through
+their existing rules; this is not a claim that every economy path or timer
+uses every field.
+
+Before deployment, users, colonies and both tracking/provenance tables were
+backed up and persisted with matching SHA-256. A temporary bounded manifest
+contained the 21 existing tracked records plus exactly the two approved
+files in canonical order. The runner executed 9 gameplay statements and
+13 politics statements; repeated Up was a no-op. Scoped verification
+validated all 23 entries, not the whole canonical manifest.
+
+All 21 previous tracking rows and five adoption proofs were unchanged.
+The complete V2 schema/data evidence was identical before/after:
+`c81c26e5900d0caa3282ecc3154f314e067cc27e12de979f92d57c00696ac42b`.
+All 47 actor identities and 47 colony rows, including balances and
+`last_update`, were unchanged.
+
+Created state: 188 baseline internal-faction rows, 47 empire profiles,
+94 civic assignments, three species, three governments and four civics.
+Situations, stage logs, approval history and dynamic modifier records
+remain empty. A separate read-only check verified the exact above effects
+for all three human and 44 NPC accounts, without mutating colonies or
+creating history.
+
+Four real MySQL tests / 89 assertions cover fresh install, runner/direct
+SQL repeats, exact human/NPC defaults, preservation of customized profiles,
+faction approval and situation history, plus actual engine-effect and
+SELECT-only situation-runtime behavior. Catalog seed upserts intentionally
+restore their original definitions; customized player assignments/history
+are retained. Historical SQL was not edited.
+
+Current local history: **18 executed, 5 adopted, 63 pending**. Liveness is
+200; full readiness remains 503. Both APIs reject unauthenticated requests
+with 401. No new scheduler, combat phase or NPC controller was activated.
+Only inspected task-owned helpers were removed; the backup is retained
+outside the repository. The remaining economy history is the next
+reconciliation block, not implicitly covered by this approval.
+
+### Economy postcondition audit (2026-11-07)
+
+The next six pending sources were audited without executing SQL against the
+live database: economy V1/V2/V3, policies V1, shortage V1 and empire categories
+V1. All source hashes were recorded. Two isolated schemas were used: a
+consistent copy of the existing economy data, and an empty reference built
+from the original SQL in canonical order. Both schemas were removed after
+the audit; evidence is retained outside the repository.
+
+The eleven existing economy tables contain 93 rows: 54 processed-good
+inventories, 15 population-class records, 23 market rows and one policy.
+All required column types, nullability, defaults, indexes and foreign-key
+metadata match the independent ordered reference. In particular, all three
+V2 rate/timestamp columns, all five V3 satisfaction columns, both history
+tables and the shortage log are present. The 39-statement six-source replay
+preserved every existing row's original-column SHA-256; its only structural
+additions were the three absent category/espionage tables.
+
+**Policy units must not be inferred from the later CREATE statement.**
+Economy V1 creates `global_policy VARCHAR(32)`, fractional `DECIMAL(5,4)`
+taxes, `tax_production` and boolean subsidies. The later policies script's
+`CREATE TABLE IF NOT EXISTS` cannot replace that existing table with its
+integer/whole-percent alternative. The live layout exactly matches the
+canonical V1-first result, including the later lookup index. A separate
+standalone policies reference proves that the alternate integer layout
+exists only when that script creates the table first. The current
+`OnDemandEconomy` reader supports both layouts through column-type
+introspection; no conversion or policy/balance change was performed.
+
+A replay is **not** a zero-mutation adoption operation: the 23 market
+`INSERT IGNORE` attempts preserve evolved seed rows but advance the MySQL
+auto-increment sequence. Reconciliation should validate market key coverage
+without restoring prices, supply, demand or timestamps to seed defaults.
+The multi-column V2/V3 guards are also insufficient proof: a marker column
+can exist while a sibling is missing, and the runner then records successful
+execution without repairing it. Future adoption must validate every sibling,
+not just the marker or source checksum. Existing live siblings were checked
+individually and are complete.
+
+**Category/espionage deployment is deferred.** All three target tables are
+absent, so adoption would be incorrect. Although the migration itself creates
+them successfully and seeds no rows, the current APIs are incompatible:
+
+- Both espionage readers and mission assignment use `completes_at`; the
+  historical schema provides `resolves_at` instead.
+- The API expects terminal `completed`, but the schema permits
+  `active/success/failure/captured`.
+- The API accepts `military_recon`, absent from the SQL mission enum.
+- The API supplies a one-hour completion time, while the schema declares
+  four-hour defaults. Creation alone does not decide the authoritative
+  duration or establish a working mission lifecycle.
+
+Five new real MySQL tests / 84 assertions cover original-script repeat preservation of
+customized inventories, population, policy and evolved market state;
+the exact 23-ID sequence advance; the standalone integer policy layout;
+both incomplete-marker counterexamples; and the category schema's concrete
+unknown-column error for the current API projection. The existing canonical
+on-demand economy integration test also passes. The counterexample tests
+document immutable legacy behavior, not acceptance of a partial schema or
+authorization to enable espionage.
+
+No live migration or adoption was performed in this block. History remains
+**18 executed, 5 adopted, 63 pending**. No settlement, market reset,
+population initialization, scheduler, battle phase or NPC/LLM activation
+was introduced. A dedicated economy adoption contract and operator approval
+are still required; category/espionage needs separate runtime reconciliation.
+
+### Verified ordered economy adoption
+
+```bash
+php scripts/migrate.php adopt-economy --dry-run
+# Only after backup and explicit deployment approval:
+php scripts/migrate.php adopt-economy --env=DEV
+```
+
+`adopt-economy` covers exactly the five economy/policy/shortage sources;
+`migrate_empire_categories_v1.sql` is excluded. It uses contract
+`legacy-economy-ordered-v1` and policy
+`preserve-string-fractional-policies-evolved-markets-no-replay`.
+Each source has an LF-normalized SHA-256 pin. The independent descriptor
+[`economy_schema.json`](../../lib/migration_contracts/economy_schema.json)
+was generated by executing those five immutable sources, in canonical order,
+in an empty MySQL 8.4 reference with `utf8mb4_0900_ai_ci`; no live table
+definitions or data were used to construct it. Its pinned SHA-256 is
+`aae751126750f0359b85c4f07da0ea983fc8432c86c025076fc5f3e0e4b6d046`.
+
+The contract requires all eleven InnoDB tables, every original column's
+exact type/default/nullability/extra/collation and the audited policy layout.
+All rate and satisfaction siblings are checked. Shared semantic index
+validation also used by Legacy V2 requires exact unique groups and complete
+visible lookup prefixes, never truncated columns; index names are irrelevant.
+Unaudited economy foreign keys are rejected rather than silently accepting
+different deletion semantics. An integer policy layout requires a separate
+audit/contract, not conversion by this command.
+
+Under the existing database-scoped migration advisory lock, validation
+locks users before colonies, then snapshots all economy rows by ID with
+`FOR UPDATE`. Table reads retain transactional metadata locks while their
+schema is inspected. All 23 original market keys must be present; evolved
+prices, supply, demand, timestamps and extra future goods remain untouched.
+The proof records per-table row counts/hashes and aggregate schema/data
+hashes, not raw account or gameplay data.
+
+Dry-run writes no tracking, provenance or gameplay state. Actual adoption
+records only currently pending covered sources; existing executed/adopted
+records are preserved. The five provenance/tracking pairs commit together
+in InnoDB; a failure on the third tracking write rolls back the entire
+batch and permits a clean retry. No historical DDL, seed insert, settlement
+or auto-increment allocation in economy tables takes place. The operator
+environment remains in provenance, while tracking uses reserved `ADOPTED`.
+
+Status, Up and deployment verification reject missing/incompatible source
+pins, descriptor/policy drift and corrupt table/hash evidence. MySQL JSON
+key reordering is canonicalized before verifying snapshot hashes.
+Adoption remains point-in-time proof: future valid gameplay can change
+market rows without invalidating historical evidence. A repeated adoption
+revalidates current schema/data but never rewrites prior proof. Adopted
+history cannot be rolled back through historical down scripts.
+
+Acceptance: 44 focused tests / 449 assertions cover economy rejection,
+five-file atomic retry, corrupted proof, existing executed subsets, CLI
+failures and Legacy V2 schema/index regressions. A separate final selector
+passes 152 runner/CLI/lock/preservation tests / 672 assertions; selectors
+overlap and are not a combined test count. Targeted PHPStan level 5 and
+PHPCS for both contracts, the shared index helper and CLI unit tests pass.
+Immutable-history and whitespace checks pass. Pre-existing runner/CLI and
+integration-test PHPCS findings are not globally reformatted.
+
+The local dry-run validates all 93 economy rows and reports five candidates.
+Schema hash: `4a824ffa240cbae13fd6c52b01c31bdee4eb23afb1f6427d314a19f13fd4c917`;
+data hash: `8e9591ecd5eac9f8687d8290cb4b8310a7ce9f269cddee102d7433308d5edf81`.
+This preview is not deployment approval and does not reconcile the remaining
+category/espionage or other pending migrations.
+
+### Approved local economy adoption deployment (2026-11-07)
+
+After reviewing the successful dry-run and tests, the operator approved
+**backup-and-adopt** for exactly the five covered economy sources.
+Category/espionage was explicitly excluded. A consistent dump of 19 exact
+tables was persisted and its SHA-256 matched the database-container copy
+before adoption: users, colonies, all fifteen economy/ledger tables and
+both migration tracking/provenance tables. Backup size: 65,877 bytes.
+
+A temporary bounded manifest contained the 23 previously tracked canonical
+records plus the five approved candidates. `adoptEconomyHistory(false)`
+committed exactly five new provenance/tracking pairs, without executing
+historical SQL. Scoped verification validated all 28 records; repeated
+adoption preview returned zero candidates with identical current evidence,
+and scoped Up was a no-op. This scoped result is not full-manifest readiness.
+
+All 93 legacy economy rows, their auto-increment/schema definitions, the
+modern colony ledger/precision/market/construction data, all 47 user and
+colony rows (including balances and `last_update`), and all 23 original
+tracking rows/five original adoption proofs were unchanged. Economy schema
+and data hashes remain the successful preview values above.
+The fresh complete V2 snapshot taken for this deployment was also identical
+before/after:
+`1b882d0025c26125400a8fc7c6e6db5e79b2ddea2b476ce916875dd72cfbd3e7`.
+This is a new point-in-time comparison, not a rewrite of the earlier V2 proof.
+
+Local canonical history is now **18 executed, 10 adopted, 58 pending**.
+Liveness is 200 and full readiness remains 503. No settlement, policy
+conversion, seed replay, market reset, scheduler, battle phase or NPC/LLM
+activation occurred. Only explicitly resolved task-owned helpers, reference
+schemas and type-check cache were removed; backup and deployment evidence
+remain outside the repository.
+
+### Category/espionage infrastructure with explicit runtime gate
+
+The operator selected **infrastructure-gated**, not implementation or
+activation of a new espionage lifecycle. The three historical category/
+agent/mission tables remain the intended additive infrastructure. They are
+absent locally and therefore require execution, never adoption. Historical
+SQL is unchanged; no compatibility column, status conversion, seed,
+mission resolver, credit debit rule or scheduler is introduced.
+
+The retired espionage handlers used incompatible columns/statuses, could
+insert agents without actually spending their advertised credits, and had
+no mission resolver. Their unreachable gameplay implementation is removed
+rather than kept behind a user-toggleable flag. All four existing actions
+in `api/espionage.php` and `get_espionage_status` in `api/empire.php` use the
+shared `require_espionage_runtime()` gate:
+
+- Authentication still precedes action dispatch.
+- Existing method restrictions and mutation CSRF checks remain in force.
+- Valid authenticated requests return HTTP 503 with an explicit
+  `success:false` error explaining the pending mission-lifecycle integration.
+- The gate cannot be enabled by configuration and performs no DB access,
+  agent insert, mission assignment or result mutation.
+- Unknown actions still return 400. Wrong methods, missing authentication
+  and invalid CSRF retain their previous rejection semantics.
+
+Empire score/breakdown GETs retain the existing pure read-only calculation;
+they do not persist score snapshots or trigger missions. Empty infrastructure
+means there are no agents and the existing espionage score is zero, not an
+activated new score multiplier. All documented future operational rules
+remain unimplemented and require a separate design decision.
+
+Acceptance: 28 targeted tests / 127 assertions pass for executable gate
+fixtures with database access forbidden, authentication/method/CSRF
+precedence, existing score-read behavior and real MySQL migration repetition.
+The migration test proves customized score, agent and terminal mission rows
+survive an original SQL replay with unchanged values. It also retains the
+counterexample showing why the retired `completes_at` projection could not
+work against the immutable historical schema. Actual local migration
+execution requires backup and separate explicit operator approval.
+
+### Approved local category infrastructure deployment (2026-11-07)
+
+The operator explicitly approved **backup-and-execute** after selecting
+infrastructure-only with blocked espionage. All three target tables were
+confirmed absent. Users, colonies and both migration tracking/provenance
+tables were backed up, persisted and verified against the database-container
+dump by matching SHA-256 before execution.
+
+A temporary bounded manifest included the 28 existing tracked records and
+exactly `migrate_empire_categories_v1.sql`. The runner executed its three
+CREATE statements; all three new tables are empty InnoDB infrastructure.
+Scoped verification validated 29 records and repeated Up did nothing.
+All 47 user rows, 47 colony rows including balances and `last_update`,
+28 original tracking rows and ten original adoption proofs retained identical
+complete row hashes.
+
+HTTP acceptance exposed a tightly coupled pre-existing import error:
+`api/empire.php` included the CLI projector, whose shebang/strict-types header
+and CLI-only bootstrap abort under HTTP before authentication or the gate.
+The unchanged score formulas and persistence helper were extracted into
+[`lib/empire_scores.php`](../../lib/empire_scores.php), now shared by the
+API and projector. The API never loads/runs the worker; the worker's own
+bootstrap and explicit persistence behavior remain unchanged. Executable
+gate fixtures reject any worker import or database access. Existing score
+formula/upsert and projector preflight/read-only tests pass.
+
+Final acceptance: **55 tests / 319 assertions**, targeted PHPStan level 5
+for the changed endpoints/shared score library, PHPCS for new shared libraries
+and gate tests, immutable-history and whitespace checks pass. Live
+unauthenticated requests to both espionage endpoints return 401, rather
+than the former HTTP-200 fatal output from the Empire worker import.
+Authenticated valid espionage actions are covered by the executable 503
+gate fixtures; no live agent/mission was created to test them.
+
+Local history is now **19 executed, 10 adopted, 57 pending**.
+Liveness is 200; full readiness remains 503. The runtime gate has no
+configuration bypass. No NPC/LLM controller, espionage resolver, battle
+phase, scheduler or new score-effect rule was activated. Persisted backup
+and deployment evidence are retained outside the repository; named helpers
+and scoped manifest are removed after verification. Auth/RBAC history is
+the next reconciliation block, not covered by this execution approval.
+
+### Verified auth adoption and separate RBAC infrastructure
+
+The three pending authentication sources already have complete local
+postconditions: `migrate_security_v1.sql`, `migrate_security_v2_totp.sql`,
+and `migrate_admin_user_crud_v1.sql`. An empty independent MySQL reference
+executed the original 1/22/11 statements against a minimal `users` prerequisite
+with only ID and the two column-position anchors. Its database collation was
+explicitly `utf8mb4_unicode_ci`, matching the audited historical auth layout.
+No live credentials or table definitions were used to generate
+[`auth_schema.json`](../../lib/migration_contracts/auth_schema.json).
+Descriptor SHA-256:
+`550ad2c2a800196ac36789ba32bc71322cb11e3bb59d34be3e4c639f39aec7e2`.
+
+```bash
+php scripts/migrate.php adopt-auth --dry-run
+# Only after backup and explicit approval:
+php scripts/migrate.php adopt-auth --env=DEV
+```
+
+Contract `legacy-auth-current-v1` pins all three source hashes and preserves
+accounts, TOTP material, pending challenges and IP lockouts. It validates
+all five introduced user fields and the complete visible soft-delete index,
+not just `deleted_at` as the historical guard does. Both auth tables require
+exact introduced columns, InnoDB, complete visible primary/lookup keys and
+the database-local single-column TOTP-session FK with exact deletion/update
+rules; orphan pending sessions reject adoption. Other modern user columns
+are allowed. No conversion, login, setup, challenge consumption, account
+deletion or lockout expiry occurs.
+
+The database-scoped migration advisory lock and one transaction cover
+user-first row locking, complete hash snapshots and atomic tracking/proof
+insertion. Proof contains counts/hashes only, never credential or token
+values. Dry-run creates no adoption storage. The reserved `ADOPTED` marker
+distinguishes proved history from actual execution; repeated adoption keeps
+original proofs. Status/Up/verify reject corrupt source or proof metadata,
+and rollback cannot execute adopted down history. Future account/lockout
+changes do not invalidate the original point-in-time proof.
+
+The four RBAC tables are **absent** locally and cannot be adopted.
+`migrate_rbac_v1.sql` executes eight statements: four CREATEs, five group
+seeds, six profile seeds, profile inheritance and five group/profile links.
+It creates **zero** user/group assignments and does not change `users.is_admin`,
+actor control or login flags. Current runtime authorization still reads
+`users.is_admin`; no RBAC consumer, inheritance evaluator or account
+assignment is wired by this block.
+
+Original RBAC SQL repeats intentionally restore system group/profile
+catalogue values and inheritance, while preserving user assignments. It
+must therefore not be blindly replayed over a customized installed catalogue.
+Real MySQL tests verify the complete inheritance map, no baseline assignments,
+unchanged admin flags, preservation of existing assignments on repeat,
+restoration of canonical profile JSON and FK cleanup semantics.
+
+Acceptance: **105 tests / 552 assertions** pass across auth adoption,
+schema/index/FK/orphan rejection, whole-batch rollback/retry with an earlier
+executed record, changed-source/corrupt-proof rejection, future lockout
+updates, CLI and migration concurrency exclusion, and RBAC installation/
+repeat behavior. Targeted PHPStan level 5 and PHPCS for the new contract/CLI
+unit tests pass; immutable-history and whitespace checks pass.
+The local read-only preview reports three auth candidates over 47 accounts
+and empty lockout/challenge tables. No real credential or role was changed.
+Actual adoption and separate RBAC execution still need explicit approval.
+
+### Approved local auth/RBAC deployment (2026-11-07)
+
+The operator approved **backup-adopt-and-execute** for the three verified
+auth histories plus the absent RBAC infrastructure. Seven exact tables were
+backed up: users, colonies, login attempts, pending TOTP sessions, remember
+tokens and both migration tracking/provenance tables. The 48,016-byte dump
+was persisted outside the repository and its SHA-256 matched the
+database-container copy before writes.
+
+A temporary bounded manifest contained all 29 previous tracked records
+plus the three auth candidates and `migrate_rbac_v1.sql`. The runner first
+committed the three auth provenance/tracking pairs atomically, with no
+historical auth SQL execution. It then executed exactly the eight RBAC
+statements. These are separate operations: MySQL RBAC DDL is not presented
+as part of an atomic all-four-migration transaction.
+
+Scoped verification validated 33 records. Repeated auth preview returned
+zero candidates and identical current evidence; repeated scoped Up was a
+no-op. Complete existing row and DDL hashes confirmed preservation of all
+47 accounts, 47 colonies including balances/`last_update`, lockouts, TOTP
+material/challenges and remember tokens. All 29 previous tracking records
+and ten original adoption proofs were unchanged.
+
+New RBAC state is five groups, six profiles and five group/profile links;
+user/group assignments remain empty. No admin flag, control type, login
+flag or authorization consumer was changed. Existing runtime authorization
+still uses its current admin checks; this deployment does not implement
+RBAC evaluation or connect NPC/LLM commands to privileged groups.
+
+Local canonical history is now **20 executed, 13 adopted, 53 pending**.
+Liveness is 200 and full readiness remains 503. Unauthenticated `auth/me`,
+TOTP status and admin-user list requests return 401. No actual login,
+TOTP setup or challenge consumption was performed to verify deployment.
+In addition to the 105 focused tests / 552 assertions above, a final
+148 runner/CLI/auth-contract tests / 539 assertions pass (selectors overlap).
+Targeted type/standards and immutable-history checks pass.
+
+Backup and before/after audit evidence remain outside the repository.
+Only explicitly resolved task-owned reference schema, scripts, scoped
+manifest, temporary dump copy and type-check cache were removed.
+No scheduler, combat phase, espionage action or NPC/LLM controller was
+activated. Colonization history is the next pending reconciliation block,
+not covered by this approval.
+
+### Colonization audit and read-only runtime preparation (2026-11-07)
+
+All five V1 tables (`sectors`, `sector_systems`, `governors`, `empire_edicts`,
+`empire_sprawl_cache`) and V2's three colony fields (`phase`, `sector_id`,
+`energy_balance`) are absent locally. These histories require actual
+execution, not adoption. The already-tracked colony-buildings migration is
+not replayed.
+
+The operator selected **infrastructure-readonly**. All nine recognized
+administration mutations now reject with 503 after authentication, POST
+validation and CSRF, before database access. The five GET actions remain
+read-only; no configurable switch exposes the unfinished commands.
+Native-system sprawl counts distinct `(galaxy_index, system_index)` pairs,
+not coordinates alone. Different galaxies sharing a system coordinate count
+separately, while multiple bodies in one system count once.
+
+This does not activate governor commands, autonomous sectors, salary/edict
+debits, sprawl gameplay penalties or colony growth integration. Existing
+mutation implementations remain unreachable through the API: native system
+identity, MySQL-incompatible insertion, transactional reassignment and
+unchanged-value upserts must be corrected before any future command rollout.
+Historical tick wording is not approval for a periodic engine.
+
+Real MySQL fixtures execute both original sources against an isolated native
+schema, omitting only `USE galaxyquest` routing in the test copies. Exact
+population boundaries produce phases `[0,0,1,1,2,2,3,3,4]` for populations
+`[0,500,501,2000,2001,10000,10001,50000,50001]`. Original colony fields,
+stocks and timestamps survive unchanged; infrastructure is empty,
+`sector_id` is null and `energy_balance` defaults to zero. Read-only MySQL
+transactions verify pure sprawl/edict reads with non-coordinate system IDs.
+V2 adds its foreign key unconditionally: raw SQL replay fails with a duplicate
+constraint, whereas verified tracked Up is a no-op. Do not replay V2 directly
+or rewrite the immutable source to hide that hazard.
+
+Acceptance passes 78 tests / 235 assertions, targeted PHPStan and the new
+executable gate-test PHPCS check. Immutable migration history remains valid.
+Deployment is still subject to separate backup-and-execute approval: the
+current 47-colony snapshot implies two Phase-1 colonies and 45 Phase-0
+colonies. Initial zero energy balances are placeholders, not newly settled
+or calculated energy. No live migration has been executed by this preparation.
+
+### Approved local colonization deployment (2026-11-07)
+
+After separate **backup-and-execute** approval, a consistent six-table dump
+preserved accounts, colonies, colony-building slots/upgrades and both
+tracking/provenance tables. The 47,876-byte dump was persisted outside the
+repository; its SHA-256 matched the database-container and staged web-container
+copies before execution. Prepared full original-column hashes and source pins
+were rechecked immediately before writes.
+
+The bounded manifest contained all 33 previously tracked canonical sources
+plus V1/V2. Exactly six V1 and 19 V2 statements executed; no other pending
+source or historical SQL was replayed. MySQL DDL is not claimed atomic.
+All five infrastructure tables are empty. The 47 colonies now contain
+45 Phase-0 rows and two Phase-1 rows, with null sector assignments and zero
+energy placeholders. The colony-sector index and SET NULL foreign key are
+present.
+
+Full original-column hashes preserve 47 accounts, 47 colony/body mappings,
+balances/timestamps, building slots/upgrades, all 33 previous tracking rows
+and all 13 adoption proofs. Existing non-colony table definitions are
+unchanged apart from the expected tracking-table AUTO_INCREMENT advancement
+for the two new records. The first post-check stopped on that sequence-only
+DDL hash difference; a subsequent check proved the original tracking
+definition after restoring only its original sequence declaration for the
+comparison. This validation correction did not replay migration SQL.
+
+Scoped verification accepts 35 records; repeated Up is a no-op. All five
+GET handlers were exercised against the live schema inside read-only
+transactions with fixture authentication: four return 200; missing sector
+detail returns 404. Sector/governor lists are empty and all six edicts are
+inactive. Actual unauthenticated colonization GET/POST requests return 401;
+no login, administration command, growth settlement or gameplay-cost debit
+was performed.
+
+Local canonical history is now **22 executed, 13 adopted, 51 pending**.
+Liveness remains 200 and full readiness remains 503. Acceptance remains
+78 tests / 235 assertions; a final runtime-only subset passes 76 tests /
+206 assertions (overlapping selectors), with targeted type/standard and
+immutable-history checks passing. Backup and before/after hash evidence
+remain outside the repository. Temporary deployment/read fixtures, bounded
+manifest, container dump copies and type-check cache are removed.
+
+### Galaxy geometry and visibility audit (2026-11-08)
+
+The immutable orbital migration is pending, but all requested orbital columns
+already exist. All 25,090 star systems have complete galactic polar values;
+fleets are empty and all six origin/target values are non-null by schema.
+Among 566,764 celestial bodies, exactly 15 lack all seven local/polar fields.
+The read-only audit did not change live schema or data.
+
+Before approved deployment, the original orbital source was run on a
+MySQL-isolated copy containing those 15 affected bodies plus empty star/fleet
+tables. Thirteen bodies receive coordinates/radii/angular velocity from
+existing orbital data; two have no radius or period source and receive zero
+local coordinates, deterministic phase, zero height/velocity, while
+`polar_radius` remains NULL. The source preserved every other body field in
+the copy, but MySQL's `ON UPDATE` `updated_at` changed on all 15. Those two
+radius-less rows still match the raw SQL's `WHERE polar_radius IS NULL`;
+replaying the source outside the migration runner would touch them again.
+Use tracked Up only.
+
+The `galaxies` table was absent, although `api/galaxy.php?action=galaxy_meta`
+queries it directly before its no-row fallback. Isolated execution of the
+immutable metadata source showed that `smbh_tidal_radius_ly DECIMAL(8,1)`
+rounds its declared/default/seed value `0.15` to `0.2`, contradicting both the
+source comment and API fallback. Historical SQL remains unchanged. The new
+append-only `migrate_galaxy_metadata_precision_v1.sql` changes the scale to
+two decimals and corrects only the original rounded id-1 seed (`0.20` to
+`0.15`), preserving other galaxy-specific values. A real MySQL test executes
+the original seed plus the correction, verifies the exact type/default/value,
+preserves a custom second galaxy and confirms tracked Up is a no-op on repeat.
+
+Fog of War is already executed, with exact tracking checksum match. The
+visibility table has 84 rows: all 47 colony-owned systems match `own`
+visibility, with no missing owned systems; the other 37 rows are `stale`.
+Its user foreign key cascades as specified. No fog migration replay is needed.
+
+### Approved local Galaxy deployment (2026-11-08)
+
+The operator then approved backup-and-execute. An exact 85,935-byte backup of
+the 15 full body rows, affected table definitions, all prior tracking records,
+adoption proofs and visibility rows was persisted outside the repository;
+its SHA-256 matched the container copy before writes. The bounded manifest
+contained 35 tracked entries plus exactly the three selected sources.
+
+Exactly 85 orbital, three metadata and two precision-correction statements
+were run. All 15 body rows received the audited derived fields and expected
+`updated_at` updates; every other stored field remained identical. The two
+radius-less bodies remain `polar_radius=NULL` with zero local coordinates,
+deterministic phase, zero height and angular velocity. No body/system/fleet
+was created or deleted; star-system and fleet coordinate rows were unchanged.
+The new galaxy seed has the corrected `DECIMAL(8,2)` radius value/default
+`0.15`. Fog visibility rows and the 13 old adoption proofs are byte-for-byte
+unchanged. All 35 previous tracking rows are unchanged.
+
+Scoped verification accepts 38 entries and repeated Up executes nothing.
+Local history is now **25 executed, 13 adopted, 49 pending**. The focused
+MySQL regression passes (1 test / 11 assertions), and append-only history
+validation passes. Liveness remains 200 and full readiness remains 503.
+The backup and before/after evidence remain outside the repository.
+
+### Vessel-blueprint and FTL history adoption (2026-11-08)
+
+After operator approval, v1-v11 were recorded with the new
+`adopt-vessel-blueprints` contract; their historical SQL was **not replayed**.
+The contract pins all eleven immutable sources and verifies the required
+InnoDB tables, evolved columns, indexes and foreign keys, the exact 27 faction
+affinities, all seven level-zero research seeds for current users, both
+canonical wormhole routes and the beacon quest. Existing faction definitions
+are preserved because v3 uses `INSERT IGNORE`; the deployed records are
+already evolved beyond several original seed values.
+
+The FTL race mapping required no changes. The separate v12 NPC mapping remains
+pending: it would change ten NPC drives, and no such gameplay-data change was
+approved. Vessel hulls, modules, blueprints, built vessels, fleet assignments,
+colony events, FTL gates/resonance nodes and wormhole unlocks remain empty.
+
+Before adoption, the 26,162-byte backup of `schema_migrations` and
+`schema_migration_adoptions` was SHA-256 verified as
+`39008088b397931e488f89d2baff0e1e08b94f28742b5f5fc98b3256aa6f76f5`.
+Restoring it to an isolated schema confirmed all 38 old migration rows and
+13 old adoption proofs remain unchanged. Exactly eleven adoption rows/proofs
+were added. Current local history is **25 executed, 24 adopted, 38 pending**;
+repeated adoption is a no-op. Full `verify` and readiness remain blocked by
+pending migrations, including v12.
+
+### Combat and war history audit (2026-11-08; read-only)
+
+The next canonical pending entry remains `migrate_vessel_blueprints_v12_npc_ftl.sql`;
+the operator's decision to leave its ten NPC drive updates unapplied is unchanged.
+No combat/war migration SQL or database writes were performed during this audit.
+
+| Migration | Live finding |
+|---|---|
+| `migrate_combat_model_v1.sql` | Pending and not adoptable: `battle_reports` lacks all six combat metadata columns and both indexes; `combat_modifiers` and `user_combat_modifiers` are absent. |
+| `migrate_combat_v1_wars.sql` | Pending; `wars`, `war_goals` and `peace_offers` already exist with their expected columns, indexes and user/war foreign keys. Existing war state must be preserved. |
+| `migrate_npc_wars_v1.sql` | Pending; the live `wars` table already has nullable `attacker_user_id`, `npc_aggressor_faction_id`, its index, and the expected attacker FK. It contains one active NPC-aggressor war, so replaying the DDL is unnecessary. |
+| `migrate_war_v3.sql` | Pending and not adoptable: supply-line, attrition and interdiction tables and the three war summary columns are absent. The war API has supply-route/status handlers; no simulation-tick integration was found. |
+
+### War-history adoption contract (2026-11-08)
+
+`adopt-wars --dry-run` validates the existing war schema without writes.
+`adopt-wars` adopts only `migrate_combat_v1_wars.sql` and
+`migrate_npc_wars_v1.sql`; it does not replay either migration. The
+source-pinned contract requires the exact audited InnoDB columns, indexes and
+foreign keys, and records schema and row-snapshot hashes for `wars`,
+`war_goals` and `peace_offers`. It deliberately excludes v12, the combat-model
+migration and war-v3.
+
+The live dry-run confirmed one existing war row and no war-goal or peace-offer
+rows. The first approved history write was refused before inserting proofs
+because the locally modified `migrate_v2.sql` removed four `faction_quests`
+columns and no longer matched its recorded MD5. The authoritative `HEAD`
+source's LF-normalized SHA-256 matched the existing V2 source pin, and its
+CRLF worktree bytes reproduced the stored MD5 exactly. With operator approval,
+the file was restored from `HEAD`; no database checksum or existing proof was
+rewritten.
+
+A pre-adoption backup of `schema_migrations` and
+`schema_migration_adoptions` was created and successfully restored into an
+isolated database (SHA-256
+`71dd007fb3d0bf0037ccdd187b7a9984e344d7a15d1ec89d34ee7af18c88080f`).
+
+After restoring the exact source, the approved adoption recorded only
+`migrate_combat_v1_wars.sql` and `migrate_npc_wars_v1.sql`. The active
+NPC-aggressor war remained unchanged; v12, the combat-model migration and
+war-v3 remain pending. History now contains **25 executed, 26 adopted, 36
+pending** entries. Repeated adoption is a no-op, and the decision to leave v12
+pending is unchanged.
+
+Verification passed: the complete MySQL migration-runner suite (199 tests /
+3,154 assertions), migration CLI suite (80 tests / 271 assertions), targeted
+PHPStan and PSR-12 checks. The repeated live dry-run adopted zero additional
+migrations and reproduced the same schema and identity hashes.
+
+### Local legacy-history audit (2026-11-07)
+
+The local database had 14 tracked canonical migrations after the approved
+battle deployment, with 71 historical entries still pending. A full
+schema/data copy was audited in an isolated MySQL database using the existing
+MigrationRunner and a database account restricted to that copy. Audit SQL
+copies removed `USE galaxyquest` and changed the one hardcoded
+`table_schema = 'galaxyquest'` predicate to `DATABASE()`. Repository SQL,
+live tracking checksums and the readiness gate were not changed.
+
+All 71 pending scripts executed in the copy, but this **does not authorize
+production replay or constitute semantic acceptance**:
+
+| Migration | Observed blocker in copied data |
+|---|---|
+| `migrate_v2.sql` followed by `migrate_actor_model_v1.sql` | V2 recreates the retired `is_npc` column with default zero. Actor v1 then overwrites current controller/authentication identities: 44 NPC accounts became login-enabled humans; humans increased from 3 to 47. |
+| `migrate_unified_bodies_v1.sql` | Legacy `body_uid` backfill added 165,743 bodies (566,764 to 732,507). The copied database contained 165,520 legacy bodies sharing an existing native planet slot. |
+
+The actor corruption also invalidates downstream NPC-assignment acceptance,
+even though the corresponding statements succeed. Aggregate checks covered
+controller/login identity, key table counts and ship totals; they are not
+full row-by-row proofs of every migration's gameplay effects.
+
+Underlying deployment paths can install SQL without canonical history:
+Docker initdb mounts historical migrations individually, while legacy setup
+also has its own SQL list. Table existence alone cannot prove exact migration
+execution or unchanged data transformations.
+
+Do not make readiness green by blindly inserting 71 tracking records,
+rewriting stored checksums, editing immutable historical SQL, or disabling
+the pending-migration check. A reviewed reconciliation/adoption contract
+must prove current schema **and data** invariants for superseded migrations,
+preserve native body identities and NPC control/authentication, and record
+its provenance explicitly before a controlled live deployment.
+
+No historical script was applied to the live database during this audit.
+Live tracking remained 14; the 44 NPC identities remained intact. Battle
+receipts and the locally enabled legacy journal remain deployed. Full
+readiness still returns 503 until reconciliation is implemented and verified.
+The audit database, temporary SQL copies and full dump were removed afterwards.
+
+### Legacy battle encounter journal rollout
+
+Apply `migrate_battle_encounters_v1.sql` through the canonical manifest and
+verify all three tables use InnoDB before setting `BATTLE_ENCOUNTERS_ENABLED=1`.
+The flag defaults to `0` and only adds a journal to existing `legacy-v1`
+fleet-vs-colony resolution. It does not activate longer battles, player
+commands, LLM decisions or new damage rules.
+
+`battle_encounters` has one unique source fleet identity and one report
+acknowledgement; participants record server-owned human/NPC identities and
+initial inventories. Two sequenced events capture creation and resolution.
+All records commit with losses, loot, diplomacy, messages, fleet return state
+and projection dirty writes. Missing/nontransactional tables reject enabled
+resolution explicitly; no fallback silently skips the journal.
+
+Historical fleet, colony, body, user and report IDs are intentionally not
+foreign keys: return deletes fleets and other lifecycle cleanup must not
+erase the journal. The immutable outcome is retained even if the legacy
+report is later removed. Participant/event foreign keys protect the journal
+itself. No automatic pruning or destructive down migration is provided;
+coordinate future retention and account-deletion policy before production
+enablement.
+
+Disabling the flag restores legacy resolution for future arrivals without
+deleting stored encounters. `resolving` is transaction-local: only completed
+`resolved` encounters become visible after commit. This version creates no
+separately committed active battles requiring a background drain on rollback.
+Read access is participant-only through
+`GET api/fleet.php?action=battle_encounter&encounter_id=...`; GET never advances
+arrivals, return or NPC simulation. No public observer mode is enabled.
+
+### Idempotent fleet dispatch rollout
+
+Apply `migrate_fleet_dispatch_receipts_v1.sql` through the canonical manifest
+before deploying fleet clients that send `request_id`. Verify the manifest
+afterwards. The new `fleet_dispatch_receipts` table must use InnoDB; a missing
+or nontransactional table rejects keyed requests explicitly rather than
+silently launching without deduplication.
+
+The table stores accepted request identities per user, a SHA-256 payload
+fingerprint and the original fleet ID/arrival acknowledgement. Receipt and
+fleet/resource/ship changes commit together. Completed fleets can be deleted
+without deleting receipts; a late retry still returns the original response,
+not a new launch. Deleting a user cascades its receipts.
+
+There is no automatic receipt expiry or destructive down migration. Removing
+receipts would allow old requests to launch again. Legacy requests without an
+ID remain supported, but are not idempotent. Back up and plan capacity/retention
+before production rollout; any future retention policy needs an explicit
+retry window and rejection of expired identities.
+
 ### On-demand colony economy rollout
 
 Keep `ON_DEMAND_ECONOMY_ENABLED=0` while applying and verifying the canonical
@@ -68,7 +1066,8 @@ GQ_ENV=PROD php scripts/migrate.php up
 ### CLI validation and exit codes
 
 Arguments are validated before loading database configuration or connecting.
-Commands are exactly `status`, `verify`, `up` and `rollback`; unknown arguments (including
+Commands are exactly `status`, `verify`, `up`, `rollback`, `adopt-actors` and
+`adopt-bodies`; unknown arguments (including
 misspelled `--dry-run`), extra commands and duplicate options fail with exit 1.
 `--step` must be a positive decimal integer within PHP's integer range; zero,
 negative, fractional and overflowing values are rejected, never clamped.

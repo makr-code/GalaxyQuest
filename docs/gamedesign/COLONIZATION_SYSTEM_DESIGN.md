@@ -6,6 +6,24 @@
 
 ---
 
+## Implementierungsgrenze
+
+Die Verwaltungs-API ist vorerst schreibgeschuetzt: Die neun Sektor-,
+Gouverneurs- und Ediktmutationen liefern nach Authentifizierung,
+POST- und CSRF-Pruefung HTTP 503. Die fuenf GET-Ansichten sind reine
+Read Models; ihre Sprawl-/Ediktwerte sind keine bereits aktivierten
+Wirtschaftseffekte. Systeme werden mit Galaxy- und Systemkoordinate gezaehlt.
+Tabellen und Phasen-/Sektor-/Energiefelder wurden lokal nach gesonderter
+Backup-/Migrationsfreigabe installiert; Verwaltungsbefehle bleiben gesperrt.
+Initiale Energie-Bilanzen von 0 sind Platzhalter, keine On-demand-Abrechnung.
+
+Dieses Dokument beschreibt Zielregeln, nicht vollstaendig implementierte
+Gouverneurskosten, Ediktkosten, Sektorautomatik oder Wachstumsregeln.
+Historische Tick-Angaben begruenden keinen Scheduler: Die Wirtschaft bleibt
+on demand. Vor Freigabe von Commands sind native Systemidentitaet,
+MySQL-Kompatibilitaet und atomare Zuordnungs-/Kostenbuchung abzusichern.
+Details: [Migrationsaudit](../technical/DATABASE_MIGRATIONS.md#colonization-audit-and-read-only-runtime-preparation-2026-11-07).
+
 ## Inhaltsverzeichnis
 
 1. [Design-Philosophie & Ziele](#1-design-philosophie--ziele)

@@ -1,4 +1,5 @@
 <?php
+
 /**
  * 3D Model Descriptor API
  *
@@ -11,6 +12,7 @@
  * Security: Only alphanumeric + underscore type names allowed; the models/
  * directory is strictly bounded. No directory traversal is possible.
  */
+
 require_once __DIR__ . '/helpers.php';
 
 only_method('GET');

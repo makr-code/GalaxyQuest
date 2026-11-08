@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Admin statistics endpoint.
  *
@@ -14,6 +15,7 @@
  *
  * Requires: authenticated admin session.
  */
+
 require_once __DIR__ . '/helpers.php';
 
 only_method('GET');

@@ -69,6 +69,15 @@ export function createFleetDomain({ api, session }) {
     if (disposed || state.mutating) return false;
     return read();
   }
+  async function battleReports(options = {}) {
+    if (disposed) throw new Error('Die Flottenansicht wurde geschlossen.');
+    return api.get('api/reports.php?action=battle_reports', options);
+  }
+  async function battleEncounterForReport(reportId, options = {}) {
+    if (!positiveInt(reportId)) throw new Error('Ungültige Schlachtbericht-ID.');
+    if (disposed) throw new Error('Die Flottenansicht wurde geschlossen.');
+    return api.get(`api/fleet.php?action=battle_encounter&report_id=${Number(reportId)}`, options);
+  }
   async function refresh() {
     if (disposed || state.mutating) return;
     const loaded = await read();
@@ -137,7 +146,7 @@ export function createFleetDomain({ api, session }) {
     }
   }
   return {
-    getState, load, refresh, command,
+    getState, load, refresh, command, battleReports, battleEncounterForReport,
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     shutdown() {
       disposed = true;

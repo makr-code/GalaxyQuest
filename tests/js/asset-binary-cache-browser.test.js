@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 const executablePath = [process.env.GQ_CHROMIUM_PATH, '/usr/bin/chromium', chromium.executablePath()]
   .find((path) => path && existsSync(path));
 const artifacts = resolve(`.idb-${process.pid}`);
+const browserHookTimeout = 30_000;
 let browser;
 let originalTemp;
 
@@ -17,13 +18,13 @@ describe.skipIf(!executablePath)('native browser IndexedDB public asset cache', 
     originalTemp = process.env.TMPDIR;
     process.env.TMPDIR = artifacts;
     browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox'] });
-  });
+  }, browserHookTimeout);
   afterAll(async () => {
     await browser?.close();
     if (originalTemp === undefined) delete process.env.TMPDIR;
     else process.env.TMPDIR = originalTemp;
     await rm(artifacts, { recursive: true, force: true });
-  });
+  }, browserHookTimeout);
 
   async function run(check) {
     const source = await readFile('js/engine/assets/AssetBinaryCache.js', 'utf8');

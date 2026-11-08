@@ -394,8 +394,10 @@ final class MiniYamlParser
         // Flow mappings / sequences (at line start or inline as value).
         $hasInlineFlow = preg_match('/:\s*[{[]/', $stripped) === 1;
         $isExplicitEmptySeq = preg_match('/:\s*\[\s*\]\s*$/', $stripped) === 1;
-        if (str_starts_with($stripped, '{') || str_starts_with($stripped, '[')
-            || ($hasInlineFlow && !$isExplicitEmptySeq)) {
+        if (
+            str_starts_with($stripped, '{') || str_starts_with($stripped, '[')
+            || ($hasInlineFlow && !$isExplicitEmptySeq)
+        ) {
             throw new \InvalidArgumentException(
                 "YAML flow style is not supported (line {$lineNumber})"
             );

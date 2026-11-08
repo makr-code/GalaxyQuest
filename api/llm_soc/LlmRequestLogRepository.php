@@ -2,11 +2,13 @@
 
 declare(strict_types=1);
 
-final class LlmRequestLogRepository {
+final class LlmRequestLogRepository
+{
     /**
      * @param array<string, mixed> $payload
      */
-    public function log(PDO $db, array $payload): void {
+    public function log(PDO $db, array $payload): void
+    {
         $sql = <<<'SQL'
 INSERT INTO llm_request_log (
     user_id,

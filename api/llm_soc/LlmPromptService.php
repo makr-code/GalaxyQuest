@@ -2,17 +2,20 @@
 
 declare(strict_types=1);
 
-final class LlmPromptService {
+final class LlmPromptService
+{
     private PromptCatalogRepository $catalogRepository;
 
-    public function __construct(PromptCatalogRepository $catalogRepository) {
+    public function __construct(PromptCatalogRepository $catalogRepository)
+    {
         $this->catalogRepository = $catalogRepository;
     }
 
     /**
      * @return array<int, array<string, mixed>>
      */
-    public function catalog(PDO $db): array {
+    public function catalog(PDO $db): array
+    {
         $fromFile = $this->catalogRepository->loadFileProfiles();
         $fromDb = $this->catalogRepository->loadDbProfiles($db);
 
@@ -45,7 +48,8 @@ final class LlmPromptService {
      * @param array<string, mixed> $inputVars
      * @return array<string, mixed>
      */
-    public function compose(PDO $db, string $profileKey, array $inputVars): array {
+    public function compose(PDO $db, string $profileKey, array $inputVars): array
+    {
         $profile = $this->findProfile($db, $profileKey);
         if ($profile === null) {
             return [
@@ -88,14 +92,16 @@ final class LlmPromptService {
      *
      * @return array<string, mixed>|null
      */
-    public function findProfilePublic(PDO $db, string $profileKey): ?array {
+    public function findProfilePublic(PDO $db, string $profileKey): ?array
+    {
         return $this->findProfile($db, $profileKey);
     }
 
     /**
      * @return array<string, mixed>|null
      */
-    private function findProfile(PDO $db, string $profileKey): ?array {
+    private function findProfile(PDO $db, string $profileKey): ?array
+    {
         $needle = strtolower(trim($profileKey));
         if ($needle === '') {
             return null;
@@ -119,7 +125,8 @@ final class LlmPromptService {
      * @param array<string, mixed> $inputVars
      * @return array{text:string,missing:array<int,string>,resolved:array<string,string>}
      */
-    private function renderTemplate(string $template, array $inputVars): array {
+    private function renderTemplate(string $template, array $inputVars): array
+    {
         $text = $template;
         preg_match_all('/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/', $template, $matches);
         $tokens = array_values(array_unique($matches[1] ?? []));

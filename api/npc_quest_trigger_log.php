@@ -1,13 +1,13 @@
 <?php
 
-declare(strict_types=1);
-
 /**
  * NPC Quest Trigger Log
  *
  * Logs quest generation events: when NPCs create quests, why they created them,
  * and what chain they belong to. Used for debugging, analytics, and quest discovery.
  */
+
+declare(strict_types=1);
 
 require_once __DIR__ . '/helpers.php';
 

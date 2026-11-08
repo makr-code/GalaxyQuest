@@ -202,7 +202,11 @@ function issue_remember_me_token(int $userId): void {
     } catch (PDOException $e) {
         clear_remember_cookie();
         error_log('remember_token_issue_failed code=' . $e->getCode());
-        throw new RuntimeException('Angemeldet bleiben konnte nicht gespeichert werden. Bitte erneut anmelden.', 503, $e);
+        throw new RuntimeException(
+            'Angemeldet bleiben konnte nicht gespeichert werden. Bitte erneut anmelden.',
+            503,
+            $e
+        );
     }
 }
 
@@ -309,7 +313,10 @@ function send_security_headers(): void {
     if (headers_sent()) return;
     header('X-Frame-Options: DENY');
     header('X-Content-Type-Options: nosniff');
-    header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'");
+    header(
+        "Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        . "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'"
+    );
     header('Referrer-Policy: strict-origin-when-cross-origin');
 }
 

@@ -1894,8 +1894,10 @@ function generate_asteroid_belts(array $planets, int $galaxyIdx, int $systemIdx)
             && is_numeric($planet['semi_major_axis_au'] ?? null)
             && (float)$planet['semi_major_axis_au'] > 0.0;
     }));
-    usort($orbitingPlanets, static fn(array $left, array $right): int =>
-        (float)$left['semi_major_axis_au'] <=> (float)$right['semi_major_axis_au']
+    usort(
+        $orbitingPlanets,
+        static fn(array $left, array $right): int =>
+            (float)$left['semi_major_axis_au'] <=> (float)$right['semi_major_axis_au']
     );
 
     $candidates = [];
@@ -1910,12 +1912,16 @@ function generate_asteroid_belts(array $planets, int $galaxyIdx, int $systemIdx)
         }
         $innerRadius = $innerOrbit + $gap * 0.32;
         $outerRadius = $outerOrbit - $gap * 0.32;
-        if ($outerRadius - $innerRadius < 0.1) continue;
+        if ($outerRadius - $innerRadius < 0.1) {
+            continue;
+        }
 
         $innerPosition = (int)($innerPlanet['position'] ?? $index + 1);
         $outerPosition = (int)($outerPlanet['position'] ?? $index + 2);
         $assignmentSeed = 68101 + $innerPosition * 37 + $outerPosition * 71;
-        if (gen_rand($galaxyIdx, $systemIdx, $assignmentSeed) >= 0.38) continue;
+        if (gen_rand($galaxyIdx, $systemIdx, $assignmentSeed) >= 0.38) {
+            continue;
+        }
 
         $candidates[] = [
             'inner_position' => $innerPosition,
@@ -1928,16 +1934,19 @@ function generate_asteroid_belts(array $planets, int $galaxyIdx, int $systemIdx)
         ];
     }
 
-    usort($candidates, static fn(array $left, array $right): int =>
-        $left['seed'] <=> $right['seed']
-    );
+    usort($candidates, static fn(array $left, array $right): int => $left['seed'] <=> $right['seed']);
     $belts = [];
     foreach (array_slice($candidates, 0, 2) as $candidate) {
         $innerRadius = $candidate['inner_radius_au'];
         $outerRadius = $candidate['outer_radius_au'];
         $belts[] = [
-            'id' => sprintf('g%d-s%d-asteroid-belt-%d-%d', $galaxyIdx, $systemIdx,
-                $candidate['inner_position'], $candidate['outer_position']),
+            'id' => sprintf(
+                'g%d-s%d-asteroid-belt-%d-%d',
+                $galaxyIdx,
+                $systemIdx,
+                $candidate['inner_position'],
+                $candidate['outer_position']
+            ),
             'body_type' => 'asteroid_belt',
             'seed' => $candidate['seed'],
             'semi_major_axis_au' => round(($innerRadius + $outerRadius) / 2.0, 5),

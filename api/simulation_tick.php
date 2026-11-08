@@ -1,13 +1,13 @@
 <?php
 
-declare(strict_types=1);
-
 /**
  * Headless simulation tick endpoint.
  *
  * POST /api/simulation_tick.php?action=run
  * body: { scope?: "global"|"user", user_id?: int, force?: bool }
  */
+
+declare(strict_types=1);
 
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/simulation_runtime.php';

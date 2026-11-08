@@ -45,10 +45,10 @@ declare(strict_types=1);
  */
 final class ThemisDbDualWriteService
 {
-    private PDO              $db;
-    private ThemisDbClient   $themis;
-    private bool             $dualWriteEnabled;
-    private bool             $themisEnabled;
+    private PDO $db;
+    private ThemisDbClient $themis;
+    private bool $dualWriteEnabled;
+    private bool $themisEnabled;
 
     // ── Singleton ─────────────────────────────────────────────────────────────
 
@@ -233,7 +233,7 @@ final class ThemisDbDualWriteService
     public function graphShortestDiplomaticPath(
         string $fromFactionCode,
         string $toFactionCode,
-        int    $minStanding = 0
+        int $minStanding = 0
     ): ?array {
         if (!$this->themisEnabled) {
             return null;
@@ -464,7 +464,10 @@ final class ThemisDbDualWriteService
 
         $result = $this->themis->bulkImport('faction_to_faction_edges', $edges, 'update');
         if (!$result['ok']) {
-            error_log('[ThemisDbDualWriteService] seedFactionRelationsGraph failed: ' . ($result['error'] ?? 'unknown'));
+            error_log(
+                '[ThemisDbDualWriteService] seedFactionRelationsGraph failed: '
+                . ($result['error'] ?? 'unknown')
+            );
             return ['seeded' => 0, 'errors' => 1];
         }
 

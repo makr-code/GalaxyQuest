@@ -1,4 +1,5 @@
 <?php
+
 /**
  * NPC / PvE controller diagnostics + control API.
  *
@@ -234,12 +235,14 @@ switch ($action) {
         json_error('Unknown action');
 }
 
-function npc_controller_log_table_exists(PDO $db): bool {
+function npc_controller_log_table_exists(PDO $db): bool
+{
     $stmt = $db->query("SHOW TABLES LIKE 'npc_llm_decision_log'");
     return (bool) $stmt->fetchColumn();
 }
 
-function npc_controller_count_logs(PDO $db, int $userId): int {
+function npc_controller_count_logs(PDO $db, int $userId): int
+{
     if (!npc_controller_log_table_exists($db)) {
         return 0;
     }

@@ -112,6 +112,7 @@ final class ProjectionWorkerCliTest extends TestCase
             $repo = dirname(__DIR__, 2);
             copy($repo . '/scripts/' . $worker . '.php', $root . '/scripts/' . $worker . '.php');
             copy($repo . '/lib/projection_runtime.php', $root . '/lib/projection_runtime.php');
+            copy($repo . '/lib/empire_scores.php', $root . '/lib/empire_scores.php');
             file_put_contents($root . '/config/config.php', '<?php fwrite(STDERR, "CONFIG_LOADED\n"); exit(9);');
             $process = proc_open(
                 [PHP_BINARY, $root . '/scripts/' . $worker . '.php', ...$arguments],

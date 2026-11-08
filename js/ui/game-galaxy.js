@@ -410,6 +410,7 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
   let lastSystem = null;
   let displayedSelection = null;
   let state = domain.getState();
+  let pendingBattleEncounter = null;
   function renderFleetTargetPicker() {
     fleetTargetPicker.hidden = !pickingFleetTarget
       || (!state.system && !state.loading && !state.error);
@@ -468,6 +469,10 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
   search.addEventListener('input', renderList);
   function update(next) {
     state = next;
+    if (pendingBattleEncounter && state.error && !state.loading) {
+      setSceneError('battle', state.error);
+      pendingBattleEncounter = null;
+    }
     renderFleetTargetPicker();
     const systemKey = state.system ? `${state.system.galaxy}:${state.system.system}` : null;
     if (systemKey !== selectedSystem) selectedPosition = null;
@@ -564,6 +569,40 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
       lastSystem = systemKey;
     }
     renderer.setGalaxyFleets(session.getState()?.fleets || []);
+    startPendingBattleEncounter();
+  }
+  function startPendingBattleEncounter() {
+    const pending = pendingBattleEncounter;
+    if (!pending || !renderer || state.loading || !state.system
+      || Number(state.system.galaxy) !== pending.target.galaxy
+      || Number(state.system.system) !== pending.target.system) return;
+    const cameraState = renderer.getRenderStats()?.cameraControl;
+    if (cameraState?.level !== 'system' || cameraState.transitioning) return;
+    pendingBattleEncounter = null;
+    Promise.resolve().then(() => renderer.playBattleEncounter(pending.encounter))
+      .then((replay) => {
+        replay.finished.catch((error) => {
+          if (!disposed) setSceneError('battle', error.message);
+        });
+      })
+      .catch((error) => {
+        if (!disposed) setSceneError('battle', error.message);
+      });
+  }
+  function showBattleEncounter(event) {
+    if (disposed) return;
+    const encounter = event.detail;
+    const created = encounter?.events?.find((entry) => entry?.event_type === 'encounter_created');
+    const target = created?.payload?.target;
+    if (!target || !Number.isSafeInteger(target.galaxy) || target.galaxy < 1 || target.galaxy > 9
+      || !Number.isSafeInteger(target.system) || target.system < 1
+      || !Number.isSafeInteger(target.position) || target.position < 1) {
+      setSceneError('battle', 'Der Encounter enthält keine gültigen Zielkoordinaten.');
+      return;
+    }
+    pendingBattleEncounter = { encounter, target };
+    clearSceneError('battle');
+    void domain.navigate(target.galaxy, target.system);
   }
   async function startRenderer() {
     if (disposed || rendererPending || renderer) return;
@@ -663,6 +702,7 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
           viewStatus.textContent = `Ansicht: ${labels[camera.level]}${camera.planetPosition === null ? '' : ` · Position ${camera.planetPosition}`}`;
           panel.dataset.cameraLevel = camera.level;
           if (['colony', 'building'].includes(camera.level)) navigation.open = false;
+          if (camera.level === 'system' && !camera.transitioning) startPendingBattleEncounter();
         },
         onError: (error) => {
           if (!isCurrent()) return;
@@ -676,6 +716,7 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
       renderer.setSystemVisualizationOptions?.({ ...visualizationOptions });
       const backend = renderer.getRenderStats().backend;
       syncRenderer();
+      startPendingBattleEncounter();
       if (fleets) unmountFleetMap = mountFleetMap({ domain: fleets, galaxy: domain, renderer, session, stage });
       window.galaxy3d = renderer;
       rendererStatus.textContent = `3D aktiv: ${backend}`;
@@ -738,6 +779,7 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
       canvas.focus({ preventScroll: true });
     }
   });
+  window.addEventListener('gq:show-battle-encounter', showBattleEncounter);
   const cancelOriginPicking = (event) => {
     if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || !pickingFleetOrigin) return;
     event.preventDefault();
@@ -773,6 +815,7 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
     disposed = true;
     rendererAbort.abort();
     window.removeEventListener('gq:authenticated', activate);
+    window.removeEventListener('gq:show-battle-encounter', showBattleEncounter);
     homeButton?.removeEventListener('click', goHome);
     mapButtons.forEach((element) => element.removeEventListener('click', showMap));
     searchButton?.removeEventListener('click', showSearch);
@@ -782,6 +825,7 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
     unsubscribeMutation();
     unsubscribeFleetPicking();
     unsubscribeFleetOriginPicking();
+    pendingBattleEncounter = null;
     window.removeEventListener('keydown', cancelOriginPicking, true);
     stage.classList.remove('fleet-target-picking');
     stage.classList.remove('fleet-origin-picking');

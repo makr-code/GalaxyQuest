@@ -398,8 +398,10 @@ if ($action === 'auth_flight_preview') {
     foreach ($planets as &$planet) {
         $innerRingRadius = $planet['ring_inner_radius_planet_r'] ?? null;
         $outerRingRadius = $planet['ring_outer_radius_planet_r'] ?? null;
-        if (is_numeric($innerRingRadius) && is_numeric($outerRingRadius)
-            && (float)$outerRingRadius > (float)$innerRingRadius) {
+        if (
+            is_numeric($innerRingRadius) && is_numeric($outerRingRadius)
+            && (float)$outerRingRadius > (float)$innerRingRadius
+        ) {
             $planet['ring_system'] = [
                 'inner_radius_planet_r' => (float)$innerRingRadius,
                 'outer_radius_planet_r' => (float)$outerRingRadius,

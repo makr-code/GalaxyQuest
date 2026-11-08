@@ -1,4 +1,5 @@
 <?php
+
 /**
  * TTS (Text-to-Speech) API endpoint.
  *
@@ -21,6 +22,7 @@
  *   "cached":    bool
  * }
  */
+
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/tts_client.php';
 
@@ -55,7 +57,10 @@ switch ($action) {
         }
         $result = tts_list_voices();
         if (!($result['ok'] ?? false)) {
-            json_error((string) ($result['error'] ?? 'Failed to retrieve voice list.'), (int) ($result['status'] ?? 502));
+            json_error(
+                (string) ($result['error'] ?? 'Failed to retrieve voice list.'),
+                (int) ($result['status'] ?? 502)
+            );
         }
         json_ok([
             'engine' => (string) ($result['engine'] ?? ''),

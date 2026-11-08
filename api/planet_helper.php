@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Planet DB helper — shared between galaxy.php, fleet.php, npc_ai.php.
  *
@@ -32,7 +33,8 @@ const DEPOSIT_UNLIMITED = -1;
  * Map a planet_class to the legacy `type` enum column.
  * type ENUM('terrestrial','gas_giant','ice','desert','volcanic')
  */
-function planet_class_to_type(string $planetClass): string {
+function planet_class_to_type(string $planetClass): string
+{
     return match ($planetClass) {
         'lava'                    => 'volcanic',
         'gas_giant', 'hot_jupiter'=> 'gas_giant',
@@ -48,17 +50,23 @@ function planet_class_to_type(string $planetClass): string {
  * proper richness + deposit values derived from planet class.
  * Returns the planet DB id.
  */
-function ensure_planet(PDO $db, int $galaxy, int $system, int $position): int {
+function ensure_planet(PDO $db, int $galaxy, int $system, int $position): int
+{
     $row = $db->prepare('SELECT id FROM planets WHERE galaxy=? AND `system`=? AND position=?');
     $row->execute([$galaxy, $system, $position]);
-    if ($r = $row->fetch()) return (int)$r['id'];
+    if ($r = $row->fetch()) {
+        return (int)$r['id'];
+    }
 
     require_once __DIR__ . '/galaxy_gen.php';
     $sys = generate_star_system($galaxy, $system);
 
     $genPlanet = null;
     foreach ($sys['planets'] as $gp) {
-        if ((int)$gp['position'] === $position) { $genPlanet = $gp; break; }
+        if ((int)$gp['position'] === $position) {
+            $genPlanet = $gp;
+            break;
+        }
     }
 
     if (!$genPlanet) {

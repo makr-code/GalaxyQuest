@@ -1,0 +1,3538 @@
+{
+    "source_sha256": "ae261cb047830139909ebe3266df78dfad5a237718ae0a546ede5940b8cff262",
+    "tables": {
+        "achievements": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "code",
+                    "COLUMN_TYPE": "varchar(64)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "category",
+                    "COLUMN_TYPE": "enum('tutorial','milestone','combat','economy','expansion')",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "milestone",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "title",
+                    "COLUMN_TYPE": "varchar(128)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "description",
+                    "COLUMN_TYPE": "text",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "reward_metal",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "reward_crystal",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "reward_deuterium",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "reward_dark_matter",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "reward_rank_points",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "sort_order",
+                    "COLUMN_TYPE": "smallint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "100",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "code",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": []
+        },
+        "alliance_members": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "alliance_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "user_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "role",
+                    "COLUMN_TYPE": "enum('leader','diplomat','officer','member')",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "member",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "joined_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "contributed_resources",
+                    "COLUMN_TYPE": "decimal(20,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0.0000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "user_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    },
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "alliance_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "alliance_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    },
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "user_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                [
+                    {
+                        "COLUMN_NAME": "alliance_id",
+                        "REFERENCED_TABLE_NAME": "alliances",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ],
+                [
+                    {
+                        "COLUMN_NAME": "user_id",
+                        "REFERENCED_TABLE_NAME": "users",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ]
+            ]
+        },
+        "alliance_messages": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "alliance_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "author_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "message_text",
+                    "COLUMN_TYPE": "text",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "created_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "author_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "alliance_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    },
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "created_at",
+                        "COLLATION": "D",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                [
+                    {
+                        "COLUMN_NAME": "alliance_id",
+                        "REFERENCED_TABLE_NAME": "alliances",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ],
+                [
+                    {
+                        "COLUMN_NAME": "author_id",
+                        "REFERENCED_TABLE_NAME": "users",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ]
+            ]
+        },
+        "alliance_relations": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "alliance_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "other_alliance_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "other_user_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "relation_type",
+                    "COLUMN_TYPE": "enum('nap','alliance','war','enemy','neutral')",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "neutral",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "declared_by_user_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "declared_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "expires_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "declared_by_user_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "alliance_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    },
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "relation_type",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "other_alliance_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    },
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "relation_type",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "other_user_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                [
+                    {
+                        "COLUMN_NAME": "alliance_id",
+                        "REFERENCED_TABLE_NAME": "alliances",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ],
+                [
+                    {
+                        "COLUMN_NAME": "other_alliance_id",
+                        "REFERENCED_TABLE_NAME": "alliances",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "SET NULL"
+                    }
+                ],
+                [
+                    {
+                        "COLUMN_NAME": "other_user_id",
+                        "REFERENCED_TABLE_NAME": "users",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ],
+                [
+                    {
+                        "COLUMN_NAME": "declared_by_user_id",
+                        "REFERENCED_TABLE_NAME": "users",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ]
+            ]
+        },
+        "alliances": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "name",
+                    "COLUMN_TYPE": "varchar(64)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "tag",
+                    "COLUMN_TYPE": "varchar(4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "leader_user_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "description",
+                    "COLUMN_TYPE": "text",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "treasury_metal",
+                    "COLUMN_TYPE": "decimal(20,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0.0000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "treasury_crystal",
+                    "COLUMN_TYPE": "decimal(20,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0.0000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "treasury_deuterium",
+                    "COLUMN_TYPE": "decimal(20,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0.0000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "treasury_dark_matter",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "created_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "updated_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "leader_user_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "tag",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "tag",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                [
+                    {
+                        "COLUMN_NAME": "leader_user_id",
+                        "REFERENCED_TABLE_NAME": "users",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ]
+            ]
+        },
+        "battle_reports": {
+            "columns": [],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "attacker_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    },
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "created_at",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "defender_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    },
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "created_at",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": []
+        },
+        "binary_systems": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "primary_star_system_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "is_circumbinary",
+                    "COLUMN_TYPE": "tinyint(1)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "companion_stellar_type",
+                    "COLUMN_TYPE": "enum('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf')",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "companion_spectral_class",
+                    "COLUMN_TYPE": "varchar(4)",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "companion_subtype",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "companion_luminosity_class",
+                    "COLUMN_TYPE": "varchar(4)",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "companion_mass_solar",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "companion_radius_solar",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "companion_temperature_k",
+                    "COLUMN_TYPE": "mediumint unsigned",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "companion_luminosity_solar",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "separation_au",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "eccentricity",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "stability_critical_au",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "mass_ratio",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "created_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "updated_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "separation_au",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "companion_stellar_type",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "primary_star_system_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                [
+                    {
+                        "COLUMN_NAME": "primary_star_system_id",
+                        "REFERENCED_TABLE_NAME": "star_systems",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ]
+            ]
+        },
+        "buildings": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "colony_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "colony_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": []
+        },
+        "colonies": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "planet_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "user_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "name",
+                    "COLUMN_TYPE": "varchar(64)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "Colony",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "colony_type",
+                    "COLUMN_TYPE": "enum('balanced','mining','industrial','research','agricultural','military')",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "balanced",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "metal",
+                    "COLUMN_TYPE": "decimal(20,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "500.0000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "crystal",
+                    "COLUMN_TYPE": "decimal(20,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "300.0000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "deuterium",
+                    "COLUMN_TYPE": "decimal(20,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "100.0000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "energy",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "is_homeworld",
+                    "COLUMN_TYPE": "tinyint(1)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "last_update",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "rare_earth",
+                    "COLUMN_TYPE": "decimal(20,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0.0000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "food",
+                    "COLUMN_TYPE": "decimal(20,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "200.0000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "population",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "100",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "max_population",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "500",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "happiness",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "70",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "public_services",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "planet_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "user_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                [
+                    {
+                        "COLUMN_NAME": "planet_id",
+                        "REFERENCED_TABLE_NAME": "planets",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ],
+                [
+                    {
+                        "COLUMN_NAME": "user_id",
+                        "REFERENCED_TABLE_NAME": "users",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ]
+            ]
+        },
+        "colony_events": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "colony_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "event_type",
+                    "COLUMN_TYPE": "enum('solar_flare','mineral_vein','disease')",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "started_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "expires_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "colony_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                [
+                    {
+                        "COLUMN_NAME": "colony_id",
+                        "REFERENCED_TABLE_NAME": "colonies",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ]
+            ]
+        },
+        "diplomacy": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "user_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "faction_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "standing",
+                    "COLUMN_TYPE": "smallint",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "attacks_against",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "trades_completed",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "quests_completed",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "last_event",
+                    "COLUMN_TYPE": "text",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "last_event_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "faction_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "user_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    },
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "faction_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                [
+                    {
+                        "COLUMN_NAME": "user_id",
+                        "REFERENCED_TABLE_NAME": "users",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ],
+                [
+                    {
+                        "COLUMN_NAME": "faction_id",
+                        "REFERENCED_TABLE_NAME": "npc_factions",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ]
+            ]
+        },
+        "faction_quests": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "faction_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "code",
+                    "COLUMN_TYPE": "varchar(64)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "title",
+                    "COLUMN_TYPE": "varchar(128)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "description",
+                    "COLUMN_TYPE": "text",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "quest_type",
+                    "COLUMN_TYPE": "enum('kill','deliver','explore','build','research','spy')",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "requirements_json",
+                    "COLUMN_TYPE": "text",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "_utf8mb4\\'{}\\'",
+                    "EXTRA": "DEFAULT_GENERATED",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "active",
+                    "COLUMN_TYPE": "tinyint(1)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "template_code",
+                    "COLUMN_TYPE": "varchar(64)",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "generated_by_npc",
+                    "COLUMN_TYPE": "tinyint(1)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "generated_timestamp",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "reward_metal",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "reward_crystal",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "reward_deuterium",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "reward_rare_earth",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "reward_dark_matter",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "reward_rank_points",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "reward_standing",
+                    "COLUMN_TYPE": "smallint",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "10",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "min_standing",
+                    "COLUMN_TYPE": "smallint",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "-100",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "difficulty",
+                    "COLUMN_TYPE": "enum('easy','medium','hard','epic')",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "medium",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "repeatable",
+                    "COLUMN_TYPE": "tinyint(1)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "code",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "faction_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                [
+                    {
+                        "COLUMN_NAME": "faction_id",
+                        "REFERENCED_TABLE_NAME": "npc_factions",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ]
+            ]
+        },
+        "fleets": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "origin_colony_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "origin_x_ly",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "origin_y_ly",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "origin_z_ly",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "target_x_ly",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "target_y_ly",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "target_z_ly",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "speed_ly_h",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "distance_ly",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [],
+            "foreign_keys": []
+        },
+        "leaders": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "user_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "name",
+                    "COLUMN_TYPE": "varchar(64)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "role",
+                    "COLUMN_TYPE": "enum('colony_manager','fleet_commander','science_director','diplomacy_officer','trade_director')",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "colony_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "fleet_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "skill_production",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "skill_construction",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "skill_tactics",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "skill_navigation",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "skill_research",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "skill_efficiency",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "autonomy",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "last_action",
+                    "COLUMN_TYPE": "text",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "last_action_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "xp",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "level",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "created_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "colony_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "fleet_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "user_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                [
+                    {
+                        "COLUMN_NAME": "user_id",
+                        "REFERENCED_TABLE_NAME": "users",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ],
+                [
+                    {
+                        "COLUMN_NAME": "colony_id",
+                        "REFERENCED_TABLE_NAME": "colonies",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "SET NULL"
+                    }
+                ],
+                [
+                    {
+                        "COLUMN_NAME": "fleet_id",
+                        "REFERENCED_TABLE_NAME": "fleets",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "SET NULL"
+                    }
+                ]
+            ]
+        },
+        "npc_factions": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "code",
+                    "COLUMN_TYPE": "varchar(32)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "name",
+                    "COLUMN_TYPE": "varchar(64)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "description",
+                    "COLUMN_TYPE": "text",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "faction_type",
+                    "COLUMN_TYPE": "enum('military','trade','science','pirate','ancient')",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "aggression",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "50",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "trade_willingness",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "50",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "base_diplomacy",
+                    "COLUMN_TYPE": "smallint",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "power_level",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "home_galaxy_min",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "home_galaxy_max",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "9",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "color",
+                    "COLUMN_TYPE": "varchar(7)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "#888888",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "icon",
+                    "COLUMN_TYPE": "varchar(4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "?",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "code",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": []
+        },
+        "planets": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "system_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "planet_class",
+                    "COLUMN_TYPE": "enum('rocky','super_earth','ocean','gas_giant','ice_giant','hot_jupiter','lava','ice_dwarf','comet_belt')",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "rocky",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "semi_major_axis_au",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "orbital_period_days",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "365.25",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "orbital_eccentricity",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0.017",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "surface_gravity_g",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "in_habitable_zone",
+                    "COLUMN_TYPE": "tinyint(1)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "atmosphere_type",
+                    "COLUMN_TYPE": "enum('none','thin_co2','thick_co2','nitrogen_oxygen','hydrogen_helium','methane','sulfuric')",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "nitrogen_oxygen",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "richness_metal",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "richness_crystal",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "richness_deuterium",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "richness_rare_earth",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0.5",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "deposit_metal",
+                    "COLUMN_TYPE": "bigint",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "5000000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "deposit_crystal",
+                    "COLUMN_TYPE": "bigint",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "2000000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "deposit_deuterium",
+                    "COLUMN_TYPE": "bigint",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1000000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "deposit_rare_earth",
+                    "COLUMN_TYPE": "bigint",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "200000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "system_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                [
+                    {
+                        "COLUMN_NAME": "system_id",
+                        "REFERENCED_TABLE_NAME": "star_systems",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "SET NULL"
+                    }
+                ]
+            ]
+        },
+        "remember_tokens": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "bigint",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "user_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "selector",
+                    "COLUMN_TYPE": "char(18)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "token_hash",
+                    "COLUMN_TYPE": "char(64)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "expires_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "created_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "last_used_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "expires_at",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "user_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "selector",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                [
+                    {
+                        "COLUMN_NAME": "user_id",
+                        "REFERENCED_TABLE_NAME": "users",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ]
+            ]
+        },
+        "research": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "research_start",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [],
+            "foreign_keys": []
+        },
+        "ships": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "colony_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "colony_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": []
+        },
+        "star_systems": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "galaxy_index",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "system_index",
+                    "COLUMN_TYPE": "smallint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "x_ly",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "y_ly",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "z_ly",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "spectral_class",
+                    "COLUMN_TYPE": "enum('O','B','A','F','G','K','M')",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "G",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "subtype",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "2",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "luminosity_class",
+                    "COLUMN_TYPE": "varchar(4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "V",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "mass_solar",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "radius_solar",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "temperature_k",
+                    "COLUMN_TYPE": "mediumint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "5778",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "luminosity_solar",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "hz_inner_au",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0.9506",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "hz_outer_au",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1.6765",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "frost_line_au",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "2.68",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "stellar_type",
+                    "COLUMN_TYPE": "enum('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf')",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "main_sequence",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "age_gyr",
+                    "COLUMN_TYPE": "decimal(4,2)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "5.00",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "metallicity_z",
+                    "COLUMN_TYPE": "decimal(6,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0.0200",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "is_binary",
+                    "COLUMN_TYPE": "tinyint(1)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "is_circumbinary",
+                    "COLUMN_TYPE": "tinyint(1)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "companion_stellar_type",
+                    "COLUMN_TYPE": "enum('main_sequence','white_dwarf','brown_dwarf','neutron_star','giant','subdwarf')",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "companion_spectral_class",
+                    "COLUMN_TYPE": "varchar(4)",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "companion_subtype",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "companion_luminosity_class",
+                    "COLUMN_TYPE": "varchar(4)",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "companion_mass_solar",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "companion_radius_solar",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "companion_temperature_k",
+                    "COLUMN_TYPE": "mediumint unsigned",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "companion_luminosity_solar",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "companion_separation_au",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "companion_eccentricity",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "stability_critical_au",
+                    "COLUMN_TYPE": "double",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "name",
+                    "COLUMN_TYPE": "varchar(16)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "catalog_name",
+                    "COLUMN_TYPE": "varchar(32)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "planet_count",
+                    "COLUMN_TYPE": "tinyint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "galaxy_index",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    },
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "system_index",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": []
+        },
+        "trade_offers": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "faction_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "offer_resource",
+                    "COLUMN_TYPE": "enum('metal','crystal','deuterium','rare_earth','food')",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "offer_amount",
+                    "COLUMN_TYPE": "bigint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "request_resource",
+                    "COLUMN_TYPE": "enum('metal','crystal','deuterium','rare_earth','food')",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "request_amount",
+                    "COLUMN_TYPE": "bigint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "min_standing",
+                    "COLUMN_TYPE": "smallint",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "-50",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "max_claims",
+                    "COLUMN_TYPE": "smallint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "5",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "claims_count",
+                    "COLUMN_TYPE": "smallint unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "valid_until",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "active",
+                    "COLUMN_TYPE": "tinyint(1)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "faction_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                [
+                    {
+                        "COLUMN_NAME": "faction_id",
+                        "REFERENCED_TABLE_NAME": "npc_factions",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ]
+            ]
+        },
+        "trade_proposals": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "initiator_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "target_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "offer_metal",
+                    "COLUMN_TYPE": "decimal(20,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0.0000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "offer_crystal",
+                    "COLUMN_TYPE": "decimal(20,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0.0000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "offer_deuterium",
+                    "COLUMN_TYPE": "decimal(20,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0.0000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "request_metal",
+                    "COLUMN_TYPE": "decimal(20,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0.0000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "request_crystal",
+                    "COLUMN_TYPE": "decimal(20,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0.0000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "request_deuterium",
+                    "COLUMN_TYPE": "decimal(20,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0.0000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "message",
+                    "COLUMN_TYPE": "varchar(500)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "status",
+                    "COLUMN_TYPE": "enum('pending','accepted','rejected','cancelled','expired')",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "pending",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "expires_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "created_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "initiator_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    },
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "status",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "target_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    },
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "status",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                [
+                    {
+                        "COLUMN_NAME": "initiator_id",
+                        "REFERENCED_TABLE_NAME": "users",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ],
+                [
+                    {
+                        "COLUMN_NAME": "target_id",
+                        "REFERENCED_TABLE_NAME": "users",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ]
+            ]
+        },
+        "trade_routes": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "user_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "origin_colony_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "target_colony_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "cargo_metal",
+                    "COLUMN_TYPE": "decimal(20,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0.0000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "cargo_crystal",
+                    "COLUMN_TYPE": "decimal(20,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0.0000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "cargo_deuterium",
+                    "COLUMN_TYPE": "decimal(20,4)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0.0000",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "interval_hours",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "24",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "last_dispatch",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "is_active",
+                    "COLUMN_TYPE": "tinyint(1)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "1",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "created_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "updated_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "user_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    },
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "last_dispatch",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "target_colony_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "origin_colony_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    },
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "target_colony_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                [
+                    {
+                        "COLUMN_NAME": "user_id",
+                        "REFERENCED_TABLE_NAME": "users",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ],
+                [
+                    {
+                        "COLUMN_NAME": "origin_colony_id",
+                        "REFERENCED_TABLE_NAME": "colonies",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ],
+                [
+                    {
+                        "COLUMN_NAME": "target_colony_id",
+                        "REFERENCED_TABLE_NAME": "colonies",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ]
+            ]
+        },
+        "user_achievements": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "user_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "achievement_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "completed",
+                    "COLUMN_TYPE": "tinyint(1)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "completed_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "reward_claimed",
+                    "COLUMN_TYPE": "tinyint(1)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "progress",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "achievement_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "user_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    },
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "achievement_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                [
+                    {
+                        "COLUMN_NAME": "user_id",
+                        "REFERENCED_TABLE_NAME": "users",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ],
+                [
+                    {
+                        "COLUMN_NAME": "achievement_id",
+                        "REFERENCED_TABLE_NAME": "achievements",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ]
+            ]
+        },
+        "user_character_profiles": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "bigint",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "user_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "is_npc",
+                    "COLUMN_TYPE": "tinyint(1)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "race",
+                    "COLUMN_TYPE": "varchar(80)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "Unknown",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "profession",
+                    "COLUMN_TYPE": "varchar(80)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "Wanderer",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "stance",
+                    "COLUMN_TYPE": "varchar(80)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "Neutral",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "vita",
+                    "COLUMN_TYPE": "text",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "profile_json",
+                    "COLUMN_TYPE": "longtext",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "yaml_path",
+                    "COLUMN_TYPE": "varchar(255)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "json_path",
+                    "COLUMN_TYPE": "varchar(255)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "png_path",
+                    "COLUMN_TYPE": "varchar(255)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "storage_dir",
+                    "COLUMN_TYPE": "varchar(255)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "generation_status",
+                    "COLUMN_TYPE": "varchar(40)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "generated",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "last_error",
+                    "COLUMN_TYPE": "text",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "created_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "updated_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "user_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                [
+                    {
+                        "COLUMN_NAME": "user_id",
+                        "REFERENCED_TABLE_NAME": "users",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ]
+            ]
+        },
+        "user_faction_quests": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "auto_increment",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "user_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "faction_quest_id",
+                    "COLUMN_TYPE": "int",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "status",
+                    "COLUMN_TYPE": "enum('active','completed','failed','claimed')",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "active",
+                    "EXTRA": "",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "progress_json",
+                    "COLUMN_TYPE": "text",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "_utf8mb4\\'{}\\'",
+                    "EXTRA": "DEFAULT_GENERATED",
+                    "COLLATION_NAME": "utf8mb4_unicode_ci"
+                },
+                {
+                    "COLUMN_NAME": "started_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "CURRENT_TIMESTAMP",
+                    "EXTRA": "DEFAULT_GENERATED",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "completed_at",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "faction_quest_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 0,
+                        "COLUMN_NAME": "id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ],
+                [
+                    {
+                        "NON_UNIQUE": 1,
+                        "COLUMN_NAME": "user_id",
+                        "COLLATION": "A",
+                        "SUB_PART": null
+                    }
+                ]
+            ],
+            "foreign_keys": [
+                [
+                    {
+                        "COLUMN_NAME": "user_id",
+                        "REFERENCED_TABLE_NAME": "users",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ],
+                [
+                    {
+                        "COLUMN_NAME": "faction_quest_id",
+                        "REFERENCED_TABLE_NAME": "faction_quests",
+                        "REFERENCED_COLUMN_NAME": "id",
+                        "UPDATE_RULE": "NO ACTION",
+                        "DELETE_RULE": "CASCADE"
+                    }
+                ]
+            ]
+        },
+        "users": {
+            "columns": [
+                {
+                    "COLUMN_NAME": "dark_matter",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "rank_points",
+                    "COLUMN_TYPE": "int unsigned",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "protection_until",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "vacation_mode",
+                    "COLUMN_TYPE": "tinyint(1)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "pvp_mode",
+                    "COLUMN_TYPE": "tinyint(1)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "is_npc",
+                    "COLUMN_TYPE": "tinyint(1)",
+                    "IS_NULLABLE": "NO",
+                    "COLUMN_DEFAULT": "0",
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                },
+                {
+                    "COLUMN_NAME": "last_npc_tick",
+                    "COLUMN_TYPE": "datetime",
+                    "IS_NULLABLE": "YES",
+                    "COLUMN_DEFAULT": null,
+                    "EXTRA": "",
+                    "COLLATION_NAME": null
+                }
+            ],
+            "indexes": [],
+            "foreign_keys": []
+        }
+    },
+    "achievements": [
+        {
+            "code": "combat_10_wins",
+            "category": "combat",
+            "title": "Warlord",
+            "description": "Win 10 battles.",
+            "reward_metal": 0,
+            "reward_crystal": 0,
+            "reward_deuterium": 0,
+            "reward_dark_matter": 20,
+            "reward_rank_points": 200,
+            "sort_order": 220
+        },
+        {
+            "code": "combat_first_win",
+            "category": "combat",
+            "title": "Baptism of Fire",
+            "description": "Win your first battle.",
+            "reward_metal": 1000,
+            "reward_crystal": 500,
+            "reward_deuterium": 0,
+            "reward_dark_matter": 5,
+            "reward_rank_points": 50,
+            "sort_order": 210
+        },
+        {
+            "code": "eco_metal_100k",
+            "category": "economy",
+            "title": "Metal Baron",
+            "description": "Accumulate 100 000 metal across all planets.",
+            "reward_metal": 0,
+            "reward_crystal": 5000,
+            "reward_deuterium": 0,
+            "reward_dark_matter": 0,
+            "reward_rank_points": 50,
+            "sort_order": 110
+        },
+        {
+            "code": "eco_planets_10",
+            "category": "expansion",
+            "title": "Galactic Domain",
+            "description": "Control 10 planets simultaneously.",
+            "reward_metal": 10000,
+            "reward_crystal": 10000,
+            "reward_deuterium": 5000,
+            "reward_dark_matter": 25,
+            "reward_rank_points": 300,
+            "sort_order": 130
+        },
+        {
+            "code": "eco_planets_5",
+            "category": "expansion",
+            "title": "Small Empire",
+            "description": "Control 5 planets simultaneously.",
+            "reward_metal": 5000,
+            "reward_crystal": 5000,
+            "reward_deuterium": 2000,
+            "reward_dark_matter": 10,
+            "reward_rank_points": 150,
+            "sort_order": 120
+        },
+        {
+            "code": "tutorial_colony",
+            "category": "tutorial",
+            "title": "New Horizons",
+            "description": "Found your first colony.",
+            "reward_metal": 2000,
+            "reward_crystal": 1000,
+            "reward_deuterium": 500,
+            "reward_dark_matter": 5,
+            "reward_rank_points": 100,
+            "sort_order": 60
+        },
+        {
+            "code": "tutorial_mine_3",
+            "category": "tutorial",
+            "title": "First Dig",
+            "description": "Upgrade your Metal Mine to level 3.",
+            "reward_metal": 500,
+            "reward_crystal": 0,
+            "reward_deuterium": 0,
+            "reward_dark_matter": 0,
+            "reward_rank_points": 10,
+            "sort_order": 10
+        },
+        {
+            "code": "tutorial_research",
+            "category": "tutorial",
+            "title": "Curious Mind",
+            "description": "Research any technology for the first time.",
+            "reward_metal": 0,
+            "reward_crystal": 0,
+            "reward_deuterium": 200,
+            "reward_dark_matter": 0,
+            "reward_rank_points": 30,
+            "sort_order": 50
+        },
+        {
+            "code": "tutorial_solar_3",
+            "category": "tutorial",
+            "title": "Let There Be Light",
+            "description": "Upgrade your Solar Plant to level 3.",
+            "reward_metal": 0,
+            "reward_crystal": 300,
+            "reward_deuterium": 0,
+            "reward_dark_matter": 0,
+            "reward_rank_points": 10,
+            "sort_order": 20
+        },
+        {
+            "code": "tutorial_spy",
+            "category": "tutorial",
+            "title": "Eyes in the Sky",
+            "description": "Send your first Espionage Probe.",
+            "reward_metal": 0,
+            "reward_crystal": 500,
+            "reward_deuterium": 0,
+            "reward_dark_matter": 0,
+            "reward_rank_points": 20,
+            "sort_order": 30
+        },
+        {
+            "code": "tutorial_transport",
+            "category": "tutorial",
+            "title": "First Supply Run",
+            "description": "Complete your first transport mission.",
+            "reward_metal": 800,
+            "reward_crystal": 400,
+            "reward_deuterium": 0,
+            "reward_dark_matter": 0,
+            "reward_rank_points": 20,
+            "sort_order": 40
+        },
+        {
+            "code": "veteran_all_research",
+            "category": "milestone",
+            "title": "Omniscient",
+            "description": "Complete all research trees.",
+            "reward_metal": 0,
+            "reward_crystal": 0,
+            "reward_deuterium": 0,
+            "reward_dark_matter": 50,
+            "reward_rank_points": 500,
+            "sort_order": 920
+        },
+        {
+            "code": "veteran_deathstar",
+            "category": "milestone",
+            "title": "Doomsday Machine",
+            "description": "Build a Death Star.",
+            "reward_metal": 0,
+            "reward_crystal": 0,
+            "reward_deuterium": 0,
+            "reward_dark_matter": 100,
+            "reward_rank_points": 1000,
+            "sort_order": 910
+        }
+    ]
+}

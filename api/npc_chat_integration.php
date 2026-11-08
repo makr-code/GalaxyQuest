@@ -1,8 +1,9 @@
 <?php
+
 /**
  * NPC Chat Integration API Endpoint
  * Provides unified interface for in-game NPC dialogues
- * 
+ *
  * POST /api/npc_chat_integration.php
  * Body: {
  *   action: "chat" | "history" | "clear_session" | "agents" | "cache_stats"

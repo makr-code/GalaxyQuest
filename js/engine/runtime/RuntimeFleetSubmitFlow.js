@@ -10,6 +10,7 @@
       showToast = () => {},
       gameLog = () => {},
     } = opts;
+    const pendingOrders = new Map();
 
     return {
       buildPayload(root) {
@@ -45,12 +46,22 @@
           resultEl.textContent = '';
 
           const payload = typeof buildPayload === 'function' ? buildPayload(root) : this.buildPayload(root);
+          const signature = JSON.stringify({
+            ...payload,
+            ships: Object.fromEntries(Object.entries(payload.ships).sort(([a], [b]) => a.localeCompare(b))),
+          });
           const mission = payload.mission;
           const submitBtn = root.querySelector('button[type="submit"]');
           submitBtn.disabled = true;
           try {
-            const response = await api.sendFleet(payload);
+            let requestId = pendingOrders.get(signature);
+            if (!requestId) {
+              requestId = crypto.randomUUID();
+              pendingOrders.set(signature, requestId);
+            }
+            const response = await api.sendFleet({ ...payload, request_id: requestId });
             if (response.success) {
+              pendingOrders.delete(signature);
               resultEl.className = 'form-info';
               resultEl.textContent = `Fleet launched! ETA: ${new Date(response.arrival_time).toLocaleString()}`;
               showToast('Fleet launched!', 'success');

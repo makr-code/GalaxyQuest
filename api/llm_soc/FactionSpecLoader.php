@@ -6,10 +6,12 @@ declare(strict_types=1);
  * Loads and queries faction spec files from fractions/{faction_code}/spec.json
  * with a fallback to spec.yaml via MiniYamlParser when available.
  */
-final class FactionSpecLoader {
+final class FactionSpecLoader
+{
     private string $fractionsBasePath;
 
-    public function __construct(?string $fractionsBasePath = null) {
+    public function __construct(?string $fractionsBasePath = null)
+    {
         $this->fractionsBasePath = $fractionsBasePath ?? realpath(__DIR__ . '/../../fractions') ?: '';
     }
 
@@ -20,7 +22,8 @@ final class FactionSpecLoader {
      * @throws \InvalidArgumentException on invalid code or unreadable spec
      * @return array<string, mixed>
      */
-    public function loadFactionSpec(string $code): array {
+    public function loadFactionSpec(string $code): array
+    {
         $code = trim($code);
         if ($code === '' || !preg_match('/^[a-z0-9_]+$/', $code)) {
             throw new \InvalidArgumentException('Invalid faction code: ' . $code);
@@ -68,7 +71,8 @@ final class FactionSpecLoader {
      * @param array<string, mixed> $spec
      * @return array<string, mixed>|null
      */
-    public function findNpcByName(array $spec, string $npcName): ?array {
+    public function findNpcByName(array $spec, string $npcName): ?array
+    {
         $needle = mb_strtolower(trim($npcName));
         if ($needle === '') {
             return null;
@@ -103,7 +107,8 @@ final class FactionSpecLoader {
      * @param array<string, mixed> $npc
      * @param array<string, mixed> $spec
      */
-    public function buildNpcSystemPrompt(array $npc, array $spec): string {
+    public function buildNpcSystemPrompt(array $npc, array $spec): string
+    {
         $aiPrompt = trim((string) ($npc['ai_prompt'] ?? ''));
 
         // Side-faction schema: synthesise voice prompt from structured NPC fields
@@ -146,7 +151,8 @@ final class FactionSpecLoader {
      *
      * @param  array<string, mixed> $npc
      */
-    private function buildSideFactionVoicePrompt(array $npc): string {
+    private function buildSideFactionVoicePrompt(array $npc): string
+    {
         $name        = trim((string) ($npc['name']         ?? ''));
         $title       = trim((string) ($npc['title']        ?? ''));
         $publicFace  = trim((string) ($npc['public_face']  ?? ''));

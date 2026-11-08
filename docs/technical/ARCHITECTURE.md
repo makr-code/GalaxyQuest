@@ -489,6 +489,16 @@ function require_auth(): int {
 - **Newbie protection** via `protection_until DATETIME` on `users`; attack missions check server-side.
 - **Login throttling** via `login_attempts` table (see [§8](#8-security-model)).
 
+The start-page system log shares its host with the game console. Its status line
+shows the latest log entry, not an aggregated health check; warnings and errors
+retain their textual severity. Errors open the log without moving focus and
+are announced through a dedicated polite live region. The log itself is
+keyboard-focusable and does not announce every incoming line. Both the early
+boot fallback and the optional terminal logger follow new entries only while
+the reader is already near the bottom. On logger takeover, the bounded fallback
+history is imported into the current session before the logger renders it.
+The game's window-manager console retains its own controls and lifecycle.
+
 ### 4.3 Database Layer
 
 ```php

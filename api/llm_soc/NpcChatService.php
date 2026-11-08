@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Unified NPC Chat Service
  * Orchestrates YAML agent configuration, multi-tenant sessions, and response caching

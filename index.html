@@ -11,8 +11,8 @@
   <link rel="stylesheet" href="css/design-tokens.css?v=20260730p1" />
   <link rel="stylesheet" href="css/animations.css?v=20260730p1" />
   <link rel="stylesheet" href="css/utilities.css?v=20260730p1" />
-  <link rel="stylesheet" href="css/start-screen.css?v=20261107p3" />
-  <link rel="stylesheet" href="css/developer-blog.css?v=20261107p3" />
+  <link rel="stylesheet" href="css/start-screen.css?v=20261108p8" />
+  <link rel="stylesheet" href="css/developer-blog.css?v=20261108p1" />
   <link rel="stylesheet" href="css/registration-prologue.css?v=20261031p3" />
   <!-- Core Stylesheets -->
   <link rel="stylesheet" href="css/style.css?v=20261106p55" />
@@ -212,7 +212,7 @@
         <div class="start-panel-anchor"><button id="start-login" class="start-button start-button-primary" type="button" aria-expanded="false">Login<span>Return to your command</span></button></div>
         <div class="start-panel-anchor"><button id="start-register" class="start-button" type="button" aria-expanded="false">Begin a new campaign<span>Write your first chapter</span></button></div>
         <div class="start-panel-anchor"><button id="start-dev" class="start-button start-button-small" type="button" aria-expanded="false">Developer tools</button></div>
-        <div class="start-panel-anchor"><button class="start-button start-button-small" type="button" data-start-panel="news" aria-expanded="false">News and transmissions</button><div id="start-news-posts" role="group" aria-label="Die fünf neuesten Entwicklerbeiträge"></div></div>
+        <div class="start-panel-anchor"><button class="start-button start-button-small" type="button" data-start-panel="news" aria-expanded="false">News and transmissions</button></div>
         <div class="start-panel-anchor"><button class="start-button start-button-small" type="button" data-start-panel="settings" aria-expanded="false">Settings</button></div>
         <button id="start-announcements" class="start-log-button" type="button" aria-expanded="false">Server announcements <span id="start-announcements-status" class="start-session-status">Loading</span></button>
       </nav>
@@ -238,6 +238,7 @@
           <p id="start-news-source" class="start-news-source"></p>
           <p id="start-news-status" role="status" aria-live="polite"></p>
           <p id="start-news-flight-status" role="status"></p>
+          <div id="start-news-posts" role="group" aria-label="Die fünf neuesten Entwicklerbeiträge"></div>
           <article>
             <h3 id="start-news-title" tabindex="-1">Beiträge werden geladen …</h3>
             <p id="start-news-meta"></p>
@@ -917,19 +918,20 @@
     </div>
   </section>
 
-  <section id="terminal-section" aria-live="assertive" aria-atomic="true">
+  <section id="terminal-section">
     <div id="toast" class="toast hidden" role="status" aria-live="assertive"></div>
-    <section id="boot-terminal" class="ui-console-panel" data-wm-window="console" aria-live="polite" aria-label="Systemstatus und Entwickler-Konsole">
+    <section id="boot-terminal" class="ui-console-panel" data-wm-window="console" aria-label="System log">
       <div id="boot-terminal-head" class="ui-console-head">
         <div class="boot-terminal-title">
-          <strong>System</strong>
+          <strong>System log</strong>
           <span id="boot-terminal-mode">Mode: Fallback</span>
         </div>
-        <section id="auth-status-section" class="auth-status-shell" aria-live="polite" aria-atomic="true">
+        <section id="auth-status-section" class="auth-status-shell" aria-label="Latest log entry">
+          <span class="auth-status-caption">Latest entry</span>
           <div id="auth-status-line" class="auth-status-line">INITIALIZING</div>
         </section>
         <div class="ui-console-actions">
-          <button id="ui-console-expand" class="btn btn-secondary btn-sm" type="button" aria-expanded="false" aria-controls="ui-console-log" title="Boot-Log anzeigen">Logs</button>
+          <button id="ui-console-expand" class="btn btn-secondary btn-sm" type="button" aria-expanded="false" aria-controls="ui-console-log" title="Boot-Log anzeigen">Show log</button>
           <label for="ui-console-filter" class="ui-console-filter-label">Level</label>
           <select id="ui-console-filter" class="ui-console-filter" title="Log-Level filtern">
             <option value="all" selected>All</option>
@@ -946,7 +948,8 @@
           <button id="ui-console-close" class="btn btn-secondary btn-sm" type="button">Close</button>
         </div>
       </div>
-      <div id="ui-console-log" class="ui-console-log" hidden></div>
+      <div id="auth-log-alert" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+      <div id="ui-console-log" class="ui-console-log" role="region" aria-label="Log entries" tabindex="0" hidden></div>
       <div id="ui-console-input-row" class="ui-console-input-row" hidden>
         <input id="ui-console-input" type="text" placeholder="help | refresh | home | open settings | transitions on/off | msg &lt;user&gt; &lt;text&gt;" />
         <button id="ui-console-run" class="btn btn-primary btn-sm" type="button">Run</button>
@@ -963,15 +966,25 @@
         const maxBootLines = 120;
         const moduleTraceSeen = new Map();
         let fallbackActive = true;
+        let closedLogScrollTop = 0;
+        let closedLogFollow = true;
 
         function setBootConsoleExpanded(expanded) {
           if (!bootTerminal || !bootLog || !bootConsoleInput || !bootLogToggle) return;
           const isExpanded = Boolean(expanded);
+          const wasExpanded = bootTerminal.classList.contains('is-expanded');
+          if (wasExpanded && !isExpanded) {
+            closedLogScrollTop = bootLog.scrollTop;
+            closedLogFollow = bootLog.scrollHeight - bootLog.scrollTop - bootLog.clientHeight <= 24;
+          }
           bootTerminal.classList.toggle('is-expanded', isExpanded);
           bootLog.hidden = !isExpanded;
           bootConsoleInput.hidden = !isExpanded;
+          if (isExpanded && !wasExpanded) {
+            bootLog.scrollTop = closedLogFollow ? bootLog.scrollHeight : closedLogScrollTop;
+          }
           bootLogToggle.setAttribute('aria-expanded', String(isExpanded));
-          bootLogToggle.textContent = isExpanded ? 'Hide logs' : 'Logs';
+          bootLogToggle.textContent = isExpanded ? 'Hide log' : 'Show log';
           bootLogToggle.title = isExpanded ? 'Boot-Log ausblenden' : 'Boot-Log anzeigen';
         }
 
@@ -999,6 +1012,15 @@
           host.style.opacity = '1';
         }
 
+        window.addEventListener('gq:terminal-log', (event) => {
+          if (fallbackActive || !document.body.classList.contains('auth-page')
+            || bootTerminal?.classList.contains('ui-console-enhanced')
+            || String(event.detail?.level || '').toLowerCase() !== 'error') return;
+          ensureBootTerminalHostVisible();
+          bootTerminal?.classList.remove('hidden');
+          setBootConsoleExpanded(true);
+        });
+
         function safeText(v) {
           return String(v || '').replace(/\s+/g, ' ').trim();
         }
@@ -1017,6 +1039,10 @@
           line.textContent = `[${normalizedLevel}] [${normalizedSource}] ${message}`;
           line.classList.toggle('auth-status-warn', normalizedLevel === 'WARN' || normalizedLevel === 'WARNING');
           line.classList.toggle('auth-status-error', normalizedLevel === 'ERROR');
+          const alert = document.getElementById('auth-log-alert');
+          if (alert && document.body.classList.contains('auth-page') && normalizedLevel === 'ERROR') {
+            alert.textContent = `Log error: ${message}`;
+          }
         }
 
         window.__GQ_SET_AUTH_STATUS_FROM_LOG = setStatusFromLog;
@@ -1033,19 +1059,23 @@
           const src = safeText(source || 'boot');
           const lineText = `[${hh}:${mm}:${ss}] [${lvl}] [${src}] ${msg}${det ? ' | ' + det : ''}`;
 
-          bootLines.push({ level: lvl.toLowerCase(), text: lineText });
+          const follow = bootLog.hidden || bootLog.scrollHeight - bootLog.scrollTop - bootLog.clientHeight <= 24;
+          bootLines.push({ ts: ts.getTime(), level: lvl.toLowerCase(), source: src, message: `${msg}${det ? ' | ' + det : ''}`, text: lineText });
           setStatusFromLog(lvl, src, `${msg}${det ? ' | ' + det : ''}`);
           if (bootLines.length > maxBootLines) bootLines.shift();
 
-          bootLog.innerHTML = bootLines.map((line) => {
+          bootLog.replaceChildren(...bootLines.map((line) => {
             const cls = line.level === 'error'
               ? 'boot-line-error'
               : line.level === 'warn'
                 ? 'boot-line-warn'
                 : 'boot-line-info';
-            return `<div class="boot-line ${cls}">${line.text}</div>`;
-          }).join('');
-          bootLog.scrollTop = bootLog.scrollHeight;
+            const row = document.createElement('div');
+            row.className = `boot-line ${cls}`;
+            row.textContent = line.text;
+            return row;
+          }));
+          if (follow) bootLog.scrollTop = bootLog.scrollHeight;
 
           if (String(lvl).toLowerCase() === 'error' && bootTerminal) {
             ensureBootTerminalHostVisible();
@@ -1055,6 +1085,10 @@
         }
 
         function directProbe(message, level = 'info') {
+          if (!fallbackActive) {
+            sendToTerminalLogger(level, message, '', 'probe');
+            return;
+          }
           appendBootLine(level, message, '', 'probe');
         }
 
@@ -1192,6 +1226,9 @@
 
         function takeoverByTerminal(gqLogApi) {
           if (!fallbackActive) return;
+          if (typeof gqLogApi?.importBootEntries === 'function') {
+            gqLogApi.importBootEntries(bootLines.map(({ ts, level, source, message }) => ({ ts, level, source, text: message })));
+          }
           fallbackActive = false;
           try {
             if (window.__GQ_SCRIPT_TRACE_OBSERVER && typeof window.__GQ_SCRIPT_TRACE_OBSERVER.disconnect === 'function') {
@@ -1205,7 +1242,7 @@
             window.removeEventListener('unhandledrejection', onUnhandledRejection);
           } catch (_) {}
 
-          if (bootLog) {
+          if (bootLog && typeof gqLogApi?.importBootEntries !== 'function') {
             bootLog.innerHTML = '';
           }
           bootLines.length = 0;
@@ -1249,6 +1286,11 @@
         const bootCopyBtn = document.getElementById('ui-console-copy');
 
         bootToggleBtn?.addEventListener('click', function () {
+          if (document.body.classList.contains('auth-page') && !bootTerminal?.classList.contains('ui-console-enhanced')) {
+            setBootConsoleExpanded(false);
+            bootLogToggle?.focus();
+            return;
+          }
           if (!fallbackActive) return;
           if (!bootTerminal) return;
           bootTerminal.classList.add('hidden');
@@ -1257,7 +1299,8 @@
         bootClearBtn?.addEventListener('click', function () {
           if (!fallbackActive) return;
           bootLines.length = 0;
-          if (bootLog) bootLog.innerHTML = '';
+          bootLog?.replaceChildren();
+          setStatusFromLog('info', 'boot', 'Terminal log cleared');
         });
 
         bootCopyBtn?.addEventListener('click', async function () {
@@ -1274,9 +1317,12 @@
               ta.style.position = 'fixed';
               ta.style.left = '-10000px';
               document.body.appendChild(ta);
-              ta.select();
-              document.execCommand('copy');
-              document.body.removeChild(ta);
+              try {
+                ta.select();
+                if (!document.execCommand('copy')) throw new Error('Clipboard copy was rejected');
+              } finally {
+                ta.remove();
+              }
             }
             directProbe('Boot terminal copied to clipboard');
           } catch (_) {

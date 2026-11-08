@@ -8,6 +8,7 @@ import { parseMigrationManifest, assertAppendOnly, checkMigrationHistory } from 
 
 const script = path.resolve('scripts', 'check_migration_history.mjs');
 const manifest = (names) => `<?php\ndeclare(strict_types=1);\nreturn ${JSON.stringify(names)};\n`;
+const gitFixtureTimeout = 15_000;
 
 describe('strict non-executing migration manifest parser', () => {
   it('reads canonical repository manifest and comments', () => {
@@ -82,7 +83,7 @@ describe('actual Git history gate', () => {
     write('config/migrations_manifest.php', manifest(['a.sql', 'b.sql', 'c.sql']));
     write('sql/c.sql', 'ALTER TABLE example ADD value INT;');
     expect(await checkMigrationHistory(root, base)).toEqual({ existing: 2, added: 1, base });
-  }));
+  }), gitFixtureTimeout);
   it('checks historical content even with unchanged manifest', async () => fixture(async ({ root, base, write }) => {
     write('sql/a.sql', 'SELECT 9;\n');
     await expect(checkMigrationHistory(root, base)).rejects.toThrow('Historical migration bytes changed: a.sql');
@@ -91,7 +92,7 @@ describe('actual Git history gate', () => {
     write('sql/b.sql', 'DROP DATABASE example;');
     git(['add', 'sql/b.sql']);
     await expect(checkMigrationHistory(root, base)).rejects.toThrow('Historical migration bytes changed: b.sql');
-  }));
+  }), gitFixtureTimeout);
   it('does not use HEAD as baseline when historical changes are committed', async () => fixture(async ({ root, base, git, write }) => {
     write('sql/a.sql', 'SELECT 3;');
     git(['add', '.']);

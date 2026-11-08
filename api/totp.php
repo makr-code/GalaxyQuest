@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Minimal TOTP implementation – RFC 6238 / RFC 4226.
  * No Composer dependency required.
@@ -14,14 +15,16 @@
  *
  * @param int $bytes Raw entropy bytes (20 = 160 bit, recommended by RFC 4226).
  */
-function totp_generate_secret(int $bytes = 20): string {
+function totp_generate_secret(int $bytes = 20): string
+{
     return totp_base32_encode(random_bytes($bytes));
 }
 
 /**
  * Encode raw bytes to padded Base32 (RFC 4648, uppercase, with '=' padding).
  */
-function totp_base32_encode(string $data): string {
+function totp_base32_encode(string $data): string
+{
     static $alpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
     $bits   = '';
@@ -43,7 +46,8 @@ function totp_base32_encode(string $data): string {
 /**
  * Decode a padded or unpadded Base32 string to raw bytes.
  */
-function totp_base32_decode(string $data): string {
+function totp_base32_decode(string $data): string
+{
     static $alpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
     $data = strtoupper(rtrim($data, '='));
@@ -73,7 +77,8 @@ function totp_base32_decode(string $data): string {
  * @param string $secret_b32 Base32-encoded shared secret.
  * @param int    $counter    8-byte big-endian counter value.
  */
-function totp_hotp(string $secret_b32, int $counter): int {
+function totp_hotp(string $secret_b32, int $counter): int
+{
     $key          = totp_base32_decode($secret_b32);
     $counter_bin  = pack('J', $counter); // 8-byte big-endian (requires PHP 5.6.3+)
     $hmac         = hash_hmac('sha1', $counter_bin, $key, true);
@@ -100,7 +105,8 @@ function totp_hotp(string $secret_b32, int $counter): int {
  * @param string $code       6-digit string from user.
  * @param int    $window     Allowed drift in 30-second steps.
  */
-function totp_verify(string $secret_b32, string $code, int $window = 1): bool {
+function totp_verify(string $secret_b32, string $code, int $window = 1): bool
+{
     $code = preg_replace('/\D/', '', $code);
     if (strlen($code) !== 6) {
         return false;
@@ -125,7 +131,8 @@ function totp_verify(string $secret_b32, string $code, int $window = 1): bool {
  * @param string $account    Display label (usually the username).
  * @param string $issuer     App / service name shown in the authenticator.
  */
-function totp_uri(string $secret_b32, string $account, string $issuer = 'GalaxyQuest'): string {
+function totp_uri(string $secret_b32, string $account, string $issuer = 'GalaxyQuest'): string
+{
     // strip padding – most authenticator apps accept unpadded secrets
     $secret = rtrim($secret_b32, '=');
 

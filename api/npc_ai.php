@@ -966,12 +966,20 @@ function npc_launch_fleet(
     int $targetPosition,
     string $mission,
     array $ships,
-    array $cargo
+    array $cargo,
+    ?string $requestId = null
 ): bool {
     return launch_fleet_for_user(
-        $db, $npcUserId, $originColonyId,
-        $targetGalaxy, $targetSystem, $targetPosition,
-        $mission, $ships, $cargo
+        $db,
+        $npcUserId,
+        $originColonyId,
+        $targetGalaxy,
+        $targetSystem,
+        $targetPosition,
+        $mission,
+        $ships,
+        $cargo,
+        $requestId
     );
 }
 
@@ -1021,7 +1029,8 @@ function faction_events_tick_global(PDO $db): void {
     }
 }
 
-function faction_events_tick_global_run(PDO $db): void {
+function faction_events_tick_global_run(PDO $db): void
+{
     $now = time();
 
     // Check if an active event has expired → clear it

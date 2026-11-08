@@ -75,25 +75,28 @@ function action_spy_reports(int $uid): never {
 function action_battle_reports(int $uid): never {
     only_method('GET');
     $db = get_db();
+    $replayAvailability = battle_report_replay_availability_sql($db);
 
     if (battle_reports_has_combat_meta_columns($db)) {
         $stmt = $db->prepare(
             'SELECT id, body_id, report_json, created_at, battle_seed, report_version,
                     attacker_power_rating, defender_power_rating, dice_variance_index,
-                    CASE WHEN attacker_id = ? THEN \'attacker\' ELSE \'defender\' END AS role
-             FROM battle_reports
-             WHERE attacker_id = ? OR defender_id = ?
-             ORDER BY created_at DESC
+                    CASE WHEN br.attacker_id = ? THEN \'attacker\' ELSE \'defender\' END AS role,
+                    ' . $replayAvailability . ' AS replay_available
+             FROM battle_reports br
+             WHERE br.attacker_id = ? OR br.defender_id = ?
+             ORDER BY br.created_at DESC
              LIMIT 100'
         );
         $stmt->execute([$uid, $uid, $uid]);
     } else {
         $stmt = $db->prepare(
-            'SELECT id, body_id, report_json, created_at,
-                    CASE WHEN attacker_id = ? THEN \'attacker\' ELSE \'defender\' END AS role
-             FROM battle_reports
-             WHERE attacker_id = ? OR defender_id = ?
-             ORDER BY created_at DESC
+            'SELECT br.id, br.body_id, br.report_json, br.created_at,
+                    CASE WHEN br.attacker_id = ? THEN \'attacker\' ELSE \'defender\' END AS role,
+                    ' . $replayAvailability . ' AS replay_available
+             FROM battle_reports br
+             WHERE br.attacker_id = ? OR br.defender_id = ?
+             ORDER BY br.created_at DESC
              LIMIT 100'
         );
         $stmt->execute([$uid, $uid, $uid]);
@@ -110,11 +113,51 @@ function action_battle_reports(int $uid): never {
             'report'    => $decodedReport,
             'meta'      => $meta,
             'simulation_context' => build_battle_simulation_context($decodedReport, $meta),
+            'replay_available' => (bool)$row['replay_available'],
             'created_at'=> $row['created_at'],
         ];
     }
     
     json_ok(['battle_reports' => $reports]);
+}
+
+function battle_report_replay_availability_sql(PDO $db, ?bool $featureEnabled = null): string {
+    if ($featureEnabled === null) {
+        $featureEnabled = defined('BATTLE_ENCOUNTERS_ENABLED') && BATTLE_ENCOUNTERS_ENABLED;
+    }
+    if (!$featureEnabled) {
+        return '0';
+    }
+
+    $stmt = $db->prepare(
+        'SELECT COUNT(*), SUM(CASE WHEN ENGINE = ? THEN 1 ELSE 0 END)
+         FROM information_schema.TABLES
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME IN (?, ?, ?)'
+    );
+    $stmt->execute([
+        'InnoDB',
+        'battle_encounters',
+        'battle_encounter_participants',
+        'battle_encounter_events',
+    ]);
+    [$tableCount, $transactionalTableCount] = $stmt->fetch(PDO::FETCH_NUM);
+    if ((int)$tableCount !== 3 || (int)$transactionalTableCount !== 3) {
+        return '0';
+    }
+
+    return "EXISTS (
+        SELECT 1 FROM battle_encounters e
+        WHERE e.battle_report_id = br.id AND e.status = 'resolved' AND e.revision = 2
+          AND EXISTS (
+              SELECT 1 FROM battle_encounter_participants p
+              WHERE p.encounter_id = e.id AND p.side = 'attacker' AND p.user_id = br.attacker_id
+          )
+          AND EXISTS (
+              SELECT 1 FROM battle_encounter_participants p
+              WHERE p.encounter_id = e.id AND p.side = 'defender' AND p.user_id = br.defender_id
+          )
+    )";
 }
 
 function action_battle_detail(int $uid): never {

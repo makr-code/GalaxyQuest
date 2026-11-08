@@ -927,143 +927,41 @@ function get_fleet_leader(PDO $db, int $fleetId): ?array {
 // ─── Shared fleet launch helper ───────────────────────────────────────────────
 
 /**
- * Launch a fleet for any user (NPC bots, autonomous leaders, etc.).
- *
- * Validates ship availability, cargo capacity, and resource balance inside a
- * transaction.  Uses the same 3-D Newtonian travel time as the player-facing
- * fleet API.  Returns true on success, false (with error_log entry) on failure.
+ * Launch through the same policy, transit and inventory path as the player API.
+ * Expected rejections are logged and returned as false; programming errors propagate.
  */
 function launch_fleet_for_user(
-    PDO    $db,
-    int    $userId,
-    int    $originColonyId,
-    int    $targetGalaxy,
-    int    $targetSystem,
-    int    $targetPosition,
+    PDO $db,
+    int $userId,
+    int $originColonyId,
+    int $targetGalaxy,
+    int $targetSystem,
+    int $targetPosition,
     string $mission,
-    array  $ships,
-    array  $cargo
+    array $ships,
+    array $cargo,
+    ?string $requestId = null
 ): bool {
-    if ($targetGalaxy < 1 || $targetGalaxy > GALAXY_MAX
-        || $targetSystem < 1 || $targetSystem > galaxy_system_limit()
-        || $targetPosition < 1 || $targetPosition > POSITION_MAX) {
-        return false;
-    }
-
+    require_once __DIR__ . '/../lib/fleet_launch.php';
     try {
-        $db->beginTransaction();
-
-        update_colony_resources($db, $originColonyId);
-
-        $originStmt = $db->prepare(
-            'SELECT c.id, c.metal, c.crystal, c.deuterium,
-                    cb.galaxy_index AS galaxy, cb.system_index AS `system`, cb.position
-             FROM colonies c
-               JOIN celestial_bodies cb ON cb.id = c.body_id
-             WHERE c.id = ? AND c.user_id = ?'
-        );
-        $originStmt->execute([$originColonyId, $userId]);
-        $origin = $originStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$origin) {
-            $db->rollBack();
-            return false;
+        $body = [
+            'origin_colony_id' => $originColonyId,
+            'target_galaxy' => $targetGalaxy,
+            'target_system' => $targetSystem,
+            'target_position' => $targetPosition,
+            'mission' => $mission,
+            'ships' => $ships,
+            'cargo' => $cargo,
+        ];
+        if ($requestId !== null) {
+            $body['request_id'] = $requestId;
         }
-
-        $shipsToSend = [];
-        foreach ($ships as $type => $count) {
-            $count = (int)$count;
-            if ($count <= 0 || !ship_exists_runtime($type, $db)) continue;
-            $sStmt = $db->prepare('SELECT count FROM ships WHERE colony_id = ? AND type = ?');
-            $sStmt->execute([$originColonyId, $type]);
-            $available = (int)($sStmt->fetchColumn() ?: 0);
-            if ($available < $count) {
-                $db->rollBack();
-                return false;
-            }
-            $shipsToSend[$type] = $count;
-        }
-        if (empty($shipsToSend)) {
-            $db->rollBack();
-            return false;
-        }
-
-        $cMetal   = max(0.0, (float)($cargo['metal']     ?? 0));
-        $cCrystal = max(0.0, (float)($cargo['crystal']   ?? 0));
-        $cDeut    = max(0.0, (float)($cargo['deuterium'] ?? 0));
-        $cargoSum = $cMetal + $cCrystal + $cDeut;
-        $capacity = (float)array_sum(
-            array_map(
-                static fn(string $t, int $c): float => (float)ship_cargo($t) * $c,
-                array_keys($shipsToSend),
-                $shipsToSend
-            )
-        );
-        if ($cargoSum > $capacity + 0.0001
-            || (float)$origin['metal']     < $cMetal
-            || (float)$origin['crystal']   < $cCrystal
-            || (float)$origin['deuterium'] < $cDeut) {
-            $db->rollBack();
-            return false;
-        }
-
-        $dist  = coordinate_distance(
-            (int)$origin['galaxy'], (int)$origin['system'], (int)$origin['position'],
-            $targetGalaxy, $targetSystem, $targetPosition
-        );
-        $travel = fleet_travel_time($dist, fleet_speed($shipsToSend));
-
-        [$ox, $oy, $oz] = get_system_3d_coords($db, (int)$origin['galaxy'], (int)$origin['system']);
-        [$tx, $ty, $tz] = get_system_3d_coords($db, $targetGalaxy, $targetSystem);
-        $distLy   = fleet_3d_distance($ox, $oy, $oz, $tx, $ty, $tz);
-        $speedLyH = fleet_speed_ly_h($shipsToSend);
-        if ($distLy > 0) {
-            $travel = fleet_travel_time_3d($distLy, $speedLyH);
-        }
-
-        $now       = time();
-        $departure = date('Y-m-d H:i:s', $now);
-        $arrival   = date('Y-m-d H:i:s', $now + $travel);
-        $returnT   = date('Y-m-d H:i:s', $now + $travel * 2);
-
-        foreach ($shipsToSend as $type => $count) {
-            $db->prepare('UPDATE ships SET count = count - ? WHERE colony_id = ? AND type = ?')
-               ->execute([$count, $originColonyId, $type]);
-        }
-        $db->prepare('UPDATE colonies SET metal=metal-?, crystal=crystal-?, deuterium=deuterium-? WHERE id=?')
-           ->execute([$cMetal, $cCrystal, $cDeut, $originColonyId]);
-
-        $originPolar = galactic_polar_from_cartesian($ox, $oy, $oz);
-        $targetPolar = galactic_polar_from_cartesian($tx, $ty, $tz);
-
-        $db->prepare(
-            'INSERT INTO fleets (user_id, origin_colony_id, target_galaxy, target_system,
-                                 target_position, mission, ships_json,
-                                 cargo_metal, cargo_crystal, cargo_deuterium,
-                                 origin_x_ly, origin_y_ly, origin_z_ly,
-                                 origin_radius_ly, origin_theta_rad, origin_height_ly,
-                                 target_x_ly, target_y_ly, target_z_ly,
-                                 target_radius_ly, target_theta_rad, target_height_ly,
-                                 speed_ly_h, distance_ly,
-                                 departure_time, arrival_time, return_time)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-        )->execute([
-            $userId, $originColonyId,
-            $targetGalaxy, $targetSystem, $targetPosition,
-            $mission, json_encode($shipsToSend),
-            $cMetal, $cCrystal, $cDeut,
-            $ox, $oy, $oz,
-            $originPolar['radius_ly'], $originPolar['theta_rad'], $originPolar['height_ly'],
-            $tx, $ty, $tz,
-            $targetPolar['radius_ly'], $targetPolar['theta_rad'], $targetPolar['height_ly'],
-            $speedLyH, $distLy,
-            $departure, $arrival, $returnT,
-        ]);
-
-        $db->commit();
+        launch_fleet_dispatch($db, $userId, $body);
         return true;
-    } catch (Throwable $e) {
-        if ($db->inTransaction()) $db->rollBack();
-        error_log('launch_fleet_for_user failed: ' . $e->getMessage());
+    } catch (DomainException | PDOException $error) {
+        error_log('launch_fleet_for_user failed: user=' . $userId
+            . ' colony=' . $originColonyId . ' mission=' . $mission
+            . ' reason=' . $error->getMessage());
         return false;
     }
 }
@@ -1135,8 +1033,11 @@ function happiness_productivity(int $happiness): float {
  *
  * @return float people added per hour (can be negative if starving)
  */
-function population_growth(int $population, int $maxPopulation, int $happiness, float $foodCoverage): float {
-    if ($population <= 0 || $maxPopulation <= 0) return 0.0;
+function population_growth(int $population, int $maxPopulation, int $happiness, float $foodCoverage): float
+{
+    if ($population <= 0 || $maxPopulation <= 0) {
+        return 0.0;
+    }
     if ($foodCoverage < 0.3) {
         // Starvation: population shrinks
         return -$population * 0.005;
@@ -1151,7 +1052,8 @@ function population_growth(int $population, int $maxPopulation, int $happiness, 
     return $base * $happinessF * max(0.0, $foodF);
 }
 
-function colony_food_consumption(int $population): float {
+function colony_food_consumption(int $population): float
+{
     return max(0, $population) / 100.0;
 }
 
@@ -1159,7 +1061,13 @@ function colony_food_consumption(int $population): float {
  * Stored/imported food covers actual needs before welfare is evaluated.
  * Surplus production can improve coverage up to 2; reserves alone provide 1.
  */
-function colony_food_balance(float $stock, float $production, float $consumption, float $capacity, float $hours): array {
+function colony_food_balance(
+    float $stock,
+    float $production,
+    float $consumption,
+    float $capacity,
+    float $hours
+): array {
     if ($hours <= 0 || !is_finite($hours)) {
         throw new InvalidArgumentException('Food interval must be positive and finite.');
     }
@@ -1428,7 +1336,8 @@ function clamp_int_range(int $value, int $min, int $max): int {
     return $value;
 }
 
-function update_colony_resources(PDO $db, int $colonyId, ?int $now = null): void {
+function update_colony_resources(PDO $db, int $colonyId, ?int $now = null): void
+{
     if (ON_DEMAND_ECONOMY_ENABLED) {
         (new OnDemandEconomy($db))->settle($colonyId, null, $now);
         return;
@@ -1470,14 +1379,21 @@ function update_colony_resources(PDO $db, int $colonyId, ?int $now = null): void
             $remainder = (float)($previousPrecision['population_remainder'] ?? 0);
             $darkGain = (float)($previousPrecision['dark_matter_remainder'] ?? 0);
             $stockRemainders = json_decode(
-                $previousPrecision['stock_remainders_json'] ?? '{}', true, 512, JSON_THROW_ON_ERROR
+                $previousPrecision['stock_remainders_json'] ?? '{}',
+                true,
+                512,
+                JSON_THROW_ON_ERROR
             );
             if (!is_array($stockRemainders)) {
                 throw new UnexpectedValueException('Invalid stock precision state.');
             }
             foreach ($stockRemainders as $resource => $carry) {
                 if (
-                    !in_array($resource, ['metal', 'crystal', 'deuterium', 'rare_earth', 'food'], true)
+                    !in_array(
+                        $resource,
+                        ['metal', 'crystal', 'deuterium', 'rare_earth', 'food'],
+                        true
+                    )
                     || !is_numeric($carry) || !is_finite((float)$carry) || abs((float)$carry) > 0.0001
                     || ($resource !== 'food' && (float)$carry < 0)
                 ) {
@@ -1489,8 +1405,11 @@ function update_colony_resources(PDO $db, int $colonyId, ?int $now = null): void
                 $row['stock_remainders'] = $stockRemainders;
                 $snapshot = calculate_colony_consumption_snapshot($row, $context, $hours);
                 $population = colony_population_change(
-                    (int)$row['population'], $snapshot['welfare']['population_capacity'],
-                    $snapshot['welfare']['population_growth_per_hour'], $hours, $remainder
+                    (int)$row['population'],
+                    $snapshot['welfare']['population_capacity'],
+                    $snapshot['welfare']['population_growth_per_hour'],
+                    $hours,
+                    $remainder
                 );
                 $remainder = $population['remainder'];
                 foreach ($snapshot['extraction'] as $resource => $result) {
@@ -1699,7 +1618,8 @@ function has_war_runtime_schema(PDO $db): bool {
     return true;
 }
 
-function game_engine_begin_tick_transaction(PDO $db, string $savepoint): bool {
+function game_engine_begin_tick_transaction(PDO $db, string $savepoint): bool
+{
     if (!preg_match('/^[a-zA-Z0-9_]+$/', $savepoint)) {
         throw new InvalidArgumentException('Invalid tick transaction savepoint.');
     }
@@ -1713,7 +1633,8 @@ function game_engine_begin_tick_transaction(PDO $db, string $savepoint): bool {
     return true;
 }
 
-function game_engine_commit_tick_transaction(PDO $db, string $savepoint, bool $ownsTransaction): void {
+function game_engine_commit_tick_transaction(PDO $db, string $savepoint, bool $ownsTransaction): void
+{
     if ($ownsTransaction) {
         $db->commit();
         return;
@@ -1722,7 +1643,8 @@ function game_engine_commit_tick_transaction(PDO $db, string $savepoint, bool $o
     $db->exec('RELEASE SAVEPOINT ' . $savepoint);
 }
 
-function game_engine_rollback_tick_transaction(PDO $db, string $savepoint, bool $ownsTransaction): void {
+function game_engine_rollback_tick_transaction(PDO $db, string $savepoint, bool $ownsTransaction): void
+{
     if ($ownsTransaction) {
         if ($db->inTransaction()) {
             $db->rollBack();

@@ -51,10 +51,12 @@ class ColonizationEngine
     public static function calculateSprawl(PDO $db, int $userId): array
     {
         $stmt = $db->prepare(
-            'SELECT COUNT(DISTINCT cb.system_index) AS cnt
-             FROM colonies c
-             JOIN celestial_bodies cb ON cb.id = c.body_id
-             WHERE c.user_id = ?'
+            'SELECT COUNT(*) FROM (
+                 SELECT DISTINCT cb.galaxy_index,cb.system_index
+                 FROM colonies c
+                 JOIN celestial_bodies cb ON cb.id = c.body_id
+                 WHERE c.user_id = ?
+             ) owned_systems'
         );
         $stmt->execute([$userId]);
         $systemCount = (int)($stmt->fetchColumn() ?: 0);

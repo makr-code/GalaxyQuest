@@ -59,10 +59,39 @@ Measure near/middle/system presets before extending to large fleet workloads.
 
 ## Follow-up, not part of this diagnostic scene
 
+Shared multi-phase combat rules, player orders and LLM NPC preparation remain
+planned in
+[Battle engine integration](./BATTLE_ENGINE_INTEGRATION_PLAN.md).
+That plan covers NPC/player, player/player and NPC/NPC encounters. The
+diagnostic Hero preview remains a non-authoritative QA fixture.
+
 Real model art/textures, faction-specific authoring and audio recordings;
-production server event mapping; fleet-scale LOD and GPU particle simulation;
-destruction/debris replay. Aggregated battle reports remain illustrative,
-not individual shot/hit evidence.
+fleet-scale LOD and GPU particle simulation; destruction/debris replay.
+Aggregated battle reports remain illustrative, not individual shot/hit
+evidence.
+
+## Production replay for completed legacy encounters
+
+The fleet window's recent battle reports can open a participant-authorized,
+read-only encounter replay. It loads the immutable `legacy-v1` outcome through
+`api/fleet.php?action=battle_encounter&report_id=...`, navigates to the
+recorded system, and starts `renderer.startBattleEncounterPresentation()`.
+Only the stored starting compositions, losses, survivors, winner and aggregate
+round-pressure values are shown.
+
+The scene uses capped generic ship proxies and at most one non-impact pressure
+cue per side and reported round. It does not infer a ship's weapon, individual
+shot, target, hit, shield damage or destruction time. The result overlay
+distinguishes exact server counts from illustrative visuals. Replay GETs do
+not process a battle, and the feature does not introduce a gameplay tick.
+
+Encounter replay requires the existing battle-encounter migration and
+`BATTLE_ENCOUNTERS_ENABLED=1`; the flag remains off by default. Reports without
+a journaled encounter, including historical reports, are not replayable. The
+battle-reports API marks each report with `replay_available`; it fails closed
+when the feature flag is off, a required journal table is missing, or a journal
+table is not InnoDB. The fleet UI only offers replay for reports marked
+available.
 
 ## Implemented diagnostic reference
 
@@ -107,6 +136,28 @@ in [Weapon Fire Integration](WEAPON_FIRE_INTEGRATION.md).
   remaining after cleanup; no mutating HTTP requests during the observed replay.
 - The final public renderer API was also exercised live and cleaned up without
   GPU validation errors.
+- The production fleet-UI replay path was exercised in the local WebGPU browser
+  using a temporary synthetic report and encounter. Participant-authorized GET,
+  system navigation, generic ship proxies, aggregate pressure cues, and the
+  exact-result overlay all completed; the temporary report and encounter rows
+  were deleted afterward. This validates the local visual integration only,
+  not production rollout or real-combat coverage.
+- Live framing was corrected to keep the camera focus in system-local
+  coordinates while proxies/effects use origin-adjusted positions; a
+  non-zero-origin regression test covers the distinction. The result summary
+  now stays compact, with per-class losses and survivors in collapsed details.
+- A follow-up Fleet-UI replay exposed a navigation race when a report targeted
+  the currently displayed system: replay startup could run against the previous
+  system payload while its replacement was still loading, then be cleaned up
+  as the renderer rebuilt that system. Startup now waits for navigation to
+  finish. The regression test and full local Fleet-UI/API/WebGPU round trip pass;
+  its temporary rows were removed.
+- Isolated MySQL 8.4 fleet/encounter integration: **35 tests and 1,011
+  assertions passed**, including participant-only report lookup, rollback on
+  encounter event failures, and retry behavior. The battle-encounter migration
+  repeatability test also passed (**1 test, 10 assertions**). Both test commands
+  created and dropped their own randomly named databases; they did not use the
+  application database for test writes.
 
 ### Local measurement snapshot
 
@@ -131,11 +182,12 @@ budget nor sustained 60 FPS on reference hardware has been established.
 ## Remaining quality boundaries
 
 This is a working technical Hero-Battle reference, not a claim of X4-equivalent
-finished art. Ships and sounds are procedural QA assets; projectile paths and
-outcomes are authored illustrative fixtures. Celestial occlusion uses spherical
-proxies rather than exact impostor surface depth. Professional textures/audio,
-large-fleet LOD, destruction/debris, production event mapping and a reproducible
-reference-hardware performance gate remain the next blocks.
+finished art. The QA scene's ships, projectile paths and outcomes are
+procedural fixtures; the separate legacy replay uses generic proxies and
+aggregate pressure cues. Celestial occlusion uses spherical proxies rather
+than exact impostor surface depth. Professional textures/audio, faction-
+specific art, destruction/debris replay and a reproducible reference-hardware
+performance gate remain the next blocks.
 
 ## Fleet scaling block
 
@@ -516,3 +568,31 @@ canvas. This is not a loop, time-stretched clip or authoritative battle.
 The regression suite includes a full 18000-step test that verifies scaled
 arrival/damage timing, late commands, continued firing in the final ten
 seconds, route completion and bounded histories/effects.
+
+Recorded and saved `hero-convoy-five-minute.mp4` as a session deliverable:
+exactly **300.000 seconds / 9000 frames**, H.264, 1920x1080 at 30 fps.
+The source VP9 stream decoded completely before encoding; the final MP4
+also decoded completely. The capture ran through step 18000 with 12 scripted
+commands, 8,086 shots and both reinforcement waves. Stop/expiry cleanup
+completed, no browser/GPU recording error was reported, and no UI overlay
+resources remained. The export is silent.
+
+### Battle video archive
+
+All generated battle videos and their original WebM capture streams are
+stored under [`assets/hero-battles/`](./assets/hero-battles/). MP4 files
+are the playback-ready H.264 versions; WebM files retain the original VP9
+browser captures where available.
+
+| Recording | Description | Duration | Files |
+|---|---|---:|---|
+| Hero battle | Four-ship cinematic fixture | 15.03 s | [MP4](./assets/hero-battles/hero-battle-full.mp4) · [WebM](./assets/hero-battles/hero-battle-full.webm) |
+| Mixed fleet | Carrier, battlecruiser, corvette and fighter formation | 17.97 s | [MP4](./assets/hero-battles/hero-mixed-fleet-full.mp4) · [WebM](./assets/hero-battles/hero-mixed-fleet-full.webm) |
+| Seeded tactics | Mixed fleet with tactical variation (seed 465192519) | 18.03 s | [MP4](./assets/hero-battles/hero-tactics-465192519.mp4) · [WebM](./assets/hero-battles/hero-tactics-465192519.webm) |
+| Convoy breakthrough | 48 ships, reinforcement waves and scripted commands | 300.00 s | [MP4](./assets/hero-battles/hero-convoy-five-minute.mp4) |
+
+Durations and codecs were checked with `ffprobe`; the five-minute MP4 was
+decoded end-to-end. The browser WebM captures do not all contain a finalized
+container duration, so use the paired MP4 for reliable playback where one is
+provided. The recordings are visual QA fixtures, not authoritative combat
+outcomes.

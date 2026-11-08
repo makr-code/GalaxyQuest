@@ -2,17 +2,20 @@
 
 declare(strict_types=1);
 
-final class PromptCatalogRepository {
+final class PromptCatalogRepository
+{
     private string $jsonPath;
 
-    public function __construct(?string $jsonPath = null) {
+    public function __construct(?string $jsonPath = null)
+    {
         $this->jsonPath = $jsonPath ?: __DIR__ . '/../../config/llm_profiles.json';
     }
 
     /**
      * @return array<int, array<string, mixed>>
      */
-    public function loadFileProfiles(): array {
+    public function loadFileProfiles(): array
+    {
         if (!is_file($this->jsonPath)) {
             return [];
         }
@@ -69,7 +72,8 @@ final class PromptCatalogRepository {
     /**
      * @return array<int, array<string, mixed>>
      */
-    public function loadDbProfiles(PDO $db): array {
+    public function loadDbProfiles(PDO $db): array
+    {
         $sql = <<<'SQL'
 SELECT
     profile_key,

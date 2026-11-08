@@ -23,10 +23,73 @@ export function mountFleetWindow({ domain, galaxy, wm }) {
   let missionFilter = null;
   let directionFilter = 'all';
   let tableState = { query: '', filters: {}, sort: null };
+  let battleReports = null;
+  let battleReportsLoading = false;
+  let battleReportsError = '';
+  let battleReportsController = null;
+  let battleReplayController = null;
+  let startingBattleReportId = null;
   function showSystem(fleet, prefix) {
     if (disposed) return;
     wm.minimize('fleet');
     void galaxy.navigate(fleet[`${prefix}_galaxy`], fleet[`${prefix}_system`]);
+  }
+  async function loadBattleReports() {
+    if (disposed || battleReportsLoading) return;
+    battleReportsController?.abort();
+    const controller = new AbortController();
+    battleReportsController = controller;
+    battleReportsLoading = true;
+    battleReportsError = '';
+    render();
+    try {
+      const data = await domain.battleReports({ signal: controller.signal });
+      if (disposed || controller.signal.aborted) return;
+      if (data?.success !== true || !Array.isArray(data.battle_reports)) {
+        throw new Error('Ungültige Schlachtberichte vom Server.');
+      }
+      battleReports = data.battle_reports;
+    } catch (error) {
+      if (disposed || controller.signal.aborted) return;
+      battleReportsError = error.message;
+    } finally {
+      if (!disposed && !controller.signal.aborted) {
+        battleReportsLoading = false;
+        battleReportsController = null;
+        render();
+      }
+    }
+  }
+  async function replayBattle(reportId) {
+    if (disposed || startingBattleReportId !== null) return;
+    if (!Number.isSafeInteger(reportId) || reportId <= 0) {
+      battleReportsError = 'Ungültige Schlachtbericht-ID.';
+      render();
+      return;
+    }
+    const controller = new AbortController();
+    battleReplayController = controller;
+    startingBattleReportId = reportId;
+    battleReportsError = '';
+    render();
+    try {
+      const data = await domain.battleEncounterForReport(reportId, { signal: controller.signal });
+      if (disposed || controller.signal.aborted) return;
+      if (data?.success !== true || !data.encounter) {
+        throw new Error('Für diesen Bericht wurde kein abspielbarer serverseitiger Encounter geliefert.');
+      }
+      wm.minimize('fleet');
+      window.dispatchEvent(new CustomEvent('gq:show-battle-encounter', { detail: data.encounter }));
+    } catch (error) {
+      if (disposed || controller.signal.aborted) return;
+      battleReportsError = error.message;
+    } finally {
+      if (!disposed && !controller.signal.aborted) {
+        battleReplayController = null;
+        startingBattleReportId = null;
+        render();
+      }
+    }
   }
   function render() {
     if (disposed || !wm.body('fleet')) return;
@@ -278,10 +341,53 @@ export function mountFleetWindow({ domain, galaxy, wm }) {
     help.append(node('summary', 'Serverstand und Missionsverarbeitung'),
       node('p', 'Accountweite Serverdaten. Öffnen und Aktualisieren verarbeiten keine Ankünfte. Fällige Ankünfte werden nur auf ausdrücklichen Befehl verarbeitet; der Server entscheidet über Fortschritt und Ergebnisse.'));
     content.append(help);
+    const reports = node('section');
+    reports.className = 'game-fleet-processing';
+    reports.setAttribute('aria-label', 'Schlachtberichte');
+    reports.append(node('h3', 'Schlachtberichte'));
+    reports.append(node('p', 'Nur abgeschlossene, serverseitig gespeicherte Encounter sind als 3D-Replay verfügbar. Die Darstellung verwendet aggregierte Druck-Cues, keine erfundenen Einzel-Treffer.'));
+    reports.append(button('Schlachtberichte aktualisieren', () => { void loadBattleReports(); }, battleReportsLoading));
+    if (battleReportsLoading) {
+      const loading = node('p', 'Lade Schlachtberichte ...');
+      loading.setAttribute('role', 'status');
+      reports.append(loading);
+    }
+    if (battleReportsError) {
+      const error = node('p', battleReportsError);
+      error.setAttribute('role', 'alert');
+      reports.append(error);
+    }
+    if (battleReports !== null) {
+      const recentReports = battleReports.slice(0, 10);
+      if (!recentReports.length) reports.append(node('p', 'Noch keine Schlachtberichte vorhanden.'));
+      const list = node('div');
+      list.className = 'game-development-list';
+      list.setAttribute('aria-label', 'Letzte Schlachtberichte');
+      for (const report of recentReports) {
+        const card = node('article');
+        card.className = 'game-development-card';
+        card.dataset.battleReportId = String(report.id);
+        const won = report.report?.attacker_wins === true;
+        card.append(node('h4', `Bericht #${report.id} · ${report.role === 'attacker' ? 'Angreifer' : 'Verteidiger'}`),
+          node('p', `${won ? 'Angreifer siegt' : 'Verteidiger hält stand'} · ${report.created_at || 'Zeit unbekannt'}`));
+        if (report.replay_available === true) {
+          const replay = button(startingBattleReportId === report.id ? 'Encounter laden ...' : 'Hero-Replay ansehen',
+            () => { void replayBattle(Number(report.id)); },
+            startingBattleReportId !== null);
+          replay.dataset.battleReplayReport = String(report.id);
+          card.append(replay);
+        } else {
+          card.append(node('p', 'Replay ist für diesen Bericht nicht verfügbar.'));
+        }
+        list.append(card);
+      }
+      reports.append(list);
+    }
+    content.append(reports);
     view.commit(root, content);
   }
   wm.register('fleet', { title: 'Flotten', w: 720, h: 560,
-    onRender() { render(); void domain.load(); } });
+    onRender() { render(); void domain.load(); void loadBattleReports(); } });
   const unsubscribe = domain.subscribe(render);
   const open = (event) => {
     if (!disposed && event.target.closest?.('[data-game-fleets]')) wm.open('fleet');
@@ -289,6 +395,8 @@ export function mountFleetWindow({ domain, galaxy, wm }) {
   document.addEventListener('click', open);
   return () => {
     disposed = true;
+    battleReportsController?.abort();
+    battleReplayController?.abort();
     unsubscribe();
     document.removeEventListener('click', open);
     wm.close('fleet');

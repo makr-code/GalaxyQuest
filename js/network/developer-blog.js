@@ -247,7 +247,8 @@ export function initializeDeveloperBlog({ fetchImpl = globalThis.fetch } = {}) {
         refresh.disabled = false;
         read.disabled = !canRead();
         flight.disabled = !canRead() || !flightTargets.some(target => target.faction_id === selected?.target_faction_id);
-        if (restoreCardFocus !== undefined && document.activeElement === document.body) {
+        if (restoreCardFocus !== undefined
+          && (document.activeElement === document.body || !document.activeElement?.isConnected)) {
           const card = Array.from(list.querySelectorAll('.start-news-choice'))
             .find(button => button.dataset.postId === restoreCardFocus);
           (card ?? refresh).focus({ preventScroll: true });
@@ -262,7 +263,7 @@ export function initializeDeveloperBlog({ fetchImpl = globalThis.fetch } = {}) {
     if (trigger.getAttribute('aria-expanded') !== 'true') trigger.click();
     if (trigger.getAttribute('aria-expanded') !== 'true') return;
     select(post);
-    title.focus({ preventScroll: true });
+    title.focus();
   });
   listen(flight, 'click', () => {
     if (!canRead()) return;

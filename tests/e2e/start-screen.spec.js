@@ -140,6 +140,275 @@ test('front-page status row mirrors the latest log entry and expands the same lo
   await expect(page.locator('#ui-console-log')).toBeVisible();
   await expect(page.locator('#ui-console-log')).toContainText('front-page-log-sync-check');
   await expect(page.locator('#ui-console-expand')).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('region', { name: 'Log entries' })).toHaveAttribute('tabindex', '0');
+  await expect(page.locator('#terminal-section')).not.toHaveAttribute('aria-live');
+});
+
+for (const viewport of [{ width: 1280, height: 900 }, { width: 360, height: 640 }, { width: 360, height: 400 }]) {
+  test(`compact system log follows the start menu layout at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await mockApi(page);
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    const panel = page.locator('#boot-terminal');
+    const toggle = page.locator('#ui-console-expand');
+    const log = page.locator('#ui-console-log');
+    await page.evaluate(() => window.__GQ_BOOT_PROBE.log('layout-error-check', 'error'));
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(log).toBeVisible();
+    await page.evaluate(() => window.__GQ_SET_BOOT_CONSOLE_EXPANDED(false));
+    await expect(page.locator('#auth-status-line')).toContainText('layout-error-check');
+    await expect(page.locator('#auth-status-line')).toHaveClass(/auth-status-error/);
+    await expect(page.locator('#boot-terminal-mode')).toBeHidden();
+    await expect(page.locator('#ui-console-filter')).toBeHidden();
+    await expect(log).toBeHidden();
+    const alignment = await panel.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      const navigation = document.querySelector('.start-navigation').getBoundingClientRect();
+      return { x: rect.x, width: rect.width, menuX: navigation.x, menuWidth: navigation.width, pageWidth: document.documentElement.scrollWidth };
+    });
+    expect(alignment.x).toBeCloseTo(alignment.menuX, 0);
+    expect(alignment.width).toBeCloseTo(alignment.menuWidth, 0);
+    expect(alignment.pageWidth).toBeLessThanOrEqual(viewport.width);
+    await toggle.focus();
+    await page.keyboard.press('Enter');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(log).toBeVisible();
+    await expect(log).toContainText('layout-error-check');
+    await expect(page.locator('#boot-terminal-mode')).toBeVisible();
+    await expect(page.locator('#ui-console-filter')).toBeHidden();
+    await expect(page.locator('#ui-console-copy')).toBeVisible();
+    await expect(page.locator('#ui-console-input-row')).toBeHidden();
+    const sizes = await panel.evaluate(element => ({
+      panelHeight: element.getBoundingClientRect().height,
+      maxHeight: parseFloat(getComputedStyle(element).maxHeight),
+      logOverflow: getComputedStyle(document.querySelector('#ui-console-log')).overflowY,
+    }));
+    expect(sizes.panelHeight).toBeLessThanOrEqual(sizes.maxHeight + 1);
+    expect(sizes.maxHeight).toBeLessThanOrEqual(Math.min(viewport.height * 0.64, 480) + 1);
+    expect(['auto', 'scroll']).toContain(sizes.logOverflow);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
+    await toggle.focus();
+    await page.keyboard.press('Enter');
+    await expect(log).toBeHidden();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(toggle).toBeFocused();
+  });
+}
+
+test('long warning and error messages wrap on narrow screens and errors are announced', async ({ page }) => {
+  await mockApi(page);
+  await page.setViewportSize({ width: 360, height: 400 });
+  await page.goto('/');
+  const message = 'long-message-'.repeat(30);
+  await page.evaluate(text => window.__GQ_BOOT_PROBE.log(text, 'warn'), message);
+  await expect(page.locator('#auth-status-line')).toHaveClass(/auth-status-warn/);
+  await expect(page.locator('#auth-status-line')).toContainText(message);
+  const status = await page.locator('#auth-status-line').evaluate(element => ({
+    height: element.getBoundingClientRect().height,
+    lineHeight: parseFloat(getComputedStyle(element).lineHeight),
+    scrollWidth: document.documentElement.scrollWidth,
+  }));
+  expect(status.height).toBeGreaterThan(status.lineHeight * 2);
+  expect(status.scrollWidth).toBeLessThanOrEqual(360);
+  await page.evaluate(text => window.__GQ_BOOT_PROBE.log(text, 'error'), message);
+  await expect(page.locator('#auth-log-alert')).toHaveText(`Log error: ${message}`);
+  await expect(page.locator('#auth-status-line')).toHaveClass(/auth-status-error/);
+  await expect(page.locator('#ui-console-expand')).toHaveAttribute('aria-expanded', 'true');
+});
+
+test('closing the startup log preserves the status and allows reopening', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  expect(await page.evaluate(() => window.__GQ_BOOT_TERMINAL_ADAPTER.isFallbackActive())).toBe(true);
+  await page.evaluate(() => window.__GQ_BOOT_PROBE.log('reopen-log-check', 'error'));
+  const panel = page.locator('#boot-terminal');
+  const log = page.locator('#ui-console-log');
+  const toggle = page.locator('#ui-console-expand');
+  await expect(log).toContainText('reopen-log-check');
+  await page.locator('#ui-console-close').click();
+  await expect(panel).toBeVisible();
+  await expect(log).toBeHidden();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(toggle).toBeFocused();
+  await expect(page.locator('#auth-status-line')).toContainText('reopen-log-check');
+  await page.keyboard.press('Enter');
+  await expect(log).toBeVisible();
+  await expect(log).toContainText('reopen-log-check');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+});
+
+test('startup log copies literal entries and clears the displayed status', async ({ page }) => {
+  await mockApi(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true, value: { writeText: async text => { window.__copiedBootLog = text; } },
+    });
+  });
+  await page.goto('/');
+  await page.evaluate(() => window.__GQ_BOOT_PROBE.log('copy-check <b>literal</b>', 'error'));
+  const log = page.locator('#ui-console-log');
+  await expect(log).toContainText('copy-check <b>literal</b>');
+  await expect(log.locator('b')).toHaveCount(0);
+  await page.locator('#ui-console-copy').click();
+  await expect.poll(() => page.evaluate(() => window.__copiedBootLog)).toContain('copy-check <b>literal</b>');
+  await page.locator('#ui-console-clear').click();
+  await expect(log).toBeEmpty();
+  await expect(page.locator('#auth-status-line')).toContainText('Terminal log cleared');
+  await expect(page.locator('#auth-status-line')).not.toHaveClass(/auth-status-error/);
+});
+
+test('startup log reports a rejected legacy clipboard copy and cleans up', async ({ page }) => {
+  await mockApi(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+    document.execCommand = () => false;
+  });
+  await page.goto('/');
+  await page.evaluate(() => window.__GQ_BOOT_PROBE.log('copy-failure-check', 'info'));
+  await page.locator('#ui-console-expand').click();
+  await page.locator('#ui-console-copy').click();
+  await expect(page.locator('#auth-status-line')).toContainText('Boot terminal copy failed');
+  await expect(page.locator('#auth-status-line')).toHaveClass(/auth-status-error/);
+  await expect(page.locator('#ui-console-log')).toContainText('copy-failure-check');
+  await expect(page.locator('body > textarea[readonly]')).toHaveCount(0);
+});
+
+test('closing the startup log remains reversible after logger takeover', async ({ page }) => {
+  await mockApi(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true, value: { writeText: async text => { window.__copiedTakeoverLog = text; } },
+    });
+  });
+  await page.goto('/');
+  await page.evaluate(() => window.__GQ_BOOT_PROBE.log('before-takeover-check', 'warn'));
+  await page.addScriptTag({ url: '/js/ui/terminal.js' });
+  await expect.poll(() => page.evaluate(() => window.__GQ_BOOT_TERMINAL_ADAPTER.isFallbackActive())).toBe(false);
+  await page.evaluate(() => {
+    window.GQLog.info('takeover-reopen-check');
+    window.__GQ_SET_BOOT_CONSOLE_EXPANDED(true);
+  });
+  const toggle = page.locator('#ui-console-expand');
+  const log = page.locator('#ui-console-log');
+  await expect(log).toContainText('before-takeover-check');
+  expect(await page.evaluate(() => window.GQLog.getSessionEntries().filter(entry => entry.text === 'before-takeover-check').length)).toBe(1);
+  await expect(log).toContainText('takeover-reopen-check');
+  await page.evaluate(() => window.__GQ_BOOT_PROBE.log('probe-after-takeover'));
+  await expect(log).toContainText('before-takeover-check');
+  await expect(log).toContainText('probe-after-takeover');
+  await page.locator('#ui-console-copy').click();
+  await expect.poll(() => page.evaluate(() => window.__copiedTakeoverLog)).toContain('takeover-reopen-check');
+  await page.locator('#ui-console-close').click();
+  await expect(page.locator('#boot-terminal')).toBeVisible();
+  await expect(log).toBeHidden();
+  await expect(toggle).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(log).toBeVisible();
+  await expect(log).toContainText('takeover-reopen-check');
+  await page.locator('#ui-console-clear').click();
+  await expect(log).not.toContainText('takeover-reopen-check');
+  await expect(page.locator('#auth-status-line')).toContainText('Terminal log cleared');
+});
+
+for (const takeover of [false, true]) {
+  test(`reading older log entries does not jump to the bottom, takeover=${takeover}`, async ({ page }) => {
+    await mockApi(page);
+    await page.goto('/');
+    if (takeover) {
+      await page.addScriptTag({ url: '/js/ui/terminal.js' });
+      await expect.poll(() => page.evaluate(() => window.__GQ_BOOT_TERMINAL_ADAPTER.isFallbackActive())).toBe(false);
+    }
+    await page.evaluate((useLogger) => {
+      for (let i = 0; i < 50; i++) {
+        if (useLogger) window.GQLog.info(`scroll-entry-${i}`);
+        else window.__GQ_BOOT_PROBE.log(`scroll-entry-${i}`);
+      }
+      window.__GQ_SET_BOOT_CONSOLE_EXPANDED(true);
+    }, takeover);
+    const log = page.locator('#ui-console-log');
+    await expect(log).toBeVisible();
+    expect(await log.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(2);
+    await log.evaluate(element => { element.scrollTop = 0; });
+    await page.evaluate((useLogger) => {
+      if (useLogger) window.GQLog.info('new-while-reading');
+      else window.__GQ_BOOT_PROBE.log('new-while-reading');
+    }, takeover);
+    await expect(log).toContainText('new-while-reading');
+    expect(await log.evaluate(element => element.scrollTop)).toBe(0);
+    await page.evaluate((useLogger) => {
+      window.__GQ_SET_BOOT_CONSOLE_EXPANDED(false);
+      if (useLogger) window.GQLog.info('new-while-closed');
+      else window.__GQ_BOOT_PROBE.log('new-while-closed');
+      window.__GQ_SET_BOOT_CONSOLE_EXPANDED(true);
+    }, takeover);
+    expect(await log.evaluate(element => element.scrollTop)).toBe(0);
+    await log.evaluate(element => { element.scrollTop = element.scrollHeight; });
+    await page.evaluate((useLogger) => {
+      if (useLogger) window.GQLog.info('new-while-following');
+      else window.__GQ_BOOT_PROBE.log('new-while-following');
+    }, takeover);
+    expect(await log.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(2);
+  });
+}
+
+test('logger takeover preserves the fallback history while reading older entries', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await page.evaluate(() => {
+    window.__GQ_SET_BOOT_CONSOLE_EXPANDED(true);
+    for (let i = 0; i < 50; i++) window.__GQ_BOOT_PROBE.log(`handoff-entry-${i}`);
+  });
+  const log = page.locator('#ui-console-log');
+  await log.evaluate(element => { element.scrollTop = 0; });
+  await page.addScriptTag({ url: '/js/ui/terminal.js' });
+  await expect.poll(() => page.evaluate(() => window.__GQ_BOOT_TERMINAL_ADAPTER.isFallbackActive())).toBe(false);
+  await expect(log).toContainText('handoff-entry-0');
+  await expect(log).toContainText('handoff-entry-49');
+  expect(await log.evaluate(element => element.scrollTop)).toBe(0);
+});
+
+test('logger takeover expands startup errors without stealing focus or changing game console state', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await page.addScriptTag({ url: '/js/ui/terminal.js' });
+  await expect.poll(() => page.evaluate(() => window.__GQ_BOOT_TERMINAL_ADAPTER.isFallbackActive())).toBe(false);
+  await page.evaluate(() => window.__GQ_SET_BOOT_CONSOLE_EXPANDED(false));
+  await page.locator('#start-login').focus();
+  await page.evaluate(() => window.GQLog.warn('takeover-warning-check'));
+  await expect(page.locator('#ui-console-log')).toBeHidden();
+  await page.evaluate(() => window.GQLog.error('takeover-error-check'));
+  await expect(page.locator('#ui-console-expand')).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('#ui-console-log')).toContainText('takeover-error-check');
+  await expect(page.locator('#auth-status-line')).toContainText('takeover-error-check');
+  await expect(page.locator('#auth-log-alert')).toContainText('takeover-error-check');
+  await expect(page.locator('#start-login')).toBeFocused();
+  await page.evaluate(() => {
+    window.__GQ_SET_BOOT_CONSOLE_EXPANDED(false);
+    document.body.classList.replace('auth-page', 'game-page');
+    window.GQLog.error('game-error-check');
+  });
+  await expect(page.locator('#ui-console-expand')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('#ui-console-log')).toBeHidden();
+});
+
+test('logger takeover reports a rejected legacy clipboard copy', async ({ page }) => {
+  await mockApi(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+    document.execCommand = () => false;
+  });
+  await page.goto('/');
+  await page.addScriptTag({ url: '/js/ui/terminal.js' });
+  await expect.poll(() => page.evaluate(() => window.__GQ_BOOT_TERMINAL_ADAPTER.isFallbackActive())).toBe(false);
+  await page.evaluate(() => {
+    window.GQLog.info('takeover-copy-failure-check');
+    window.__GQ_SET_BOOT_CONSOLE_EXPANDED(true);
+  });
+  await page.locator('#ui-console-copy').click();
+  await expect(page.locator('#auth-status-line')).toContainText('Boot terminal copy failed');
+  await expect(page.locator('#auth-status-line')).toHaveClass(/auth-status-error/);
+  await expect(page.locator('#ui-console-log')).toContainText('takeover-copy-failure-check');
+  await expect(page.locator('body > textarea[readonly]')).toHaveCount(0);
 });
 
 test('guest menu opens lazy login and cinematic private registration without credentials', async ({ page }) => {
@@ -403,23 +672,20 @@ test('start menu panels expand inline and remain within a narrow viewport', asyn
     return {
       position: getComputedStyle(panel).position,
       immediatelyAfterTrigger: trigger.nextElementSibling === panel,
-      previewDisplay: getComputedStyle(panel.parentElement.querySelector('#start-news-posts')).display,
+      choicesInsidePanel: panel.contains(document.getElementById('start-news-posts')),
       panelX: panelRect.x,
       triggerX: triggerRect.x,
       panelTop: panelRect.top,
       triggerBottom: triggerRect.bottom,
-      panelBottom: panelRect.bottom,
-      viewportHeight: innerHeight,
       documentWidth: document.documentElement.scrollWidth,
       viewportWidth: innerWidth,
     };
   });
   expect(layout.position).toBe('relative');
   expect(layout.immediatelyAfterTrigger).toBe(true);
-  expect(layout.previewDisplay).toBe('none');
+  expect(layout.choicesInsidePanel).toBe(true);
   expect(layout.panelX).toBeCloseTo(layout.triggerX);
   expect(layout.panelTop).toBeGreaterThanOrEqual(layout.triggerBottom);
-  expect(layout.panelBottom).toBeLessThanOrEqual(layout.viewportHeight);
   expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth);
 });
 
@@ -753,6 +1019,39 @@ test('menu panels expand inline, toggle and switch without leaving multiple pane
     await expect(trigger).toBeFocused();
   }
 });
+
+for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+  test(`accordion triggers switch exclusively and expose their active panel at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await mockApi(page);
+    await page.route(apiAction('auth', 'dev_tools_status'), (route) =>
+      route.fulfill({ json: { success: true, enabled: true } }));
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    const selectors = ['#start-login', '#start-dev', '[data-start-panel="news"]', '[data-start-panel="settings"]'];
+    for (const selector of selectors) {
+      for (const nextSelector of selectors.filter(value => value !== selector)) {
+        const trigger = page.locator(selector);
+        const next = page.locator(nextSelector);
+        await trigger.click();
+        await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+        const panel = page.locator('dialog[open]');
+        await expect(panel).toHaveCount(1);
+        await expect(trigger).toHaveAttribute('aria-controls', await panel.getAttribute('id'));
+        await next.click();
+        await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+        await expect(trigger).not.toHaveAttribute('aria-controls');
+        await expect(next).toHaveAttribute('aria-expanded', 'true');
+        await expect(panel).toHaveCount(1);
+        await expect(next).toHaveAttribute('aria-controls', await panel.getAttribute('id'));
+        await page.keyboard.press('Escape');
+        await expect(next).toBeFocused();
+        await expect(next).toHaveAttribute('aria-expanded', 'false');
+        await expect(next).not.toHaveAttribute('aria-controls');
+        await expect(panel).toHaveCount(0);
+      }
+    }
+  });
+}
 
 test('new server messages appear once, can be reopened and do not gate login', async ({ page }) => {
   await mockApi(page);

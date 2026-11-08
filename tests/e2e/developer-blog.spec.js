@@ -6,8 +6,8 @@ const post = {
   categories: ['entwicklung'], tags: ['game-start', 'hero'],
 };
 
-async function prepare(page, rejection) {
-  const state = { posts: [post], failedFeed: false, chunks: [] };
+async function prepare(page, rejection, { posts = [post], open = true } = {}) {
+  const state = { posts, failedFeed: false, chunks: [] };
   await page.route('**/api/**', async route => {
     const url = new URL(route.request().url());
     const action = url.searchParams.get('action');
@@ -33,8 +33,8 @@ async function prepare(page, rejection) {
     await route.fulfill({ json: data });
   });
   await page.goto('/');
-  await page.locator('[data-start-panel="news"]').click();
-  await expect(page.locator('.start-news-choice')).toHaveCount(1);
+  if (open) await page.locator('[data-start-panel="news"]').click();
+  await expect(page.locator('.start-news-choice')).toHaveCount(posts.length);
   await page.evaluate(() => {
     window.__blogTestClips = [];
     window.__GQ_AUDIO_MANAGER = {
@@ -49,6 +49,93 @@ async function prepare(page, rejection) {
     };
   });
   return state;
+}
+
+for (const viewport of [{ width: 1280, height: 900 }, { width: 360, height: 400 }]) {
+  test(`news choices stay usable inside the accordion at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await prepare(page, 409, {
+      posts: [post, { ...post, id: 107, title: 'Zweite Nachricht', tags: [] }],
+    });
+    const dialog = page.getByRole('dialog', { name: 'News and transmissions' });
+    const cards = dialog.locator('.start-news-choice');
+    await expect(cards).toHaveCount(2);
+    await expect(cards.first()).toBeVisible();
+    await cards.first().focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(cards.nth(1)).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#start-news-title')).toHaveText('Zweite Nachricht');
+    await expect(page.locator('#start-news-title')).toBeFocused();
+    await expect(page.locator('#start-news-title')).toBeInViewport();
+    await expect(cards.nth(1)).toHaveAttribute('aria-pressed', 'true');
+    const dimensions = await dialog.evaluate(element => ({
+      height: element.getBoundingClientRect().height,
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+      width: document.documentElement.scrollWidth,
+      viewportWidth: innerWidth,
+    }));
+    expect(dimensions.height).toBeGreaterThan(100);
+    expect(dimensions.height).toBeLessThanOrEqual(viewport.height * 0.8 + 1);
+    if (viewport.height === 400) expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.clientHeight);
+    expect(dimensions.width).toBeLessThanOrEqual(dimensions.viewportWidth);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-start-panel="news"]')).toBeFocused();
+    await expect(page.locator('#start-panel-news #start-news-posts .start-news-choice')).toHaveCount(2);
+    await expect(page.locator('.start-news-choice').first()).toBeHidden();
+    expect(await page.evaluate(() => window.__blogTestClips.length)).toBe(0);
+  });
+}
+
+test('news cards only appear in the open news panel, including after switching panels', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  await prepare(page, 409, {
+    posts: [post, { ...post, id: 107, title: 'Zweite Nachricht', tags: [] }],
+    open: false,
+  });
+  await expect(page.locator('#start-news-posts')).toBeHidden();
+  await page.locator('[data-start-panel="settings"]').click();
+  await expect(page.locator('#start-news-posts')).toBeHidden();
+  await page.locator('[data-start-panel="news"]').click();
+  await expect(page.locator('#start-news-posts')).toBeVisible();
+  await page.locator('.start-news-choice').nth(1).click();
+  await expect(page.getByRole('dialog', { name: 'News and transmissions' })).toBeVisible();
+  await expect(page.locator('#start-news-title')).toHaveText('Zweite Nachricht');
+  await expect(page.locator('#start-news-title')).toBeFocused();
+  await expect(page.locator('[data-start-panel="settings"]')).toHaveAttribute('aria-expanded', 'false');
+  expect(await page.evaluate(() => window.__blogTestClips.length)).toBe(0);
+});
+
+for (const viewport of [{ width: 1280, height: 900 }, { width: 360, height: 640 }]) {
+  test(`opening login closes news and hides its previews at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await prepare(page, 409);
+    const news = page.locator('[data-start-panel="news"]');
+    const cards = page.locator('#start-news-posts');
+    await page.locator('#start-news-read').click();
+    await expect.poll(() => page.evaluate(() => window.__blogTestClips.length)).toBe(1);
+    await page.locator('#start-login').click();
+    await expect(page.locator('#start-auth-dialog')).toBeVisible();
+    await expect(page.locator('#login-username')).toBeFocused();
+    await expect(news).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#start-content-dialog')).toBeHidden();
+    await expect(cards).toBeHidden();
+    expect(await page.evaluate(() => window.__blogTestClips[0].paused)).toBe(true);
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#start-login')).toBeFocused();
+    await expect(cards).toBeHidden();
+    await news.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('dialog', { name: 'News and transmissions' })).toBeVisible();
+    await expect(cards).toBeVisible();
+    await page.locator('#start-login').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#start-auth-dialog')).toBeVisible();
+    await expect(news).toHaveAttribute('aria-expanded', 'false');
+    await expect(cards).toBeHidden();
+  });
 }
 
 for (const rejection of [404, 409]) {

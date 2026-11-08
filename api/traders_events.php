@@ -61,16 +61,22 @@ try {
     switch ($event) {
         case 'market_update':
             event_market_update($db);
+            break;
         case 'opportunity_scan':
             event_opportunity_scan($db);
+            break;
         case 'trader_decisions':
             event_trader_decisions($db);
+            break;
         case 'route_process':
             event_route_process($db);
+            break;
         case 'route_create':
             event_route_create($db);
+            break;
         case 'route_complete':
             event_route_complete($db);
+            break;
         default:
             json_error("Unknown event: $event", 400);
     }
@@ -277,23 +283,26 @@ function event_route_create(PDO $db): never {
         json_error('Missing or invalid parameters', 400);
     }
     
-    event_with_global_simulation_lock($db, static function () use ($db, $traderId, $srcColId, $tgtColId, $resourceType, $qty): array {
-        $routeStmt = $db->prepare(<<<SQL
-            INSERT INTO trader_routes
-            (trader_id, source_colony_id, target_colony_id, resource_type, quantity_planned, status)
-            VALUES (?, ?, ?, ?, ?, 'planning')
-        SQL);
-        $routeStmt->execute([$traderId, $srcColId, $tgtColId, $resourceType, $qty]);
+    event_with_global_simulation_lock(
+        $db,
+        static function () use ($db, $traderId, $srcColId, $tgtColId, $resourceType, $qty): array {
+            $routeStmt = $db->prepare(<<<SQL
+                INSERT INTO trader_routes
+                (trader_id, source_colony_id, target_colony_id, resource_type, quantity_planned, status)
+                VALUES (?, ?, ?, ?, ?, 'planning')
+            SQL);
+            $routeStmt->execute([$traderId, $srcColId, $tgtColId, $resourceType, $qty]);
 
-        $routeId = (int)$db->lastInsertId();
+            $routeId = (int)$db->lastInsertId();
 
-        return [
-            'event' => 'route_create',
-            'status' => 'success',
-            'route_id' => $routeId,
-            'timestamp' => date('Y-m-d H:i:s'),
-        ];
-    });
+            return [
+                'event' => 'route_create',
+                'status' => 'success',
+                'route_id' => $routeId,
+                'timestamp' => date('Y-m-d H:i:s'),
+            ];
+        }
+    );
 }
 
 /**
@@ -367,7 +376,8 @@ function event_game_tick(PDO $db): never {
  *
  * @return array{executed:bool,event:string,status:string,decisions:int,routes_processed:int,duration_ms:int,timestamp:string}
  */
-function event_game_tick_run(PDO $db): array {
+function event_game_tick_run(PDO $db): array
+{
     try {
         $t0 = microtime(true);
         

@@ -1,13 +1,13 @@
 <?php
 
-declare(strict_types=1);
-
 /**
  * NPC Quest Chain Manager
  *
  * Manages quest dependencies, chains, and DAG (Directed Acyclic Graph) validation.
  * Handles parent-child quest relationships, sequencing, and escalation.
  */
+
+declare(strict_types=1);
 
 require_once __DIR__ . '/helpers.php';
 
@@ -53,8 +53,9 @@ function npc_quest_chain_create(PDO $db, array $chainSpec): array
 
     // Insert chain spec
     $stmt = $db->prepare(
-        'INSERT INTO quest_chain_specs 
-         (code, title, description, faction_id, quest_ids_ordered, is_sequential, min_standing_threshold, reward_escalation)
+        'INSERT INTO quest_chain_specs
+         (code, title, description, faction_id, quest_ids_ordered, is_sequential,
+          min_standing_threshold, reward_escalation)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     );
 

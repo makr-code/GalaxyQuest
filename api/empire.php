@@ -9,22 +9,24 @@
  * Referenz: docs/gamedesign/EMPIRE_CATEGORIES.md, docs/github-issues/06
  */
 require_once __DIR__ . '/helpers.php';
-require_once dirname(__DIR__) . '/scripts/project_user_overview.php';
+require_once __DIR__ . '/espionage_runtime.php';
+require_once dirname(__DIR__) . '/lib/empire_scores.php';
 
 $action = $_GET['action'] ?? '';
 $uid    = require_auth();
-$db     = get_db();
 
 switch ($action) {
 
     case 'get_scores': {
         only_method('GET');
+        $db = get_db();
         $scores = calc_empire_scores($db, $uid);
         json_ok(['scores' => $scores, 'fresh' => true]);
     }
 
     case 'get_score_breakdown': {
         only_method('GET');
+        $db = get_db();
         $scores = calc_empire_scores($db, $uid);
 
         // Colony stats
@@ -62,25 +64,7 @@ switch ($action) {
 
     case 'get_espionage_status': {
         only_method('GET');
-        $stmt = $db->prepare(
-            "SELECT id, name, skill_level, specialization, status, hired_at
-             FROM espionage_agents WHERE user_id = ? ORDER BY skill_level DESC"
-        );
-        $stmt->execute([$uid]);
-        $agents = $stmt->fetchAll();
-
-        $stmt2 = $db->prepare(
-            "SELECT em.id, em.mission_type, em.status, em.started_at, em.completes_at,
-                    ea.name AS agent_name
-             FROM espionage_missions em
-             JOIN espionage_agents ea ON ea.id = em.agent_id
-             WHERE em.owner_user_id = ? AND em.status = 'active'
-             ORDER BY em.completes_at ASC"
-        );
-        $stmt2->execute([$uid]);
-        $activeMissions = $stmt2->fetchAll();
-
-        json_ok(['agents' => $agents, 'active_missions' => $activeMissions]);
+        require_espionage_runtime();
     }
 
     default:

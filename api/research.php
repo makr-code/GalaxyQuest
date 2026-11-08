@@ -1,10 +1,12 @@
 <?php
+
 /**
  * Research API
  * GET  /api/research.php?action=list&colony_id=X
  * POST /api/research.php?action=research  body: {colony_id, type}
  * POST /api/research.php?action=finish
  */
+
 use GalaxyQuest\Economy\OnDemandEconomy;
 use GalaxyQuest\Economy\ResourceLedger;
 
@@ -75,13 +77,15 @@ switch ($action) {
         $rRow = $db->prepare('SELECT level FROM research WHERE user_id = ? AND type = ?');
         $rRow->execute([$uid, $type]);
         $res = $rRow->fetch();
-        if (!$res) { json_error('Research type not found.'); }
+        if (!$res) {
+            json_error('Research type not found.');
+        }
 
         // Check prerequisites
         $prereqCheck = check_research_prereqs($db, $uid, $type);
         if (!$prereqCheck['can_research']) {
             $missing = $prereqCheck['missing_prereqs'];
-            $missing_str = implode('; ', array_map(function($m) {
+            $missing_str = implode('; ', array_map(function ($m) {
                 return $m['tech'] . ' Lv' . $m['required_level'] . ' (have ' . $m['current_level'] . ')';
             }, $missing));
             json_error('Prerequisites not met: ' . $missing_str);
@@ -103,7 +107,7 @@ switch ($action) {
             $secs = leader_research_time($secs, (int)$sciDir['skill_research']);
             $cost = leader_research_cost($cost, (int)$sciDir['skill_efficiency']);
         }
-        
+
         // Apply colony-type research time bonus (research colony −15%)
         $colonyType = $cRes['colony_type'] ?? 'balanced';
         if ($colonyType === 'research') {
@@ -128,7 +132,9 @@ switch ($action) {
             if ($sciVessels > 0) {
                 $secs = max(1, (int)round($secs * (1.0 - 0.10 * $sciVessels)));
             }
-        } catch (Throwable $e) { /* ignore pre-migration */ }
+        } catch (Throwable $e) {
+/* ignore pre-migration */
+        }
         $end      = date('Y-m-d H:i:s', time() + $secs);
 
         if (ON_DEMAND_ECONOMY_ENABLED) {

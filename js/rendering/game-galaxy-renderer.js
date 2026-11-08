@@ -617,6 +617,12 @@ export async function createGameGalaxyRenderer(host, options) {
     setSpatialLabelMode(mode) {
       return renderer.setSpatialLabelMode?.(mode) ?? false;
     },
+    playBattleEncounter(encounter) {
+      if (disposed || level !== 'system') {
+        throw new Error('Das Schlachtreplay kann nur in einer geöffneten Systemansicht starten.');
+      }
+      return renderer.startBattleEncounterPresentation(encounter);
+    },
     refreshColony: (colonyId) => zoomRuntime?.refreshColony(colonyId),
     observeFleetEndpoints(getFleets, onProjection) {
       if (disposed) return () => {};

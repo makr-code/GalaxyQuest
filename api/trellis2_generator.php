@@ -96,7 +96,8 @@ final class TRELLIS2Client {
     /**
      * Poll job status
      */
-    public function getJobStatus(string $jobId): array {
+    public function getJobStatus(string $jobId): array
+    {
         try {
             $response = $this->request('GET', "/api/queue?job={$jobId}", [], 10);
             return $response ?? ['status' => 'unknown'];
@@ -804,6 +805,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
                 $generator = new BaseShipComponentGenerator($db);
                 $result = $generator->getJobStatus($jobId);
                 json_ok($result);
+                break;
 
             case 'finalize_generation':
                 only_method('POST');
