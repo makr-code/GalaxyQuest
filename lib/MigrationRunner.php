@@ -421,7 +421,7 @@ class MigrationRunner
     {
         $sql = $this->readMigrationSql($name);
         $checksum   = md5($sql);
-        $statements = $this->splitStatements($sql);
+        $statements = $this->executableStatements($sql);
 
         if ($dryRun) {
             return [
@@ -490,7 +490,7 @@ class MigrationRunner
         $downName = $this->resolveDownFileName($name);
 
         $sql = $this->readMigrationSql($downName);
-        $statements = $this->splitStatements($sql);
+        $statements = $this->executableStatements($sql);
 
         if ($dryRun) {
             return [
@@ -822,6 +822,20 @@ class MigrationRunner
         }
 
         return $parts;
+    }
+
+    /**
+     * The PDO connection's selected database is authoritative; legacy USE
+     * statements must not redirect migration writes to another schema.
+     *
+     * @return list<string>
+     */
+    private function executableStatements(string $sql): array
+    {
+        return array_values(array_filter(
+            $this->splitStatements($sql),
+            static fn(string $statement): bool => !preg_match('/^USE\s+/i', $statement)
+        ));
     }
 
     /**

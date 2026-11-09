@@ -1,5 +1,14 @@
 'use strict';
 (function () {
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function createMessagesController({
     wm,
     api,
@@ -8,7 +17,6 @@
     renderInlineTemplateList,
     uiKitTemplateHTML,
     uiKitEmptyStateHTML,
-    esc,
     gameLog,
     showToast,
     getAudioManager,
@@ -114,7 +122,7 @@
       const log = root?.querySelector('#msg-terminal-log');
       if (!log) return;
       const state = getMessageConsoleState();
-      log.innerHTML = renderTemplateList('consoleLine', state.lines.map((line) => ({ line: esc(line) })));
+      log.innerHTML = renderTemplateList('consoleLine', state.lines.map((line) => ({ line: escapeHtml(line) })));
       log.scrollTop = log.scrollHeight;
     }
 
@@ -150,7 +158,7 @@
           ? Array.from(new Set(response.users.map((u) => String(u || '').trim()).filter(Boolean))).slice(0, 12)
           : [];
         state.userHints = users;
-        datalist.innerHTML = renderTemplateList('userHintOption', users.map((u) => ({ value: esc(u) })));
+        datalist.innerHTML = renderTemplateList('userHintOption', users.map((u) => ({ value: escapeHtml(u) })));
       } catch (err) {
         gameLog('info', 'Message user hints laden fehlgeschlagen', err);
         state.userHints = [];
@@ -168,10 +176,10 @@
         listEl.before(detail);
       }
       detail.innerHTML = renderTemplate('detail', {
-        subject: esc(message.subject),
-        sender: esc(message.sender),
-        sentAt: esc(new Date(message.sent_at).toLocaleString()),
-        body: esc(message.body),
+        subject: escapeHtml(message.subject),
+        sender: escapeHtml(message.sender),
+        sentAt: escapeHtml(new Date(message.sent_at).toLocaleString()),
+        body: escapeHtml(message.body),
       });
       detail.querySelector('.close-msg-btn')?.addEventListener('click', () => detail.remove());
     }
@@ -195,9 +203,9 @@
           id: Number(message.id || 0),
           unreadClass: message.is_read ? '' : 'unread',
           unreadDot: message.is_read ? '' : '<div class="msg-unread-dot"></div>',
-          subject: esc(message.subject),
-          sender: esc(message.sender),
-          date: esc(new Date(message.sent_at).toLocaleDateString()),
+          subject: escapeHtml(message.subject),
+          sender: escapeHtml(message.sender),
+          date: escapeHtml(new Date(message.sent_at).toLocaleDateString()),
         })));
 
         el.querySelectorAll('.msg-row').forEach((row) => {

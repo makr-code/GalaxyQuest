@@ -6,6 +6,7 @@ services:
       args:
         APP_UID: ${GQ_WEB_UID:-1001}
         APP_GID: ${GQ_WEB_GID:-1001}
+        INSTALL_XDEBUG: ${GQ_INSTALL_XDEBUG:-1}
     container_name: galaxyquest-web
     depends_on:
       db:

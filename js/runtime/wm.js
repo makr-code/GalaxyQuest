@@ -472,17 +472,28 @@ const WMCore = (() => {
         currentRows.forEach(function (cmd, idx) {
           var shortcuts = _extractCommandShortcuts(cmd).map(function (s) { return String(s || '').trim(); }).filter(Boolean);
           var shortcutText = shortcuts.join(' / ');
-          var inputBadge = cmd && cmd.allowInInputs === true
-            ? '<span class="wm-command-palette-flag" title="Hotkey works in inputs">Input</span>'
-            : '';
           var row = document.createElement('button');
           row.type = 'button';
           row.className = 'wm-command-palette-row' + (idx === currentIndex ? ' is-active' : '');
-          row.innerHTML = '<span class="wm-command-palette-label">' + _esc(String(cmd.label || cmd.id || 'Command')) + '</span>'
-            + '<span class="wm-command-palette-meta">'
-            + (shortcutText ? '<span class="wm-command-palette-shortcut">' + _esc(shortcutText) + '</span>' : '')
-            + inputBadge
-            + '</span>';
+          var label = document.createElement('span');
+          label.className = 'wm-command-palette-label';
+          label.textContent = String(cmd.label || cmd.id || 'Command');
+          var meta = document.createElement('span');
+          meta.className = 'wm-command-palette-meta';
+          if (shortcutText) {
+            var shortcut = document.createElement('span');
+            shortcut.className = 'wm-command-palette-shortcut';
+            shortcut.textContent = shortcutText;
+            meta.appendChild(shortcut);
+          }
+          if (cmd && cmd.allowInInputs === true) {
+            var inputBadge = document.createElement('span');
+            inputBadge.className = 'wm-command-palette-flag';
+            inputBadge.title = 'Hotkey works in inputs';
+            inputBadge.textContent = 'Input';
+            meta.appendChild(inputBadge);
+          }
+          row.append(label, meta);
           row.addEventListener('click', function () {
             executeCommand(cmd.id, { source: 'wm.commandPalette' });
             hideCommandPalette();
@@ -2218,9 +2229,16 @@ const WMCore = (() => {
           btn.disabled = !!item.disabled;
 
           var metaLabel = item.shortcut || item.meta || '';
-          btn.innerHTML =
-            '<span class="wm-context-menu-item-main">' + _esc(String(item.label || 'Action')) + '</span>'
-            + (metaLabel ? '<span class="wm-context-menu-item-meta">' + _esc(String(metaLabel)) + '</span>' : '');
+          var mainLabel = document.createElement('span');
+          mainLabel.className = 'wm-context-menu-item-main';
+          mainLabel.textContent = String(item.label || 'Action');
+          btn.appendChild(mainLabel);
+          if (metaLabel) {
+            var meta = document.createElement('span');
+            meta.className = 'wm-context-menu-item-meta';
+            meta.textContent = String(metaLabel);
+            btn.appendChild(meta);
+          }
 
           btn.addEventListener('click', function (ev) {
             ev.stopPropagation();
@@ -3034,12 +3052,6 @@ const WMCore = (() => {
     }
 
     // ── Internal: utilities ───────────────────────────────────────────────
-    function _esc(s) {
-      return String(s)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
-
     function _toWindowTitle(id) {
       var raw = String(id || '').trim();
       if (!raw) return 'Window';

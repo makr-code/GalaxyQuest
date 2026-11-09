@@ -178,9 +178,26 @@ const GLOSSARY_TERMS = {
 
 function glossaryMonoIcon(symbolId, extraClass = 'gq-icon-inline') {
     const iconId = String(symbolId || '').trim();
-    if (!iconId) return '';
+    if (!/^icon-[a-z0-9-]+$/.test(iconId)) {
+        throw new Error('Invalid glossary icon identifier');
+    }
     const iconFile = iconId.replace(/^icon-/, '');
-    return `<svg class="gq-icon ${extraClass}" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/${iconFile}.svg#${iconId}"></use></svg>`;
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('class', `gq-icon ${extraClass}`);
+    icon.setAttribute('aria-hidden', 'true');
+    icon.setAttribute('focusable', 'false');
+    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    use.setAttribute('href', `gfx/icons/mono/${iconFile}.svg#${iconId}`);
+    icon.appendChild(use);
+    return icon;
+}
+
+function glossaryExternalUrl(value) {
+    const url = new URL(value, window.location.href);
+    if (url.protocol !== 'https:' || !['en.wikipedia.org', 'arxiv.org'].includes(url.hostname)) {
+        throw new Error('Unsupported glossary link URL');
+    }
+    return url.href;
 }
 
 /**
@@ -193,45 +210,94 @@ function openGlossaryModal() {
 
     const modal = document.createElement('div');
     modal.className = 'glossary-modal';
-    
-    let html = `
-        <div class="glossary-header">
-            <h2>Scientific Glossary <span class="glossary-header-badge">with AI</span></h2>
-            <button class="glossary-close">&times;</button>
-        </div>
-        <div class="glossary-search">
-            <input type="text" id="glossary-search-input" placeholder="Search terms..." />
-            <span class="glossary-info-icon" title="Definitions enhanced by Ollama LLM + Wikipedia RAG">${glossaryMonoIcon('icon-llm')}</span>
-        </div>
-        <div class="glossary-content">
-    `;
+
+    const header = document.createElement('div');
+    header.className = 'glossary-header';
+    const heading = document.createElement('h2');
+    heading.append(document.createTextNode('Scientific Glossary '));
+    const headingBadge = document.createElement('span');
+    headingBadge.className = 'glossary-header-badge';
+    headingBadge.textContent = 'with AI';
+    heading.appendChild(headingBadge);
+    const closeButton = document.createElement('button');
+    closeButton.className = 'glossary-close';
+    closeButton.textContent = '×';
+    header.append(heading, closeButton);
+
+    const search = document.createElement('div');
+    search.className = 'glossary-search';
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.id = 'glossary-search-input';
+    searchInput.placeholder = 'Search terms...';
+    const infoIcon = document.createElement('span');
+    infoIcon.className = 'glossary-info-icon';
+    infoIcon.title = 'Definitions enhanced by Ollama LLM + Wikipedia RAG';
+    infoIcon.appendChild(glossaryMonoIcon('icon-llm'));
+    search.append(searchInput, infoIcon);
+
+    const content = document.createElement('div');
+    content.className = 'glossary-content';
 
     // Build glossary entries
     for (const [key, entry] of Object.entries(GLOSSARY_TERMS)) {
-        html += `
-            <div class="glossary-entry" data-term="${key}" data-category="${entry.category}">
-                <div class="glossary-entry-header">
-                    <h3>${entry.term}</h3>
-                    <span class="glossary-category">${entry.category}</span>
-                    <span class="glossary-loading" style="display:none;">AI Loading...</span>
-                </div>
-                <p class="glossary-short">${entry.short}</p>
-                <p class="glossary-full glossary-full-static">${entry.full}</p>
-                <p class="glossary-full glossary-full-ai" style="display:none; color: #00d4ff; font-style: italic;"></p>
-                <div class="glossary-links">
-                    <a href="${entry.wikipedia}" target="_blank" rel="noopener">${glossaryMonoIcon('icon-intel')}Wikipedia</a>
-                    ${entry.arxiv ? `<a href="${entry.arxiv}" target="_blank" rel="noopener">${glossaryMonoIcon('icon-research')}ArXiv Paper</a>` : ''}
-                    <button class="glossary-btn-ai" data-term="${key}">${glossaryMonoIcon('icon-llm')}AI Enhanced</button>
-                </div>
-            </div>
-        `;
+        const glossaryEntry = document.createElement('div');
+        glossaryEntry.className = 'glossary-entry';
+        glossaryEntry.dataset.term = key;
+        glossaryEntry.dataset.category = entry.category;
+
+        const entryHeader = document.createElement('div');
+        entryHeader.className = 'glossary-entry-header';
+        const term = document.createElement('h3');
+        term.textContent = entry.term;
+        const category = document.createElement('span');
+        category.className = 'glossary-category';
+        category.textContent = entry.category;
+        const loading = document.createElement('span');
+        loading.className = 'glossary-loading';
+        loading.style.display = 'none';
+        loading.textContent = 'AI Loading...';
+        entryHeader.append(term, category, loading);
+
+        const shortDefinition = document.createElement('p');
+        shortDefinition.className = 'glossary-short';
+        shortDefinition.textContent = entry.short;
+        const fullDefinition = document.createElement('p');
+        fullDefinition.className = 'glossary-full glossary-full-static';
+        fullDefinition.textContent = entry.full;
+        const aiDefinition = document.createElement('p');
+        aiDefinition.className = 'glossary-full glossary-full-ai';
+        aiDefinition.style.display = 'none';
+        aiDefinition.style.color = '#00d4ff';
+        aiDefinition.style.fontStyle = 'italic';
+
+        const links = document.createElement('div');
+        links.className = 'glossary-links';
+        const wikipediaLink = document.createElement('a');
+        wikipediaLink.href = glossaryExternalUrl(entry.wikipedia);
+        wikipediaLink.target = '_blank';
+        wikipediaLink.rel = 'noopener';
+        wikipediaLink.append(glossaryMonoIcon('icon-intel'), document.createTextNode('Wikipedia'));
+        links.appendChild(wikipediaLink);
+        if (entry.arxiv) {
+            const arxivLink = document.createElement('a');
+            arxivLink.href = glossaryExternalUrl(entry.arxiv);
+            arxivLink.target = '_blank';
+            arxivLink.rel = 'noopener';
+            arxivLink.append(glossaryMonoIcon('icon-research'), document.createTextNode('ArXiv Paper'));
+            links.appendChild(arxivLink);
+        }
+        const aiButton = document.createElement('button');
+        aiButton.className = 'glossary-btn-ai';
+        aiButton.dataset.term = key;
+        aiButton.append(glossaryMonoIcon('icon-llm'), document.createTextNode('AI Enhanced'));
+        links.appendChild(aiButton);
+
+        glossaryEntry.append(entryHeader, shortDefinition, fullDefinition, aiDefinition, links);
+        content.appendChild(glossaryEntry);
     }
 
-    html += `
-        </div>
-    `;
-
-    modal.innerHTML = html;
+    modal.append(header, search, content);
     backdrop.appendChild(modal);
     document.body.appendChild(backdrop);
 
@@ -239,7 +305,6 @@ function openGlossaryModal() {
     const closeBtn = modal.querySelector('.glossary-close');
     closeBtn.addEventListener('click', () => backdrop.remove());
 
-    const searchInput = modal.querySelector('#glossary-search-input');
     searchInput.addEventListener('input', (e) => {
         const query = e.target.value.toLowerCase();
         const entries = modal.querySelectorAll('.glossary-entry');

@@ -10,6 +10,7 @@ FROM php:8.2-apache
 
 ARG APP_UID=1001
 ARG APP_GID=1001
+ARG INSTALL_XDEBUG=0
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -18,8 +19,7 @@ RUN apt-get update \
         libfreetype6-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install gd pdo_mysql \
-    && pecl install xdebug \
-    && docker-php-ext-enable xdebug \
+    && if [ "$INSTALL_XDEBUG" = "1" ]; then pecl install xdebug && docker-php-ext-enable xdebug; fi \
     && a2enmod rewrite headers \
     && sed -i 's/^Listen 80$/Listen 8080/' /etc/apache2/ports.conf \
     && groupmod --gid "$APP_GID" www-data \
@@ -28,8 +28,14 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY docker/apache/vhost.conf /etc/apache2/sites-available/000-default.conf
+COPY docker/apache/security.conf /etc/apache2/conf-available/zzz-gq-security.conf
 COPY docker/php/conf.d/dev.ini /usr/local/etc/php/conf.d/zz-dev.ini
-COPY docker/php/conf.d/xdebug.ini /usr/local/etc/php/conf.d/zz-xdebug.ini
+COPY docker/php/conf.d/security.ini /usr/local/etc/php/conf.d/zz-security.ini
+COPY docker/php/conf.d/xdebug.ini /tmp/gq-xdebug.ini
+
+RUN a2enconf zzz-gq-security \
+    && if [ "$INSTALL_XDEBUG" = "1" ]; then cp /tmp/gq-xdebug.ini /usr/local/etc/php/conf.d/zz-xdebug.ini; fi \
+    && rm /tmp/gq-xdebug.ini
 
 WORKDIR /var/www/html
 COPY --chown=www-data:www-data . /var/www/html/

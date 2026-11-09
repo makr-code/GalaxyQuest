@@ -1,10 +1,24 @@
 'use strict';
 (function () {
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function numericId(value) {
+    const id = Number(value);
+    return Number.isSafeInteger(id) && id > 0 ? id : 0;
+  }
+
   function createTradeProposalsController(opts = {}) {
     const wm = opts.wm;
     const api = opts.api;
     const documentRef = opts.documentRef || document;
-    const esc = opts.esc || ((v) => String(v ?? ''));
+    const esc = escapeHtml;
     const showToast = opts.showToast || (() => {});
     const getAudioManager = typeof opts.getAudioManager === 'function' ? opts.getAudioManager : (() => null);
     const onLoadOverview = typeof opts.onLoadOverview === 'function' ? opts.onLoadOverview : (async () => {});
@@ -71,39 +85,54 @@
           this.showProposeDialog();
         });
         root.querySelectorAll('[data-accept]').forEach((btn) => {
-          btn.addEventListener('click', () => this.doAccept(parseInt(btn.dataset.accept, 10)));
+          btn.addEventListener('click', () => {
+            const id = numericId(btn.dataset.accept);
+            if (id > 0) this.doAccept(id);
+          });
         });
         root.querySelectorAll('[data-reject]').forEach((btn) => {
-          btn.addEventListener('click', () => this.doReject(parseInt(btn.dataset.reject, 10)));
+          btn.addEventListener('click', () => {
+            const id = numericId(btn.dataset.reject);
+            if (id > 0) this.doReject(id);
+          });
         });
         root.querySelectorAll('[data-cancel]').forEach((btn) => {
-          btn.addEventListener('click', () => this.doCancel(parseInt(btn.dataset.cancel, 10)));
+          btn.addEventListener('click', () => {
+            const id = numericId(btn.dataset.cancel);
+            if (id > 0) this.doCancel(id);
+          });
         });
       }
 
       _statusBadge(status) {
-        const map = { pending: '#bb8822', accepted: '#3a8', rejected: '#844', cancelled: '#555', expired: '#444' };
-        return `<span style="background:${map[status] ?? '#555'};border-radius:4px;padding:1px 6px;font-size:0.8em;">${esc(status)}</span>`;
+        const colors = { pending: '#bb8822', accepted: '#3a8', rejected: '#844', cancelled: '#555', expired: '#444' };
+        const value = String(status ?? '');
+        const color = Object.hasOwn(colors, value) ? colors[value] : '#555';
+        return `<span style="background:${color};border-radius:4px;padding:1px 6px;font-size:0.8em;">${esc(value)}</span>`;
       }
 
-      _fmtRes(resources) {
+      _fmtRes(resources = {}) {
         const parts = [];
-        if (resources.metal > 0) parts.push(`M ${resources.metal.toLocaleString()}`);
-        if (resources.crystal > 0) parts.push(`C ${resources.crystal.toLocaleString()}`);
-        if (resources.deuterium > 0) parts.push(`D ${resources.deuterium.toLocaleString()}`);
+        const metal = Number(resources?.metal);
+        const crystal = Number(resources?.crystal);
+        const deuterium = Number(resources?.deuterium);
+        if (Number.isFinite(metal) && metal > 0) parts.push(`M ${metal.toLocaleString()}`);
+        if (Number.isFinite(crystal) && crystal > 0) parts.push(`C ${crystal.toLocaleString()}`);
+        if (Number.isFinite(deuterium) && deuterium > 0) parts.push(`D ${deuterium.toLocaleString()}`);
         return parts.length ? parts.join('  ') : '-';
       }
 
       _renderCard(proposal) {
         const other = proposal.is_mine ? proposal.target_name : proposal.initiator_name;
         const expires = new Date(proposal.expires_at).toLocaleDateString();
+        const proposalId = numericId(proposal.id);
         const actions = [];
-        if (proposal.status === 'pending') {
+        if (proposal.status === 'pending' && proposalId > 0) {
           if (!proposal.is_mine) {
-            actions.push(`<button class="btn btn-sm" style="background:#3a8;" data-accept="${proposal.id}">Accept</button>`);
-            actions.push(`<button class="btn btn-sm" style="background:#844;" data-reject="${proposal.id}">Reject</button>`);
+            actions.push(`<button class="btn btn-sm" style="background:#3a8;" data-accept="${proposalId}">Accept</button>`);
+            actions.push(`<button class="btn btn-sm" style="background:#844;" data-reject="${proposalId}">Reject</button>`);
           } else {
-            actions.push(`<button class="btn btn-sm btn-secondary" data-cancel="${proposal.id}">Cancel</button>`);
+            actions.push(`<button class="btn btn-sm btn-secondary" data-cancel="${proposalId}">Cancel</button>`);
           }
         }
         return `<div style="border:1px solid #444;border-radius:6px;padding:8px;margin-bottom:6px;font-size:0.88em;">

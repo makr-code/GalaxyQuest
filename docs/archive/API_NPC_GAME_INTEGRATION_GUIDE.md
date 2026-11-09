@@ -82,7 +82,7 @@ function handleNpcChatWithConsequences($db, $npc_manager, $auth_token, $user_id,
     }
     
     // NEW: Parse and execute game actions
-    $game_integration = new NpcGameIntegration($db, null, null);
+    $game_integration = new NpcGameIntegration($db);
     $npc_response = $response_result['text'] ?? '';
     
     // Parse actions from response

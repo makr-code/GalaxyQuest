@@ -202,6 +202,7 @@ if (PHP_SAPI !== 'cli') {
             'type' => $buildType,
             'blueprint_id' => $blueprintId > 0 ? $blueprintId : null,
             ]);
+            // json_ok() terminates the request.
 
         default:
             json_error('Unknown action');

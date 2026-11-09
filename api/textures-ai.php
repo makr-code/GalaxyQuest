@@ -95,6 +95,7 @@ switch ($action) {
         break;
     case 'progressive':
         handle_progressive_loading($textureAiService, $requestData);
+        // handle_progressive_loading() terminates the request.
     case 'status':
         handle_status($textureAiService);
         break;

@@ -1,13 +1,27 @@
 'use strict';
 
 (function () {
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function finiteNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : 0;
+  }
+
   function createTradersDashboardController(opts = {}) {
     const wm = opts.wm;
     const api = opts.api;
     const documentRef = opts.documentRef || document;
     const uiKitSkeletonHTML = opts.uiKitSkeletonHTML || (() => '<p class="text-muted">Loading...</p>');
     const uiKitEmptyStateHTML = opts.uiKitEmptyStateHTML || (() => '');
-    const esc = opts.esc || ((value) => String(value ?? ''));
+    const esc = escapeHtml;
     const gameLog = typeof opts.gameLog === 'function' ? opts.gameLog : (() => {});
     const showToast = typeof opts.showToast === 'function' ? opts.showToast : (() => {});
     const invalidateGetCache = typeof opts.invalidateGetCache === 'function' ? opts.invalidateGetCache : (() => {});
@@ -59,10 +73,10 @@
         const opportunities = this.state.opportunities;
 
         const summaryCards = [
-          { label: 'Traders', value: Number(status.traders || traders.length || 0).toLocaleString('de-DE') },
-          { label: 'Aktive Routen', value: Number(status.routes?.active || 0).toLocaleString('de-DE') },
-          { label: 'Opportunities', value: Number(status.opportunities || opportunities.length || 0).toLocaleString('de-DE') },
-          { label: 'Gesamtprofit', value: Number(status.total_profit || 0).toLocaleString('de-DE') + ' Cr' },
+          { label: 'Traders', value: finiteNumber(status.traders || traders.length || 0).toLocaleString('de-DE') },
+          { label: 'Aktive Routen', value: finiteNumber(status.routes?.active || 0).toLocaleString('de-DE') },
+          { label: 'Opportunities', value: finiteNumber(status.opportunities || opportunities.length || 0).toLocaleString('de-DE') },
+          { label: 'Gesamtprofit', value: finiteNumber(status.total_profit || 0).toLocaleString('de-DE') + ' Cr' },
         ];
 
         const tradersRows = traders.slice(0, 8).map((trader) => {
@@ -70,9 +84,9 @@
             <tr>
               <td>${esc(trader.name || '-')}</td>
               <td>${esc(trader.faction_name || '-')}</td>
-              <td>${Number(trader.capital_credits || 0).toLocaleString('de-DE')}</td>
-              <td>${Number(trader.total_profit || 0).toLocaleString('de-DE')}</td>
-              <td>${Number(trader.active_routes || 0).toLocaleString('de-DE')}/${Number(trader.max_fleets || 0).toLocaleString('de-DE')}</td>
+              <td>${finiteNumber(trader.capital_credits || 0).toLocaleString('de-DE')}</td>
+              <td>${finiteNumber(trader.total_profit || 0).toLocaleString('de-DE')}</td>
+              <td>${finiteNumber(trader.active_routes || 0).toLocaleString('de-DE')}/${finiteNumber(trader.max_fleets || 0).toLocaleString('de-DE')}</td>
               <td>${esc(trader.strategy || '-')}</td>
             </tr>
           `;
@@ -81,12 +95,12 @@
         const routesRows = routes.slice(0, 10).map((route) => {
           return `
             <tr>
-              <td>#${Number(route.id || 0)}</td>
+              <td>#${finiteNumber(route.id || 0)}</td>
               <td>${esc(route.trader_name || '-')}</td>
               <td>${esc(route.resource_type || '-')}</td>
-              <td>${Number(route.quantity_acquired || route.quantity_planned || 0).toLocaleString('de-DE')}</td>
+              <td>${finiteNumber(route.quantity_acquired || route.quantity_planned || 0).toLocaleString('de-DE')}</td>
               <td>${esc(route.status || '-')}</td>
-              <td>${Number(route.expected_profit || route.actual_profit || 0).toLocaleString('de-DE')}</td>
+              <td>${finiteNumber(route.expected_profit || route.actual_profit || 0).toLocaleString('de-DE')}</td>
             </tr>
           `;
         }).join('');
@@ -95,10 +109,10 @@
           return `
             <tr>
               <td>${esc(opp.resource_type || '-')}</td>
-              <td>S${Number(opp.source_system || 0)} -> S${Number(opp.target_system || 0)}</td>
-              <td>${Number(opp.profit_margin || 0).toFixed(1)}%</td>
-              <td>${Number(opp.actual_qty || 0).toLocaleString('de-DE')}</td>
-              <td>${Math.round(Number(opp.confidence || 0) * 100)}%</td>
+              <td>S${finiteNumber(opp.source_system || 0)} -> S${finiteNumber(opp.target_system || 0)}</td>
+              <td>${finiteNumber(opp.profit_margin || 0).toFixed(1)}%</td>
+              <td>${finiteNumber(opp.actual_qty || 0).toLocaleString('de-DE')}</td>
+              <td>${Math.round(finiteNumber(opp.confidence || 0) * 100)}%</td>
             </tr>
           `;
         }).join('');
@@ -199,7 +213,8 @@
           btn.addEventListener('click', async (event) => {
             const actionBtn = event.currentTarget;
             const eventName = String(actionBtn?.dataset?.tradersEvent || '');
-            if (!eventName || this.isBusy) return;
+            const allowedEvents = new Set(['market_update', 'opportunity_scan', 'trader_decisions', 'route_process', 'game_tick']);
+            if (!allowedEvents.has(eventName) || this.isBusy) return;
 
             this.isBusy = true;
             try {

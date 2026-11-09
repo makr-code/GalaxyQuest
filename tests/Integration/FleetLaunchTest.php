@@ -635,6 +635,7 @@ final class FleetLaunchTest extends TestCase
             launch_fleet_dispatch($db, 10, $this->request(['ships' => ['light_fighter' => 101]]));
             self::fail('Expected rejection.');
         } catch (DomainException $error) {
+            self::assertSame(409, $error->getCode());
             self::assertTrue($db->inTransaction());
         }
         self::assertSame(999.0, (float)$db->query('SELECT crystal FROM colonies WHERE id = 1')->fetchColumn());

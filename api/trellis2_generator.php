@@ -846,6 +846,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
                 $generator = new SpeciesAvatarGenerator($db);
                 $result = $generator->generateSpeciesAvatar($speciesCode, $gender);
                 json_ok(['avatar_jobs' => $result]);
+                // json_ok() terminates the request.
             
             default:
                 json_error("Unknown action: $action", 400);

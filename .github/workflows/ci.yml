@@ -178,6 +178,7 @@ jobs:
           GQ_MIGRATION_TEST_DSN: "mysql:host=127.0.0.1;port=3306;charset=utf8mb4"
           GQ_MIGRATION_TEST_USER: root
           GQ_MIGRATION_TEST_PASSWORD: root
+          NPC_LLM_ASYNC_QUEUE_ENABLED: "1"
         run: vendor/bin/phpunit tests/Integration/MigrationRunnerMySqlTest.php --no-coverage --do-not-cache-result --fail-on-warning --fail-on-risky --fail-on-phpunit-deprecation
 
       - name: Test resource and fleet concurrency against isolated MySQL
@@ -303,6 +304,34 @@ jobs:
           curl --fail --silent --show-error --max-time 5 http://localhost:8081/health/live
           curl --fail --silent --show-error --max-time 5 http://localhost:8081/health/ready
           npx vitest run tests/js/health-http.test.js --testTimeout=10000
+
+      - name: Reject PHP and Apache version disclosure
+        run: |
+          headers="$(curl --fail --silent --show-error --max-time 5 -D - -o /dev/null http://localhost:8081/health/live)"
+          if printf '%s\n' "$headers" | grep -Eiq '^X-Powered-By:'; then
+            echo "PHP version disclosure detected in X-Powered-By." >&2
+            exit 1
+          fi
+          if printf '%s\n' "$headers" | grep -Eiq '^Server:.*[0-9]'; then
+            echo "Web server version disclosure detected in Server." >&2
+            exit 1
+          fi
+
+      - name: Require browser security headers on HTML and API responses
+        run: |
+          for url in http://localhost:8081/ http://localhost:8081/health/live; do
+            headers="$(curl --fail --silent --show-error --max-time 5 -D - -o /dev/null "$url")"
+            for expected in \
+              '^X-Frame-Options: DENY' \
+              '^X-Content-Type-Options: nosniff' \
+              '^Referrer-Policy: strict-origin-when-cross-origin' \
+              '^Permissions-Policy: camera=\(\), geolocation=\(\), microphone=\(\)'; do
+              if ! printf '%s\n' "$headers" | grep -Eiq "$expected"; then
+                echo "Missing browser security response header matching: $expected ($url)" >&2
+                exit 1
+              fi
+            done
+          done
 
       - name: Seed E2E test user
         run: |

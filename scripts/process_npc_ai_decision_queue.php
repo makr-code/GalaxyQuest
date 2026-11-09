@@ -40,6 +40,7 @@ $jobs = npc_ai_decision_queue_claim($db, $limit, $workerId);
 $processed = 0;
 $success = 0;
 $failed = 0;
+$rejected = 0;
 
 foreach ($jobs as $job) {
     $processed++;
@@ -47,91 +48,98 @@ foreach ($jobs as $job) {
     $userId = (int) ($job['user_id'] ?? 0);
     $factionId = (int) ($job['faction_id'] ?? 0);
     $claimToken = strtolower((string) ($job['claim_token'] ?? ''));
+    if (!preg_match('/^[a-f0-9]{64}$/', $claimToken)) {
+        throw new RuntimeException('Claimed NPC queue job has no valid claim token.');
+    }
 
+    $decision = [];
+    $ok = false;
+    $errorMessage = '';
+    $fencedMutation = false;
     try {
         $stmt = $db->prepare('SELECT * FROM npc_factions WHERE id = ? LIMIT 1');
         $stmt->execute([$factionId]);
         $faction = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$faction) {
-            if ($claimToken !== '') {
-                npc_ai_decision_queue_complete_claimed(
-                    $db,
-                    $queueId,
-                    $workerId,
-                    $claimToken,
-                    false,
-                    ['handled' => false, 'reason' => 'faction_not_found'],
-                    'faction_not_found'
-                );
-            } else {
-                npc_ai_decision_queue_complete(
-                    $db,
-                    $queueId,
-                    false,
-                    ['handled' => false, 'reason' => 'faction_not_found'],
-                    'faction_not_found'
-                );
+            $decision = ['handled' => false, 'reason' => 'faction_not_found'];
+            $errorMessage = 'faction_not_found';
+        } else {
+            $decision = npc_pve_llm_controller_try(
+                $db,
+                $userId,
+                $faction,
+                static function () use ($db, $queueId, $workerId, $claimToken, &$fencedMutation): bool {
+                    $fencedMutation = npc_ai_decision_queue_begin_fenced_completion(
+                        $db,
+                        $queueId,
+                        $workerId,
+                        $claimToken
+                    );
+                    return $fencedMutation;
+                }
+            );
+            if (($decision['reason'] ?? '') === 'claim_rejected') {
+                $rejected++;
+                continue;
             }
-            $failed++;
-            continue;
-        }
-
-        $decision = npc_pve_llm_controller_try($db, $userId, $faction);
-        $ok = !in_array((string) ($decision['reason'] ?? ''), ['llm_error', 'invalid_json'], true);
-        if ($claimToken !== '') {
-            npc_ai_decision_queue_complete_claimed(
-                $db,
-                $queueId,
-                $workerId,
-                $claimToken,
-                $ok,
-                $decision,
-                $ok ? '' : (string) ($decision['reason'] ?? 'decision_error')
-            );
-        } else {
-            npc_ai_decision_queue_complete(
-                $db,
-                $queueId,
-                $ok,
-                $decision,
-                $ok ? '' : (string) ($decision['reason'] ?? 'decision_error')
-            );
-        }
-
-        if ($ok) {
-            $success++;
-        } else {
-            $failed++;
+            $ok = !in_array((string) ($decision['reason'] ?? ''), ['llm_error', 'invalid_json'], true);
+            if (!$ok) {
+                $errorMessage = (string) ($decision['reason'] ?? 'decision_error');
+            }
         }
     } catch (Throwable $e) {
         $safeError = preg_replace('/\s+/', ' ', (string) $e->getMessage());
-        $safeError = substr((string) $safeError, 0, 200);
-        if ($claimToken !== '') {
-            npc_ai_decision_queue_complete_claimed(
-                $db,
-                $queueId,
-                $workerId,
-                $claimToken,
-                false,
-                ['handled' => false, 'reason' => 'worker_exception'],
-                $safeError
-            );
-        } else {
-            npc_ai_decision_queue_complete(
-                $db,
-                $queueId,
-                false,
-                ['handled' => false, 'reason' => 'worker_exception'],
-                $safeError
-            );
+        $errorMessage = substr((string) $safeError, 0, 200);
+        $decision = ['handled' => false, 'reason' => 'worker_exception'];
+        $ok = false;
+        if ($fencedMutation && $db->inTransaction()) {
+            $db->rollBack();
+            $fencedMutation = false;
         }
+    }
+
+    try {
+        $accepted = npc_ai_decision_queue_complete_claimed(
+            $db,
+            $queueId,
+            $workerId,
+            $claimToken,
+            $ok,
+            $decision,
+            $errorMessage
+        );
+        if ($fencedMutation) {
+            if ($accepted) {
+                $db->commit();
+            } else {
+                $db->rollBack();
+            }
+        }
+    } catch (Throwable $e) {
+        if ($fencedMutation && $db->inTransaction()) {
+            $db->rollBack();
+        }
+        throw $e;
+    }
+
+    $outcome = npc_ai_decision_queue_worker_outcome($accepted, $ok);
+    if ($outcome === 'success') {
+        $success++;
+    } elseif ($outcome === 'failed') {
         $failed++;
+    } else {
+        $rejected++;
     }
 }
 
 echo json_encode([
-    'ok' => true,
+    'ok' => npc_ai_decision_queue_worker_batch_ok($failed, $rejected),
     'processed' => $processed,
     'success' => $success,
     'failed' => $failed,
+    'rejected' => $rejected,
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+
+if (!npc_ai_decision_queue_worker_batch_ok($failed, $rejected)) {
+    exit(1);
+}

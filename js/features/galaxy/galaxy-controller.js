@@ -152,13 +152,20 @@ class GalaxyController {
         if (!panel) return;
 
         const sys = systemDetail.system;
-        panel.innerHTML = `
-            <h2>${sys.name || 'Unknown'}</h2>
-            <dl>
-                <dt>Spectral:</dt><dd>${sys.spectral_class}${sys.subtype || ''}</dd>
-                <dt>Planets:</dt><dd>${sys.planet_count || 0}</dd>
-            </dl>
-        `;
+        const heading = document.createElement('h2');
+        heading.textContent = sys.name || 'Unknown';
+        const details = document.createElement('dl');
+        for (const [label, value] of [
+            ['Spectral:', `${sys.spectral_class ?? ''}${sys.subtype || ''}`],
+            ['Planets:', String(sys.planet_count || 0)],
+        ]) {
+            const term = document.createElement('dt');
+            term.textContent = label;
+            const description = document.createElement('dd');
+            description.textContent = value;
+            details.append(term, description);
+        }
+        panel.replaceChildren(heading, details);
 
         panel.dispatchEvent(new CustomEvent('system-detail-rendered', { detail: systemDetail }));
     }
@@ -176,7 +183,9 @@ class GalaxyController {
         if (!spinner) {
             spinner = document.createElement('div');
             spinner.className = 'loading-spinner';
-            spinner.innerHTML = '<p>Loading systems...</p>';
+            const message = document.createElement('p');
+            message.textContent = 'Loading systems...';
+            spinner.appendChild(message);
             container.appendChild(spinner);
         }
         spinner.style.display = 'block';
@@ -203,7 +212,11 @@ class GalaxyController {
 
         const errorEl = document.createElement('div');
         errorEl.className = 'error-message';
-        errorEl.innerHTML = `<p><strong>[${error.code}]:</strong> ${error.message}</p>`;
+        const message = document.createElement('p');
+        const code = document.createElement('strong');
+        code.textContent = `[${error.code}]:`;
+        message.append(code, document.createTextNode(` ${error.message}`));
+        errorEl.appendChild(message);
 
         container.appendChild(errorEl);
         setTimeout(() => errorEl.remove(), 5000);

@@ -23,7 +23,7 @@ class NpcGameIntegrationTests extends TestCase
         $this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_THROW);
         
         // Initialize game integration
-        $this->game_integration = new NpcGameIntegration($this->db, null, null);
+        $this->game_integration = new NpcGameIntegration($this->db);
         
         // Clean test data
         $this->cleanupTestData();

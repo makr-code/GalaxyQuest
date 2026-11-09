@@ -158,8 +158,9 @@ function npc_faction_tick(PDO $db, int $userId, array $faction): void {
     // ── PRIORITY 2: LLM controller (fallback) ──────────────────────────────
     // Optional async queue path for non-blocking strategic AI decisions.
     $queued = npc_ai_decision_queue_maybe_enqueue($db, $userId, $faction);
-    if (empty($queued['queued'])) {
-        // Queue disabled/unavailable/cooldown: keep existing sync fallback behavior.
+    $queueReason = $queued['reason'];
+    if (empty($queued['queued']) && !in_array($queueReason, ['already_pending', 'lock_busy'], true)) {
+        // Fall back synchronously only when no pending queue work may exist.
         $llm = npc_pve_llm_controller_try($db, $userId, $faction);
         if (!empty($llm['handled'])) {
             return;

@@ -1,12 +1,31 @@
 'use strict';
 (function () {
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function numericId(value) {
+    const id = Number(value);
+    return Number.isSafeInteger(id) && id > 0 ? id : 0;
+  }
+
+  function finiteNumber(value, fallback = 0) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+  }
+
   function createTradeRoutesController(opts = {}) {
     const wm = opts.wm;
     const api = opts.api;
     const documentRef = opts.documentRef || document;
     const uiKitSkeletonHTML = opts.uiKitSkeletonHTML || (() => '<p class="text-muted">Loading...</p>');
     const uiKitEmptyStateHTML = opts.uiKitEmptyStateHTML || (() => '');
-    const esc = opts.esc || ((value) => String(value ?? ''));
+    const esc = escapeHtml;
     const gameLog = typeof opts.gameLog === 'function' ? opts.gameLog : (() => {});
     const invalidateGetCache = typeof opts.invalidateGetCache === 'function' ? opts.invalidateGetCache : (() => {});
     const getResourceInsightConfig = typeof opts.getResourceInsightConfig === 'function' ? opts.getResourceInsightConfig : (() => null);
@@ -118,7 +137,7 @@
 
       renderSuggestionCard(suggestion, kind) {
         const cargo = suggestion?.cargo || {};
-        const entries = Object.entries(cargo).filter(([, qty]) => Number(qty || 0) > 0);
+        const entries = Object.entries(cargo).filter(([, qty]) => finiteNumber(qty) > 0);
         const buttonLabel = suggestion?.existing_route_id ? 'Update Route' : 'Create Route';
         const tone = kind === 'processed' ? 'rgba(96,74,33,0.35)' : 'rgba(30,54,69,0.35)';
         const pressure = Math.max(
@@ -168,10 +187,10 @@
             <div style="font-size:0.75em; color:#95aab4; margin-bottom:5px;">
               ${esc(suggestion.resource_type)} • ${Number(suggestion.interval_hours || 24)}h • ${Number(suggestion.estimated_distance_ly || 0).toFixed(1)} ly
             </div>
-            <div style="font-size:0.74em; color:${priorityColor}; margin-bottom:6px;">Priority: ${priorityLabel}${priorityScore > 0 ? ` (${priorityScore.toFixed(1)})` : ''}</div>
+            <div style="font-size:0.74em; color:${priorityColor}; margin-bottom:6px;">Priority: ${esc(priorityLabel)}${priorityScore > 0 ? ` (${priorityScore.toFixed(1)})` : ''}</div>
             <div style="font-size:0.73em; color:${reasonColor}; margin-bottom:4px;">Reason: ${reasonLabel}${priorityMultiplier > 1 ? ` • x${priorityMultiplier.toFixed(2)}` : ''}</div>
             <div style="font-size:0.72em; color:#9fb8c6; margin-bottom:6px; display:flex; gap:6px; flex-wrap:wrap;">${welfareBadges.join('')}</div>
-            <button class="btn" style="width:100%; padding:4px;" data-apply-suggestion="${Number(suggestion.origin_colony_id || 0)}|${Number(suggestion.target_colony_id || 0)}|${encodeURIComponent(JSON.stringify(cargo))}|${Number(suggestion.interval_hours || 24)}">
+            <button class="btn" style="width:100%; padding:4px;" data-apply-suggestion="${numericId(suggestion.origin_colony_id)}|${numericId(suggestion.target_colony_id)}|${encodeURIComponent(JSON.stringify(cargo))}|${finiteNumber(suggestion.interval_hours, 24)}">
               ${buttonLabel}
             </button>
           </div>
@@ -180,14 +199,17 @@
 
       renderCargoBadge(resource, qty) {
         const key = String(resource || '').trim();
-        const amount = Number(qty || 0);
-        const meta = {
+        const amount = finiteNumber(qty);
+        const resourceMeta = {
           metal: { label: 'Metal', color: '#d6b170' },
           crystal: { label: 'Crystal', color: '#72d0ff' },
           deuterium: { label: 'Deuterium', color: '#8fb7ff' },
           rare_earth: { label: 'Rare Earth', color: '#d18bff' },
           food: { label: 'Food', color: '#9fd18b' },
-        }[key] || { label: key.replace(/_/g, ' '), color: '#d0d7de' };
+        };
+        const meta = Object.hasOwn(resourceMeta, key)
+          ? resourceMeta[key]
+          : { label: key.replace(/_/g, ' '), color: '#d0d7de' };
 
         return `<span style="display:inline-flex; align-items:center; gap:4px; border:1px solid rgba(255,255,255,0.15); border-radius:999px; padding:2px 8px; font-size:0.74em; color:${meta.color}; background:rgba(0,0,0,0.25);">${esc(meta.label)} ${amount.toLocaleString()}</span>`;
       }
@@ -241,8 +263,8 @@
       }
 
       renderRouteCard(route) {
-        const routeId = route.id;
-        const intervalHours = Number(route.interval_hours || 24);
+        const routeId = numericId(route.id);
+        const intervalHours = Math.max(1, finiteNumber(route.interval_hours, 24));
         const isDue = !!route.is_due;
         const traffic = this.classifyRouteTraffic(route);
 
@@ -291,12 +313,12 @@
               <div style="position:absolute; left:0; right:0; top:3px; height:2px; background:repeating-linear-gradient(90deg, rgba(255,255,255,0.85) 0 9px, transparent 9px 16px);"></div>
             </div>
             <div style="font-size: 0.85em; color: #ccc; margin-bottom: 4px;">
-              <span style="color: #ffa500;">${(route.cargo.metal || 0).toLocaleString()}</span> M
-              <span style="color: #00ff00;">${(route.cargo.crystal || 0).toLocaleString()}</span> K
-              <span style="color: #00ccff;">${(route.cargo.deuterium || 0).toLocaleString()}</span> D
+              <span style="color: #ffa500;">${finiteNumber(route.cargo?.metal).toLocaleString()}</span> M
+              <span style="color: #00ff00;">${finiteNumber(route.cargo?.crystal).toLocaleString()}</span> K
+              <span style="color: #00ccff;">${finiteNumber(route.cargo?.deuterium).toLocaleString()}</span> D
             </div>
             <div style="font-size: 0.8em; color: #aaa; margin-bottom: 6px;">
-              Interval: ${route.interval_hours}h
+              Interval: ${intervalHours}h
               ${route.is_due ? ' <span style="color: #f00;">[DUE NOW]</span>' : ''}
               ${!route.is_active ? ' <span style="color: #f80;">[PAUSED]</span>' : ''}
             </div>
@@ -316,7 +338,7 @@
 
         documentRef.querySelectorAll('[data-toggle-route]').forEach((btn) => {
           btn.addEventListener('click', async (event) => {
-            const routeId = parseInt(event.currentTarget?.dataset?.toggleRoute || '0', 10);
+            const routeId = numericId(event.currentTarget?.dataset?.toggleRoute);
             if (!routeId) return;
             await api.toggleTradeRoute(routeId);
             invalidateGetCache([/api\/trade\.php/i]);
@@ -327,7 +349,7 @@
         documentRef.querySelectorAll('[data-delete-route]').forEach((btn) => {
           btn.addEventListener('click', async (event) => {
             if (!confirm('Delete this trade route?')) return;
-            const routeId = parseInt(event.currentTarget?.dataset?.deleteRoute || '0', 10);
+            const routeId = numericId(event.currentTarget?.dataset?.deleteRoute);
             if (!routeId) return;
             await api.deleteTradeRoute(routeId);
             invalidateGetCache([/api\/trade\.php/i]);
@@ -339,10 +361,10 @@
           btn.addEventListener('click', async (event) => {
             const raw = String(event.currentTarget?.dataset?.applySuggestion || '');
             const [originIdRaw, targetIdRaw, cargoEncoded, intervalRaw] = raw.split('|');
-            const originColonyId = Number(originIdRaw || 0);
-            const targetColonyId = Number(targetIdRaw || 0);
-            const intervalHours = Number(intervalRaw || 24);
-            if (!originColonyId || !targetColonyId) return;
+            const originColonyId = numericId(originIdRaw);
+            const targetColonyId = numericId(targetIdRaw);
+            const intervalHours = finiteNumber(intervalRaw, 24);
+            if (!originColonyId || !targetColonyId || intervalHours <= 0) return;
 
             let cargo = {};
             try {

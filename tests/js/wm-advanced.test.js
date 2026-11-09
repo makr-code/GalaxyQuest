@@ -66,6 +66,42 @@ describe('WM advanced features', () => {
     WM.hideCommandPalette();
   });
 
+  it('renders command labels and shortcuts as text in the command palette', () => {
+    const WM = loadWmScript();
+    const label = '<img src=x onerror=alert(1)>';
+    const shortcut = '<svg onload=alert(1)>';
+    WM.registerCommand('unit.palette.untrusted', {
+      label,
+      shortcut,
+      execute: () => {},
+    });
+
+    WM.showCommandPalette({});
+
+    const row = Array.from(document.querySelectorAll('.wm-command-palette-row'))
+      .find((candidate) => candidate.textContent.includes(label));
+    expect(row).toBeTruthy();
+    expect(row.querySelector('img, svg')).toBeNull();
+    expect(row.querySelector('.wm-command-palette-label').textContent).toBe(label);
+    expect(row.querySelector('.wm-command-palette-shortcut').textContent).toBe(shortcut);
+    WM.hideCommandPalette();
+  });
+
+  it('renders context menu labels and metadata as text', () => {
+    const WM = loadWmScript();
+    const label = '<img src=x onerror=alert(1)>';
+    const meta = '<svg onload=alert(1)>';
+
+    WM.contextMenu([{ label, meta }], { x: 10, y: 10 });
+
+    const item = document.querySelector('.wm-context-menu-item');
+    expect(item).toBeTruthy();
+    expect(item.querySelector('img, svg')).toBeNull();
+    expect(item.querySelector('.wm-context-menu-item-main').textContent).toBe(label);
+    expect(item.querySelector('.wm-context-menu-item-meta').textContent).toBe(meta);
+    WM.closeContextMenu();
+  });
+
   it('finds commands by secondary shortcut in listCommands', () => {
     const WM = loadWmScript();
 

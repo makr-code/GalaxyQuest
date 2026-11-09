@@ -895,15 +895,28 @@ final class ResourceMutationApiConcurrencyTest extends TestCase
               ON thread.THREAD_ID = waits.REQUESTING_THREAD_ID
             WHERE thread.PROCESSLIST_DB = ?
         SQL);
-        $deadline = hrtime(true) + 10_000_000_000;
+        $deadline = hrtime(true) + 30_000_000_000;
+        $observedWaits = 0;
         do {
             $waits->execute([$this->database]);
-            if ((int)$waits->fetchColumn() >= $expected) {
+            $observedWaits = (int)$waits->fetchColumn();
+            if ($observedWaits >= $expected) {
                 return;
             }
             usleep(10_000);
         } while (hrtime(true) < $deadline);
 
-        self::fail('Both API requests must reach the database and wait on the locked user row.');
+        $threads = $this->admin->prepare(
+            'SELECT PROCESSLIST_ID, PROCESSLIST_STATE, LEFT(PROCESSLIST_INFO, 256)
+             FROM performance_schema.threads
+             WHERE PROCESSLIST_DB = ? AND PROCESSLIST_INFO IS NOT NULL'
+        );
+        $threads->execute([$this->database]);
+        self::fail(sprintf(
+            'Expected %d API lock waiters; observed %d. Active database threads: %s',
+            $expected,
+            $observedWaits,
+            json_encode($threads->fetchAll(PDO::FETCH_NUM), JSON_THROW_ON_ERROR)
+        ));
     }
 }

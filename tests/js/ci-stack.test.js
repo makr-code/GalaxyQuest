@@ -31,6 +31,7 @@ describe.skipIf(process.env.GQ_DOCKER_CONTEXT_TESTS !== '1')('actual merged CI C
     expect(services.web.healthcheck.test.slice(0, 3)).toEqual(['CMD', 'php', '-r']);
     expect(services.web.healthcheck.test[3]).toContain('/health/live');
     expect(services.web.healthcheck.test[3]).not.toContain('/health/ready');
+    expect(services.web.build.args.INSTALL_XDEBUG).toBe('0');
   });
   it('only imports base schema, leaving migrations to canonical runner', () => {
     const { services } = config('gq-ci-contract-one');
@@ -65,6 +66,16 @@ describe.skipIf(process.env.GQ_DOCKER_CONTEXT_TESTS !== '1')('actual merged CI C
 });
 
 describe('CI smoke workflow ordering and cleanup', () => {
+  it('keeps Xdebug opt-in for development builds and absent from CI/release defaults', () => {
+    const dockerfile = readFileSync(path.resolve('Dockerfile'), 'utf8');
+    const developmentCompose = readFileSync(path.resolve('docker-compose.yml'), 'utf8');
+    const ciCompose = readFileSync(path.resolve('docker-compose.ci.yml'), 'utf8');
+    expect(dockerfile).toContain('ARG INSTALL_XDEBUG=0');
+    expect(dockerfile).toContain('if [ "$INSTALL_XDEBUG" = "1" ]; then pecl install xdebug');
+    expect(developmentCompose).toContain('INSTALL_XDEBUG: ${GQ_INSTALL_XDEBUG:-1}');
+    expect(ciCompose).toContain('INSTALL_XDEBUG: "0"');
+  });
+
   it('requires native GPU lifecycle coverage on zoom changes in develop and main', () => {
     const gpuWorkflow = readFileSync(path.resolve('.github', 'workflows', 'webgpu-shader-validation.yml'), 'utf8');
     const push = gpuWorkflow.slice(gpuWorkflow.indexOf('  push:'), gpuWorkflow.indexOf('  pull_request:'));
@@ -125,6 +136,26 @@ describe('CI smoke workflow ordering and cleanup', () => {
     expect(dockerfile).toContain('cp -a dist/assets/. assets/');
     expect(dockerfile).toContain('HEALTHCHECK --interval=30s --timeout=5s');
     expect(dockerfile).toContain('/health/live');
+  });
+  it('disables PHP and Apache version disclosures in the web image', () => {
+    const dockerfile = readFileSync(path.resolve('Dockerfile'), 'utf8');
+    const phpSecurity = readFileSync(path.resolve('docker', 'php', 'conf.d', 'security.ini'), 'utf8');
+    const apacheSecurity = readFileSync(path.resolve('docker', 'apache', 'security.conf'), 'utf8');
+    expect(dockerfile).toContain('a2enconf zzz-gq-security');
+    expect(dockerfile).toContain('COPY docker/apache/security.conf /etc/apache2/conf-available/zzz-gq-security.conf');
+    expect(dockerfile).toContain('COPY docker/php/conf.d/security.ini /usr/local/etc/php/conf.d/zz-security.ini');
+    expect(phpSecurity).toMatch(/^\s*expose_php\s*=\s*Off\s*$/mi);
+    expect(phpSecurity).toMatch(/^\s*display_errors\s*=\s*Off\s*$/mi);
+    expect(phpSecurity).toMatch(/^\s*display_startup_errors\s*=\s*Off\s*$/mi);
+    expect(phpSecurity).toMatch(/^\s*log_errors\s*=\s*On\s*$/mi);
+    expect(apacheSecurity).toMatch(/^\s*ServerTokens\s+Prod\s*$/mi);
+    expect(apacheSecurity).toMatch(/^\s*ServerSignature\s+Off\s*$/mi);
+    expect(apacheSecurity).toMatch(/^\s*Header always set X-Frame-Options "DENY"\s*$/mi);
+    expect(apacheSecurity).toMatch(/^\s*Header always set X-Content-Type-Options "nosniff"\s*$/mi);
+    expect(apacheSecurity).toMatch(/^\s*Header always set Referrer-Policy "strict-origin-when-cross-origin"\s*$/mi);
+    expect(apacheSecurity).toMatch(
+      /^\s*Header always set Permissions-Policy "camera=\(\), geolocation=\(\), microphone=\(\)"\s*$/mi,
+    );
   });
   it('runs ThemisDB as a non-root user with a writable data directory', () => {
     const dockerfile = readFileSync(path.resolve('docker/themisdb/Dockerfile'), 'utf8');

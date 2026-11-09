@@ -1,12 +1,26 @@
 'use strict';
 (function () {
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function numericId(value) {
+    const id = Number(value);
+    return Number.isSafeInteger(id) && id > 0 ? id : 0;
+  }
+
   function createAlliancesController(opts = {}) {
     const wm = opts.wm;
     const api = opts.api;
     const documentRef = opts.documentRef || document;
     const uiKitSkeletonHTML = opts.uiKitSkeletonHTML;
     const uiKitEmptyStateHTML = opts.uiKitEmptyStateHTML;
-    const esc = opts.esc || ((value) => String(value ?? ''));
+    const esc = escapeHtml;
     const fmt = opts.fmt || ((value) => String(value ?? '0'));
     const showToast = opts.showToast || (() => {});
     const invalidateGetCache = typeof opts.invalidateGetCache === 'function' ? opts.invalidateGetCache : (() => {});
@@ -33,7 +47,7 @@
 
           if (this.userAlliance) {
             html += `<div style="margin-bottom: 12px; padding: 8px; background: #1a3a2a; border: 1px solid #4a8;border-radius:4px;">
-              <button class="btn" onclick="GQAlliancesController.showAllianceDetails(${this.userAlliance})" style="width:100%;text-align:left;">View My Alliance</button>
+              <button class="btn" onclick="GQAlliancesController.showAllianceDetails(${numericId(this.userAlliance)})" style="width:100%;text-align:left;">View My Alliance</button>
               <button class="btn btn-sm" style="margin-top:4px;width:100%;background:#8b4444;" onclick="GQAlliancesController.showLeaveDialog();">Leave Alliance</button>
             </div>`;
           } else {
@@ -65,11 +79,11 @@
         return `
           <div style="padding:8px;border:1px solid #666;border-radius:4px;background:#0a0a0a;">
             <div style="font-weight:bold;">[${esc(alliance.tag)}] ${esc(alliance.name)}</div>
-            <div style="font-size:0.85em;color:#bbb;margin:4px 0;">Leader ${esc(alliance.leader_name)} | ${alliance.member_count} members</div>
+            <div style="font-size:0.85em;color:#bbb;margin:4px 0;">Leader ${esc(alliance.leader_name)} | ${esc(alliance.member_count)} members</div>
             ${alliance.description ? `<div style="font-size:0.8em;color:#aaa;margin:4px 0;max-height:2.5em;overflow:hidden;">${esc(alliance.description)}</div>` : ''}
             <div style="display:flex;gap:4px;margin-top:6px;">
-              <button class="btn btn-sm" onclick="GQAlliancesController.showAllianceDetails(${alliance.id})" style="flex:1;">View</button>
-              ${canJoin ? `<button class="btn btn-sm" onclick="GQAlliancesController.joinAlliance(${alliance.id})" style="flex:1;background:#3a4;">Join</button>` : ''}
+              <button class="btn btn-sm" onclick="GQAlliancesController.showAllianceDetails(${numericId(alliance.id)})" style="flex:1;">View</button>
+              ${canJoin ? `<button class="btn btn-sm" onclick="GQAlliancesController.joinAlliance(${numericId(alliance.id)})" style="flex:1;background:#3a4;">Join</button>` : ''}
             </div>
           </div>
         `;
@@ -100,7 +114,7 @@
               </div>
               ${alliance.description ? `<div style="color:#bbb;margin-bottom:8px;">${esc(alliance.description)}</div>` : ''}
               <div style="border-bottom:1px solid #555;padding-bottom:8px;margin-bottom:8px;font-size:0.85em;color:#aaa;">
-                Leader: ID ${alliance.leader_id} | Founded: ${new Date(alliance.created_at).toLocaleDateString()}
+                Leader: ID ${esc(alliance.leader_id)} | Founded: ${esc(new Date(alliance.created_at).toLocaleDateString())}
               </div>
 
               ${isMember ? `
@@ -112,12 +126,12 @@
               <div style="margin-bottom:8px;">
                 <strong>Treasury</strong>
                 <div style="font-size:0.8em;color:#bbb;margin-top:4px;">
-                  Metal ${fmt(alliance.treasury.metal)} | Crystal ${fmt(alliance.treasury.crystal)} | Deuterium ${fmt(alliance.treasury.deuterium)} | Dark Matter ${fmt(alliance.treasury.dark_matter)}
+                  Metal ${esc(fmt(alliance.treasury.metal))} | Crystal ${esc(fmt(alliance.treasury.crystal))} | Deuterium ${esc(fmt(alliance.treasury.deuterium))} | Dark Matter ${esc(fmt(alliance.treasury.dark_matter))}
                 </div>
               </div>
 
               <div style="margin-bottom:8px;">
-                <strong>Members (${members.length})</strong>
+                <strong>Members (${esc(members.length)})</strong>
                 <div style="background:#0a0a0a;border:1px solid #555;border-radius:4px;max-height:120px;overflow-y:auto;margin-top:4px;font-size:0.8em;">
                   ${members.map((member) => `
                     <div style="padding:3px 6px;border-bottom:1px solid #333;">
@@ -133,24 +147,27 @@
                   <strong>Diplomacy Relations</strong>
                   <div style="background:#0a0a0a;border:1px solid #555;border-radius:4px;max-height:120px;overflow-y:auto;margin-top:4px;font-size:0.8em;">
                     ${relations.map((relation) => {
-                      const icon = {
+                      const relationType = String(relation.relation_type ?? '');
+                      const icons = {
                         war: 'WAR',
                         enemy: 'ENEMY',
                         alliance: 'ALLY',
                         nap: 'NAP',
                         neutral: 'NEUTRAL',
-                      }[relation.relation_type] || '?';
-                      const color = {
+                      };
+                      const colors = {
                         war: '#f44',
                         enemy: '#f44',
                         alliance: '#4f4',
                         nap: '#ff8',
                         neutral: '#888',
-                      }[relation.relation_type] || '#fff';
+                      };
+                      const icon = Object.hasOwn(icons, relationType) ? icons[relationType] : '?';
+                      const color = Object.hasOwn(colors, relationType) ? colors[relationType] : '#fff';
                       const label = relation.other_alliance_name
                         ? `[${relation.other_alliance_tag}] ${relation.other_alliance_name}`
                         : `Player: ${relation.other_user_name}`;
-                      return `<div style="padding:3px 6px;border-bottom:1px solid #333;color:${color};">${icon} ${esc(label)} (${relation.relation_type})</div>`;
+                      return `<div style="padding:3px 6px;border-bottom:1px solid #333;color:${color};">${icon} ${esc(label)} (${esc(relationType)})</div>`;
                     }).join('')}
                   </div>
                 </div>
@@ -158,16 +175,16 @@
 
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:12px;font-size:0.85em;">
                 ${isMember ? `
-                  <button class="btn btn-sm" onclick="GQAlliancesController.showChatDialog(${allianceId})" style="background:#448;">Chat</button>
-                  <button class="btn btn-sm" onclick="GQAlliancesController.showContributeDialog(${allianceId})" style="background:#484;">Contribute</button>
+                  <button class="btn btn-sm" onclick="GQAlliancesController.showChatDialog(${numericId(allianceId)})" style="background:#448;">Chat</button>
+                  <button class="btn btn-sm" onclick="GQAlliancesController.showContributeDialog(${numericId(allianceId)})" style="background:#484;">Contribute</button>
                 ` : ''}
                 ${isLeader ? `
-                  <button class="btn btn-sm" onclick="GQAlliancesController.showDiplomacyDialog(${allianceId})" style="background:#844;">Diplomacy</button>
-                  <button class="btn btn-sm" onclick="GQAlliancesController.showManageMembersDialog(${allianceId})" style="background:#448;">Members</button>
+                  <button class="btn btn-sm" onclick="GQAlliancesController.showDiplomacyDialog(${numericId(allianceId)})" style="background:#844;">Diplomacy</button>
+                  <button class="btn btn-sm" onclick="GQAlliancesController.showManageMembersDialog(${numericId(allianceId)})" style="background:#448;">Members</button>
                 ` : ''}
                 ${isMember
                   ? '<button class="btn btn-sm" onclick="GQAlliancesController.showLeaveDialog()" style="background:#844;">Leave</button>'
-                  : `<button class="btn btn-sm" onclick="GQAlliancesController.joinAlliance(${allianceId})" style="background:#3a4;">Join</button>`}
+                  : `<button class="btn btn-sm" onclick="GQAlliancesController.joinAlliance(${numericId(allianceId)})" style="background:#3a4;">Join</button>`}
                 <button class="btn btn-sm" onclick="GQAlliancesController.render()" style="background:#555;">Back</button>
               </div>
             </div>
@@ -251,15 +268,15 @@
                   <div style="margin-bottom:6px;padding:4px;border-bottom:1px solid #333;">
                     <div style="font-weight:bold;color:#8f8;">${esc(message.author_name)}</div>
                     <div style="color:#ccc;font-size:0.9em;margin:2px 0;">${esc(message.text)}</div>
-                    <div style="color:#666;font-size:0.75em;">${new Date(message.created_at).toLocaleTimeString()}</div>
+                    <div style="color:#666;font-size:0.75em;">${esc(new Date(message.created_at).toLocaleTimeString())}</div>
                   </div>
                 `).join('')}
               </div>
               <div style="display:flex;gap:4px;">
                 <input type="text" id="alliance-chat-input" placeholder="Message..." style="flex:1;padding:6px;border:1px solid #666;background:#0a0a0a;color:#fff;" />
-                <button class="btn btn-sm" onclick="GQAlliancesController.doSendChatMessage(${allianceId})">Send</button>
+                <button class="btn btn-sm" onclick="GQAlliancesController.doSendChatMessage(${numericId(allianceId)})">Send</button>
               </div>
-              <button class="btn btn-sm" onclick="GQAlliancesController.showAllianceDetails(${allianceId})" style="margin-top:8px;width:100%;">Close</button>
+              <button class="btn btn-sm" onclick="GQAlliancesController.showAllianceDetails(${numericId(allianceId)})" style="margin-top:8px;width:100%;">Close</button>
             </div>
           `;
 
@@ -300,7 +317,7 @@
             Deuterium <input type="number" id="contrib-deuterium" value="0" min="0" style="width:100%;margin-top:4px;padding:4px;border:1px solid #666;background:#0a0a0a;color:#fff;" />
           </label>
           <div style="display:flex;gap:8px;">
-            <button class="btn" onclick="GQAlliancesController.doContribute(${allianceId})" style="flex:1;">Contribute</button>
+            <button class="btn" onclick="GQAlliancesController.doContribute(${numericId(allianceId)})" style="flex:1;">Contribute</button>
             <button class="btn btn-sm" onclick="this.closest('div').remove();" style="flex:1;">Cancel</button>
           </div>
         `;
@@ -359,7 +376,7 @@
             <input type="number" id="diplo-nap-value" value="7" min="1" max="365" style="width:100%;padding:4px;border:1px solid #666;background:#0a0a0a;color:#fff;" />
           </div>
           <div style="display:flex;gap:8px;">
-            <button class="btn" onclick="GQAlliancesController.doDiplomacy(${allianceId})" style="flex:1;">Execute</button>
+            <button class="btn" onclick="GQAlliancesController.doDiplomacy(${numericId(allianceId)})" style="flex:1;">Execute</button>
             <button class="btn btn-sm" onclick="this.closest('div').remove();" style="flex:1;">Cancel</button>
           </div>
         `;
@@ -441,7 +458,7 @@
             </select>
           </div>
           <div style="display:flex;gap:8px;">
-            <button class="btn" onclick="GQAlliancesController.doManageMember(${allianceId})" style="flex:1;">Execute</button>
+            <button class="btn" onclick="GQAlliancesController.doManageMember(${numericId(allianceId)})" style="flex:1;">Execute</button>
             <button class="btn btn-sm" onclick="this.closest('div').remove();" style="flex:1;">Cancel</button>
           </div>
         `;

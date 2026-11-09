@@ -1,7 +1,7 @@
 # TRELLIS2 Asset Management Architecture
 
-**Last Updated**: 2026-08-02  
-**Version**: 1.0  
+**Last Updated**: 2026-11-09
+**Version**: 1.0
 **Status**: Legacy design notes; database/API integration is not production-ready
 
 > The previous standalone initializer dropped existing tables and disagreed
@@ -12,6 +12,13 @@
 > Directory layouts, example records, table descriptions, and flow diagrams in
 > this document are design proposals, not evidence that these paths, tables, or
 > integrations are deployed or exercised by the current runtime.
+>
+> `sql/migrate_trellis2_integration_v1.sql` is not in the canonical migration
+> manifest. Do not execute it directly or treat the commands below as a
+> deployment procedure. Its schema and data effects must be reviewed against
+> the current base schema, migrations, and API/worker contracts before a
+> reviewed forward migration can be appended and applied through
+> [`scripts/migrate.php`](../scripts/migrate.php).
 
 ---
 
@@ -413,14 +420,13 @@ Response: [
 
 ---
 
-## 🛠️ Installation & Setup
+## 🛠️ Integration Status
 
-### **1. Run Database Migration**
-```bash
-mysql -u root -p galaxyquest < sql/migrate_trellis2_integration_v1.sql
-```
+The following snippets describe the legacy proposal only. They are not an
+installation checklist and must not be used to enable persistence before the
+canonical schema and runtime paths are reviewed.
 
-### **2. Load PHP Helper**
+### **Legacy PHP helper example**
 ```php
 require_once __DIR__ . '/api/trellis2_asset_manager.php';
 
@@ -500,16 +506,12 @@ FROM asset_generations;
 
 ---
 
-## ✅ Verification Checklist
+## ⛔ Production Enablement Gates
 
-- [ ] `sql/migrate_trellis2_integration_v1.sql` executed without errors
-- [ ] All 6 tables created (`vessel_designs`, `asset_generations`, etc.)
-- [ ] All views created (`v_user_designs_with_status`, etc.)
-- [ ] All triggers created (quota updates, audit logging)
-- [ ] `api/trellis2_asset_manager.php` loaded in relevant endpoints
-- [ ] TRELLIS2 Docker service running (`docker compose up trellis2 -d`)
-- [ ] Generated directories exist (`generated/designs/`, `generated/trellis2/models/`)
-- [ ] Test creation and queueing of a design
+- [ ] Reconcile the legacy SQL with `schema.sql` and every canonical migration; document existing installations and data-adoption requirements.
+- [ ] Review the complete schema and side effects against current API/worker contracts; append a forward migration to [`config/migrations_manifest.php`](../config/migrations_manifest.php) only after compatibility and recovery review.
+- [ ] Apply and verify through the canonical migration runner; do not run the legacy SQL file directly.
+- [ ] Add isolated MySQL tests for fresh install, partial legacy schema/data adoption, repeatability, ownership, and worker lifecycle before enabling persistence.
 - [ ] Test cache hit detection on duplicate prompt
 
 ---

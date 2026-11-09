@@ -107,6 +107,23 @@ describe('AllianceWarController._renderListHtml – with wars', () => {
     expect(html).toContain('The Coalition War');
   });
 
+  it('escapes alliance war identifiers and alliance names despite an identity escaper', () => {
+    const ctrl = window.GQRuntimeWarController.createAllianceWarController({ esc: (value) => String(value ?? '') });
+    ctrl.state.wars = [{
+      ...sampleWar,
+      war_id: '7" onclick="alert(1)',
+      name: '<img src=x onerror=alert(1)>',
+      side_a: [{ alliance_id: 1, name: '<svg onload=alert(1)>', tag: 'IF' }],
+    }];
+    const host = document.createElement('div');
+    host.innerHTML = ctrl._renderListHtml();
+
+    expect(host.querySelector('img, svg')).toBeNull();
+    expect(host.querySelector('[onclick]')).toBeNull();
+    expect(host.querySelector('td:nth-child(2)').textContent).toBe('<img src=x onerror=alert(1)>');
+    expect(host.querySelector('td:nth-child(3)').textContent).toContain('<svg onload=alert(1)>');
+  });
+
   it('renders side A and side B alliance tags', () => {
     const ctrl = window.GQRuntimeWarController.createAllianceWarController({ esc });
     ctrl.state.wars = [sampleWar];

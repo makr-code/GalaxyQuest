@@ -155,4 +155,7 @@ return [
     'migrate_ship_wreck_fields_v1.sql',
     'migrate_live_battle_journal_v1.sql',
     'migrate_live_battle_journal_participants_v1.sql',
+
+    // ── NPC worker replay protection ─────────────────────────────────────
+    'migrate_npc_ai_worker_nonce_v1.sql',
 ];

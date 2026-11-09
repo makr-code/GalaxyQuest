@@ -111,7 +111,7 @@ function launch_fleet_dispatch_locked(PDO $db, int $uid, array $body): array
         $row->execute([$originCid, $type]);
         $available = $row->fetch();
         if (!$available || (int)$available['count'] < $count) {
-            throw new DomainException("Not enough $type available.");
+            throw new DomainException("Not enough $type available.", 409);
         }
         $shipsToSend[$type] = $count;
     }

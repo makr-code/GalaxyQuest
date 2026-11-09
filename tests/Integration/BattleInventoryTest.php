@@ -63,6 +63,27 @@ function battle_reports_has_fleet_id(PDO $db): bool
     return false;
 }
 
+final class BattleEncounterService
+{
+    public function __construct(PDO $db)
+    {
+    }
+
+    public function begin(
+        array $fleet,
+        array $target,
+        array $attackerShips,
+        array $defenderShips,
+        string $seed
+    ): ?int {
+        return null;
+    }
+
+    public function complete(int $id, int $reportId, array $report): void
+    {
+    }
+}
+
 function check_and_update_achievements(PDO $db, int $userId): void
 {
 }
@@ -114,6 +135,7 @@ final class BattleInventoryTest extends TestCase
                     'ON CONFLICT(colony_id,type) DO UPDATE SET count=count+?',
                     $query
                 );
+                $query = str_ireplace(' FOR UPDATE', '', $query);
                 return parent::prepare($query, $options);
             }
         };

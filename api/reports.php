@@ -121,7 +121,8 @@ function action_battle_reports(int $uid): never {
     json_ok(['battle_reports' => $reports]);
 }
 
-function battle_report_replay_availability_sql(PDO $db, ?bool $featureEnabled = null): string {
+function battle_report_replay_availability_sql(PDO $db, ?bool $featureEnabled = null): string
+{
     if ($featureEnabled === null) {
         $featureEnabled = defined('BATTLE_ENCOUNTERS_ENABLED') && BATTLE_ENCOUNTERS_ENABLED;
     }

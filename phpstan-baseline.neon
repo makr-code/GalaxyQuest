@@ -697,12 +697,6 @@ parameters:
 			path: api/npc_ai.php
 
 		-
-			message: '#^Strict comparison using \!\=\= between \(PDOStatement\|false\) and null will always evaluate to true\.$#'
-			identifier: notIdentical.alwaysTrue
-			count: 1
-			path: api/npc_ai_decision_queue.php
-
-		-
 			message: '#^Parameter \#3 \$faction of function npc_pve_apply_quest_action expects array, string given\.$#'
 			identifier: argument.type
 			count: 1

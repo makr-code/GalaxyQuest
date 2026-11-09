@@ -6,6 +6,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use GalaxyQuest\Economy\OnDemandEconomy;
 
+require_once __DIR__ . '/../../api/npc_ai_decision_queue.php';
+
 final class MigrationRunnerMySqlTest extends TestCase
 {
     private ?PDO $admin = null;
@@ -209,6 +211,351 @@ final class MigrationRunnerMySqlTest extends TestCase
         } catch (PDOException $error) {
             $this->assertSame('23000', $error->getCode());
         }
+    }
+
+    public function testNpcAiWorkerNonceMigrationIsRepeatableAndEnforcesNonceUniqueness(): void
+    {
+        $sql = $this->readSqlForTestDatabase('migrate_npc_ai_worker_nonce_v1.sql');
+        $runner = $this->buildRunner($sql);
+        $this->assertCount(1, $runner->runUp());
+        $this->assertSame([], $runner->runUp());
+        $this->db->prepare(
+            'INSERT INTO npc_ai_worker_nonce (nonce_hash, worker_id) VALUES (?, ?)'
+        )->execute([str_repeat('a', 64), 'worker-1']);
+        $this->db->exec($sql);
+        $duplicate = $this->db->prepare(
+            'INSERT IGNORE INTO npc_ai_worker_nonce (nonce_hash, worker_id) VALUES (?, ?)'
+        );
+        $duplicate->execute([str_repeat('a', 64), 'worker-1']);
+        $this->assertSame(0, $duplicate->rowCount());
+        $this->assertSame(1, (int)$this->db->query('SELECT COUNT(*) FROM npc_ai_worker_nonce')->fetchColumn());
+        $this->assertSame('InnoDB', $this->db->query(
+            "SELECT ENGINE FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='npc_ai_worker_nonce'"
+        )->fetchColumn());
+    }
+
+    public function testNpcAiQueueClaimFailureRollsBackAndDoesNotUseAnUnlockedFallback(): void
+    {
+        $this->db->exec(
+            "CREATE TABLE npc_ai_decision_queue (
+                id BIGINT PRIMARY KEY,
+                status VARCHAR(16) NOT NULL DEFAULT 'queued',
+                attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+                max_attempts TINYINT UNSIGNED NOT NULL DEFAULT 3,
+                locked_at DATETIME NULL,
+                completed_at DATETIME NULL,
+                error_message VARCHAR(255) NOT NULL DEFAULT '',
+                claimed_by_worker_id VARCHAR(64) NULL,
+                claim_token CHAR(64) NULL,
+                claim_expires_at DATETIME NULL
+             ) ENGINE=InnoDB"
+        );
+
+        try {
+            npc_ai_decision_queue_claim_with_locking($this->db, 1, 'worker-1');
+            $this->fail('A failed locked claim query must be reported.');
+        } catch (PDOException $error) {
+            $this->assertSame('42S22', $error->getCode());
+        }
+
+        $this->assertFalse($this->db->inTransaction());
+    }
+
+    public function testNpcAiWorkerClaimRequiresTheLeaseAndFencingSchema(): void
+    {
+        $this->db->exec(
+            "CREATE TABLE npc_ai_decision_queue (
+                id BIGINT PRIMARY KEY,
+                user_id INT NOT NULL,
+                faction_id INT NOT NULL,
+                attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+                max_attempts TINYINT UNSIGNED NOT NULL DEFAULT 3,
+                payload_json JSON NULL,
+                status VARCHAR(16) NOT NULL DEFAULT 'queued',
+                available_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+             ) ENGINE=InnoDB"
+        );
+        $this->db->exec(
+            "INSERT INTO npc_ai_decision_queue (id, user_id, faction_id) VALUES (1, 1, 1)"
+        );
+
+        try {
+            npc_ai_decision_queue_claim_with_locking($this->db, 1, 'worker-1');
+            $this->fail('A worker must not claim without fencing fields.');
+        } catch (RuntimeException $error) {
+            $this->assertSame('NPC worker claim schema is unavailable.', $error->getMessage());
+        }
+
+        $job = $this->db->query(
+            'SELECT status, attempts FROM npc_ai_decision_queue WHERE id = 1'
+        )->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame('queued', $job['status']);
+        $this->assertSame(0, (int) $job['attempts']);
+        $this->assertFalse($this->db->inTransaction());
+    }
+
+    public function testNpcAiQueueClaimRecoversExpiredLeasesWithoutStealingActiveClaims(): void
+    {
+        $this->db->exec(
+            "CREATE TABLE npc_ai_decision_queue (
+                id BIGINT PRIMARY KEY,
+                user_id INT NOT NULL,
+                faction_id INT NOT NULL,
+                attempts TINYINT UNSIGNED NOT NULL,
+                max_attempts TINYINT UNSIGNED NOT NULL,
+                payload_json JSON NULL,
+                status VARCHAR(16) NOT NULL,
+                available_at DATETIME NOT NULL,
+                locked_at DATETIME NULL,
+                completed_at DATETIME NULL,
+                error_message VARCHAR(255) NOT NULL DEFAULT '',
+                claimed_by_worker_id VARCHAR(64) NULL,
+                claim_token CHAR(64) NULL,
+                claim_expires_at DATETIME NULL,
+                INDEX idx_npc_ai_queue_claim_token (claim_token)
+             ) ENGINE=InnoDB"
+        );
+        $insert = $this->db->prepare(
+            "INSERT INTO npc_ai_decision_queue
+             (id, user_id, faction_id, attempts, max_attempts, status, available_at, locked_at,
+              claimed_by_worker_id, claim_token, claim_expires_at)
+             VALUES (?, 1, 1, ?, ?, 'processing', NOW(), NOW(), ?, ?, ?)"
+        );
+        $insert->execute([
+            1,
+            1,
+            3,
+            'old-worker',
+            str_repeat('a', 64),
+            date('Y-m-d H:i:s', time() - 60),
+        ]);
+        $insert->execute([
+            2,
+            3,
+            3,
+            'old-worker',
+            str_repeat('b', 64),
+            date('Y-m-d H:i:s', time() - 60),
+        ]);
+        $insert->execute([
+            3,
+            1,
+            3,
+            'active-worker',
+            str_repeat('c', 64),
+            date('Y-m-d H:i:s', time() + 600),
+        ]);
+
+        $claimed = npc_ai_decision_queue_claim_with_locking($this->db, 1, 'new-worker');
+        $this->assertCount(1, $claimed);
+        $this->assertSame(1, (int) $claimed[0]['id']);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $claimed[0]['claim_token']);
+
+        $retryable = $this->db->query(
+            'SELECT status, attempts, claimed_by_worker_id, claim_token, claim_expires_at
+             FROM npc_ai_decision_queue WHERE id = 1'
+        )->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame('processing', $retryable['status']);
+        $this->assertSame(2, (int) $retryable['attempts']);
+        $this->assertSame('new-worker', $retryable['claimed_by_worker_id']);
+        $this->assertSame($claimed[0]['claim_token'], $retryable['claim_token']);
+        $this->assertNotNull($retryable['claim_expires_at']);
+
+        $exhausted = $this->db->query(
+            'SELECT status, attempts, completed_at, error_message, claim_token
+             FROM npc_ai_decision_queue WHERE id = 2'
+        )->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame('dead', $exhausted['status']);
+        $this->assertSame(3, (int) $exhausted['attempts']);
+        $this->assertNotNull($exhausted['completed_at']);
+        $this->assertSame('Worker claim expired after maximum attempts.', $exhausted['error_message']);
+        $this->assertNull($exhausted['claim_token']);
+
+        $active = $this->db->query(
+            'SELECT status, attempts, claimed_by_worker_id, claim_token
+             FROM npc_ai_decision_queue WHERE id = 3'
+        )->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame('processing', $active['status']);
+        $this->assertSame(1, (int) $active['attempts']);
+        $this->assertSame('active-worker', $active['claimed_by_worker_id']);
+        $this->assertSame(str_repeat('c', 64), $active['claim_token']);
+    }
+
+    public function testNpcAiWorkerCannotCompleteAnExpiredClaim(): void
+    {
+        $this->db->exec(
+            "CREATE TABLE npc_ai_decision_queue (
+                id BIGINT PRIMARY KEY,
+                status VARCHAR(16) NOT NULL,
+                attempts TINYINT UNSIGNED NOT NULL,
+                max_attempts TINYINT UNSIGNED NOT NULL,
+                locked_at DATETIME NULL,
+                available_at DATETIME NOT NULL,
+                completed_at DATETIME NULL,
+                error_message VARCHAR(255) NOT NULL DEFAULT '',
+                result_json JSON NULL,
+                claimed_by_worker_id VARCHAR(64) NULL,
+                claim_token CHAR(64) NULL,
+                claim_expires_at DATETIME NULL
+             ) ENGINE=InnoDB"
+        );
+        $insert = $this->db->prepare(
+            "INSERT INTO npc_ai_decision_queue
+             (id, status, attempts, max_attempts, available_at, claimed_by_worker_id, claim_token, claim_expires_at)
+             VALUES (?, 'processing', 1, 3, NOW(), 'worker-1', ?, ?)"
+        );
+        $expiredToken = str_repeat('d', 64);
+        $activeToken = str_repeat('e', 64);
+        $insert->execute([1, $expiredToken, date('Y-m-d H:i:s', time() - 60)]);
+        $insert->execute([2, $activeToken, date('Y-m-d H:i:s', time() + 600)]);
+
+        $this->assertFalse(npc_ai_decision_queue_complete_claimed(
+            $this->db,
+            1,
+            'worker-1',
+            $expiredToken,
+            true,
+            ['late' => true]
+        ));
+        $this->assertTrue(npc_ai_decision_queue_complete_claimed(
+            $this->db,
+            2,
+            'worker-1',
+            $activeToken,
+            true,
+            ['accepted' => true]
+        ));
+
+        $expired = $this->db->query(
+            'SELECT status, result_json, claim_token FROM npc_ai_decision_queue WHERE id = 1'
+        )->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame('processing', $expired['status']);
+        $this->assertNull($expired['result_json']);
+        $this->assertSame($expiredToken, $expired['claim_token']);
+
+        $active = $this->db->query(
+            'SELECT status, result_json, claim_token FROM npc_ai_decision_queue WHERE id = 2'
+        )->fetch(PDO::FETCH_ASSOC);
+        $this->assertSame('done', $active['status']);
+        $this->assertSame(['accepted' => true], json_decode((string) $active['result_json'], true));
+        $this->assertNull($active['claim_token']);
+    }
+
+    public function testNpcAiWorkerFencesSideEffectsAndCompletionInOneTransaction(): void
+    {
+        $this->db->exec(
+            "CREATE TABLE npc_ai_decision_queue (
+                id BIGINT PRIMARY KEY,
+                status VARCHAR(16) NOT NULL,
+                attempts TINYINT UNSIGNED NOT NULL,
+                max_attempts TINYINT UNSIGNED NOT NULL,
+                locked_at DATETIME NULL,
+                available_at DATETIME NOT NULL,
+                completed_at DATETIME NULL,
+                error_message VARCHAR(255) NOT NULL DEFAULT '',
+                result_json JSON NULL,
+                claimed_by_worker_id VARCHAR(64) NULL,
+                claim_token CHAR(64) NULL,
+                claim_expires_at DATETIME NULL
+             ) ENGINE=InnoDB"
+        );
+        $insert = $this->db->prepare(
+            "INSERT INTO npc_ai_decision_queue
+             (id, status, attempts, max_attempts, available_at, claimed_by_worker_id, claim_token, claim_expires_at)
+             VALUES (?, 'processing', 1, 3, NOW(), 'worker-1', ?, ?)"
+        );
+        $activeToken = str_repeat('f', 64);
+        $expiredToken = str_repeat('a', 64);
+        $insert->execute([1, $activeToken, date('Y-m-d H:i:s', time() + 30)]);
+        $insert->execute([2, $expiredToken, date('Y-m-d H:i:s', time() - 60)]);
+
+        $this->assertTrue(npc_ai_decision_queue_begin_fenced_completion(
+            $this->db,
+            1,
+            'worker-1',
+            $activeToken
+        ));
+        $this->assertTrue($this->db->inTransaction());
+        $remainingLease = (int) $this->db->query(
+            'SELECT TIMESTAMPDIFF(SECOND, NOW(), claim_expires_at)
+             FROM npc_ai_decision_queue WHERE id = 1'
+        )->fetchColumn();
+        $this->assertGreaterThanOrEqual(59, $remainingLease);
+
+        $this->assertTrue(npc_ai_decision_queue_complete_claimed(
+            $this->db,
+            1,
+            'worker-1',
+            $activeToken,
+            true,
+            ['action' => 'send_message']
+        ));
+        $this->db->commit();
+        $this->assertSame('done', $this->db->query(
+            'SELECT status FROM npc_ai_decision_queue WHERE id = 1'
+        )->fetchColumn());
+
+        $this->assertFalse(npc_ai_decision_queue_begin_fenced_completion(
+            $this->db,
+            2,
+            'worker-1',
+            $expiredToken
+        ));
+        $this->assertFalse($this->db->inTransaction());
+        $this->assertSame('processing', $this->db->query(
+            'SELECT status FROM npc_ai_decision_queue WHERE id = 2'
+        )->fetchColumn());
+    }
+
+    public function testNpcAiQueueEnqueueSerializesDeduplicationAndHonorsLockContention(): void
+    {
+        $this->db->exec(
+            "CREATE TABLE npc_ai_decision_queue (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                faction_id INT NOT NULL,
+                source_scope VARCHAR(32) NOT NULL,
+                status VARCHAR(16) NOT NULL,
+                attempts TINYINT UNSIGNED NOT NULL,
+                max_attempts TINYINT UNSIGNED NOT NULL,
+                available_at DATETIME NOT NULL,
+                dedupe_key VARCHAR(128) NOT NULL,
+                payload_json JSON NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+             ) ENGINE=InnoDB"
+        );
+        $payload = ['id' => 7, 'code' => 'test_faction'];
+        $first = npc_ai_decision_queue_maybe_enqueue($this->db, 42, $payload);
+        $second = npc_ai_decision_queue_maybe_enqueue($this->db, 42, $payload);
+
+        $this->assertTrue($first['queued']);
+        $this->assertSame('already_pending', $second['reason']);
+        $this->assertSame(1, (int) $this->db->query(
+            'SELECT COUNT(*) FROM npc_ai_decision_queue'
+        )->fetchColumn());
+
+        $lockName = npc_ai_decision_queue_dedupe_lock_name(npc_ai_decision_dedupe_key(43, 7));
+        $contender = new PDO(
+            (string) getenv('GQ_MIGRATION_TEST_DSN'),
+            getenv('GQ_MIGRATION_TEST_USER') ?: 'root',
+            getenv('GQ_MIGRATION_TEST_PASSWORD') ?: '',
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]
+        );
+        $contender->exec('USE `' . $this->database . '`');
+        $held = $contender->prepare('SELECT GET_LOCK(?, 0)');
+        $held->execute([$lockName]);
+        $this->assertSame(1, (int) $held->fetchColumn());
+
+        $blocked = npc_ai_decision_queue_maybe_enqueue($this->db, 43, $payload);
+        $this->assertSame(['queued' => false, 'reason' => 'lock_busy'], $blocked);
+        $this->assertSame(1, (int) $this->db->query(
+            'SELECT COUNT(*) FROM npc_ai_decision_queue'
+        )->fetchColumn());
+
+        $release = $contender->prepare('SELECT RELEASE_LOCK(?)');
+        $release->execute([$lockName]);
+        $this->assertSame(1, (int) $release->fetchColumn());
     }
 
     private function actorAdoptionRunner(): MigrationRunner
@@ -1017,6 +1364,23 @@ final class MigrationRunnerMySqlTest extends TestCase
             "SELECT COUNT(*) FROM information_schema.COLUMNS
              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planets' AND COLUMN_NAME = 'user_id'"
         )->fetchColumn());
+    }
+
+    public function testMigrationUseDirectiveCannotRedirectTheSelectedDatabase(): void
+    {
+        $unselectedDatabase = 'gq_unselected_' . bin2hex(random_bytes(5));
+        $runner = $this->buildRunner(
+            'USE `' . $unselectedDatabase . '`; CREATE TABLE selected_database_probe (id INT)'
+        );
+
+        $this->assertCount(1, $runner->runUp());
+        $this->assertSame(
+            1,
+            (int)$this->db->query(
+                "SELECT COUNT(*) FROM information_schema.TABLES
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'selected_database_probe'"
+            )->fetchColumn()
+        );
     }
 
     private function gameplayPoliticsRunner(): MigrationRunner

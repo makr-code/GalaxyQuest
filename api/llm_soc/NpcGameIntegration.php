@@ -1,6 +1,8 @@
+<?php
+
 /**
  * NPC Game Integration System
- * 
+ *
  * Allows NPCs to influence game state through dialogue:
  * - Grant resources/credits
  * - Modify production settings
@@ -12,31 +14,26 @@
 
 namespace GalaxyQuest\NPC;
 
-use GalaxyQuest\API\GameEngine;
-use GalaxyQuest\API\Economy;
-use GalaxyQuest\API\Buildings;
-use GalaxyQuest\API\Research;
-use GalaxyQuest\API\Diplomacy;
+use PDO;
 
-class NpcGameIntegration {
-    
+class NpcGameIntegration
+{
     // Action types that NPCs can trigger
-    const ACTION_GRANT_CREDITS = 'grant_credits';
-    const ACTION_GRANT_RESOURCES = 'grant_resources';
-    const ACTION_MODIFY_PRODUCTION = 'modify_production';
-    const ACTION_BUILD_BUILDING = 'build_building';
-    const ACTION_ADD_RESEARCH = 'add_research';
-    const ACTION_ADJUST_STANDING = 'adjust_standing';
-    const ACTION_TRIGGER_EVENT = 'trigger_event';
-    const ACTION_UNLOCK_TECH = 'unlock_tech';
-    const ACTION_GRANT_FLEET = 'grant_fleet';
-    const ACTION_MODIFY_TAX = 'modify_tax';
-    const ACTION_SABOTAGE_COLONY = 'sabotage_colony';
-    
-    private $db;
-    private $gameEngine;
-    private $logger;
-    
+    public const ACTION_GRANT_CREDITS = 'grant_credits';
+    public const ACTION_GRANT_RESOURCES = 'grant_resources';
+    public const ACTION_MODIFY_PRODUCTION = 'modify_production';
+    public const ACTION_BUILD_BUILDING = 'build_building';
+    public const ACTION_ADD_RESEARCH = 'add_research';
+    public const ACTION_ADJUST_STANDING = 'adjust_standing';
+    public const ACTION_TRIGGER_EVENT = 'trigger_event';
+    public const ACTION_UNLOCK_TECH = 'unlock_tech';
+    public const ACTION_GRANT_FLEET = 'grant_fleet';
+    public const ACTION_MODIFY_TAX = 'modify_tax';
+    public const ACTION_SABOTAGE_COLONY = 'sabotage_colony';
+
+    private PDO $db;
+    private mixed $logger;
+
     // Constraints: max values per action type
     private $actionConstraints = [
         self::ACTION_GRANT_CREDITS => ['max' => 100000, 'per_day' => 300000],
@@ -50,25 +47,26 @@ class NpcGameIntegration {
         self::ACTION_MODIFY_TAX => ['max_change' => 0.1], // ±10%
         self::ACTION_SABOTAGE_COLONY => ['enabled' => false], // Requires special faction relation
     ];
-    
-    public function __construct($db, GameEngine $gameEngine, $logger = null) {
+
+    public function __construct(PDO $db, mixed $logger = null)
+    {
         $this->db = $db;
-        $this->gameEngine = $gameEngine;
         $this->logger = $logger;
     }
-    
+
     /**
      * Parse NPC response and extract game actions
-     * 
+     *
      * @param string $npcId NPC identifier
      * @param string $factionCode Faction code
      * @param int $userId User ID
      * @param string $npcResponse The NPC's dialogue response
      * @return array Actions to execute
      */
-    public function parseActionsFromResponse($npcId, $factionCode, $userId, $npcResponse) {
+    public function parseActionsFromResponse($npcId, $factionCode, $userId, $npcResponse)
+    {
         $actions = [];
-        
+
         // Parse response for action tags/patterns
         // Format: [ACTION_TYPE:params]
         // Examples:
@@ -76,7 +74,7 @@ class NpcGameIntegration {
         //   [grant_resources:food=1000,energy=500]
         //   [adjust_standing:+5]
         //   [trigger_event:trade_opportunity]
-        
+
         $pattern = '/\[([a-z_]+):([^\]]+)\]/i';
         if (preg_match_all($pattern, $npcResponse, $matches)) {
             foreach ($matches[1] as $idx => $actionType) {
@@ -87,24 +85,25 @@ class NpcGameIntegration {
                 }
             }
         }
-        
+
         // Also detect implicit actions from sentiment/keywords
         $implicitActions = $this->detectImplicitActions($factionCode, $npcResponse);
         $actions = array_merge($actions, $implicitActions);
-        
+
         return $actions;
     }
-    
+
     /**
      * Validate and execute an action
      */
-    public function executeAction($userId, $npcId, $factionCode, $action) {
+    public function executeAction($userId, $npcId, $factionCode, $action)
+    {
         try {
             // Validate action format
             if (!isset($action['type'])) {
                 throw new \Exception('Action missing type');
             }
-            
+
             // Check rate limiting
             if (!$this->checkRateLimit($userId, $npcId, $action['type'])) {
                 return [
@@ -112,7 +111,7 @@ class NpcGameIntegration {
                     'reason' => 'Rate limit exceeded for action: ' . $action['type'],
                 ];
             }
-            
+
             // Check constraints
             if (!$this->validateConstraints($factionCode, $action)) {
                 return [
@@ -120,7 +119,7 @@ class NpcGameIntegration {
                     'reason' => 'Action violates constraints',
                 ];
             }
-            
+
             // Execute based on type
             $result = null;
             switch ($action['type']) {
@@ -145,32 +144,33 @@ class NpcGameIntegration {
                 default:
                     return ['ok' => false, 'reason' => 'Unknown action type'];
             }
-            
+
             // Log action
             $this->logNpcAction($userId, $npcId, $factionCode, $action, $result);
-            
+
             return $result ?? ['ok' => false, 'reason' => 'Action not implemented'];
         } catch (\Exception $e) {
             $this->log('error', 'Action execution failed: ' . $e->getMessage());
             return ['ok' => false, 'error' => $e->getMessage()];
         }
     }
-    
+
     /**
      * Grant credits to player
      */
-    private function actionGrantCredits($userId, $action) {
+    private function actionGrantCredits($userId, $action)
+    {
         $amount = (int) ($action['amount'] ?? 0);
-        
+
         if ($amount <= 0 || $amount > $this->actionConstraints[self::ACTION_GRANT_CREDITS]['max']) {
             return ['ok' => false, 'reason' => 'Invalid amount'];
         }
-        
+
         try {
             $query = "UPDATE users SET credits = credits + ? WHERE id = ?";
             $stmt = $this->db->prepare($query);
             $stmt->execute([$amount, $userId]);
-            
+
             return [
                 'ok' => true,
                 'action' => 'credits_granted',
@@ -181,40 +181,41 @@ class NpcGameIntegration {
             return ['ok' => false, 'error' => $e->getMessage()];
         }
     }
-    
+
     /**
      * Grant resources to player
      */
-    private function actionGrantResources($userId, $action) {
+    private function actionGrantResources($userId, $action)
+    {
         $resources = $action['resources'] ?? [];
         if (empty($resources)) {
             return ['ok' => false, 'reason' => 'No resources specified'];
         }
-        
+
         $colonyId = (int) ($action['colony_id'] ?? 0);
         if ($colonyId <= 0) {
             return ['ok' => false, 'reason' => 'Colony ID required'];
         }
-        
+
         try {
             $updates = [];
             foreach ($resources as $type => $amount) {
                 if ($amount <= 0 || $amount > $this->actionConstraints[self::ACTION_GRANT_RESOURCES]['max']) {
                     continue;
                 }
-                
+
                 $safeType = preg_replace('/[^a-z_]/', '', strtolower($type));
                 $updates[] = "{$safeType} = {$safeType} + {$amount}";
             }
-            
+
             if (empty($updates)) {
                 return ['ok' => false, 'reason' => 'No valid resources'];
             }
-            
+
             $query = "UPDATE colonies SET " . implode(', ', $updates) . " WHERE id = ? AND user_id = ?";
             $stmt = $this->db->prepare($query);
             $stmt->execute([$colonyId, $userId]);
-            
+
             return [
                 'ok' => true,
                 'action' => 'resources_granted',
@@ -225,32 +226,33 @@ class NpcGameIntegration {
             return ['ok' => false, 'error' => $e->getMessage()];
         }
     }
-    
+
     /**
      * Modify colony production settings
      */
-    private function actionModifyProduction($userId, $action) {
+    private function actionModifyProduction($userId, $action)
+    {
         $colonyId = (int) ($action['colony_id'] ?? 0);
         $buildingType = $action['building_type'] ?? '';
         $multiplier = (float) ($action['multiplier'] ?? 1.0);
-        
+
         if ($colonyId <= 0 || empty($buildingType)) {
             return ['ok' => false, 'reason' => 'Colony ID and building type required'];
         }
-        
+
         if ($multiplier < 0.5 || $multiplier > 1.5) {
             return ['ok' => false, 'reason' => 'Multiplier out of range'];
         }
-        
+
         try {
             $query = "UPDATE colony_buildings 
                      SET production_multiplier = production_multiplier * ? 
                      WHERE colony_id = ? AND building_type = ? 
                      AND (SELECT user_id FROM colonies WHERE id = ?) = ?";
-            
+
             $stmt = $this->db->prepare($query);
             $stmt->execute([$multiplier, $colonyId, $buildingType, $colonyId, $userId]);
-            
+
             return [
                 'ok' => true,
                 'action' => 'production_modified',
@@ -261,31 +263,32 @@ class NpcGameIntegration {
             return ['ok' => false, 'error' => $e->getMessage()];
         }
     }
-    
+
     /**
      * Adjust faction standing
      */
-    private function actionAdjustStanding($userId, $factionCode, $action) {
+    private function actionAdjustStanding($userId, $factionCode, $action)
+    {
         $change = (int) ($action['change'] ?? 0);
-        
+
         if (abs($change) > $this->actionConstraints[self::ACTION_ADJUST_STANDING]['max_change']) {
             return ['ok' => false, 'reason' => 'Standing change too large'];
         }
-        
+
         try {
             $query = "UPDATE faction_relations 
                      SET standing = standing + ? 
                      WHERE user_id = ? AND faction_code = ?";
-            
+
             $stmt = $this->db->prepare($query);
             $stmt->execute([$change, $userId, $factionCode]);
-            
+
             return [
                 'ok' => true,
                 'action' => 'standing_adjusted',
                 'faction' => $factionCode,
                 'change' => $change,
-                'message' => $change > 0 
+                'message' => $change > 0
                     ? "Faction standing improved: +{$change}"
                     : "Faction standing declined: {$change}",
             ];
@@ -293,18 +296,19 @@ class NpcGameIntegration {
             return ['ok' => false, 'error' => $e->getMessage()];
         }
     }
-    
+
     /**
      * Add research points
      */
-    private function actionAddResearch($userId, $action) {
+    private function actionAddResearch($userId, $action)
+    {
         $points = (int) ($action['points'] ?? 0);
         $techKey = $action['tech_key'] ?? null;
-        
+
         if ($points <= 0 || $points > $this->actionConstraints[self::ACTION_ADD_RESEARCH]['max_points']) {
             return ['ok' => false, 'reason' => 'Invalid research points'];
         }
-        
+
         try {
             if ($techKey) {
                 // Add to specific tech
@@ -321,7 +325,7 @@ class NpcGameIntegration {
                 $stmt = $this->db->prepare($query);
                 $stmt->execute([$points, $userId]);
             }
-            
+
             return [
                 'ok' => true,
                 'action' => 'research_added',
@@ -332,23 +336,24 @@ class NpcGameIntegration {
             return ['ok' => false, 'error' => $e->getMessage()];
         }
     }
-    
+
     /**
      * Trigger a game event
      */
-    private function actionTriggerEvent($userId, $factionCode, $action) {
+    private function actionTriggerEvent($userId, $factionCode, $action)
+    {
         $eventType = $action['event_type'] ?? '';
         $eventData = $action['event_data'] ?? [];
-        
+
         if (empty($eventType)) {
             return ['ok' => false, 'reason' => 'Event type required'];
         }
-        
+
         try {
             // Create event in database
             $query = "INSERT INTO game_events (user_id, faction_code, event_type, event_data, created_at) 
                      VALUES (?, ?, ?, ?, NOW())";
-            
+
             $stmt = $this->db->prepare($query);
             $stmt->execute([
                 $userId,
@@ -356,7 +361,7 @@ class NpcGameIntegration {
                 $eventType,
                 json_encode($eventData),
             ]);
-            
+
             return [
                 'ok' => true,
                 'action' => 'event_triggered',
@@ -367,13 +372,14 @@ class NpcGameIntegration {
             return ['ok' => false, 'error' => $e->getMessage()];
         }
     }
-    
+
     /**
      * Parse action string into action array
      */
-    private function parseAction($actionType, $params) {
+    private function parseAction($actionType, $params)
+    {
         $action = ['type' => $actionType];
-        
+
         // Parse params: key=value,key=value or just a number
         if (is_numeric($params)) {
             $action['amount'] = (int) $params;
@@ -388,17 +394,18 @@ class NpcGameIntegration {
                 }
             }
         }
-        
+
         return $action;
     }
-    
+
     /**
      * Detect implicit actions from NPC personality and response
      */
-    private function detectImplicitActions($factionCode, $response) {
+    private function detectImplicitActions($factionCode, $response)
+    {
         $actions = [];
         $responseLower = strtolower($response);
-        
+
         // Merchant NPCs offer discounts on resources
         if (strpos($factionCode, 'merchant') !== false || strpos($factionCode, 'trader') !== false) {
             if (preg_match('/discount|trade|offer|deal|sell|buy/i', $response)) {
@@ -409,7 +416,7 @@ class NpcGameIntegration {
                 ];
             }
         }
-        
+
         // Diplomat NPCs improve standing
         if (strpos($factionCode, 'diplomat') !== false || strpos($factionCode, 'embassy') !== false) {
             if (preg_match('/alliance|friend|good|peace|respect/i', $response)) {
@@ -419,7 +426,7 @@ class NpcGameIntegration {
                 ];
             }
         }
-        
+
         // Scientist NPCs give research
         if (strpos($factionCode, 'scientist') !== false || strpos($factionCode, 'research') !== false) {
             if (preg_match('/discover|research|technology|innovation/i', $response)) {
@@ -429,7 +436,7 @@ class NpcGameIntegration {
                 ];
             }
         }
-        
+
         // Commander NPCs can grant military resources
         if (strpos($factionCode, 'commander') !== false || strpos($factionCode, 'military') !== false) {
             if (preg_match('/support|military|fleet|defense|aid/i', $response)) {
@@ -439,71 +446,76 @@ class NpcGameIntegration {
                 ];
             }
         }
-        
+
         return $actions;
     }
-    
+
     /**
      * Check rate limiting
      */
-    private function checkRateLimit($userId, $npcId, $actionType) {
+    private function checkRateLimit($userId, $npcId, $actionType)
+    {
         $cacheKey = "npc_action_{$userId}_{$npcId}_{$actionType}";
-        
+
         // Simple rate limit: max 3 major actions per NPC per day
         $query = "SELECT COUNT(*) as count FROM npc_action_log 
                  WHERE user_id = ? AND npc_id = ? AND action_type = ? 
                  AND created_at > DATE_SUB(NOW(), INTERVAL 1 DAY)";
-        
+
         $stmt = $this->db->prepare($query);
         $stmt->execute([$userId, $npcId, $actionType]);
         $result = $stmt->fetch(\PDO::FETCH_ASSOC);
-        
+
         $maxActionsPerDay = $this->actionConstraints[$actionType]['per_day'] ?? 3;
         return ($result['count'] ?? 0) < $maxActionsPerDay;
     }
-    
+
     /**
      * Validate action against faction constraints
      */
-    private function validateConstraints($factionCode, $action) {
+    private function validateConstraints($factionCode, $action)
+    {
         $constraints = $this->actionConstraints[$action['type']] ?? [];
-        
+
         if (empty($constraints)) {
             return true; // No constraints
         }
-        
+
         // Type-specific validation
         switch ($action['type']) {
             case self::ACTION_GRANT_CREDITS:
                 return ($action['amount'] ?? 0) <= $constraints['max'];
-            
+
             case self::ACTION_GRANT_RESOURCES:
                 foreach (($action['resources'] ?? []) as $amount) {
-                    if ($amount > $constraints['max']) return false;
+                    if ($amount > $constraints['max']) {
+                        return false;
+                    }
                 }
                 return true;
-            
+
             case self::ACTION_MODIFY_PRODUCTION:
                 $mult = $action['multiplier'] ?? 1.0;
-                return $mult >= $constraints['min_multiplier'] 
+                return $mult >= $constraints['min_multiplier']
                     && $mult <= $constraints['max_multiplier'];
-            
+
             case self::ACTION_ADJUST_STANDING:
                 return abs($action['change'] ?? 0) <= $constraints['max_change'];
         }
-        
+
         return true;
     }
-    
+
     /**
      * Log NPC action for audit trail
      */
-    private function logNpcAction($userId, $npcId, $factionCode, $action, $result) {
+    private function logNpcAction($userId, $npcId, $factionCode, $action, $result)
+    {
         try {
             $query = "INSERT INTO npc_action_log 
                      (user_id, npc_id, faction_code, action_type, action_params, result, created_at) 
                      VALUES (?, ?, ?, ?, ?, ?, NOW())";
-            
+
             $stmt = $this->db->prepare($query);
             $stmt->execute([
                 $userId,
@@ -517,11 +529,12 @@ class NpcGameIntegration {
             $this->log('warning', 'Failed to log NPC action: ' . $e->getMessage());
         }
     }
-    
+
     /**
      * Simple logging
      */
-    private function log($level, $message) {
+    private function log($level, $message)
+    {
         if ($this->logger) {
             $this->logger->log($level, "[NpcGameIntegration] $message");
         } else {

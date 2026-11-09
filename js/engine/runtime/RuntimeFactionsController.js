@@ -4,7 +4,12 @@
     const WM = opts.wm;
     const API = opts.api;
     const showToast = opts.showToast || (() => {});
-    const esc = opts.esc || ((value) => String(value ?? ''));
+    const esc = (value) => String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
     const uiKitSkeletonHTML = opts.uiKitSkeletonHTML || (() => '');
     const uiKitEmptyStateHTML = opts.uiKitEmptyStateHTML || (() => '');
     const loadOverview = typeof opts.onLoadOverview === 'function' ? opts.onLoadOverview : (async () => {});
@@ -50,6 +55,12 @@
         if (n >= -10) return '#aaa';
         if (n >= -50) return '#e67e22';
         return '#e74c3c';
+      }
+
+      factionColor(value) {
+        return /^#(?:[\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/i.test(String(value || ''))
+          ? value
+          : '#88aaff';
       }
 
       diploStanceClass(trust, threat) {
@@ -157,50 +168,50 @@
 
           <div class="diplomacy-cards-grid">
             ${factions.map((faction) => `
-              <div class="diplomacy-card faction-card" data-fid="${faction.id}">
-                <div class="diplomacy-card-image" style="background:${esc(faction.color)}22;border-color:${esc(faction.color)}44">
-                  <span class="diplomacy-card-icon" style="color:${esc(faction.color)}">${esc(faction.icon)}</span>
+              <div class="diplomacy-card faction-card" data-fid="${esc(String(faction.id))}">
+                <div class="diplomacy-card-image" style="background:${this.factionColor(faction.color)}22;border-color:${this.factionColor(faction.color)}44">
+                  <span class="diplomacy-card-icon" style="color:${this.factionColor(faction.color)}">${esc(faction.icon)}</span>
                 </div>
                 <div class="diplomacy-card-body">
-                  <div class="diplomacy-card-name" style="color:${esc(faction.color)}">${esc(faction.name)}</div>
+                  <div class="diplomacy-card-name" style="color:${this.factionColor(faction.color)}">${esc(faction.name)}</div>
                   <div class="diplomacy-standing-bar">
                     <div class="diplomacy-standing-labels">
                       <span>Feindselig</span><span>Freundlich</span>
                     </div>
                     <div class="diplomacy-standing-track">
-                      <div class="diplomacy-standing-fill faction-standing-fill" data-fid="${faction.id}"
+                      <div class="diplomacy-standing-fill faction-standing-fill" data-fid="${esc(String(faction.id))}"
                         style="width:${this.standingBarWidth(faction.standing)}%;background:${this.standingBarColor(faction.standing)}"></div>
                     </div>
-                    <div class="diplomacy-standing-value faction-standing-chip ${this.standingClass(faction.standing)}" data-fid="${faction.id}">
-                      ${this.standingLabel(faction.standing)} (${faction.standing > 0 ? '+' : ''}${faction.standing})
+                    <div class="diplomacy-standing-value faction-standing-chip ${this.standingClass(faction.standing)}" data-fid="${esc(String(faction.id))}">
+                      ${this.standingLabel(faction.standing)} (${Number(faction.standing) > 0 ? '+' : ''}${esc(String(Number(faction.standing) || 0))})
                     </div>
                   </div>
-                  <div class="diplomacy-trust-threat-row faction-trust-threat-row" data-fid="${faction.id}"
+                  <div class="diplomacy-trust-threat-row faction-trust-threat-row" data-fid="${esc(String(faction.id))}"
                        style="font-size:0.78rem;margin-top:0.25rem;display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap">
                     <span class="trust-badge" title="Trust (0–100)">🤝 ${Math.round(Number(faction.trust_level ?? 0))}</span>
                     <span class="threat-badge" title="Threat (0–100)">⚠️ ${Math.round(Number(faction.threat_level ?? 0))}</span>
                     <span class="diplo-stance-chip ${this.diploStanceClass(faction.trust_level, faction.threat_level)}">${this.diploStanceLabel(faction.trust_level, faction.threat_level)}</span>
                   </div>
                   <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
-                    <button class="btn btn-primary btn-sm" data-fid="${faction.id}" data-act="contact">Kontakt</button>
-                    <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="trade">Handel</button>
-                    <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="quests">Aufträge</button>
+                    <button class="btn btn-primary btn-sm" data-fid="${esc(String(faction.id))}" data-act="contact">Kontakt</button>
+                    <button class="btn btn-secondary btn-sm" data-fid="${esc(String(faction.id))}" data-act="trade">Handel</button>
+                    <button class="btn btn-secondary btn-sm" data-fid="${esc(String(faction.id))}" data-act="quests">Aufträge</button>
                   </div>
                 <p style="font-size:0.8rem;color:var(--text-secondary);margin:0.3rem 0 0.6rem">
                   ${esc(faction.description)}
                 </p>
                 <div style="font-size:0.75rem;color:var(--text-muted)">
-                  Aggression: ${faction.aggression}/100 &nbsp;
-                  Trade: ${faction.trade_willingness}/100 &nbsp;
-                  Quests done: ${faction.quests_done}
+                  Aggression: ${esc(String(faction.aggression))}/100 &nbsp;
+                  Trade: ${esc(String(faction.trade_willingness))}/100 &nbsp;
+                  Quests done: ${esc(String(faction.quests_done))}
                 </div>
                 <div class="faction-last-event" style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem">${faction.last_event ? esc(faction.last_event) : ''}</div>
                 <div class="faction-actions" style="margin-top:0.6rem;display:flex;gap:0.4rem;flex-wrap:wrap">
-                  <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="trade">Trade</button>
-                  <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="quests">Quests</button>
-                  <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="contact">Contact</button>
-                  <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="treaties">⚖️ Treaties</button>
-                  <button class="btn btn-secondary btn-sm" data-fid="${faction.id}" data-act="plays">🎭 Plays</button>
+                  <button class="btn btn-secondary btn-sm" data-fid="${esc(String(faction.id))}" data-act="trade">Trade</button>
+                  <button class="btn btn-secondary btn-sm" data-fid="${esc(String(faction.id))}" data-act="quests">Quests</button>
+                  <button class="btn btn-secondary btn-sm" data-fid="${esc(String(faction.id))}" data-act="contact">Contact</button>
+                  <button class="btn btn-secondary btn-sm" data-fid="${esc(String(faction.id))}" data-act="treaties">⚖️ Treaties</button>
+                  <button class="btn btn-secondary btn-sm" data-fid="${esc(String(faction.id))}" data-act="plays">🎭 Plays</button>
                 </div>
               </div>`).join('')}
           </div>
@@ -346,7 +357,7 @@
         const faction = this.getFactionById(fid);
         const session = this.getNpcSession(fid) || { history: [], suggestedReplies: [], npcName: '', model: '', loading: true };
         const factionName = faction?.name || `Faction ${fid}`;
-        const factionColor = faction?.color || '#88aaff';
+        const factionColor = this.factionColor(faction?.color);
         const factionIcon = faction?.icon || '';
         const npcName = session.npcName || factionName;
 
@@ -641,16 +652,16 @@
             return;
           }
           detail.innerHTML = `
-            <h4>Trade Offers (Standing: ${data.standing})</h4>
+            <h4>Trade Offers (Standing: ${esc(String(data.standing))})</h4>
             <table class="data-table" style="width:100%">
               <thead><tr><th>They Offer</th><th>They Want</th><th>Expires</th><th>Claims</th><th></th></tr></thead>
               <tbody>${data.offers.map((offer) => `
                 <tr>
-                  <td>${offer.offer_amount.toLocaleString()} ${offer.offer_resource}</td>
-                  <td>${offer.request_amount.toLocaleString()} ${offer.request_resource}</td>
-                  <td style="font-size:0.75rem">${new Date(offer.valid_until).toLocaleString()}</td>
-                  <td>${offer.claims_count}/${offer.max_claims}</td>
-                  <td><button class="btn btn-primary btn-sm trade-accept-btn" data-oid="${offer.id}">Accept</button></td>
+                  <td>${Number(offer.offer_amount).toLocaleString()} ${esc(offer.offer_resource)}</td>
+                  <td>${Number(offer.request_amount).toLocaleString()} ${esc(offer.request_resource)}</td>
+                  <td style="font-size:0.75rem">${esc(new Date(offer.valid_until).toLocaleString())}</td>
+                  <td>${esc(String(offer.claims_count))}/${esc(String(offer.max_claims))}</td>
+                  <td><button class="btn btn-primary btn-sm trade-accept-btn" data-oid="${esc(String(offer.id))}">Accept</button></td>
                 </tr>`).join('')}
               </tbody>
             </table>`;
@@ -682,23 +693,23 @@
         }
         const quests = data.quests || [];
         detail.innerHTML = `
-          <h4>Faction Quests (Standing: ${data.standing})</h4>
+          <h4>Faction Quests (Standing: ${esc(String(data.standing))})</h4>
           <div style="display:flex;flex-wrap:wrap;gap:0.75rem">
             ${quests.map((quest) => `
               <div class="quest-card" style="min-width:240px;max-width:320px">
                 <div style="font-weight:bold">${esc(quest.title)}</div>
                 <div style="font-size:0.75rem;color:var(--text-secondary);margin:0.2rem 0">${esc(quest.description)}</div>
                 <div style="font-size:0.72rem">
-                  Difficulty: <strong>${quest.difficulty}</strong> &nbsp;
-                  Type: ${quest.quest_type}
+                  Difficulty: <strong>${esc(String(quest.difficulty))}</strong> &nbsp;
+                  Type: ${esc(quest.quest_type)}
                 </div>
                 <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.2rem">
-                  Reward: ${quest.reward_metal ? quest.reward_metal + ' ' : ''} ${quest.reward_crystal ? quest.reward_crystal + ' ' : ''}
-                          ${quest.reward_rank_points ? quest.reward_rank_points : ''} ${quest.reward_standing ? '+' + quest.reward_standing : ''}
+                  Reward: ${quest.reward_metal ? `${esc(String(quest.reward_metal))} ` : ''} ${quest.reward_crystal ? `${esc(String(quest.reward_crystal))} ` : ''}
+                          ${quest.reward_rank_points ? esc(String(quest.reward_rank_points)) : ''} ${quest.reward_standing ? `+${esc(String(quest.reward_standing))}` : ''}
                 </div>
                 ${quest.taken
                   ? '<span class="status-chip chip-neutral">Active / Done</span>'
-                  : `<button class="btn btn-primary btn-sm start-fq-btn" data-fqid="${quest.id}" style="margin-top:0.4rem">Start Quest</button>`}
+                  : `<button class="btn btn-primary btn-sm start-fq-btn" data-fqid="${esc(String(quest.id))}" style="margin-top:0.4rem">Start Quest</button>`}
               </div>`).join('')}
             ${!quests.length ? '<p class="text-muted">No quests available at your current standing.</p>' : ''}
           </div>`;

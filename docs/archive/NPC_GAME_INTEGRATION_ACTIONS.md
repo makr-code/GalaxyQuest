@@ -173,7 +173,7 @@ if (data.ok) {
 require_once __DIR__ . '/api/llm_soc/NpcGameIntegration.php';
 
 // Create integration instance
-$game_integration = new NpcGameIntegration($db, $gameEngine, $logger);
+$game_integration = new NpcGameIntegration($db, $logger);
 
 // Parse actions from NPC response
 $actions = $game_integration->parseActionsFromResponse(
@@ -333,7 +333,7 @@ LIMIT 20;
 
 ### Simulate Action Parsing
 ```php
-$game_integration = new NpcGameIntegration($db, null, null);
+$game_integration = new NpcGameIntegration($db);
 $actions = $game_integration->parseActionsFromResponse(
   'npc_test',
   'Federation',

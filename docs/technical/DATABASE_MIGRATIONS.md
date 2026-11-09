@@ -2258,6 +2258,13 @@ original exception. Use a dedicated nonpersistent connection with a selected
 database and no caller transaction; active MySQL transactions are rejected
 before any changes so bootstrap cannot implicitly commit caller work.
 
+The database selected on the runner's PDO connection is authoritative.
+Historical migration files may contain `USE galaxyquest`; the runner omits
+database-selection statements while executing Up or Down SQL so a migration
+cannot redirect writes to another schema. Checksums still use the unchanged
+canonical file bytes. Direct SQL execution does not get this protection and
+must not be used as a substitute for the runner.
+
 This coordinates cooperating runners on one MySQL/MariaDB server, not
 independent servers, manual SQL, old migration paths, base-schema import or
 runtime DDL outside this runner. SQLite keeps the isolated unit-test behavior
@@ -2331,6 +2338,9 @@ tracking-table creation, ownership through DDL and rollback, release after
 bootstrap/up/down failures, caller-transaction preservation and database-scope
 isolation. `tests/Unit/MigrationLockTest.php` covers unavailable locks, nested
 acquisition and release-failure handling with fault injection.
+The MySQL suite also verifies that a legacy `USE` statement cannot redirect
+execution away from the PDO-selected schema; canonical SQL bytes remain the
+source for migration checksums.
 Checksum regressions verify up/rollback previews, unchanged data and tracking
 after rejection, removal of an applied file and missing later pending files,
 including lock release. SQLite tests additionally cover manifest validation

@@ -368,19 +368,33 @@ class MultiModeGenerationModal {
     const queueId = jobData.queue_id;
     const jobCard = document.createElement('div');
     jobCard.className = 'job-card';
-    jobCard.innerHTML = `
-      <div class="job-header">
-        <span>${label}</span>
-        <span class="job-id">ID: ${queueId}</span>
-      </div>
-      <div class="progress-bar">
-        <div class="progress-fill" style="width: 5%"></div>
-      </div>
-      <div class="job-details">
-        <span class="status-badge">PENDING</span>
-        <span class="progress-text">Waiting to start...</span>
-      </div>
-    `;
+    const header = document.createElement('div');
+    header.className = 'job-header';
+    const labelElement = document.createElement('span');
+    labelElement.textContent = String(label ?? '');
+    const jobIdElement = document.createElement('span');
+    jobIdElement.className = 'job-id';
+    jobIdElement.textContent = `ID: ${String(queueId ?? '')}`;
+    header.append(labelElement, jobIdElement);
+
+    const progressBar = document.createElement('div');
+    progressBar.className = 'progress-bar';
+    const progressFill = document.createElement('div');
+    progressFill.className = 'progress-fill';
+    progressFill.style.width = '5%';
+    progressBar.appendChild(progressFill);
+
+    const details = document.createElement('div');
+    details.className = 'job-details';
+    const statusBadge = document.createElement('span');
+    statusBadge.className = 'status-badge';
+    statusBadge.textContent = 'PENDING';
+    const progressText = document.createElement('span');
+    progressText.className = 'progress-text';
+    progressText.textContent = 'Waiting to start...';
+    details.append(statusBadge, progressText);
+
+    jobCard.append(header, progressBar, details);
     jobList.appendChild(jobCard);
 
     // Poll for status
@@ -410,10 +424,11 @@ class MultiModeGenerationModal {
         if (status === 'completed') {
           clearInterval(pollInterval);
           statusBadge.className = 'status-badge completed';
-          progressText.innerHTML = `
-            <span style="color: #10b981; margin-right: 0.5rem;">✓</span>
-            Generation complete!
-          `;
+          const checkmark = document.createElement('span');
+          checkmark.style.color = '#10b981';
+          checkmark.style.marginRight = '0.5rem';
+          checkmark.textContent = '✓';
+          progressText.replaceChildren(checkmark, document.createTextNode('Generation complete!'));
         } else if (status === 'failed') {
           clearInterval(pollInterval);
           statusBadge.className = 'status-badge failed';

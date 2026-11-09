@@ -162,6 +162,7 @@ switch ($action) {
         only_method('POST');
         verify_csrf();
         matchup_scan(get_db(), $uid, get_json_body());
+        // matchup_scan() terminates the request.
 
     default:
         json_error('Unknown action');

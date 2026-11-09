@@ -83,6 +83,27 @@ describe('goalBadgeHtml – goal progress badges', () => {
     expect(html).toContain('#42');
     expect(html).toContain('Attacker');
   });
+
+  it('escapes war identifiers and goal labels even when an identity escaper is injected', () => {
+    const ctrl = window.GQRuntimeWarController.createWarController({ esc: (value) => String(value ?? '') });
+    ctrl.state.wars = [{
+      id: '42" onclick="alert(1)',
+      attacker_user_id: 1,
+      defender_user_id: 2,
+      war_score_att: 100,
+      war_score_def: 200,
+      exhaustion_att: 0,
+      exhaustion_def: 0,
+      summary: { primary_goal: { label: '<img src=x onerror=alert(1)>' } },
+    }];
+    ctrl.state.myUid = 1;
+    const host = document.createElement('div');
+    host.innerHTML = ctrl.renderListHtml();
+
+    expect(host.querySelector('img')).toBeNull();
+    expect(host.querySelector('[onclick]')).toBeNull();
+    expect(host.querySelector('td:nth-child(5)').textContent.trim()).toBe('<img src=x onerror=alert(1)>');
+  });
 });
 
 // ── renderListHtml – empty state ──────────────────────────────────────────────

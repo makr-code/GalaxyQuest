@@ -104,11 +104,15 @@ function gq_api_handle_uncaught_throwable(Throwable $e): never {
 // ─── Session ────────────────────────────────────────────────────────────────
 function session_start_secure(): void {
     if (session_status() === PHP_SESSION_NONE) {
+        if (app_is_production()) {
+            session_name('__Host-gq_session');
+        }
         ini_set('session.cookie_httponly', '1');
         ini_set('session.use_strict_mode', '1');
         session_set_cookie_params([
             'lifetime' => SESSION_LIFETIME,
             'path'     => '/',
+            'secure'   => is_https_request(),
             'samesite' => 'Strict',
         ]);
         session_start();
@@ -131,6 +135,10 @@ function is_admin_user(PDO $db, int $uid): bool {
 }
 
 function is_https_request(): bool {
+    if (app_is_production()) {
+        return true;
+    }
+
     if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
         return true;
     }
@@ -170,14 +178,17 @@ function clear_remember_cookie(): void {
 function clear_session_cookies(): void {
     if (session_status() === PHP_SESSION_ACTIVE) {
         $params = session_get_cookie_params();
-        setcookie(session_name(), '', [
+        $options = [
             'expires'  => time() - 3600,
             'path'     => $params['path'] ?? '/',
-            'domain'   => $params['domain'] ?? '',
             'secure'   => (bool)($params['secure'] ?? false),
             'httponly' => (bool)($params['httponly'] ?? true),
             'samesite' => $params['samesite'] ?? 'Strict',
-        ]);
+        ];
+        if (($params['domain'] ?? '') !== '') {
+            $options['domain'] = $params['domain'];
+        }
+        setcookie(session_name(), '', $options);
         unset($_COOKIE[session_name()]);
     }
 }

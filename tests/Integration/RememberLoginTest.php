@@ -11,6 +11,7 @@ final class RememberLoginTest extends TestCase
     private mixed $server = null;
     private array $pipes = [];
     private int $port = 0;
+    private string $sessionCookieName = '__Host-gq_session';
     private array $cookies = [];
     private array $sessionIds = [];
 
@@ -60,7 +61,12 @@ final class RememberLoginTest extends TestCase
             PHP_BINARY, '-d', 'session.save_path=' . $this->sessionDirectory,
             '-S', '127.0.0.1:' . $this->port, '-t', $root,
         ], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $this->pipes, $root,
-            array_merge((array)getenv(), ['DB_NAME' => $this->database, 'DB_USER' => $user, 'DB_PASS' => $password]));
+            array_merge((array)getenv(), [
+                'APP_ENV' => 'production',
+                'DB_NAME' => $this->database,
+                'DB_USER' => $user,
+                'DB_PASS' => $password,
+            ]));
         self::assertIsResource($this->server);
         foreach ([1, 2] as $index) stream_set_blocking($this->pipes[$index], false);
         $deadline = microtime(true) + 10;
@@ -93,9 +99,15 @@ final class RememberLoginTest extends TestCase
         if ($this->sessionDirectory !== '' && is_dir($this->sessionDirectory)) rmdir($this->sessionDirectory);
     }
 
-    private function request(string $action, ?array $body = null, ?string $csrf = null): array
+    private function request(
+        string $action,
+        ?array $body = null,
+        ?string $csrf = null,
+        bool $forwardedHttps = false
+    ): array
     {
         $headers = ['Accept: application/json', 'Connection: close'];
+        if ($forwardedHttps) $headers[] = 'X-Forwarded-Proto: https';
         if ($this->cookies) {
             $headers[] = 'Cookie: ' . implode('; ', array_map(
                 static fn(string $name, string $value): string => $name . '=' . $value,
@@ -118,12 +130,23 @@ final class RememberLoginTest extends TestCase
             if (preg_match('/^Set-Cookie: ([^=]+)=([^;]*)/i', $header, $match)) {
                 if ($match[2] === '' || $match[2] === 'deleted') unset($this->cookies[$match[1]]);
                 else $this->cookies[$match[1]] = $match[2];
-                if ($match[1] === 'PHPSESSID' && preg_match('/^[a-zA-Z0-9,-]+$/', $match[2])) {
+                if ($match[1] === $this->sessionCookieName && preg_match('/^[a-zA-Z0-9,-]+$/', $match[2])) {
                     $this->sessionIds[] = $match[2];
                 }
             }
         }
         return ['data' => json_decode($response, true, 512, JSON_THROW_ON_ERROR), 'headers' => $responseHeaders];
+    }
+
+    public function testProductionSessionCookieIsSecureWithoutForwardedProtocolHeader(): void
+    {
+        $result = $this->request('csrf');
+        $header = implode("\n", $result['headers']);
+        self::assertMatchesRegularExpression(
+            '/Set-Cookie: __Host-gq_session=.*; path=\/; secure; HttpOnly; SameSite=Strict/i',
+            $header
+        );
+        self::assertDoesNotMatchRegularExpression('/Set-Cookie: __Host-gq_session=[^;]*;[^\\r\\n]*domain=/i', $header);
     }
 
     private function login(bool $remember): array
@@ -140,7 +163,7 @@ final class RememberLoginTest extends TestCase
     {
         $result = $this->login(true);
         $header = implode("\n", $result['headers']);
-        self::assertMatchesRegularExpression('/Set-Cookie: gq_remember=.*HttpOnly.*SameSite=Lax/i', $header);
+        self::assertMatchesRegularExpression('/Set-Cookie: gq_remember=.*; secure; HttpOnly.*SameSite=Lax/i', $header);
         self::assertMatchesRegularExpression('/Set-Cookie: gq_remember=.*path=\//i', $header);
         $first = $this->cookies['gq_remember'];
         [$selector, $validator] = explode(':', urldecode($first));
@@ -149,16 +172,20 @@ final class RememberLoginTest extends TestCase
         $remaining = (int)$this->db->query('SELECT TIMESTAMPDIFF(SECOND, NOW(), expires_at) FROM remember_tokens')->fetchColumn();
         self::assertEqualsWithDelta(REMEMBER_ME_DAYS * 86400, $remaining, 5);
 
-        unset($this->cookies['PHPSESSID']);
+        unset($this->cookies[$this->sessionCookieName]);
         $restored = $this->request('me&quiet=1');
         self::assertSame('RememberTest', $restored['data']['user']['username']);
         self::assertNotSame($first, $this->cookies['gq_remember']);
         self::assertStringStartsWith($selector . '%3A', $this->cookies['gq_remember']);
-        self::assertArrayHasKey('PHPSESSID', $this->cookies);
+        self::assertArrayHasKey($this->sessionCookieName, $this->cookies);
         $stolen = $this->cookies['gq_remember'];
-        self::assertTrue($this->request('logout', [])['data']['success']);
+        $logout = $this->request('logout', []);
+        self::assertTrue($logout['data']['success']);
+        $logoutHeaders = implode("\n", $logout['headers']);
+        self::assertMatchesRegularExpression('/Set-Cookie: __Host-gq_session=deleted; expires=.*; path=\/; secure; HttpOnly; SameSite=Strict/i', $logoutHeaders);
+        self::assertDoesNotMatchRegularExpression('/Set-Cookie: __Host-gq_session=[^;]*;[^\\r\\n]*domain=/i', $logoutHeaders);
         self::assertArrayNotHasKey('gq_remember', $this->cookies);
-        self::assertArrayNotHasKey('PHPSESSID', $this->cookies);
+        self::assertArrayNotHasKey($this->sessionCookieName, $this->cookies);
         self::assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM remember_tokens')->fetchColumn());
         $this->cookies = ['gq_remember' => $stolen];
         self::assertFalse($this->request('me&quiet=1')['data']['authenticated']);
@@ -168,11 +195,11 @@ final class RememberLoginTest extends TestCase
     {
         $this->login(false);
         self::assertArrayNotHasKey('gq_remember', $this->cookies);
-        unset($this->cookies['PHPSESSID']);
+        unset($this->cookies[$this->sessionCookieName]);
         self::assertFalse($this->request('me&quiet=1')['data']['authenticated']);
         $this->login(true);
         $this->db->exec('UPDATE remember_tokens SET expires_at = DATE_SUB(NOW(), INTERVAL 1 SECOND)');
-        unset($this->cookies['PHPSESSID']);
+        unset($this->cookies[$this->sessionCookieName]);
         self::assertFalse($this->request('me&quiet=1')['data']['authenticated']);
         self::assertArrayNotHasKey('gq_remember', $this->cookies);
     }

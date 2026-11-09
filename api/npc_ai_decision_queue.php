@@ -35,14 +35,43 @@ function npc_ai_decision_dedupe_key(int $userId, int $factionId): string
     return sprintf('npc_ai:user:%d:faction:%d', $userId, $factionId);
 }
 
+function npc_ai_decision_queue_dedupe_lock_name(string $dedupeKey): string
+{
+    return 'gq:npcq:' . substr(hash('sha256', $dedupeKey), 0, 48);
+}
+
 function npc_ai_decision_queue_normalize_limit(int $limit): int
 {
     return max(1, min(100, $limit));
 }
 
+function npc_ai_decision_queue_claim_ttl_seconds(int $configuredTtl, int $controllerTimeout, int $limit): int
+{
+    $jobBudgetSeconds = max(4, $controllerTimeout) + 30;
+    $batchBudgetSeconds = npc_ai_decision_queue_normalize_limit($limit) * $jobBudgetSeconds;
+    return max(60, $configuredTtl, $batchBudgetSeconds);
+}
+
 function npc_ai_decision_queue_failure_status(int $attempts, int $maxAttempts): string
 {
     return $attempts >= $maxAttempts ? 'dead' : 'failed';
+}
+
+/**
+ * @return 'success'|'failed'|'rejected'
+ */
+function npc_ai_decision_queue_worker_outcome(bool $accepted, bool $ok): string
+{
+    if (!$accepted) {
+        return 'rejected';
+    }
+
+    return $ok ? 'success' : 'failed';
+}
+
+function npc_ai_decision_queue_worker_batch_ok(int $failed, int $rejected): bool
+{
+    return $failed === 0 && $rejected === 0;
 }
 
 function npc_ai_decision_queue_normalize_worker_id(?string $workerId): ?string
@@ -87,61 +116,78 @@ function npc_ai_decision_queue_maybe_enqueue(PDO $db, int $userId, array $factio
     }
 
     $dedupeKey = npc_ai_decision_dedupe_key($userId, $factionId);
-
-    $pendingStmt = $db->prepare(
-        "SELECT id FROM npc_ai_decision_queue
-         WHERE dedupe_key = ?
-           AND status IN ('queued', 'processing')
-         ORDER BY id DESC
-         LIMIT 1"
-    );
-    $pendingStmt->execute([$dedupeKey]);
-    if ($pendingStmt->fetchColumn() !== false) {
-        return ['queued' => false, 'reason' => 'already_pending'];
+    $lockName = npc_ai_decision_queue_dedupe_lock_name($dedupeKey);
+    $acquire = $db->prepare('SELECT GET_LOCK(?, 5)');
+    $acquire->execute([$lockName]);
+    if ((int) $acquire->fetchColumn() !== 1) {
+        return ['queued' => false, 'reason' => 'lock_busy'];
     }
 
-    $cooldownSeconds = max(60, (int) NPC_LLM_ASYNC_QUEUE_COOLDOWN_SECONDS);
-    $recentStmt = $db->prepare(
-        "SELECT created_at FROM npc_ai_decision_queue
-         WHERE dedupe_key = ?
-         ORDER BY id DESC
-         LIMIT 1"
-    );
-    $recentStmt->execute([$dedupeKey]);
-    $recent = $recentStmt->fetchColumn();
-    if ($recent) {
-        $recentTs = strtotime((string) $recent);
-        if ($recentTs !== false && (time() - $recentTs) < $cooldownSeconds) {
-            return ['queued' => false, 'reason' => 'cooldown'];
+    try {
+        $pendingStmt = $db->prepare(
+            "SELECT id FROM npc_ai_decision_queue
+             WHERE dedupe_key = ?
+               AND status IN ('queued', 'processing')
+             ORDER BY id DESC
+             LIMIT 1"
+        );
+        $pendingStmt->execute([$dedupeKey]);
+        if ($pendingStmt->fetchColumn() !== false) {
+            return ['queued' => false, 'reason' => 'already_pending'];
+        }
+
+        $cooldownSeconds = max(60, (int) NPC_LLM_ASYNC_QUEUE_COOLDOWN_SECONDS);
+        $recentStmt = $db->prepare(
+            "SELECT created_at FROM npc_ai_decision_queue
+             WHERE dedupe_key = ?
+             ORDER BY id DESC
+             LIMIT 1"
+        );
+        $recentStmt->execute([$dedupeKey]);
+        $recent = $recentStmt->fetchColumn();
+        if ($recent) {
+            $recentTs = strtotime((string) $recent);
+            if ($recentTs !== false && (time() - $recentTs) < $cooldownSeconds) {
+                return ['queued' => false, 'reason' => 'cooldown'];
+            }
+        }
+
+        $payload = json_encode([
+            'user_id' => $userId,
+            'faction_id' => $factionId,
+            'faction_code' => (string) ($faction['code'] ?? ''),
+            'source' => 'simulation_user_tick',
+            'lore_lock' => true,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($payload === false) {
+            throw new RuntimeException('NPC decision queue payload could not be encoded.');
+        }
+
+        $insert = $db->prepare(
+            "INSERT INTO npc_ai_decision_queue
+             (user_id, faction_id, source_scope, status, attempts, max_attempts, available_at, dedupe_key, payload_json)
+             VALUES (?, ?, 'simulation_user_tick', 'queued', 0, ?, NOW(), ?, ?)"
+        );
+        $insert->execute([
+            $userId,
+            $factionId,
+            max(1, (int) NPC_LLM_ASYNC_QUEUE_MAX_ATTEMPTS),
+            $dedupeKey,
+            $payload,
+        ]);
+
+        return [
+            'queued' => true,
+            'reason' => 'queued',
+            'queue_id' => (int) $db->lastInsertId(),
+        ];
+    } finally {
+        $release = $db->prepare('SELECT RELEASE_LOCK(?)');
+        $release->execute([$lockName]);
+        if ((int) $release->fetchColumn() !== 1) {
+            throw new RuntimeException('NPC decision queue deduplication lock could not be released.');
         }
     }
-
-    $payload = json_encode([
-        'user_id' => $userId,
-        'faction_id' => $factionId,
-        'faction_code' => (string) ($faction['code'] ?? ''),
-        'source' => 'simulation_user_tick',
-        'lore_lock' => true,
-    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
-    $insert = $db->prepare(
-        "INSERT INTO npc_ai_decision_queue
-         (user_id, faction_id, source_scope, status, attempts, max_attempts, available_at, dedupe_key, payload_json)
-         VALUES (?, ?, 'simulation_user_tick', 'queued', 0, ?, NOW(), ?, ?)"
-    );
-    $insert->execute([
-        $userId,
-        $factionId,
-        max(1, (int) NPC_LLM_ASYNC_QUEUE_MAX_ATTEMPTS),
-        $dedupeKey,
-        $payload,
-    ]);
-
-    return [
-        'queued' => true,
-        'reason' => 'queued',
-        'queue_id' => (int) $db->lastInsertId(),
-    ];
 }
 
 /**
@@ -156,9 +202,6 @@ function npc_ai_decision_queue_claim(PDO $db, int $limit, ?string $workerId = nu
     $limit = npc_ai_decision_queue_normalize_limit($limit);
     $workerId = npc_ai_decision_queue_normalize_worker_id($workerId);
     $claimed = npc_ai_decision_queue_claim_with_locking($db, $limit, $workerId);
-    if ($claimed === null) {
-        $claimed = npc_ai_decision_queue_claim_without_locking($db, $limit, $workerId);
-    }
 
     if (!$claimed) {
         return [];
@@ -180,18 +223,60 @@ function npc_ai_decision_queue_claim(PDO $db, int $limit, ?string $workerId = nu
 }
 
 /**
- * @return array<int,array<string,mixed>>|null
+ * @return array<int,array<string,mixed>>
  */
-function npc_ai_decision_queue_claim_with_locking(PDO $db, int $limit, ?string $workerId = null): ?array
+function npc_ai_decision_queue_claim_with_locking(PDO $db, int $limit, ?string $workerId = null): array
 {
     $limit = npc_ai_decision_queue_normalize_limit($limit);
     $workerId = npc_ai_decision_queue_normalize_worker_id($workerId);
+    if ($workerId === null) {
+        throw new InvalidArgumentException('A valid NPC worker ID is required to claim jobs.');
+    }
+
     $claimed = [];
-    $supportsWorkerClaims = $workerId !== null && npc_ai_decision_queue_supports_worker_claim_fields($db);
-    $claimTtlSeconds = max(60, (int) NPC_AI_WORKER_CLAIM_TTL_SECONDS);
+    if (!npc_ai_decision_queue_supports_worker_claim_fields($db)) {
+        throw new RuntimeException('NPC worker claim schema is unavailable.');
+    }
+    $claimTtlSeconds = npc_ai_decision_queue_claim_ttl_seconds(
+        (int) NPC_AI_WORKER_CLAIM_TTL_SECONDS,
+        (int) NPC_LLM_CONTROLLER_TIMEOUT_SECONDS,
+        $limit
+    );
 
     try {
         $db->beginTransaction();
+        $exhausted = $db->prepare(
+            "UPDATE npc_ai_decision_queue
+             SET status = 'dead',
+                 locked_at = NULL,
+                 completed_at = NOW(),
+                 error_message = 'Worker claim expired after maximum attempts.',
+                 claimed_by_worker_id = NULL,
+                 claim_token = NULL,
+                 claim_expires_at = NULL
+             WHERE status = 'processing'
+               AND claim_expires_at IS NOT NULL
+               AND claim_expires_at < NOW()
+               AND attempts >= max_attempts"
+        );
+        $exhausted->execute();
+
+        $retryable = $db->prepare(
+            "UPDATE npc_ai_decision_queue
+             SET status = 'queued',
+                 locked_at = NULL,
+                 available_at = NOW(),
+                 error_message = 'Worker claim expired before completion.',
+                 claimed_by_worker_id = NULL,
+                 claim_token = NULL,
+                 claim_expires_at = NULL
+             WHERE status = 'processing'
+               AND claim_expires_at IS NOT NULL
+               AND claim_expires_at < NOW()
+               AND attempts < max_attempts"
+        );
+        $retryable->execute();
+
         $select = $db->prepare(
             "SELECT id, user_id, faction_id, attempts, max_attempts, payload_json
              FROM npc_ai_decision_queue
@@ -208,7 +293,6 @@ function npc_ai_decision_queue_claim_with_locking(PDO $db, int $limit, ?string $
         $claimed = npc_ai_decision_queue_apply_claim_updates(
             $db,
             $rows,
-            $supportsWorkerClaims,
             $workerId,
             $claimTtlSeconds
         );
@@ -218,43 +302,10 @@ function npc_ai_decision_queue_claim_with_locking(PDO $db, int $limit, ?string $
         if ($db->inTransaction()) {
             $db->rollBack();
         }
-        return null;
+        throw $e;
     }
 
     return $claimed;
-}
-
-/**
- * @return array<int,array<string,mixed>>
- */
-function npc_ai_decision_queue_claim_without_locking(PDO $db, int $limit, ?string $workerId = null): array
-{
-    $limit = npc_ai_decision_queue_normalize_limit($limit);
-    $workerId = npc_ai_decision_queue_normalize_worker_id($workerId);
-    $supportsWorkerClaims = $workerId !== null && npc_ai_decision_queue_supports_worker_claim_fields($db);
-    $claimTtlSeconds = max(60, (int) NPC_AI_WORKER_CLAIM_TTL_SECONDS);
-    $select = $db->prepare(
-        "SELECT id, user_id, faction_id, attempts, max_attempts, payload_json
-         FROM npc_ai_decision_queue
-         WHERE status = 'queued'
-           AND available_at <= NOW()
-         ORDER BY id ASC
-         LIMIT :limit"
-    );
-    $select->bindValue(':limit', $limit, PDO::PARAM_INT);
-    $select->execute();
-    $rows = $select->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    if (!$rows) {
-        return [];
-    }
-
-    return npc_ai_decision_queue_apply_claim_updates(
-        $db,
-        $rows,
-        $supportsWorkerClaims,
-        $workerId,
-        $claimTtlSeconds
-    );
 }
 
 /**
@@ -264,32 +315,20 @@ function npc_ai_decision_queue_claim_without_locking(PDO $db, int $limit, ?strin
 function npc_ai_decision_queue_apply_claim_updates(
     PDO $db,
     array $rows,
-    bool $supportsWorkerClaims,
-    ?string $workerId,
+    string $workerId,
     int $claimTtlSeconds
 ): array {
     $claimed = [];
-    $workerUpdate = null;
-    $plainUpdate = null;
-
-    if ($supportsWorkerClaims) {
-        $workerUpdate = $db->prepare(
-            "UPDATE npc_ai_decision_queue
-             SET status = 'processing',
-                 locked_at = NOW(),
-                 attempts = attempts + 1,
-                 claimed_by_worker_id = ?,
-                 claim_token = ?,
-                 claim_expires_at = DATE_ADD(NOW(), INTERVAL ? SECOND)
-             WHERE id = ? AND status = 'queued'"
-        );
-    } else {
-        $plainUpdate = $db->prepare(
-            "UPDATE npc_ai_decision_queue
-             SET status = 'processing', locked_at = NOW(), attempts = attempts + 1
-             WHERE id = ? AND status = 'queued'"
-        );
-    }
+    $workerUpdate = $db->prepare(
+        "UPDATE npc_ai_decision_queue
+         SET status = 'processing',
+             locked_at = NOW(),
+             attempts = attempts + 1,
+             claimed_by_worker_id = ?,
+             claim_token = ?,
+             claim_expires_at = DATE_ADD(NOW(), INTERVAL ? SECOND)
+         WHERE id = ? AND status = 'queued'"
+    );
 
     foreach ($rows as $row) {
         $id = (int) ($row['id'] ?? 0);
@@ -297,21 +336,11 @@ function npc_ai_decision_queue_apply_claim_updates(
             continue;
         }
 
-        if ($supportsWorkerClaims && $workerUpdate !== null && $workerId !== null) {
-            $claimToken = npc_ai_decision_queue_generate_claim_token($workerId, $id);
-            $workerUpdate->execute([$workerId, $claimToken, $claimTtlSeconds, $id]);
-            if ($workerUpdate->rowCount() === 1) {
-                $row['claim_token'] = $claimToken;
-                $claimed[] = $row;
-            }
-            continue;
-        }
-
-        if ($plainUpdate !== null) {
-            $plainUpdate->execute([$id]);
-            if ($plainUpdate->rowCount() === 1) {
-                $claimed[] = $row;
-            }
+        $claimToken = npc_ai_decision_queue_generate_claim_token($workerId, $id);
+        $workerUpdate->execute([$workerId, $claimToken, $claimTtlSeconds, $id]);
+        if ($workerUpdate->rowCount() === 1) {
+            $row['claim_token'] = $claimToken;
+            $claimed[] = $row;
         }
     }
 
@@ -381,6 +410,60 @@ function npc_ai_decision_queue_complete(
     $stmt->execute([substr($errorMessage, 0, 255), $resultJson, $queueId]);
 }
 
+function npc_ai_decision_queue_begin_fenced_completion(
+    PDO $db,
+    int $queueId,
+    string $workerId,
+    string $claimToken
+): bool {
+    if ($queueId <= 0 || !npc_ai_decision_queue_supports_worker_claim_fields($db)) {
+        return false;
+    }
+
+    $workerId = npc_ai_decision_queue_normalize_worker_id($workerId);
+    if ($workerId === null || !preg_match('/^[a-f0-9]{64}$/', $claimToken)) {
+        return false;
+    }
+    if ($db->inTransaction()) {
+        throw new LogicException('NPC worker fenced completion requires an independent transaction.');
+    }
+
+    $db->beginTransaction();
+    try {
+        $claimStmt = $db->prepare(
+            "SELECT id
+             FROM npc_ai_decision_queue
+             WHERE id = ?
+               AND status = 'processing'
+               AND claimed_by_worker_id = ?
+               AND claim_token = ?
+               AND claim_expires_at >= NOW()
+             LIMIT 1
+             FOR UPDATE"
+        );
+        $claimStmt->execute([$queueId, $workerId, $claimToken]);
+        if ($claimStmt->fetchColumn() === false) {
+            $db->rollBack();
+            return false;
+        }
+
+        $renew = $db->prepare(
+            "UPDATE npc_ai_decision_queue
+             SET claim_expires_at = GREATEST(claim_expires_at, DATE_ADD(NOW(), INTERVAL 60 SECOND))
+             WHERE id = ?
+               AND status = 'processing'
+               AND claimed_by_worker_id = ?
+               AND claim_token = ?
+               AND claim_expires_at >= NOW()"
+        );
+        $renew->execute([$queueId, $workerId, $claimToken]);
+        return true;
+    } catch (Throwable $error) {
+        $db->rollBack();
+        throw $error;
+    }
+}
+
 /**
  * @param array<string,mixed> $result
  */
@@ -435,7 +518,8 @@ function npc_ai_decision_queue_complete_claimed(
              WHERE id = ?
                AND status = 'processing'
                AND claimed_by_worker_id = ?
-               AND claim_token = ?"
+               AND claim_token = ?
+               AND (claim_expires_at IS NULL OR claim_expires_at >= NOW())"
         );
         $done->execute([$resultJson, $queueId, $workerId, $claimToken]);
         return $done->rowCount() === 1;
@@ -462,7 +546,8 @@ function npc_ai_decision_queue_complete_claimed(
              WHERE id = ?
                AND status = 'processing'
                AND claimed_by_worker_id = ?
-               AND claim_token = ?"
+               AND claim_token = ?
+               AND (claim_expires_at IS NULL OR claim_expires_at >= NOW())"
         );
         $failed->execute([
             $retryBackoffSeconds,
@@ -487,7 +572,8 @@ function npc_ai_decision_queue_complete_claimed(
          WHERE id = ?
            AND status = 'processing'
            AND claimed_by_worker_id = ?
-           AND claim_token = ?"
+           AND claim_token = ?
+           AND (claim_expires_at IS NULL OR claim_expires_at >= NOW())"
     );
     $dead->execute([substr($errorMessage, 0, 255), $resultJson, $queueId, $workerId, $claimToken]);
     return $dead->rowCount() === 1;

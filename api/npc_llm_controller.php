@@ -8,8 +8,11 @@ require_once __DIR__ . '/npc_quest_action_executor.php';
 /**
  * Attempts one LLM-guided PvE decision for a single NPC faction and user.
  * Returns ['handled' => bool, 'reason' => string, 'decision' => array].
+ *
+ * @param \Closure():bool|null $beforeApply Optional guard called after inference and before side effects.
  */
-function npc_pve_llm_controller_try(PDO $db, int $userId, array $faction): array {
+function npc_pve_llm_controller_try(PDO $db, int $userId, array $faction, ?\Closure $beforeApply = null): array
+{
     if (!npc_pve_llm_controller_enabled()) {
         return ['handled' => false, 'reason' => 'disabled'];
     }
@@ -88,7 +91,14 @@ function npc_pve_llm_controller_try(PDO $db, int $userId, array $faction): array
         return ['handled' => false, 'reason' => 'low_confidence', 'decision' => $decision];
     }
 
+    if ($beforeApply !== null && !$beforeApply()) {
+        return ['handled' => false, 'reason' => 'claim_rejected', 'decision' => $decision];
+    }
+
     $apply = npc_pve_apply_decision($db, $userId, $faction, $standing, $decision);
+    if ($beforeApply !== null && empty($apply['ok'])) {
+        throw new RuntimeException('NPC decision action failed; fenced transaction must be rolled back.');
+    }
 
     npc_pve_log_decision($db, [
         'user_id' => $userId,

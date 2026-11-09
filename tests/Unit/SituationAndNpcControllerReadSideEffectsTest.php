@@ -261,6 +261,10 @@ final class SituationAndNpcControllerReadSideEffectsTest extends TestCase
             $factionTick
         );
         self::assertStringContainsString('npc_ai_decision_queue_maybe_enqueue(', $factionTick);
+        self::assertStringContainsString(
+            "!in_array(\$queueReason, ['already_pending', 'lock_busy'], true)",
+            $factionTick
+        );
         self::assertStringContainsString('npc_pve_llm_controller_try(', $factionTick);
     }
 

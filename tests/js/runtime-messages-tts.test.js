@@ -29,6 +29,10 @@ describe('RuntimeMessagesController TTS wiring', () => {
 
   it('speaks a concise message summary when opening a message', async () => {
     const mod = loadModule();
+    const subject = 'Alarmstatus <img src=x onerror=alert(1)>';
+    const sender = 'Admiral Nova "><svg onload=alert(1)>';
+    const body = 'Feindliche Signaturen wurden am Randsektor erfasst. Bitte Flotte in Alarmbereitschaft versetzen. <img src=x onerror=alert(1)>';
+    const userHint = '"><img src=x onerror=alert(1)>';
     const root = document.createElement('div');
     const wm = {
       body: vi.fn(() => root),
@@ -37,22 +41,22 @@ describe('RuntimeMessagesController TTS wiring', () => {
       inbox: vi.fn(async () => ({
         success: true,
         messages: [
-          { id: 7, subject: 'Alarmstatus', sender: 'Admiral Nova', sent_at: '2026-04-07 19:00:00', is_read: 0 },
+          { id: 7, subject, sender, sent_at: '2026-04-07 19:00:00', is_read: 0 },
         ],
       })),
       readMsg: vi.fn(async () => ({
         success: true,
         message: {
           id: 7,
-          subject: 'Alarmstatus',
-          sender: 'Admiral Nova',
+          subject,
+          sender,
           sent_at: '2026-04-07 19:00:00',
-          body: 'Feindliche Signaturen wurden am Randsektor erfasst. Bitte Flotte in Alarmbereitschaft versetzen.',
+          body,
         },
       })),
       deleteMsg: vi.fn(async () => ({ success: true })),
       sendMsg: vi.fn(async () => ({ success: true })),
-      messageUsers: vi.fn(async () => ({ success: true, users: [] })),
+      messageUsers: vi.fn(async () => ({ success: true, users: [userHint] })),
     };
     const audioManager = { playMessageRead: vi.fn(), playMessageDelete: vi.fn(), playMessageSend: vi.fn() };
     const state = { lines: [], maxLines: 20, userHints: [] };
@@ -65,7 +69,6 @@ describe('RuntimeMessagesController TTS wiring', () => {
       renderInlineTemplateList,
       uiKitTemplateHTML: () => '',
       uiKitEmptyStateHTML: () => '',
-      esc: (value) => String(value ?? ''),
       gameLog: vi.fn(),
       showToast: vi.fn(),
       getAudioManager: () => audioManager,
@@ -77,14 +80,22 @@ describe('RuntimeMessagesController TTS wiring', () => {
     });
 
     await controller.render();
+    expect(root.querySelector('img, svg')).toBeNull();
+    expect(root.querySelector('[onerror], [onload]')).toBeNull();
+    expect(root.querySelector('.msg-subject').textContent).toBe(subject);
+    expect(root.querySelector('.msg-sender').textContent).toBe(`From: ${sender}`);
+    expect(root.querySelector('#msg-terminal-users option').value).toBe(userHint);
     root.querySelector('.msg-row').dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await Promise.resolve();
     await Promise.resolve();
 
     expect(audioManager.playMessageRead).toHaveBeenCalled();
     expect(window.GQTTS.speak).toHaveBeenCalledTimes(1);
-    expect(window.GQTTS.speak.mock.calls[0][0]).toContain('Nachricht von Admiral Nova.');
-    expect(window.GQTTS.speak.mock.calls[0][0]).toContain('Betreff: Alarmstatus.');
+    expect(root.querySelector('img, svg')).toBeNull();
+    expect(root.querySelector('[onerror], [onload]')).toBeNull();
+    expect(root.querySelector('.msg-detail-body').textContent).toBe(body);
+    expect(window.GQTTS.speak.mock.calls[0][0]).toContain('Nachricht von Admiral Nova');
+    expect(window.GQTTS.speak.mock.calls[0][0]).toContain('Betreff: Alarmstatus');
     expect(window.GQTTS.speak.mock.calls[0][0]).toContain('Feindliche Signaturen wurden am Randsektor erfasst.');
   });
 });

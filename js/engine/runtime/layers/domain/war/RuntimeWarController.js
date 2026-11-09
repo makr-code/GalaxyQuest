@@ -15,7 +15,12 @@
     const api = opts.api;
     const uiKitSkeletonHTML = opts.uiKitSkeletonHTML || (() => '<p class="text-muted">Loading…</p>');
     const uiKitEmptyStateHTML = opts.uiKitEmptyStateHTML || (() => '');
-    const esc = opts.esc || ((v) => String(v ?? ''));
+    const esc = (value) => String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
     const gameLog = typeof opts.gameLog === 'function' ? opts.gameLog : (() => {});
     const showToast = typeof opts.showToast === 'function' ? opts.showToast : (() => {});
     const invalidateGetCache = typeof opts.invalidateGetCache === 'function' ? opts.invalidateGetCache : (() => {});
@@ -57,9 +62,9 @@
     function goalBadgeHtml(goalCounts) {
       if (!goalCounts || !goalCounts.total) return '<span style="color:#9fb0ce;font-size:11px;">no goals</span>';
       const parts = [];
-      if (goalCounts.advantage) parts.push(`<span style="color:#5fd679;">${goalCounts.advantage} winning</span>`);
-      if (goalCounts.active) parts.push(`<span style="color:#f0c040;">${goalCounts.active} active</span>`);
-      if (goalCounts.blocked) parts.push(`<span style="color:#ff9980;">${goalCounts.blocked} blocked</span>`);
+      if (goalCounts.advantage) parts.push(`<span style="color:#5fd679;">${esc(goalCounts.advantage)} winning</span>`);
+      if (goalCounts.active) parts.push(`<span style="color:#f0c040;">${esc(goalCounts.active)} active</span>`);
+      if (goalCounts.blocked) parts.push(`<span style="color:#ff9980;">${esc(goalCounts.blocked)} blocked</span>`);
       return parts.join(' <span style="color:#4a5878;">·</span> ') || '<span style="color:#9fb0ce;font-size:11px;">no data</span>';
     }
 
@@ -85,7 +90,7 @@
         case 'status_quo':              return '⚖ Status Quo';
         case 'peace_accepted':          return '🕊 Peace Treaty';
         case 'forced_peace_exhaustion': return '😮 Forced Peace (Exhaustion)';
-        default:                        return reason ? String(reason) : 'Ended';
+        default:                        return reason ? esc(reason) : 'Ended';
       }
     }
 
@@ -908,7 +913,12 @@
     const api = opts.api;
     const uiKitSkeletonHTML = opts.uiKitSkeletonHTML || (() => '<p class="text-muted">Loading…</p>');
     const uiKitEmptyStateHTML = opts.uiKitEmptyStateHTML || (() => '');
-    const esc = opts.esc || ((v) => String(v ?? ''));
+    const esc = (value) => String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
     const gameLog = typeof opts.gameLog === 'function' ? opts.gameLog : (() => {});
     const showToast = typeof opts.showToast === 'function' ? opts.showToast : (() => {});
     const invalidateGetCache = typeof opts.invalidateGetCache === 'function' ? opts.invalidateGetCache : (() => {});
