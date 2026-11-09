@@ -9,7 +9,7 @@
 // Windows uses Dawn's native backend; forcing Vulkan/SwiftShader can disable
 // otherwise available D3D adapters.
 const webgpuArgs = process.env.GQ_WEBGPU_SHADER_CI === '1' || process.env.PLAYWRIGHT_CHROMIUM_ARGS
-  ? process.platform === 'win32' ? ['--enable-unsafe-webgpu'] : [
+  ? process.platform === 'win32' ? ['--enable-unsafe-webgpu', '--use-angle=d3d11'] : [
       '--enable-unsafe-webgpu',
       '--use-vulkan=swiftshader',
       '--disable-vulkan-fallback-to-gl-for-testing',

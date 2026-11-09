@@ -128,7 +128,7 @@ final class DraftWorldSimulation
             if (($b['research_lab'] ?? 0) < 1) {
                 throw new InvalidArgumentException('A research lab is required.');
             }
-            foreach (RESEARCH_PREREQS[$type] ?? [] as [$required, $level]) {
+            foreach (RESEARCH_PREREQS[$type] as [$required, $level]) {
                 if (($state['research'][$required] ?? 0) < $level) {
                     throw new InvalidArgumentException("Required: $required level $level.");
                 }

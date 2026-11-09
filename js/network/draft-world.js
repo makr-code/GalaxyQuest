@@ -142,8 +142,20 @@ export function initializeDraftWorld({ request, onPreview, onActivate, onLeave }
   return {
     confirmLink,
     async enter(token) { await open((await request('enter', { prolog_token: token })).draft); },
-    async restore() {
-      const result = await request('status');
+    async restore({ retryDelaysMs = [] } = {}) {
+      let result;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          result = await request('status');
+          break;
+        } catch (error) {
+          const status = Number(error?.status || 0);
+          const transient = status >= 500 || (status === 0 && error?.code !== 'EPARSE');
+          if (!transient || attempt >= retryDelaysMs.length) throw error;
+          window.GQLog?.warn?.('[draft-world] draft restore retry', attempt + 1, error.message);
+          await new Promise((resolve) => setTimeout(resolve, retryDelaysMs[attempt]));
+        }
+      }
       if (result.draft_mode === false && result.user) {
         await completeConfirmation(result);
         return true;

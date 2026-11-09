@@ -607,6 +607,10 @@
       const { startBattleEncounterPresentation } = await import('./battle-encounter-presentation.js');
       return startBattleEncounterPresentation(this, encounter);
     }
+    async startLiveBattleWebGpu(api, journalId, options) {
+      const { startLiveBattleWebGpu } = await import('./live-battle-webgpu.js');
+      return startLiveBattleWebGpu(this, api, journalId, options);
+    }
     getSharedZoomBackend() {
       return {
         device: this._device, context: this._context, externalCameraControls: true,

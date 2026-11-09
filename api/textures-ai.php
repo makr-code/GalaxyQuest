@@ -61,7 +61,7 @@ if (in_array($action, $generationActions, true)) {
 // Check if AI texture generation is enabled
 $enabledSetting = getenv('COMFYUI_ENABLED');
 $aiEnabled = ($enabledSetting === false || $enabledSetting === ''
-    ? (APP_ENV === 'dev' ? '1' : '0')
+    ? (app_is_development() ? '1' : '0')
     : $enabledSetting) === '1';
 if (!$aiEnabled) {
     http_response_code(503);
@@ -95,16 +95,12 @@ switch ($action) {
         break;
     case 'progressive':
         handle_progressive_loading($textureAiService, $requestData);
-        break;
     case 'status':
         handle_status($textureAiService);
         break;
     case 'queue':
         handle_queue($textureAiService);
-        break;
 }
-
-exit;
 
 /**
  * Handle spaceship hull texture generation

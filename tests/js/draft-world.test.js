@@ -93,6 +93,16 @@ describe('Playable isolated draft world', () => {
     await vi.waitFor(() => expect(onActivate).toHaveBeenCalledOnce());
     expect(request).toHaveBeenNthCalledWith(2, 'confirm', { token: 'b'.repeat(64) });
   });
+  it('retries transient restore failures but not client errors', async () => {
+    request.mockRejectedValueOnce(Object.assign(new Error('Connection refused'), { status: 500 }));
+    expect(await world.restore({ retryDelaysMs: [0] })).toBe(true);
+    expect(request.mock.calls.filter(([action]) => action === 'status')).toHaveLength(2);
+    world.close();
+    request.mockClear();
+    request.mockRejectedValueOnce(Object.assign(new Error('Forbidden'), { status: 403 }));
+    await expect(world.restore({ retryDelaysMs: [0] })).rejects.toThrow('Forbidden');
+    expect(request).toHaveBeenCalledOnce();
+  });
   it('resumes the confirmed game when the email link was opened in another tab', async () => {
     await world.enter('a'.repeat(64));
     world.close();

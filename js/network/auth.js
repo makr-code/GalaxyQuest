@@ -2348,7 +2348,8 @@ import '../ui/prolog.js';
     const hasSession = skipAutoBootAfterLogout ? false : await checkSessionForMenu();
     if (!hasSession && !skipAutoBootAfterLogout) {
       try {
-        if (await draftWorld.restore()) startScreen.setSession(true);
+        // The API can briefly report DB connection errors while containers start.
+        if (await draftWorld.restore({ retryDelaysMs: [1000, 2000, 4000] })) startScreen.setSession(true);
       } catch (error) {
         authLog('error', 'draft restore failed', String(error.message));
         startScreen.setStatus(`Dein Draft konnte nicht geladen werden: ${error.message}`, 'error');

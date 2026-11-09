@@ -1,8 +1,8 @@
 # Schlachtensystem: Produktionsintegration und LLM-NPC-Steuerung
 
-Stand: 2026-11-07. Status: **Implementierungsplan, noch keine Freigabe der
-neuen Kampfregeln**. Abschnitt 8 dokumentiert die inzwischen implementierten
-Produktionsgrundlagen; die weiteren Phasen bleiben Zielplanung.
+Stand: 2026-11-08. Status: **Produktionsgrundlagen und isolierter,
+experimenteller Live-Kampfkern; noch keine produktive Live-Integration**.
+Abschnitt 8 dokumentiert die bestehenden Produktionsgrundlagen.
 
 ## 1. Ziel
 
@@ -71,23 +71,348 @@ LLM-Vorschlag → Policy-/Schema-Prüfung ─────┤
                      Three.js / WebGPU / HUD / Audio
 ```
 
-### 3.1 On-demand statt Gameplay-Tick
+### 3.1 Nah-Echtzeit nur für aktive Schlachten
 
-- Encounter speichern `phase_index`, `phase_due_at`, `revision`, Regelversion
-  und persistierte Zeitbasis. PHP rechnet nur fällige, endliche Phasen nach.
-- Explizite Simulationsmutationen, Flottenankünfte und Befehlsannahme dürfen
-  Catch-up auslösen; reines GET/SSE verursacht keine Simulation oder LLM-Aufrufe.
-- Vor Annahme eines Befehls werden bereits fällige Phasen abgeschlossen.
-  Der Befehl gilt nur für die nächste noch offene Phase, niemals rückwirkend.
-- Catch-up hat ein Arbeitslimit. Bei Restarbeit bleibt der Encounter
-  unverändert nachvollziehbar offen; Antwort enthält `catch_up_pending`.
-  Keine Phasen überspringen und keinen Erfolg trotz unvollständiger Abrechnung.
-- NPC-vs-NPC benötigt ebenfalls einen expliziten fällige-Arbeit-Aufruf,
-  beispielsweise über den vorhandenen Simulations-CLI-/Worker-Einstieg.
-  Ohne solchen Aufruf gibt es keine kontinuierliche Weltaktivität.
-  Ein LLM-Worker verarbeitet Entscheidungen, nicht einen neuen Physik-Tick.
-- Visuelle 60-Hz-Interpolation bleibt lokal. Sie verändert keine Spielzeit
-  und löst keine Schäden oder Bestandsbuchungen aus.
+- Ein serverseitiger Worker soll aktive Begegnungen auch ohne geöffneten
+  Browser in Ein-Sekunden-Ticks fortschreiben. Das ist eine explizite
+  Änderung gegenüber der bisherigen On-Demand-Planung für Kampfphasen; die
+  übrige Spielökonomie bleibt On-Demand und bekommt keinen globalen Tick.
+- Persistierte Encounter benötigen Regelversion, Revision, nächsten fälligen
+  Tick und serverseitige Zeitbasis. Begrenztes Catch-up darf keine Ticks
+  überspringen; bei Rückstand muss dieser sichtbar und erneut bearbeitbar sein.
+  GET/SSE bleiben lesend und berechnen keine Kämpfe.
+- Tickzustand und sequenzierte Ereignisse müssen transaktional und bei
+  Konkurrenz/Worker-Neustart genau einmal fortgeschrieben werden. Vor
+  Befehlsannahme sind fällige Ticks abzurechnen; ein Befehl darf nicht
+  rückwirkend wirken. Ein LLM-Worker verarbeitet Entscheidungen unabhängig
+  von der Kampfuhr.
+- Das Frontend erhält autorisierte Snapshots und Deltas, erkennt Lücken und
+  interpoliert die Darstellung lokal. Es bestimmt weder Treffer, Schaden
+  noch Inventaränderungen.
+- Erste Produktionsausbaustufe: Flotte gegen Kolonie. Neuer Regelsatz und
+  Worker benötigen ein separates, standardmäßig deaktiviertes Feature-Flag.
+  Der bestehende `legacy-v1`-Pfad bleibt unverändert.
+
+#### Isolierter Regelsatz-Prototyp
+
+[LiveBattleRules](../../src/Combat/LiveBattleRules.php) implementiert den
+noch **nicht angebundenen** Regelsatz `live-groups-experimental-v1`. Er
+besitzt weder Uhr noch Datenbankzugriff oder Backend-Nebenwirkungen:
+
+- Pro Seite gibt es nach Schiffstyp sortierte Gruppen mit eingefrorenem
+  Startbestand, Angriff, Schild und Hülle je Schiff. Jeder Tick berechnet
+  beide Seiten gleichzeitig aus demselben vorherigen Zustand.
+- Experimentelles Balancing: Angriff je überlebendem Schiff wird durch 30
+  geteilt; beide Seiten konzentrieren ihren aggregierten Schaden auf die
+  alphabetisch erste lebende gegnerische Gruppe. Schaden trifft erst Schild,
+  dann Hülle; Schild regeneriert nicht. Verluste ergeben sich aus der
+  verbleibenden Gruppenhülle. Die Ereignisse beschreiben Gruppen, keine
+  einzelnen Schüsse oder Treffer.
+- Vernichtung beendet den Kampf; gleichzeitige Vernichtung ist ein eigenes
+  Ergebnis. Nach genau 300 Ticks ohne Vernichtung entsteht ein Patt.
+  Beute und Rückkehr sind hier noch nicht implementiert; für das spätere
+  Patt gilt: keine Beute, überlebende Angreifer kehren zurück.
+- Dieser bewusst einfache Prototyp berücksichtigt noch keine Bewegungen,
+  Energiebudgets, Forschungs-/Commander-Modifikatoren, Befehle,
+  Verteidigungsanlagen oder Schadenskanäle. Seine Werte sind keine
+  freigegebenen Produktionsregeln.
+
+#### Isoliertes Live-Tick-Journal
+
+[LiveBattleJournal](../../src/Combat/LiveBattleJournal.php) speichert den
+Anfangszustand, aktuellen Zustand und jeden einzelnen Tick mit seinen
+Gruppenereignissen in separaten InnoDB-Tabellen. Es ist eine inaktive
+Vorbereitung, keine Begegnung im Spiel: Seine Journal-ID ist **keine**
+Encounter-ID und hat noch keine Flottenreservierung oder Verbindung zum
+Wrack-Store. Die Gruppenereignisse sind keine einzelnen
+Treffer. Bevor der produktive Live-Kampf integriert werden kann, müssen
+Identität, Teilnehmer und die atomare Übernahme von Verlustereignissen in
+den Encounter-/Wrackvertrag ausdrücklich zusammengeführt werden.
+
+Beim Anlegen speichert der Aufrufer die zwei ausdrücklich übergebenen
+Teilnehmer-IDs in derselben Transaktion wie das Journal. Die Eingaben müssen
+aus vertrauenswürdiger Serverlogik stammen; der isolierte Prototyp überprüft
+weder Spielerexistenz noch Flottenbesitz und darf nicht direkt Client-IDs
+übernehmen. Die Zuordnung ersetzt nicht die spätere Encounter-Berechtigung.
+
+[LiveBattleJournalRead](../../src/Combat/LiveBattleJournalRead.php) liefert
+nur einem eingetragenen Teilnehmer einen Snapshot oder Tick-Seiten mit
+vollständigen Zuständen und Gruppenereignissen. Ein Snapshot enthält seine
+Ticknummer; danach beginnt die Delta-Abfrage mit dieser Nummer als Cursor.
+Jede Seite enthält `latest_tick`, `next_cursor` und `has_more`, sodass
+Clients fortlaufend nachladen können. Fehlende Ticks und ungültige oder
+zukünftige Cursor werden explizit abgewiesen. Die Zeitwerte sind UTC.
+Lesen schreibt keine Ticks und erfordert eine transaktionsfreie Verbindung
+mit mindestens Read-Committed-Isolation.
+
+Der experimentelle GET-Endpunkt
+[`live_battle_journal.php`](../../api/live_battle_journal.php) nutzt die
+angemeldete Server-Session und ist über `LIVE_BATTLE_JOURNAL_READ_ENABLED`
+standardmäßig deaktiviert. Er ist unabhängig vom Worker-Flag und verwendet
+`Cache-Control: private, no-store`. `action=snapshot&journal_id=<id>` liefert
+`snapshot`; `action=ticks&journal_id=<id>&after_tick=<tick>&limit=<1..100>`
+liefert `page` (Limit optional, Standard 50). Ein fehlendes Journal und ein
+unberechtigter Zugriff liefern gleichermaßen 404; ungültige Parameter 400
+und ein zukünftiger Cursor 409.
+
+`action=loss_projection&journal_id=<id>` liefert ausschließlich Teilnehmern
+abgeschlossener Journale eine verifizierte `projection` mit `schema_version`,
+`journal_id`, `rule_version`, terminalem `tick`, `outcome`, Gruppenbeständen
+(`initial_count`, `survivors`, `lost`) und positiven Verlustereignissen
+(`journal_id`, `tick`, `event_index`, `target_side`, `target_group`,
+`ships_lost`). Zusätzliche Parameter, insbesondere Benutzer-IDs und
+Tick-Cursor, werden abgewiesen. Ein noch aktives Journal liefert einem
+Teilnehmer 409; Nichtteilnehmer erhalten weiterhin 404.
+[LiveBattleJournalRead::lossProjection](../../src/Combat/LiveBattleJournalRead.php)
+öffnet auf einer transaktionsfreien Verbindung mit mindestens
+Read-Committed-Isolation eine eigene kurze Transaktion und verwendet den
+gesperrten teilnehmergeprüften Projektionsleser. Vor Ausgabe der Antwort
+wird die Transaktion abgeschlossen; bei jedem Fehler wird zurückgerollt.
+Eine beschädigte Historie ergibt einen protokollierten internen Fehler
+(500), keine Teilprojektion. Die Antwort ist ein rein abgeleitetes
+Lesemodell, keine Abrechnung und keine Wrack- oder Lootfreigabe. Der
+JS-Client und der Poller rufen diese Aktion noch nicht automatisch auf.
+
+Die Lese-API setzt keine Zeit fort. Sie
+bezieht sich ausschließlich auf isolierte Journale, deren Teilnehmer von
+vertrauenswürdiger Serverlogik erzeugt wurden, und ist keine produktive
+Encounter-API. SSE, sitzungsübergreifende Wiederaufnahme und
+Frontend-Anbindung fehlen noch.
+
+[LiveBattleJournalClient](../../js/engine/game/LiveBattleJournalClient.js)
+bereitet einen JS-Read-Model-Client für diesen Endpunkt vor. Er erhält die
+vorhandene API-Fassade per Dependency Injection und fordert ausdrücklich
+`cacheMode: 'no-store'` an. `initialize()` startet mit dem aktuellen Snapshot;
+`readNextPage(limit)` übernimmt eine vollständig geprüfte Seite atomar und
+liefert ihre geordneten Gruppenereignisse und Zustände. Der Aufrufer ruft
+bei `hasMore` weitere Seiten ab und kann später erneut pollen. Netzwerk-,
+Autorisierungs- und Validierungsfehler werden weitergereicht; eine erneute
+Abfrage verwendet den letzten erfolgreich übernommenen Cursor. Parallele
+Anfragen werden abgewiesen, und `dispose()` verwirft ausstehende Antworten.
+Beim erneuten Initialisieren einer neuen Instanz beginnt der Client bewusst
+beim aktuellen Snapshot; historische Effekte werden dabei nicht nachgespielt.
+Er simuliert keine Treffer und stellt keine automatischen Schüsse dar.
+
+[LiveBattleJournalPoller](../../js/engine/game/LiveBattleJournalPoller.js)
+orchestriert optional einen Client mit einem Sekundenintervall, höchstens vier
+Seiten pro Zyklus und maximal fünf automatischen Wiederholungen mit
+exponentieller Verzögerung bis 30 Sekunden. Dies sind konfigurierbare
+Client-Grenzen, keine Kampfticks. Nach jeder erfolgreichen Antwort wird der
+Retry-Zähler zurückgesetzt. Nur Netzwerk-/Timeoutfehler und HTTP 408, 429
+oder 5xx werden automatisch wiederholt; Authentifizierungs-, Cursor- und
+Vertragsfehler beenden den Lauf. `onError` erhält jeden Fehler und die
+geplante Verzögerung; die von `run()` zurückgegebene Promise muss der
+Aufrufer bei endgültigen Fehlern behandeln. `onSnapshot` und `onPage` werden
+abgewartet, bevor weitere Seiten geladen werden. Schlägt ein Callback fehl,
+endet der Lauf ausdrücklich ohne Wiederholung der bereits übernommenen Seite.
+Ein abgeschlossenes Journal beendet das Polling. `stop()` entfernt Timer und
+verwirft verspätete Antworten; ein bereits laufender API-Request wird durch
+die bestehende API-Fassade nicht abgebrochen, daher endet die Lauf-Promise
+erst nach dessen Abschluss. Ein bereits gestarteter Callback muss selbst
+beendet werden. Eine Poller-Instanz ist nicht wiederverwendbar.
+
+Der explizit aufzurufende Adapter
+[live-battle-presentation.js](../../js/rendering/live-battle-presentation.js)
+verbindet Client und Poller mit einem übergebenen Darstellungs-Sink. Er liefert
+Snapshots mit Gruppenseite, Typ, Start-/aktuellem Bestand, Schild und Hülle
+sowie pro Tick aggregierte Schadens-Cues mit der serverseitig bestimmten
+Zielgruppe. Es werden keine Quellschiffe, Waffen, Flugbahnen oder Einzeltreffer
+erfunden. Der Sink erhält `isCatchUp` für Ticks vor dem zuletzt vom Server
+gemeldeten Stand, um alte Cues nicht unkontrolliert gleichzeitig abzuspielen.
+Fehler des Sinks beenden die `finished`-Promise; nach `stop()` werden keine
+weiteren Tick-Callbacks aus einer bereits geladenen Seite begonnen.
+
+Der explizite experimentelle
+[WebGPU-Sink](../../js/rendering/live-battle-webgpu.js) stellt pro lebender
+Gruppe höchstens einen generischen Schiffs-Proxy dar, begrenzt auf zwölf
+Gruppen je Seite; die textuelle Zusammenfassung zeigt auch nicht dargestellte
+Gruppen und exakte Serverzahlen. Die caller-seitig ausdrücklich übergebene
+Körperposition ist eine Darstellungsankunft, **keine** vom Journal
+authentifizierte Schlachtposition. Aktuelle aggregierte Schadens-Cues werden
+ohne ausgewähltes Quellschiff und ohne Aufprall auf die exakte Zielgruppe
+visualisiert; ältere Catch-up-Cues werden unterdrückt. Nach Abschluss bleibt
+das Ergebnis bis zum Schließen sichtbar. Bei Schließen, verborgenem Dokument
+oder Systemwechsel werden ausschließlich eigene Proxies und Effekte entfernt;
+Fehler sind über den Rückgabewert `finished` und den erforderlichen
+`onError`-Callback zu behandeln.
+
+Der Renderer-Einstieg `startLiveBattleWebGpu(api, journalId, {body, onError})`
+ist nicht mit einer Spiel-UI verdrahtet und keine produktive Begegnung. Die
+bestehende Hero-QA-Szene verwendet eigene Schadenstimeline und darf deshalb
+nicht als Live-Kampf-Sink dienen. Gruppencues sind keine autoritativen
+Einzeltreffer.
+
+Der vertrauenswürdige Aufrufer öffnet und beendet die Transaktion und muss
+bei jedem Fehler vollständig zurückrollen. Ein Tick sperrt das Journal und
+prüft erwartete Ticknummer, Regelsatz und Fälligkeit anhand der
+UTC-Datenbankzeit. Zustand und Ereignisse werden zusammen geschrieben;
+veraltete Wiederholungen scheitern mit Konflikt und müssen neu laden.
+Die nächste Fälligkeit wird vom vorherigen Termin um eine Sekunde erhöht,
+nicht von der aktuellen Zeit: Rückstand lässt sich tickweise nachholen,
+ohne Ticks zu überspringen. Ein terminierter Zustand hat keinen Folgetermin.
+Die Journal-API verarbeitet absichtlich nur einen Tick je Aufruf.
+
+[LiveBattleJournalWorker](../../src/Combat/LiveBattleJournalWorker.php) ist
+ein isolierter Batch-Prototyp: Er wählt den ältesten fälligen Tick, überspringt
+gesperrte Journale und committet jeden Tick getrennt. Das Batchlimit begrenzt
+auch Catch-up; wiederholte Läufe setzen bei der gespeicherten Ticknummer fort.
+Das Ergebnis enthält Anzahl bearbeiteter Ticks sowie Zahl und frühesten Termin
+noch fälliger Journale als Momentaufnahme, einschließlich anderweitig
+gesperrter Journale. Ein Fehler stoppt den Batch ausdrücklich; vorher
+committete Ticks bleiben erhalten, der aktuelle Tick wird zurückgerollt.
+Fehlerhafte Journale müssen durch Betreiber untersucht werden, sonst können
+sie weitere Arbeit blockieren.
+
+Der einmalig ausführbare CLI-Einstieg
+[`process_live_battle_journals.php`](../../scripts/process_live_battle_journals.php)
+ist durch `LIVE_BATTLE_JOURNAL_WORKER_ENABLED=0` standardmäßig deaktiviert.
+Auch aktiviert verarbeitet er ausschließlich isolierte Journale. Der optionale
+Bash-Einstieg
+[`run_live_battle_journal_worker.sh`](../../scripts/run_live_battle_journal_worker.sh)
+führt diese Batches wiederholt mit einer Sekunde Pause nach jedem Batch aus.
+Start beispielsweise mit `LIVE_BATTLE_JOURNAL_WORKER_ENABLED=1 bash
+scripts/run_live_battle_journal_worker.sh --limit=20`; die üblichen
+Datenbank-Einstellungen müssen auf die ausdrücklich gewählte Testdatenbank
+zeigen. Ohne Flag beendet sich der Lauf beim ersten Batch mit Fehler. Jeder
+Batch gibt sein JSON-Ergebnis einschließlich Rückstand aus; auch leere Batches
+erzeugen eine Zeile. Fehler beenden den Lauf mit Exitcode ungleich null,
+bereits committete Ticks bleiben erhalten. Ein Neustart setzt aus dem Journal
+fort. SIGTERM/SIGINT an den Bash-Prozess verhindert weitere Batches und wartet
+auf den laufenden Batch oder die höchstens einsekündige Pause; auch ein
+erzwungener Abbruch darf keinen teilweisen Tick committen. Ein Supervisor
+muss den Wrapper-Prozess adressieren und seine Ausgabe und Fehler überwachen.
+Es ist weiterhin kein Dienst oder Scheduler automatisch eingerichtet; die
+Pause nach einem Batch ist kein Echtzeit-Latenzversprechen und ein Rückstand
+kann mehrere Läufe benötigen. Das Flag ist **kein** Freigabeschalter für das
+produktive Live-Kampfsystem.
+
+Der MySQL-Integrationstest `testConcurrentWorkersSkipLockedJournalAndRecoverAfterCrash`
+hält einen echten CLI-Worker an, nachdem dieser einen Tick innerhalb seiner
+Transaktion eingefügt hat, aber vor dem Zustandsupdate und Commit. Eine
+testseitige Datenbanksperre und ein temporärer Trigger halten ihn an dieser
+Stelle; ein Dirty Read bestätigt das uncommittete Tick-Insert, während ein
+normaler Leser es nicht sieht. Ein zweiter CLI-Worker überspringt das gesperrte
+Journal und verarbeitet ein anderes fälliges Journal. Ein weiterer Lauf meldet
+die noch gesperrte Arbeit als Rückstand, ohne einen Tick zu erzeugen. Nach
+SIGKILL des ersten Workers bleiben dessen Ticknummer und Termin unverändert.
+Ein neu gestarteter CLI-Worker verarbeitet den Tick genau einmal; eine weitere
+Verarbeitung erzeugt keinen zweiten Tick. Das belegt diesen Konkurrenz- und
+Prozessabbruchfall auf MySQL, nicht allgemeine Lastgrenzen, beliebige
+Stromausfälle oder die noch fehlende produktive Abschlussabrechnung.
+
+Produktiver Workerbetrieb, Ankunftsbindung, terminale Abrechnung, separates
+Gameplay-Feature-Flag, produktive Encounter-API/SSE und Live-Renderer fehlen weiterhin.
+Insbesondere laufen dadurch aktuell noch keine echten Live-Schlachten.
+
+#### Vorbereitung: Bergbare Schiffswracks
+
+Zerstörte Schiffe sollen künftig persistente Trümmerfelder erzeugen, die nur
+berechtigte Schlachtteilnehmer mit geeigneten Flotten bergen können. Das ist
+von der bestehenden Kolonieplünderung, dem Planeten-`harvest` und rein
+visuellen 3D-Trümmern getrennt. Weder der Sieg noch das Anzeigen eines
+Replays vergibt Wrackinhalt automatisch.
+
+Der isolierte Vertrag [ShipWreckManifest](../../src/Combat/ShipWreckManifest.php)
+beschreibt einen Gruppenverlust und ausdrücklich vorgegebene Inhalte der
+Kategorien Ressourcen, Blaupausen, Waffen und Munition. Die Kennung aus
+Encounter-ID und persistierter Ereignissequenz identifiziert die Quelle;
+Sortierung macht den Inhalt reproduzierbar. Mengen sind positive ganzzahlige
+Katalogeinheiten; ihre genaue Einheit und eine verlustfreie Umrechnung in
+bestehende Dezimalressourcen müssen vor produktiver Nutzung definiert werden.
+Eine leere Liste ist zulässig und erzeugt keine implizite Beute.
+
+Der Vertrag prüft weder, ob das Verlustereignis authentisch oder dauerhaft
+gespeichert ist, noch ob Artikel im Katalog existieren; er berechnet keine
+Drop-Raten und gewährt keine Items oder Rechte. Er akzeptiert die Form der
+experimentellen Live-Gruppenverlustereignisse, ist aber nicht an den
+Resolver angebunden. Ein `source_key` allein garantiert keine Idempotenz.
+
+Die reine, noch nicht verdrahtete Vorbereitung
+[LiveBattleLossProjection](../../src/Combat/LiveBattleLossProjection.php)
+nimmt einen vollständigen abgeschlossenen Journalverlauf, seinen ursprünglichen
+und seinen aktuellen Snapshot entgegen. Sie rekonstruiert den Anfangszustand
+aus den eingefrorenen Gruppenwerten und berechnet alle höchstens 300 Ticks mit
+dem festgelegten experimentellen Regelsatz erneut. Ticknummern, Zustände und
+Ereignisse sowie der terminale Snapshot müssen übereinstimmen; unvollständige
+oder abweichende Historien werden abgewiesen. Das Ergebnis enthält exakte
+Gruppenbestände und nur Ereignisse mit positiven Verlusten. Deren Quellen sind
+`journal_id`, `tick` und der nullbasierte Index im ursprünglichen Tick-Ereignis.
+Diese Koordinaten sind **keine Encounter-ID und keine Encounter-Sequenz**;
+eine spätere Transaktion muss die Identitäten ausdrücklich und dauerhaft
+abbilden. Die Projektion prüft keine DB-Authentizität, keine Teilnehmer oder
+Schiffsbesitzrechte: Der spätere Aufrufer muss autorisierte, serverseitig
+persistierte Eingaben konsistent lesen und die Anwendung atomar absichern.
+Auch erzeugt die Projektion keine Wracks, Inhalte, Berechtigungen oder Buchungen.
+Gruppenbezeichner müssen vor Verwendung mit dem Wrackvertrag zusätzlich dessen
+strengere Kennungsregeln erfüllen.
+
+Der interne [LiveBattleLossProjectionReader](../../src/Combat/LiveBattleLossProjectionReader.php)
+lädt diese Projektion aus einem abgeschlossenen Journal innerhalb einer vom
+Aufrufer geöffneten Transaktion. Er verlangt InnoDB und den Fremdschlüssel von
+Tickhistorie zum Journal, sperrt zuerst das Journal und danach dessen
+Tickzeilen mit `FOR UPDATE`, prüft Regelversion, Abschlussrevision und
+vollständige Historie und führt die Regelprüfung aus. Fehlende, zusätzliche oder
+veränderte Ticks werden abgewiesen; Lesezugriffe erzeugen keine Buchungen.
+Die Sperren bleiben bis Commit oder Rollback des Aufrufers bestehen. Unter
+MySQL wurden konkurrierende Updates, Deletes und Inserts sowie Reads nach einem
+älteren Repeatable-Read-Snapshot getestet; der Insert-Schutz wurde auch unter
+Read Committed geprüft. Der Aufrufer muss bei Fehlern zurückrollen und darf
+keine nicht vertrauenswürdigen oder eigenen uncommitteten Journaländerungen
+als persistierte Grundlage verwenden. Der unbeschränkte `read()`-Pfad prüft
+keine Teilnehmerberechtigung. Der ergänzende interne Pfad
+`readForParticipant()` erhält eine vertrauenswürdige serverseitige Benutzer-ID,
+sperrt das Journal und dessen Teilnehmerzeilen und prüft die Mitgliedschaft
+vor der Projektion. Fehlende Journale und Nichtteilnehmer erhalten dieselbe
+404-Antwort; nur Teilnehmer erfahren, ob ein Journal noch aktiv ist. Die
+Teilnehmertabelle muss InnoDB und den Journal-Fremdschlüssel besitzen. Die
+Sperren bleiben bis zum Transaktionsende bestehen; konkurrierende Änderungen
+und Inserts werden auch unter Read Committed blockiert. Ein vorheriger
+Repeatable-Read-Snapshot überholt die gesperrte Mitgliedschaftsprüfung nicht.
+Dieser interne Pfad ist selbst keine API; der optionale GET-Lesepfad
+`action=loss_projection` kapselt ihn mit einer eigenen Transaktion und
+der angemeldeten Server-Session. Die Identität darf nicht ungeprüft vom
+Client übernommen werden. Es gibt keine Encounter-Zuordnung,
+idempotente Abschlussbuchung oder produktive Integration. Für eine spätere
+Verdrahtung sind Identität, Rechte, Sperrreihenfolge und atomare Abrechnung
+weiterhin gesondert zu definieren.
+
+Die inaktive Grundlage [ShipWreckStore](../../src/Combat/ShipWreckStore.php)
+und `migrate_ship_wreck_fields_v1.sql` speichern pro Encounter und
+Ereignissequenz höchstens ein unveränderliches Manifest. Nur Ereignisse vom
+Typ `ship_group_loss` des experimentellen Live-Regelsatzes werden akzeptiert;
+Legacy-Ereignisse erzeugen keine Wracks. Identische Wiederholungen sind
+idempotent, abweichende Inhalte scheitern als Konflikt. Das Encounter-Lock
+serialisiert konkurrierende Schreibversuche. Lesezugriffe prüfen die
+serverseitige Teilnehmerliste; ein fehlendes Wrack und ein unberechtigter
+Zugriff sind nicht unterscheidbar.
+
+Der Aufrufer muss eine InnoDB-Transaktion öffnen, Verlustereignis und Wrack
+darin gemeinsam schreiben und bei jedem Fehler zurückrollen. Ein bereits
+früher committetes Ereignis wird durch den Store nicht rückwirkend atomar.
+Die Übergabe der Inhalte und Benutzeridentität darf nur aus vertrauenswürdiger
+Serverlogik stammen. Es gibt noch keinen produktiven Schreiber für diese
+Ereignisse, keine Live-Encounter-Persistenz, keine API und keine Bergung;
+insbesondere erlaubt das bestehende Legacy-Zustandsschema noch keine aktiven
+Live-Schlachten. Vor Integration müssen Ereignis- und Tick-Persistenz sowie
+die Abrechnung als zusammenhängende Transaktion implementiert werden.
+
+Vor Aktivierung erforderlich:
+
+- Den Store beim zukünftigen Live-Tick in dieselbe Transaktion wie Verlust
+  und Ereignis einbinden und Fehler vollständig zurückrollen.
+- Teilnehmerberechtigung serverseitig aus der Begegnung ableiten und
+  dauerhaft prüfen, keine vom Client vorgegebenen Berechtigten übernehmen;
+  Sichtbarkeit und Zugriff auch nach Abschluss ausdrücklich definieren.
+- Inventar-/Katalogverträge für Waffen, Munition und Blaupausen ergänzen;
+  ein Blaupausenfund ist nicht automatisch ein fremdes privates Design oder
+  eine Forschungsfreischaltung. Verfügbarkeit, Herkunft und Freigabe prüfen.
+- Eine separate Bergungsaktion mit Serverberechtigungen, Standort- und
+  Kapazitätsprüfungen einführen. Teilentnahme, konkurrierende Flotten,
+  Retries, Transport und Übergabe ins Zielinventar transaktional und ohne
+  Duplikate oder Verlust bestehender Ressourcen behandeln.
+- Mengen, Drop-Raten, Wracklebensdauer, Kapazitätskosten und Umgang mit
+  zerstörter Bergungsfracht sind noch nicht festgelegt. Kein aktivierter
+  Loot-Pfad oder Behauptung einer bereits existierenden Bergung.
 
 ### 3.2 Gemeinsamer Teilnehmervertrag
 
@@ -118,7 +443,7 @@ Empfehlung für den ersten neuen Regelsatz:
 
 Die neue Auflösung bekommt maximale Phasenzahl und Endbedingungen
 (Vernichtung, Rückzug, Ziel erfüllt, Patt/Zeitlimit).
-Phasendauer, Schadensformeln, Flankenvorteile, Reservenkosten und
+Produktive Schadensformeln, Flankenvorteile, Reservenkosten und
 Rückzugsrisiko sind **Balancing-Entscheidungen vor Freigabe von Block B3**.
 Keine frei erfundenen Bonusprozente aus der QA-Szene übernehmen.
 

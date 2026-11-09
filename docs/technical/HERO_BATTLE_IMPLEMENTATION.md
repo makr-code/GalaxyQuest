@@ -136,6 +136,64 @@ in [Weapon Fire Integration](WEAPON_FIRE_INTEGRATION.md).
   remaining after cleanup; no mutating HTTP requests during the observed replay.
 - The final public renderer API was also exercised live and cleaned up without
   GPU validation errors.
+- The browser E2E `npm run test:e2e:battle-video` passed against the local live
+  server. It records a seeded 12-second, eight-ship near-view QA battle,
+  verifies replay metadata, outcome consistency, cleanup, browser errors and
+  zero mutating HTTP requests during the preview. The recorded 1280x720 VP9 WebM is
+  [archived here](./assets/hero-battles/hero-battle-e2e-seed-465192519.webm);
+  its 19.1-second total includes login and navigation. This remains a
+  non-authoritative QA fixture, not a production encounter replay.
+- The same browser E2E now also drives the Fleet window's completed-encounter
+  replay through the native renderer using a deterministic, mocked read-only
+  API response. It checks the report/encounter GET path, exact server outcome,
+  aggregate-pressure disclaimer, replay expiry, browser errors and zero
+  mutating HTTP requests. This exercises the client integration, not backend
+  participant authorization or database persistence; those remain covered by
+  the isolated API/integration tests. Its 1280x720 VP9 video is
+  [archived here](./assets/hero-battles/battle-encounter-replay-e2e-seed-465192520.webm);
+  its 19-second total includes login and navigation. The video and result JSON
+  are also attached to the Playwright run.
+- The Windows video-test script enables WebGPU and prefers installed Microsoft
+  Edge when present; `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` can override it.
+  Environments without a usable WebGPU renderer skip this test.
+- The opt-in `tests/e2e/live-battle-webgpu.spec.js` exercises the experimental
+  live-journal renderer in the native WebGPU system view. A deterministic
+  injected API fixture supplies the snapshot and three ordered tick responses;
+  it does not contact the journal endpoint or execute the server worker.
+  The test checks on-screen proxy projections, three aggregate cues, the
+  terminal count, cleanup and absence of mutating HTTP requests while the
+  view is active. The test explicitly positions and restores the camera: the
+  experimental renderer does not yet navigate or focus it. The recorded
+  1280x720 WebM, including login and navigation, is
+  [archived here](./assets/hero-battles/live-battle-journal-webgpu-e2e.webm).
+  This is visual integration evidence, not an end-to-end live server battle.
+- `tests/e2e/live-battle-server-webgpu.spec.js` prepares a server-backed variant:
+  a random temporary MySQL database and isolated PHP sessions, the continuous
+  journal-worker wrapper, and the participant-protected PHP HTTP endpoint. Playwright forwards
+  the journal requests to that private endpoint through a test-only Docker
+  transport; the game renderer still comes from `GQ_BASE_URL`. It checks
+  server events, worker results, deadlines, unauthorized reads, visible
+  counts, aggregate cues and cleanup. The body and camera remain visual
+  fixtures, and this is not the production fleet or loot workflow.
+  Run it only against a **separate disposable game server and game database**:
+  game login and on-demand reads may change that server's database. Set both
+  `GQ_RUN_LIVE_SERVER_E2E=1` and `GQ_LIVE_RENDERER_ISOLATED=1` to acknowledge
+  this requirement, supply test credentials via `GQ_LIVE_RENDERER_USER` and
+  `GQ_LIVE_RENDERER_PASSWORD`, plus the normal WebGPU and `GQ_BASE_URL` settings. The
+  flags do not themselves create or verify an isolated game server. The
+  temporary journal database and session directory are cleaned up by the test.
+  The expanded test passed using a disposable local game database copy and
+  separate game container; both were removed after the run. A single worker
+  process advanced both ticks while the browser rendered, then advanced a
+  second fixture battle to completion after the browser page was closed.
+  The first fixture's deadline was reset before starting the worker so the
+  browser could initialize at tick zero; this is test orchestration, not a
+  production journal operation. Catch-up may suppress older visual cues, while
+  persisted server events remain complete. This is still not a production
+  service or encounter. The 1280x720 recording is
+  [archived here](./assets/hero-battles/live-battle-continuous-webgpu-e2e.webm);
+  the [earlier recording](./assets/hero-battles/live-battle-server-webgpu-e2e.webm)
+  used two separately invoked worker batches.
 - The production fleet-UI replay path was exercised in the local WebGPU browser
   using a temporary synthetic report and encounter. Participant-authorized GET,
   system navigation, generic ship proxies, aggregate pressure cues, and the
@@ -578,6 +636,9 @@ completed, no browser/GPU recording error was reported, and no UI overlay
 resources remained. The export is silent.
 
 ### Battle video archive
+
+The [battle video archive](./BATTLE_VIDEO_ARCHIVE.md) provides embedded
+players, direct local links and the scope of each recording.
 
 All generated battle videos and their original WebM capture streams are
 stored under [`assets/hero-battles/`](./assets/hero-battles/). MP4 files

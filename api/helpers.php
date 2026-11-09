@@ -40,7 +40,7 @@ if (!defined('GQ_API_ERROR_HANDLERS_READY')) {
 }
 
 function gq_api_handle_uncaught_throwable(Throwable $e): never {
-    $message = APP_ENV === 'production'
+    $message = app_is_production()
         ? 'Internal server error'
         : sprintf('%s: %s in %s:%d', get_class($e), $e->getMessage(), basename($e->getFile()), $e->getLine());
 

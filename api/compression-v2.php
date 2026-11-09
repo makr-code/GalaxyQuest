@@ -120,7 +120,7 @@ function encode_system_payload_binary_v2(array $payload): string {
     $buf .= _encode_fleets_block($payload['fleets_in_system'] ?? [], $pool);
     
     // End marker
-    $buf .= pack('C', FIELD_ID['SECTION_END']);
+    $buf .= pack('C', FIELD_ID_SECTION_END);
     
     return $buf;
 }
@@ -400,11 +400,11 @@ function decode_system_payload_binary_v2(string $buf): ?array {
         // (This is a simplified reference; full implementation shown in JS decoder)
         
         switch ($fieldId) {
-            case FIELD_ID['GALAXY']:
+            case FIELD_ID_GALAXY:
                 $result['galaxy'] = unpack('n', substr($buf, $offset, 2))[1];
                 $offset += 2;
                 break;
-            case FIELD_ID['SYSTEM']:
+            case FIELD_ID_SYSTEM:
                 $result['system'] = unpack('n', substr($buf, $offset, 2))[1];
                 $offset += 2;
                 break;

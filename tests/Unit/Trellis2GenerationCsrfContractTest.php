@@ -14,11 +14,13 @@ final class Trellis2GenerationCsrfContractTest extends TestCase
         self::assertIsString($source);
 
         foreach (['generate_base_hull', 'generate_components', 'generate_avatar'] as $action) {
-            $start = strpos($source, "case '" . $action . "':");
-            self::assertNotFalse($start, $action . ' action must exist.');
-            $end = strpos($source, 'break;', $start);
-            self::assertNotFalse($end, $action . ' action must have a bounded body.');
-            $body = substr($source, $start, $end - $start);
+            $matched = preg_match(
+                "/case '" . preg_quote($action, '/') . "':(?<body>.*?)(?=^\\s*(?:case|default)\\b)/ms",
+                $source,
+                $matches
+            );
+            self::assertSame(1, $matched, $action . ' action must exist and have a bounded body.');
+            $body = $matches['body'];
 
             $postGuardOffset = strpos($body, "only_method('POST');");
             $csrfGuardOffset = strpos($body, 'verify_csrf();');

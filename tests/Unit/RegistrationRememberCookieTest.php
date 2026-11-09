@@ -25,9 +25,9 @@ final class RegistrationRememberCookieTest extends TestCase
         );
         $enterStart = strpos($source, "if (\$action === 'enter')");
         self::assertNotFalse($enterStart);
-        $confirmStart = strpos($source, "if (\$action === 'confirm') {", $enterStart);
-        self::assertNotFalse($confirmStart);
-        $enter = substr($source, $enterStart, $confirmStart - $enterStart);
+        $playStart = strpos($source, "if (\$action === 'play')", $enterStart);
+        self::assertNotFalse($playStart);
+        $enter = substr($source, $enterStart, $playStart - $enterStart);
         self::assertStringNotContainsString('issue_remember_me_token', $enter,
             'Unconfirmed drafts must remain private and must not receive account login cookies.');
     }

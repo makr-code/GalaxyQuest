@@ -28,9 +28,15 @@ final class MigrationRunnerMySqlTest extends TestCase
         );
         $this->assertSame('mysql', $this->admin->getAttribute(PDO::ATTR_DRIVER_NAME));
         $this->database = 'gq_migration_test_' . bin2hex(random_bytes(8));
-        $this->admin->exec('CREATE DATABASE `' . $this->database . '`');
+        $this->admin->exec(
+            'CREATE DATABASE `' . $this->database . '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
+        );
         $this->db = $this->admin;
         $this->db->exec('USE `' . $this->database . '`');
+        $collation = $this->db->query(
+            'SELECT DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=DATABASE()'
+        )->fetchColumn();
+        $this->assertSame('utf8mb4_unicode_ci', $collation);
         $this->sqlDir = sys_get_temp_dir() . '/' . $this->database;
         mkdir($this->sqlDir, 0700);
         copy(__DIR__ . '/../../sql/schema_migrations.sql', $this->sqlDir . '/schema_migrations.sql');
@@ -131,6 +137,75 @@ final class MigrationRunnerMySqlTest extends TestCase
                  FROM battle_encounters"
             );
             $this->fail('One fleet must not create two encounters.');
+        } catch (PDOException $error) {
+            $this->assertSame('23000', $error->getCode());
+        }
+    }
+
+    public function testShipWreckMigrationIsRepeatableAndRequiresAnExistingEvent(): void
+    {
+        $this->db->exec($this->readSqlForTestDatabase('migrate_battle_encounters_v1.sql'));
+        $sql = $this->readSqlForTestDatabase('migrate_ship_wreck_fields_v1.sql');
+        $runner = $this->buildRunner($sql);
+        $this->assertCount(1, $runner->runUp());
+        $this->assertSame([], $runner->runUp());
+        $this->db->exec($sql);
+        $this->assertSame('InnoDB', $this->db->query(
+            "SELECT ENGINE FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ship_wreck_fields'"
+        )->fetchColumn());
+        try {
+            $this->db->exec(
+                "INSERT INTO ship_wreck_fields (encounter_id,event_sequence,manifest_json,manifest_sha256)
+                 VALUES (42,1,'{}',REPEAT('a',64))"
+            );
+            $this->fail('A wreck requires a persisted encounter event.');
+        } catch (PDOException $error) {
+            $this->assertSame('23000', $error->getCode());
+        }
+    }
+
+    public function testLiveBattleJournalMigrationIsRepeatableAndEnforcesTickIdentity(): void
+    {
+        $sql = $this->readSqlForTestDatabase('migrate_live_battle_journal_v1.sql');
+        $runner = $this->buildRunner($sql);
+        $this->assertCount(1, $runner->runUp());
+        $this->assertSame([], $runner->runUp());
+        $this->db->exec($sql);
+        $engines = $this->db->query(
+            "SELECT ENGINE FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('live_battle_journals','live_battle_journal_ticks')"
+        )->fetchAll(PDO::FETCH_COLUMN);
+        $this->assertCount(2, $engines);
+        $this->assertSame(['InnoDB'], array_values(array_unique($engines)));
+        try {
+            $this->db->exec(
+                "INSERT INTO live_battle_journal_ticks (journal_id,tick,state_json,events_json)
+                 VALUES (42,1,'{}','[]')"
+            );
+            $this->fail('A tick requires an existing journal.');
+        } catch (PDOException $error) {
+            $this->assertSame('23000', $error->getCode());
+        }
+    }
+
+    public function testLiveBattleParticipantMigrationIsRepeatableAndRequiresJournal(): void
+    {
+        $this->db->exec($this->readSqlForTestDatabase('migrate_live_battle_journal_v1.sql'));
+        $sql = $this->readSqlForTestDatabase('migrate_live_battle_journal_participants_v1.sql');
+        $runner = $this->buildRunner($sql);
+        $this->assertCount(1, $runner->runUp());
+        $this->assertSame([], $runner->runUp());
+        $this->db->exec($sql);
+        $this->assertSame('InnoDB', $this->db->query(
+            "SELECT ENGINE FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='live_battle_journal_participants'"
+        )->fetchColumn());
+        try {
+            $this->db->exec(
+                "INSERT INTO live_battle_journal_participants (journal_id,side,user_id) VALUES (42,'attacker',1)"
+            );
+            $this->fail('A participant requires an existing journal.');
         } catch (PDOException $error) {
             $this->assertSame('23000', $error->getCode());
         }

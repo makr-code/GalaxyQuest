@@ -989,6 +989,99 @@ Read access is participant-only through
 `GET api/fleet.php?action=battle_encounter&encounter_id=...`; GET never advances
 arrivals, return or NPC simulation. No public observer mode is enabled.
 
+#### Production preflight and rollback
+
+Production activation is a separate, explicitly approved rollout. Before
+planning it, agree on encounter retention and account-deletion behavior; the
+journal intentionally has no automatic pruning or destructive down migration.
+The locally enabled Docker configuration is not evidence that production is
+ready or approved.
+
+1. Back up the target database and verify the restore procedure. Use the exact
+   candidate application image and production database connection for all
+   migration checks.
+2. Inspect `php scripts/migrate.php status --env=PROD` and
+   `php scripts/migrate.php up --dry-run --env=PROD`. Review the entire pending
+   sequence and every prerequisite. Do not run a general `up` or use a partial
+   manifest to work around unrelated/untracked historical migrations; stop
+   until the complete migration history is reconciled and approved.
+3. Apply only through the canonical `config/migrations_manifest.php` using the
+   normal reviewed deployment migration step. Then require
+   `php scripts/migrate.php verify --env=PROD` to pass. Do not run the SQL file
+   directly or mark it applied without executing it.
+4. Verify the journal storage engines on the target database:
+
+   ```sql
+   SELECT TABLE_NAME, ENGINE
+   FROM information_schema.TABLES
+   WHERE TABLE_SCHEMA = DATABASE()
+     AND TABLE_NAME IN (
+       'battle_encounters',
+       'battle_encounter_participants',
+       'battle_encounter_events'
+     )
+   ORDER BY TABLE_NAME;
+   ```
+
+   Require exactly three rows and `InnoDB` for every row. Also require normal
+   deployment readiness and the agreed backup/retention/account-deletion
+   procedures. Any failed check blocks activation.
+5. Deploy the application with `BATTLE_ENCOUNTERS_ENABLED=0` first. Confirm the
+   release is healthy, then enable `BATTLE_ENCOUNTERS_ENABLED=1` only through
+   the approved deployment configuration and restart/redeploy the web service.
+   Validate authenticated participant reads and unauthorized access in
+   staging; do not create a real production battle as a smoke test.
+6. Monitor arrival-transaction errors and journal writes. If a rollback is
+   needed, set the flag back to `0` and redeploy. This stops journaling future
+   resolutions while preserving already committed encounters. Do not drop the
+   journal tables or delete history as part of rollback.
+
+The feature flag must remain off if the migration manifest is incomplete,
+`verify` or readiness fails, any journal table is missing/non-InnoDB, or the
+retention/account-deletion policy is unresolved. The API reports historical
+reports without a journal as non-replayable; it does not backfill them.
+
+### Isolated live battle journal preparation
+
+`migrate_live_battle_journal_v1.sql` adds two InnoDB tables for an isolated
+experimental live-rules journal. The initial snapshot and individual ticks
+are retained; the current snapshot and next UTC deadline support resumption.
+`migrate_live_battle_journal_participants_v1.sql` adds the isolated participant
+mapping, created with the journal from trusted server-supplied identities.
+The internal reader checks that mapping. A separate experimental authenticated
+GET API is available only with `LIVE_BATTLE_JOURNAL_READ_ENABLED=1`; it
+defaults to disabled and requires trusted participant creation.
+The journal ID is not a battle encounter ID, and the tables have no gameplay
+integration, fleet reservation or salvage wiring.
+No live battle is activated by applying this migration. There is no
+destructive down migration; assess retention before future activation. Apply
+only as part of the reviewed complete manifest.
+
+The standalone experimental journal batch CLI is disabled by default through
+`LIVE_BATTLE_JOURNAL_WORKER_ENABLED=0`. With an explicitly configured isolated
+test database and the flag set to `1`, one invocation of
+`php scripts/process_live_battle_journals.php --limit=20` processes at most
+20 due ticks and reports the remaining due journals and oldest deadline.
+Limits are 1–100; there is no installed scheduler. Do not enable it as a
+production live-battle rollout: it cannot settle fleets or publish gameplay
+results. Each committed tick survives later batch failure; errors stop the
+batch and include the affected journal and previously committed tick count.
+
+### Ship wreck storage preparation
+
+`migrate_ship_wreck_fields_v1.sql` follows the encounter migration in the
+canonical manifest. It creates an InnoDB table keyed by encounter and event
+sequence, with a foreign key to the persisted event. It does not activate live
+battles, generate loot, expose an API, or enable salvage. There is deliberately
+no destructive down migration; retain the data and plan retention before any
+future activation. Apply only as part of the reviewed complete manifest, not
+directly against a live database as a test.
+
+The prepared store requires a caller-owned transaction and checks the relevant
+tables are InnoDB. Future writers must commit the loss event and wreck together
+and roll back on every failure. Current legacy encounters and events do not
+qualify; the current encounter schema does not yet support active live battles.
+
 ### Idempotent fleet dispatch rollout
 
 Apply `migrate_fleet_dispatch_receipts_v1.sql` through the canonical manifest

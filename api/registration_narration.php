@@ -88,7 +88,7 @@ if (!$cached) {
         error_log('registration_narration_cache_missing clip=' . $id . ' hash=' . $hash);
         json_error('Narration audio is currently unavailable.', 503);
     }
-    $generated = !($result['cached'] ?? false);
+    $generated = true;
 }
 header('Cache-Control: no-store');
 json_ok([

@@ -21,8 +21,8 @@ final class FleetTrajectory
     /**
      * Sum authoritative per-ship mass and thrust for a fleet.
      *
-     * @param array<string, int> $ships Ship type to count.
-     * @param array<string, array{mass_kg: float, thrust_newtons: float}> $specifications
+     * @param array<array-key, mixed> $ships Ship type to count.
+     * @param array<string, mixed> $specifications
      * @return array{mass_kg: float, thrust_newtons: float}
      */
     public static function aggregateFleetPropulsion(array $ships, array $specifications): array
@@ -70,7 +70,7 @@ final class FleetTrajectory
 
     /**
      * @param array{x: float, y: float, z: float} $position Light-years.
-     * @param list<array{mass_solar: float, position: array{x: float, y: float, z: float}}> $bodies
+     * @param list<mixed> $bodies
      * @return array{x: float, y: float, z: float} Acceleration in light-years/year^2.
      */
     public static function gravitationalAcceleration(array $position, array $bodies): array
@@ -105,6 +105,11 @@ final class FleetTrajectory
         return $acceleration;
     }
 
+    /**
+     * Calculate conserved quantities and center of mass for a closed system.
+     *
+     * Energy uses solar-mass·light-year²/year²; momentum uses solar-mass·light-year/year.
+     *
     /**
      * Calculate conserved quantities and center of mass for a closed system.
      *
@@ -244,11 +249,7 @@ final class FleetTrajectory
      *     velocity: array{x: float, y: float, z: float},
      *     radius_ly?: float
      * }> $bodies
-     * @param list<array{
-     *     thrust_newtons: float,
-     *     mass_kg: float,
-     *     direction: array{x: float, y: float, z: float}
-     * }> $propulsionByBody
+     * @param array<array-key, mixed> $propulsionByBody
      * @return list<array{
      *     mass_solar: float,
      *     position: array{x: float, y: float, z: float},
@@ -266,6 +267,7 @@ final class FleetTrajectory
         if (!array_is_list($propulsionByBody) || count($propulsionByBody) !== count($bodies)) {
             throw new InvalidArgumentException('Each system body requires one propulsion specification.');
         }
+        /** @var list<mixed> $propulsionByBody */
 
         [$steps, $step] = self::integrationWindow($elapsedYears, $maximumStepYears);
         $accelerations = self::bodyAccelerations($bodies);
@@ -459,7 +461,7 @@ final class FleetTrajectory
     /**
      * Convert a propulsion force into acceleration in light-years/year^2.
      *
-     * @param array{x: float, y: float, z: float} $direction Inertial thrust direction.
+     * @param array<string, mixed> $direction Inertial thrust direction.
      * @return array{x: float, y: float, z: float}
      */
     public static function thrustAcceleration(float $thrustNewtons, float $massKg, array $direction): array
@@ -555,7 +557,7 @@ final class FleetTrajectory
     }
 
     /**
-     * @param list<array<string, mixed>> $bodies
+     * @param list<mixed> $bodies
      * @return list<array{
      *     mass_solar: float,
      *     position: array{x: float, y: float, z: float},

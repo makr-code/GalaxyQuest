@@ -557,8 +557,8 @@ final class TextureAiGenerationTest extends TestCase
             throw new RuntimeException('Cannot locate AI enablement gate.');
         }
         $gate = str_replace(
-            ["getenv('COMFYUI_ENABLED')", 'APP_ENV'],
-            [var_export($setting, true), var_export($env, true)],
+            ["getenv('COMFYUI_ENABLED')", 'app_is_development()'],
+            [var_export($setting, true), var_export($env === 'dev', true)],
             substr($source, $start, $end - $start)
         );
         $this->assertSame($expected, eval($gate . 'return $aiEnabled;'));

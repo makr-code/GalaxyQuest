@@ -61,22 +61,16 @@ try {
     switch ($event) {
         case 'market_update':
             event_market_update($db);
-            break;
         case 'opportunity_scan':
             event_opportunity_scan($db);
-            break;
         case 'trader_decisions':
             event_trader_decisions($db);
-            break;
         case 'route_process':
             event_route_process($db);
-            break;
         case 'route_create':
             event_route_create($db);
-            break;
         case 'route_complete':
             event_route_complete($db);
-            break;
         default:
             json_error("Unknown event: $event", 400);
     }

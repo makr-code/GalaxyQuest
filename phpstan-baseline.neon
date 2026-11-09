@@ -19,12 +19,6 @@ parameters:
 			path: api/admin_endpoints.php
 
 		-
-			message: '#^Unreachable statement \- code above always terminates\.$#'
-			identifier: deadCode.unreachable
-			count: 3
-			path: api/asset_generations.php
-
-		-
 			message: '#^Negated boolean expression is always false\.$#'
 			identifier: booleanNot.alwaysFalse
 			count: 1
@@ -109,12 +103,6 @@ parameters:
 			path: api/comfyui_workflow_builder.php
 
 		-
-			message: '#^Constant FIELD_ID not found\.$#'
-			identifier: constant.notFound
-			count: 3
-			path: api/compression-v2.php
-
-		-
 			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
 			identifier: notIdentical.alwaysTrue
 			count: 1
@@ -143,12 +131,6 @@ parameters:
 			identifier: nullCoalesce.offset
 			count: 1
 			path: api/economy_flush.php
-
-		-
-			message: '#^Function calc_and_store_empire_scores not found\.$#'
-			identifier: function.notFound
-			count: 2
-			path: api/empire.php
 
 		-
 			message: '#^Unreachable statement \- code above always terminates\.$#'
@@ -445,24 +427,6 @@ parameters:
 			path: api/game_engine.php
 
 		-
-			message: '#^Access to undefined constant PDO\:\:ERRMODE_THROW\.$#'
-			identifier: classConstant.notFound
-			count: 1
-			path: api/game_guide.php
-
-		-
-			message: '#^Function class_basename not found\.$#'
-			identifier: function.notFound
-			count: 1
-			path: api/game_guide.php
-
-		-
-			message: '#^Function verifyAuth not found\.$#'
-			identifier: function.notFound
-			count: 1
-			path: api/game_guide.php
-
-		-
 			message: '#^Function callTrellis2\(\) never returns string so it can be removed from the return type\.$#'
 			identifier: return.unusedType
 			count: 1
@@ -477,7 +441,7 @@ parameters:
 		-
 			message: '#^Unreachable statement \- code above always terminates\.$#'
 			identifier: deadCode.unreachable
-			count: 5
+			count: 4
 			path: api/generation_queue.php
 
 		-
@@ -561,12 +525,6 @@ parameters:
 		-
 			message: '#^Offset ''type'' on array\{type\: int, message\: string, file\: string, line\: int\} on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
-			count: 1
-			path: api/helpers.php
-
-		-
-			message: '#^Strict comparison using \=\=\= between ''production'' and ''production'' will always evaluate to true\.$#'
-			identifier: identical.alwaysTrue
 			count: 1
 			path: api/helpers.php
 
@@ -757,24 +715,6 @@ parameters:
 			path: api/npc_controller.php
 
 		-
-			message: '#^Anonymous function has an unused use \$faction\.$#'
-			identifier: closure.unusedUse
-			count: 1
-			path: api/npc_faction_daily_quests.php
-
-		-
-			message: '#^Parameter \#4 \$questId of function npc_quest_trigger_log_insert expects int, string\|false given\.$#'
-			identifier: argument.type
-			count: 1
-			path: api/npc_faction_daily_quests.php
-
-		-
-			message: '#^Variable \$t in empty\(\) always exists and is not falsy\.$#'
-			identifier: empty.variable
-			count: 1
-			path: api/npc_faction_daily_quests.php
-
-		-
 			message: '#^Offset ''executed'' on array\{ok\: bool, executed\: bool, reason\: string, quest_id\?\: int, error\?\: string\} on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
 			count: 1
@@ -839,18 +779,6 @@ parameters:
 			identifier: nullCoalesce.offset
 			count: 1
 			path: api/npc_quest_chain_manager.php
-
-		-
-			message: '#^Method PDOStatement\:\:execute\(\) invoked with 4 parameters, 0\-1 required\.$#'
-			identifier: arguments.count
-			count: 1
-			path: api/npc_quest_contextual_trigger.php
-
-		-
-			message: '#^Parameter \#1 \$params of method PDOStatement\:\:execute\(\) expects array\|null, int given\.$#'
-			identifier: argument.type
-			count: 1
-			path: api/npc_quest_contextual_trigger.php
 
 		-
 			message: '#^Function cache_get not found\.$#'
@@ -949,12 +877,6 @@ parameters:
 			path: api/projection.php
 
 		-
-			message: '#^Offset ''cached'' on array\{ok\: bool, audio_url\?\: string, error\?\: string, status\?\: int\} on left side of \?\? does not exist\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: api/registration_narration.php
-
-		-
 			message: '#^Offset ''ok'' on array\{ok\: bool, audio_url\?\: string, error\?\: string, status\?\: int\} on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
 			count: 1
@@ -1039,12 +961,6 @@ parameters:
 			path: api/shipyard_queue.php
 
 		-
-			message: '#^Call to function is_array\(\) with array\{ok\: false, error\: string\}\|array\{ok\: true\} will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: api/simulation_runtime.php
-
-		-
 			message: '#^Unreachable statement \- code above always terminates\.$#'
 			identifier: deadCode.unreachable
 			count: 4
@@ -1081,12 +997,6 @@ parameters:
 			path: api/textures-ai.php
 
 		-
-			message: '#^Strict comparison using \=\=\= between ''production'' and ''dev'' will always evaluate to false\.$#'
-			identifier: identical.alwaysFalse
-			count: 1
-			path: api/textures-ai.php
-
-		-
 			message: '#^Negated boolean expression is always false\.$#'
 			identifier: booleanNot.alwaysFalse
 			count: 2
@@ -1113,7 +1023,7 @@ parameters:
 		-
 			message: '#^Expression on left side of \?\? is not nullable\.$#'
 			identifier: nullCoalesce.expr
-			count: 3
+			count: 2
 			path: api/trellis2_asset_manager.php
 
 		-

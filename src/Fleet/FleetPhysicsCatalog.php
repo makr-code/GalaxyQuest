@@ -17,7 +17,7 @@ final class FleetPhysicsCatalog
     /**
      * Load physical specifications for every nonzero ship type in a fleet.
      *
-     * @param array<string, int> $ships
+     * @param array<array-key, mixed> $ships
      * @return array<string, array{
      *     mass_kg: float,
      *     thrust_newtons: float,

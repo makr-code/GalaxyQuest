@@ -5,7 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/../lib/WordPressSimulation.php';
 
-if (APP_ENV !== 'dev') {
+if (!app_is_development()) {
     json_error('Not found.', 404);
 }
 only_method('GET');

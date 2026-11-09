@@ -90,7 +90,7 @@ function _gq_cache_init_dir(): void
 
 /**
  * @internal
- * @return array<int,array<string,mixed>>
+ * @return array<int,array<array-key,mixed>>
  */
 function _gq_cache_index_load(string $scope): array
 {
@@ -99,7 +99,7 @@ function _gq_cache_index_load(string $scope): array
     $raw = @file_get_contents($file);
     if (!is_string($raw) || $raw === '') return [];
     $decoded = json_decode($raw, true);
-    return is_array($decoded) ? $decoded : [];
+    return is_array($decoded) ? array_values(array_filter($decoded, 'is_array')) : [];
 }
 
 /** @internal */
@@ -331,10 +331,7 @@ function gq_cache_index_entries(string $scope): array
     $now = time();
     return array_values(array_filter(
         _gq_cache_index_load($scope),
-        static function (mixed $row) use ($now): bool {
-            if (!is_array($row)) {
-                return false;
-            }
+        static function (array $row) use ($now): bool {
             $key = (string)($row['key'] ?? '');
             $expires = (int)($row['expires'] ?? 0);
             return $key !== ''

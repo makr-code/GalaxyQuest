@@ -63,28 +63,26 @@ try {
     if ($action === 'send_confirmation') {
         json_ok($service->sendConfirmation($owner, $body, registration_send_verification(...)));
     }
-    if ($action === 'confirm') {
-        if (!is_string($body['token'] ?? null)) {
-            json_error('Open the confirmation link from your email.');
-        }
-            $result = $service->confirm($body['token']);
-        session_regenerate_id(true);
-        $_SESSION['user_id'] = $result['user']['id'];
-        $_SESSION['username'] = $result['user']['username'];
-        $_SESSION['registration_confirmation_hash'] = hash('sha256', $body['token']);
-        issue_remember_me_token((int)$result['user']['id']);
-        if ($owner === '' || $service->status($owner) === null) {
-            unset($_SESSION['registration_owner']);
-            setcookie('gq_draft_owner', '', [
-                'expires' => time() - 3600,
-                'path' => '/',
-                'secure' => is_https_request(),
-                'httponly' => true,
-                'samesite' => 'Strict',
-            ]);
-        }
-        json_ok($result);
+    if (!is_string($body['token'] ?? null)) {
+        json_error('Open the confirmation link from your email.');
     }
+    $result = $service->confirm($body['token']);
+    session_regenerate_id(true);
+    $_SESSION['user_id'] = $result['user']['id'];
+    $_SESSION['username'] = $result['user']['username'];
+    $_SESSION['registration_confirmation_hash'] = hash('sha256', $body['token']);
+    issue_remember_me_token((int)$result['user']['id']);
+    if ($owner === '' || $service->status($owner) === null) {
+        unset($_SESSION['registration_owner']);
+        setcookie('gq_draft_owner', '', [
+            'expires' => time() - 3600,
+            'path' => '/',
+            'secure' => is_https_request(),
+            'httponly' => true,
+            'samesite' => 'Strict',
+        ]);
+    }
+    json_ok($result);
 } catch (InvalidArgumentException $error) {
     json_error($error->getMessage(), 400);
 } catch (PDOException $error) {

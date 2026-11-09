@@ -5,6 +5,29 @@ function env_value(string $key, $default) {
 	return ($value === false || $value === '') ? $default : $value;
 }
 
+function app_is_development(): bool
+{
+    return env_value('APP_ENV', 'production') === 'dev';
+}
+
+function app_is_production(): bool
+{
+    return env_value('APP_ENV', 'production') === 'production';
+}
+
+function app_registration_public_url(): string
+{
+    return (string) env_value(
+        'REGISTRATION_PUBLIC_URL',
+        app_is_development() ? 'http://localhost:8081' : ''
+    );
+}
+
+function app_registration_mailpit_url(): string
+{
+    return rtrim((string) env_value('REGISTRATION_MAILPIT_URL', ''), '/');
+}
+
 // Database configuration – edit these values for your server or inject them via env vars
 define('DB_HOST', env_value('DB_HOST', 'localhost'));
 define('DB_PORT', (int) env_value('DB_PORT', 3306));
@@ -17,6 +40,8 @@ define('DB_CHARSET', env_value('DB_CHARSET', 'utf8mb4'));
 define('GAME_SPEED', (int) env_value('GAME_SPEED', 1));   // Resource/fleet speed multiplier
 define('ON_DEMAND_ECONOMY_ENABLED', (int) env_value('ON_DEMAND_ECONOMY_ENABLED', 0));
 define('BATTLE_ENCOUNTERS_ENABLED', (int) env_value('BATTLE_ENCOUNTERS_ENABLED', 0));
+define('LIVE_BATTLE_JOURNAL_WORKER_ENABLED', (int) env_value('LIVE_BATTLE_JOURNAL_WORKER_ENABLED', 0));
+define('LIVE_BATTLE_JOURNAL_READ_ENABLED', (int) env_value('LIVE_BATTLE_JOURNAL_READ_ENABLED', 0));
 define('GALAXY_MAX', (int) env_value('GALAXY_MAX', 9));   // Max galaxies
 define('SYSTEM_MAX', (int) env_value('SYSTEM_MAX', 25000)); // Max systems per galaxy
 define('POSITION_MAX', (int) env_value('POSITION_MAX', 15)); // Max planets per system

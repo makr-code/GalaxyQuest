@@ -192,4 +192,16 @@ PHP
         $this->assertSame([], Storage\gq_cache_index_entries('read_side_effects'));
         $this->assertSame($indexContents, file_get_contents($indexFile));
     }
+
+    public function testCacheIndexLoaderIgnoresNonArrayRows(): void
+    {
+        $indexFile = Storage\_gq_cache_index_file('malformed');
+        $contents = json_encode(['invalid-row', ['key' => 'valid-row']], JSON_THROW_ON_ERROR);
+        $this->assertNotFalse(file_put_contents($indexFile, $contents));
+
+        $this->assertSame(
+            [['key' => 'valid-row']],
+            Storage\_gq_cache_index_load('malformed')
+        );
+    }
 }

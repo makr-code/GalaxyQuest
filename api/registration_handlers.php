@@ -11,11 +11,11 @@ function registration_session_owner(string $action, bool $read): string
     if (!is_string($ownerToken) || !preg_match('/^[a-f0-9]{64}$/', $ownerToken)) {
         $ownerToken = null;
     }
-    if (!$read && $action !== 'register_cancel' && (!is_string($ownerToken) || $ownerToken === '')) {
+    if (!$read && $action !== 'register_cancel' && !is_string($ownerToken)) {
         $ownerToken = bin2hex(random_bytes(32));
         $_SESSION['registration_owner'] = $ownerToken;
     }
-    return is_string($ownerToken) && $ownerToken !== '' ? hash('sha256', $ownerToken) : '';
+    return is_string($ownerToken) ? hash('sha256', $ownerToken) : '';
 }
 
 function handle_registration(string $action): void

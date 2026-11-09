@@ -152,4 +152,7 @@ return [
     'migrate_battle_encounters_v1.sql',
     'migrate_npc_icon_default_v1.sql',
     'migrate_galaxy_metadata_precision_v1.sql',
+    'migrate_ship_wreck_fields_v1.sql',
+    'migrate_live_battle_journal_v1.sql',
+    'migrate_live_battle_journal_participants_v1.sql',
 ];

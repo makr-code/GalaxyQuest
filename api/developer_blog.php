@@ -13,7 +13,7 @@ $source = null;
 if (!in_array(BLOG_SOURCE, ['local', 'wordpress', 'wordpress-simulation'], true)) {
     json_error('Ungültige Blogquelle.', 503);
 }
-if (BLOG_SOURCE === 'wordpress-simulation' && APP_ENV !== 'dev') {
+if (BLOG_SOURCE === 'wordpress-simulation' && !app_is_development()) {
     json_error('Blogsimulation ist nur im Entwicklungsmodus verfügbar.', 503);
 }
 if (BLOG_SOURCE !== 'local') {
@@ -71,7 +71,7 @@ if ($action === 'narration') {
     }
     require_once __DIR__ . '/tts_client.php';
     $result = tts_synthesise($chunks[$index], ['lang' => 'de']);
-    if (!($result['ok'] ?? false)) {
+    if (!$result['ok']) {
         error_log('developer_blog_narration_failed id=' . $post['id'] . ' error=' . ($result['error'] ?? 'unknown'));
         json_error('Sprachausgabe derzeit nicht verfügbar.', 503);
     }
