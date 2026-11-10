@@ -14,10 +14,29 @@
  * Exposed as window.GQRuntimeContractNegotiationModal.
  */
 (function () {
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function positiveSafeId(value) {
+    const id = Number(value);
+    return Number.isSafeInteger(id) && id > 0 ? id : 0;
+  }
+
+  function safeHexColor(value) {
+    const color = String(value ?? '');
+    return /^#[\da-f]{3}(?:[\da-f]{1}|[\da-f]{3}|[\da-f]{5})?$/i.test(color) ? color : '#fff';
+  }
+
   function createModal(opts = {}) {
     const API       = opts.api;
     const WM        = opts.wm;
-    const esc       = opts.esc       || ((v) => String(v ?? ''));
+    const esc       = escapeHtml;
     const showToast = opts.showToast || (() => {});
     const onProposed = typeof opts.onProposed === 'function' ? opts.onProposed : () => {};
     const dataModel = opts.dataModel
@@ -96,9 +115,9 @@
     function _buildHTML(faction, type, standing) {
       const reward = Number(type?.standingReward ?? 0);
       return `
-        <div class="gq-negotiate-modal" data-faction-id="${esc(String(faction.id))}">
+        <div class="gq-negotiate-modal" data-faction-id="${positiveSafeId(faction.id)}">
           <div class="gq-negotiate-modal__header">
-            <span class="gq-negotiate-modal__faction" style="color:${esc(faction.color ?? '#fff')}">
+            <span class="gq-negotiate-modal__faction" style="color:${safeHexColor(faction.color)}">
               ${esc(faction.icon ?? '')} ${esc(faction.name ?? '')}
             </span>
             <div class="gq-negotiate-modal__type-selector">
@@ -234,7 +253,7 @@
 
       try {
         const res = await API.factionAgreementsPropose({
-          faction_id:     faction.id,
+          faction_id:     positiveSafeId(faction.id),
           agreement_type: typeCode,
           player_offer:   playerOffer,
           faction_demand: factionDemand,

@@ -1,12 +1,31 @@
 'use strict';
 
 (function () {
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function finiteNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : 0;
+  }
+
+  function positiveSafeId(value) {
+    const id = Number(value);
+    return Number.isSafeInteger(id) && id > 0 ? id : 0;
+  }
+
   function createPiratesController(opts = {}) {
     const wm = opts.wm;
     const api = opts.api;
     const uiKitSkeletonHTML = opts.uiKitSkeletonHTML || (() => '<p class="text-muted">Loading...</p>');
     const uiKitEmptyStateHTML = opts.uiKitEmptyStateHTML || (() => '');
-    const esc = opts.esc || ((value) => String(value ?? ''));
+    const esc = escapeHtml;
     const gameLog = typeof opts.gameLog === 'function' ? opts.gameLog : (() => {});
     const showToast = typeof opts.showToast === 'function' ? opts.showToast : (() => {});
     const invalidateGetCache = typeof opts.invalidateGetCache === 'function' ? opts.invalidateGetCache : (() => {});
@@ -62,19 +81,19 @@
         const lastTick = this.state.lastTickResult;
 
         const cards = [
-          { label: 'Pirate Factions', value: Number(summary.pirate_factions || 0).toLocaleString('de-DE') },
-          { label: 'High Threat', value: Number(summary.high_threat_factions || 0).toLocaleString('de-DE') },
-          { label: 'Max Threat', value: Number(summary.max_threat_score || 0).toLocaleString('de-DE') },
-          { label: 'Raids 24h', value: Number(summary.raids_last_24h || 0).toLocaleString('de-DE') },
+          { label: 'Pirate Factions', value: finiteNumber(summary.pirate_factions || 0).toLocaleString('de-DE') },
+          { label: 'High Threat', value: finiteNumber(summary.high_threat_factions || 0).toLocaleString('de-DE') },
+          { label: 'Max Threat', value: finiteNumber(summary.max_threat_score || 0).toLocaleString('de-DE') },
+          { label: 'Raids 24h', value: finiteNumber(summary.raids_last_24h || 0).toLocaleString('de-DE') },
         ];
 
         const factionRows = factions.map((faction) => `
           <tr>
             <td>${esc(faction.icon || '')} ${esc(faction.name || '-')}</td>
-            <td>${Number(faction.standing || 0).toLocaleString('de-DE')}</td>
-            <td>${Number(faction.aggression || 0).toLocaleString('de-DE')}</td>
-            <td>${Number(faction.power_level || 0).toLocaleString('de-DE')}</td>
-            <td>${Number(faction.threat_score || 0).toLocaleString('de-DE')}</td>
+            <td>${finiteNumber(faction.standing || 0).toLocaleString('de-DE')}</td>
+            <td>${finiteNumber(faction.aggression || 0).toLocaleString('de-DE')}</td>
+            <td>${finiteNumber(faction.power_level || 0).toLocaleString('de-DE')}</td>
+            <td>${finiteNumber(faction.threat_score || 0).toLocaleString('de-DE')}</td>
             <td>${esc(faction.threat_level || '-')}</td>
           </tr>
         `).join('');
@@ -84,7 +103,7 @@
           const preview = body.length > 120 ? `${body.slice(0, 120)}...` : body;
           return `
             <tr>
-              <td>#${Number(raid.id || 0)}</td>
+              <td>#${finiteNumber(raid.id || 0)}</td>
               <td>${esc(raid.sent_at || '-')}</td>
               <td>${esc(preview)}</td>
               <td>${Number(raid.is_read || 0) ? 'read' : 'new'}</td>
@@ -96,8 +115,8 @@
           <tr>
             <td>${esc(c.faction_icon || '')} ${esc(c.faction_name || '?')}</td>
             <td>${esc(c.contract_type || '-')}</td>
-            <td style="text-align:right;">${Number(c.credit_payment || 0).toLocaleString('de-DE')}</td>
-            <td>${esc((c.expires_at || '').slice(0, 10))}</td>
+            <td style="text-align:right;">${finiteNumber(c.credit_payment || 0).toLocaleString('de-DE')}</td>
+            <td>${esc(String(c.expires_at || '').slice(0, 10))}</td>
           </tr>
         `).join('');
 
@@ -106,9 +125,9 @@
             <div style="background:#171c28;border:1px solid #2e374e;border-radius:8px;padding:10px;">
               <div style="font-weight:700;margin-bottom:6px;">Risk Forecast</div>
               <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;">
-                <div><div style="font-size:11px;color:#9fb0ce;">Risk Index</div><div style="font-size:18px;font-weight:700;">${Number(forecast.risk_index || 0).toLocaleString('de-DE')}</div></div>
+                <div><div style="font-size:11px;color:#9fb0ce;">Risk Index</div><div style="font-size:18px;font-weight:700;">${finiteNumber(forecast.risk_index || 0).toLocaleString('de-DE')}</div></div>
                 <div><div style="font-size:11px;color:#9fb0ce;">Risk Level</div><div style="font-size:18px;font-weight:700;">${esc(forecast.risk_level || '-')}</div></div>
-                <div><div style="font-size:11px;color:#9fb0ce;">Raids 24h</div><div style="font-size:18px;font-weight:700;">${Number(forecast.raids_last_24h || 0).toLocaleString('de-DE')}</div></div>
+                <div><div style="font-size:11px;color:#9fb0ce;">Raids 24h</div><div style="font-size:18px;font-weight:700;">${finiteNumber(forecast.raids_last_24h || 0).toLocaleString('de-DE')}</div></div>
               </div>
               <p style="margin:8px 0 0;color:#d7e4ff;">${esc(forecast.recommended_action || '')}</p>
             </div>
@@ -120,9 +139,9 @@
             <div style="background:#171c28;border:1px solid #2e374e;border-radius:8px;padding:10px;">
               <div style="font-weight:700;margin-bottom:6px;">Last Tick Result</div>
               <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;">
-                <div><div style="font-size:11px;color:#9fb0ce;">Processed</div><div style="font-size:16px;font-weight:700;">${Number(lastTick.factionsProcessed || 0).toLocaleString('de-DE')}</div></div>
-                <div><div style="font-size:11px;color:#9fb0ce;">New Raids (24h)</div><div style="font-size:16px;font-weight:700;">${Number(lastTick.newRaidsDelta || 0).toLocaleString('de-DE')}</div></div>
-                <div><div style="font-size:11px;color:#9fb0ce;">Duration</div><div style="font-size:16px;font-weight:700;">${Number(lastTick.durationMs || 0).toLocaleString('de-DE')} ms</div></div>
+                <div><div style="font-size:11px;color:#9fb0ce;">Processed</div><div style="font-size:16px;font-weight:700;">${finiteNumber(lastTick.factionsProcessed || 0).toLocaleString('de-DE')}</div></div>
+                <div><div style="font-size:11px;color:#9fb0ce;">New Raids (24h)</div><div style="font-size:16px;font-weight:700;">${finiteNumber(lastTick.newRaidsDelta || 0).toLocaleString('de-DE')}</div></div>
+                <div><div style="font-size:11px;color:#9fb0ce;">Duration</div><div style="font-size:16px;font-weight:700;">${finiteNumber(lastTick.durationMs || 0).toLocaleString('de-DE')} ms</div></div>
                 <div><div style="font-size:11px;color:#9fb0ce;">At</div><div style="font-size:16px;font-weight:700;">${esc(lastTick.at || '-')}</div></div>
               </div>
             </div>
@@ -223,7 +242,7 @@
               <div style="font-weight:700;font-size:12px;margin-bottom:2px;">Propose Contract</div>
               <label style="font-size:11px;color:#9fb0ce;">Faction
                 <select data-cf-faction style="width:100%;margin-top:3px;background:#111827;color:#d7e4ff;border:1px solid #3a4762;border-radius:4px;padding:3px;">
-                  ${(this.state.status?.factions || []).map(f => `<option value="${esc(String(f.id))}">${esc(f.icon || '')} ${esc(f.name || String(f.id))}</option>`).join('')}
+                  ${(this.state.status?.factions || []).map(f => `<option value="${positiveSafeId(f.id)}">${esc(f.icon || '')} ${esc(f.name || String(f.id))}</option>`).join('')}
                 </select>
               </label>
               <label style="font-size:11px;color:#9fb0ce;">Type
@@ -254,10 +273,15 @@
           formHost.querySelector('[data-cf-submit]')?.addEventListener('click', async () => {
             if (this.isBusy) return;
             this.isBusy = true;
-            const factionId = Number(formHost.querySelector('[data-cf-faction]')?.value || 0);
+            const factionId = positiveSafeId(formHost.querySelector('[data-cf-faction]')?.value);
             const contractType = formHost.querySelector('[data-cf-type]')?.value || 'tributary';
-            const creditOffer = Number(formHost.querySelector('[data-cf-credits]')?.value || 0);
-            const durationDays = Number(formHost.querySelector('[data-cf-days]')?.value || 30);
+            const creditOffer = finiteNumber(formHost.querySelector('[data-cf-credits]')?.value || 0);
+            const durationDays = finiteNumber(formHost.querySelector('[data-cf-days]')?.value || 30);
+            if (!factionId || !['tributary', 'non_aggression', 'mercenary'].includes(contractType)) {
+              showToast('Invalid contract data.', 'error');
+              this.isBusy = false;
+              return;
+            }
             try {
               const resp = await api.piratesProposeContract({
                 faction_id: factionId,
