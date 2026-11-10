@@ -19,19 +19,9 @@
       "count": 2
     }
   },
-  "js/engine/runtime/RuntimeAdvisorWidget.js": {
-    "no-unsanitized/property": {
-      "count": 2
-    }
-  },
   "js/engine/runtime/RuntimeAlliancesController.js": {
     "no-unsanitized/property": {
       "count": 8
-    }
-  },
-  "js/engine/runtime/RuntimeAudioCatalog.js": {
-    "no-unsanitized/property": {
-      "count": 4
     }
   },
   "js/engine/runtime/RuntimeBuildingsController.js": {
@@ -42,11 +32,6 @@
   "js/engine/runtime/RuntimeColonizationController.js": {
     "no-unsanitized/property": {
       "count": 2
-    }
-  },
-  "js/engine/runtime/RuntimeColonyVfxDebugWidget.js": {
-    "no-unsanitized/property": {
-      "count": 1
     }
   },
   "js/engine/runtime/RuntimeColonyViewController.js": {
@@ -172,14 +157,9 @@
       "count": 3
     }
   },
-  "js/engine/runtime/RuntimeMinimapDomScaffold.js": {
-    "no-unsanitized/property": {
-      "count": 1
-    }
-  },
   "js/engine/runtime/RuntimeOverviewController.js": {
     "no-unsanitized/property": {
-      "count": 5
+      "count": 2
     }
   },
   "js/engine/runtime/RuntimeOverviewLists.js": {
@@ -187,14 +167,14 @@
       "count": 2
     }
   },
-  "js/engine/runtime/RuntimeQuestsRenderFacade.js": {
-    "no-unsanitized/property": {
-      "count": 1
-    }
-  },
   "js/engine/runtime/RuntimeQuickNavFacade.js": {
     "no-unsanitized/property": {
       "count": 3
+    }
+  },
+  "js/engine/runtime/RuntimeQuestsRenderFacade.js": {
+    "no-unsanitized/property": {
+      "count": 1
     }
   },
   "js/engine/runtime/RuntimeResearchController.js": {
@@ -212,54 +192,14 @@
       "count": 1
     }
   },
-  "js/engine/runtime/RuntimeThemeSettingsUi.js": {
-    "no-unsanitized/property": {
-      "count": 1
-    }
-  },
-  "js/engine/runtime/RuntimeTopbarSearch.js": {
-    "no-unsanitized/property": {
-      "count": 1
-    }
-  },
-  "js/engine/runtime/RuntimeUiConsolePanel.js": {
-    "no-unsanitized/property": {
-      "count": 1
-    }
-  },
   "js/engine/runtime/RuntimeWormholeController.js": {
     "no-unsanitized/property": {
       "count": 2
     }
   },
-  "js/engine/runtime/domains/alliance/AllianceUI.js": {
-    "no-unsanitized/property": {
-      "count": 2
-    }
-  },
-  "js/engine/runtime/domains/colonization/ColonizationUI.js": {
-    "no-unsanitized/property": {
-      "count": 2
-    }
-  },
-  "js/engine/runtime/domains/diplomacy/DiplomacyUI.js": {
-    "no-unsanitized/property": {
-      "count": 1
-    }
-  },
   "js/engine/runtime/domains/economy/EconomyUI.js": {
     "no-unsanitized/property": {
       "count": 4
-    }
-  },
-  "js/engine/runtime/domains/espionage/EspionageUI.js": {
-    "no-unsanitized/property": {
-      "count": 1
-    }
-  },
-  "js/engine/runtime/domains/event/EventUI.js": {
-    "no-unsanitized/property": {
-      "count": 1
     }
   },
   "js/engine/runtime/domains/fleet/FleetUI.js": {
@@ -383,11 +323,6 @@
     }
   },
   "js/engine/runtime/layers/ui/settings/render/RenderBindings.js": {
-    "no-unsanitized/property": {
-      "count": 1
-    }
-  },
-  "js/engine/runtime/layers/ui/settings/theme/SettingsUi.js": {
     "no-unsanitized/property": {
       "count": 1
     }

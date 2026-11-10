@@ -1,0 +1,36 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+rule_files:
+  - /etc/prometheus/rules.yml
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["prometheus:9090"]
+  - job_name: mysql
+    static_configs:
+      - targets: ["mysql-exporter:9104"]
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+  - job_name: trellis2
+    metrics_path: /api/metrics.php
+    static_configs:
+      - targets: ["web:8080"]
+  - job_name: readiness
+    metrics_path: /probe
+    params:
+      module: [http_ready]
+    static_configs:
+      - targets: ["http://web:8080/health/ready"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115

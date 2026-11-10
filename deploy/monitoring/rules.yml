@@ -1,0 +1,38 @@
+groups:
+  - name: galaxyquest
+    rules:
+      - alert: ScrapeTargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Monitoring target {{ $labels.job }} is down"
+      - alert: GameNotReady
+        expr: probe_success{job="readiness"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GalaxyQuest database/schema readiness failed"
+      - alert: DatabaseUnavailable
+        expr: mysql_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MySQL exporter cannot connect to the database"
+      - alert: DiskAlmostFull
+        expr: node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes < 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Less than 10 percent free disk space"
+      - alert: GenerationFailures
+        expr: trellis2_failed_jobs_24h > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 50 generation jobs failed in the last day"

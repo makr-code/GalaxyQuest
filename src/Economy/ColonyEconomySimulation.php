@@ -65,22 +65,46 @@ final class ColonyEconomySimulation
      * Reads process full steps only; mutations additionally settle the sub-step
      * before changing rates. Unprocessed offline time stays in the cursor.
      */
-    public static function advance(array $state, array $context, int $now, bool $mutation = false): array
+    public static function advance(
+        array $state,
+        array $context,
+        int $now,
+        bool $mutation = false,
+        ?int &$populationPeak = null
+    ): array
     {
         $cursor = (int)$state['settled_at'];
         if ($now < $cursor) {
             throw new InvalidArgumentException('Economy clock cannot move backwards.');
         }
+        if ($populationPeak !== null) {
+            $populationPeak = self::retainPopulationPeak($state, $populationPeak);
+        }
         $steps = min(self::MAX_STEPS, intdiv($now - $cursor, self::STEP_SECONDS));
         for ($i = 0; $i < $steps; $i++) {
             $state = self::step($state, $context, self::STEP_SECONDS);
+            if ($populationPeak !== null) {
+                $populationPeak = self::retainPopulationPeak($state, $populationPeak);
+            }
         }
         $remaining = $now - (int)$state['settled_at'];
         if ($mutation && $remaining < self::STEP_SECONDS && $remaining > 0) {
             $state = self::step($state, $context, $remaining);
+            if ($populationPeak !== null) {
+                $populationPeak = self::retainPopulationPeak($state, $populationPeak);
+            }
         }
         $state['pending_seconds'] = $now - (int)$state['settled_at'];
         return $state;
+    }
+
+    private static function retainPopulationPeak(array $state, int $peak): int
+    {
+        $population = array_sum($state['classes']);
+        if (!is_int($population) || $population < 0) {
+            throw new InvalidArgumentException('Population history requires a non-negative integer population.');
+        }
+        return max($peak, $population);
     }
 
     private static function step(array $state, array $context, int $seconds): array

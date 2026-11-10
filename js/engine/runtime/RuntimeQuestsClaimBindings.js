@@ -6,6 +6,11 @@
  * buttons (.faction-claim-btn), routing each to the correct API call.
  */
 (function () {
+  function numericId(value) {
+    const id = Number(value);
+    return Number.isSafeInteger(id) && id > 0 ? id : 0;
+  }
+
   function createQuestsClaimBindings() {
     function bindClaimButtons({ root, api, showToast, loadOverview, rerenderQuests }) {
       // Shared post-claim handler
@@ -25,7 +30,8 @@
       // ── Achievement claim buttons ────────────────────────────────────────────
       root.querySelectorAll('.claim-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
-          const achievementId = parseInt(btn.dataset.aid, 10);
+          const achievementId = numericId(btn.dataset.aid);
+          if (!achievementId) return;
           handleClaimResult(btn, api.claimAchievement(achievementId), '🏅 Reward claimed!');
         });
       });
@@ -33,7 +39,8 @@
       // ── Faction quest claim buttons ──────────────────────────────────────────
       root.querySelectorAll('.faction-claim-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
-          const userQuestId = parseInt(btn.dataset.uqid, 10);
+          const userQuestId = numericId(btn.dataset.uqid);
+          if (!userQuestId) return;
           handleClaimResult(btn, api.claimFactionQuest(userQuestId), '🌐 Auftragsbelohnung erhalten!');
         });
       });

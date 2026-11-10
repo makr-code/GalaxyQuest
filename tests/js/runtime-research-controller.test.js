@@ -106,6 +106,18 @@ describe('getResearchUiMeta', () => {
     const meta = mod.getResearchUiMeta('');
     expect(meta.cat).toBe('Other');
   });
+
+  it('does not resolve inherited object properties as research metadata', () => {
+    const mod = loadModule();
+    expect(mod.getResearchUiMeta('constructor')).toEqual({
+      cat: 'Other',
+      tier: 0,
+      icon: 'RES',
+      desc: '',
+    });
+    expect(mod.getResearchUiMeta('__proto__').cat).toBe('Other');
+    expect(makeController().buildCardHtml(row('constructor'))).not.toContain('research-btn');
+  });
 });
 
 // ── RESEARCH_CATEGORY_ORDER ──────────────────────────────────────────────────
@@ -205,6 +217,45 @@ describe('buildCardHtml — unlocked state', () => {
     const html = ctrl.buildCardHtml(row('energy_tech', { can_research: true }));
     expect(html).toContain('research-btn');
     expect(html).toContain('data-type="energy_tech"');
+  });
+
+  it('escapes API and formatter values and omits actions for invalid tech identifiers', () => {
+    const ctrl = makeController({
+      fmtName: () => '<img src=x onerror=alert(1)>',
+      fmt: () => '<svg onload=alert(2)>',
+      countdown: () => '<iframe src=javascript:alert(3)>',
+      esc: String,
+    });
+    const html = ctrl.buildCardHtml(row('bad" onclick="alert(4)', {
+      level: '<img src=x onerror=alert(5)>',
+      next_cost: { metal: 10 },
+      research_end: '<img src=x onerror=alert(6)>',
+    }));
+    const root = document.createElement('div');
+    root.innerHTML = html;
+
+    expect(root.querySelector('img, svg, iframe')).toBeNull();
+    expect(root.querySelector('[onclick], [onerror], [onload]')).toBeNull();
+    expect(root.querySelector('.research-btn')).toBeNull();
+    expect(root.textContent).toContain('<img src=x onerror=alert(1)>');
+  });
+
+  it('escapes prerequisite and cost values with an identity escaper', () => {
+    const ctrl = makeController({
+      fmt: () => '<img src=x onerror=alert(1)>',
+      esc: String,
+    });
+    const html = ctrl.buildCardHtml(row('energy_tech', {
+      can_research: false,
+      next_cost: { crystal: 10 },
+      missing_prereqs: [{ tech: '<svg onload=alert(2)>', required_level: '<b onclick=alert(3)>2</b>' }],
+    }));
+    const root = document.createElement('div');
+    root.innerHTML = html;
+
+    expect(root.querySelector('img, svg, b')).toBeNull();
+    expect(root.querySelector('[onerror], [onload], [onclick]')).toBeNull();
+    expect(root.textContent).toContain('<svg onload=alert(2)>');
   });
 });
 
@@ -469,5 +520,27 @@ describe('bindActions — resource refresh after research start', () => {
     root.querySelector('.research-btn').click();
     await new Promise((r) => setTimeout(r, 10));
     expect(api.doResearch).toHaveBeenCalled();
+  });
+
+  it('rejects invalid research identifiers before calling the API', async () => {
+    const api = { doResearch: vi.fn() };
+    const showToast = vi.fn();
+    const ctrl = makeController({ api, showToast });
+    const root = document.createElement('div');
+    const invalidTypes = ['bad" onclick="alert(1)', 'constructor', '__proto__'];
+    const buttons = invalidTypes.map((type) => {
+      const button = document.createElement('button');
+      button.className = 'research-btn';
+      button.dataset.type = type;
+      root.appendChild(button);
+      return button;
+    });
+
+    ctrl.bindActions(root);
+    buttons.forEach((button) => button.click());
+
+    expect(api.doResearch).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledTimes(invalidTypes.length);
+    expect(showToast).toHaveBeenCalledWith('Research data not found.', 'error');
   });
 });

@@ -1,0 +1,107 @@
+name: Deploy immutable release to Plesk
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      web-image:
+        type: string
+        required: true
+      tts-image:
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: plesk-${{ inputs.environment }}
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Checkout exact release source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate deployment inputs
+        env:
+          TARGET: ${{ inputs.environment }}
+          WEB: ${{ inputs.web-image }}
+          TTS: ${{ inputs.tts-image }}
+          HOST: ${{ vars.PLESK_HOST }}
+          USER: ${{ vars.PLESK_USER }}
+          PORT: ${{ vars.PLESK_PORT || '22' }}
+          ROOT: ${{ vars.PLESK_DEPLOY_ROOT }}
+          URL: ${{ vars.PUBLIC_URL }}
+        run: |
+          set -euo pipefail
+          [[ "$TARGET" == staging || "$TARGET" == production ]]
+          [[ "$WEB" =~ ^ghcr.io/makr-code/galaxyquest@sha256:[a-f0-9]{64}$ ]]
+          [[ "$TTS" =~ ^ghcr.io/makr-code/galaxyquest-tts@sha256:[a-f0-9]{64}$ ]]
+          [[ "$HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+$ ]]
+          [[ "$USER" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$ ]]
+          [[ "$PORT" =~ ^[0-9]{1,5}$ && "$PORT" -gt 0 && "$PORT" -le 65535 ]]
+          [[ "$ROOT" =~ ^/[a-zA-Z0-9_./-]+$ && "$ROOT" != *..* && "$ROOT" == */galaxyquest/"$TARGET" ]]
+          [[ "$URL" =~ ^https://[a-zA-Z0-9.-]+$ ]]
+          if [[ "$TARGET" == production ]]; then
+            [[ "$GITHUB_REF" == refs/heads/main ]]
+            [[ "$URL" == https://galaxyquest.themisdb.org ]]
+          else
+            [[ "$URL" == https://staging-galaxyquest.themisdb.org ]]
+          fi
+      - name: Install explicitly trusted SSH credentials
+        env:
+          SSH_KEY: ${{ secrets.PLESK_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.PLESK_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY"
+          test -n "$KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+          ssh-keygen -y -P '' -f ~/.ssh/id_ed25519 >/dev/null
+      - name: Transfer versioned bundle and deploy with backup gate
+        env:
+          HOST: ${{ vars.PLESK_HOST }}
+          USER: ${{ vars.PLESK_USER }}
+          PORT: ${{ vars.PLESK_PORT || '22' }}
+          ROOT: ${{ vars.PLESK_DEPLOY_ROOT }}
+          WEB: ${{ inputs.web-image }}
+          TTS: ${{ inputs.tts-image }}
+        run: |
+          set -euo pipefail
+          bundle="$ROOT/releases/$GITHUB_SHA"
+          tar -czf "$RUNNER_TEMP/deployment.tgz" -C deploy .
+          ssh_options=(-o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -p "$PORT")
+          ssh "${ssh_options[@]}" "$USER@$HOST" "umask 077; mkdir -p '$bundle'"
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes -P "$PORT" "$RUNNER_TEMP/deployment.tgz" "$USER@$HOST:$bundle/deployment.tgz"
+          ssh "${ssh_options[@]}" "$USER@$HOST" \
+            "set -eu; tar -xzf '$bundle/deployment.tgz' -C '$bundle'; bash '$bundle/stack.sh' '$ROOT' deploy '$WEB' '$TTS'"
+      - name: Require public HTTPS acceptance
+        env:
+          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+        run: node scripts/check_deployment_http.mjs "$PUBLIC_URL"
+      - name: Record deployment evidence
+        env:
+          TARGET: ${{ inputs.environment }}
+          WEB: ${{ inputs.web-image }}
+          TTS: ${{ inputs.tts-image }}
+        run: |
+          jq -n --arg environment "$TARGET" --arg commit "$GITHUB_SHA" --arg web "$WEB" --arg tts "$TTS" \
+            '{environment:$environment,commit:$commit,web:$web,tts:$tts}' > deployment.json
+          echo "Deployed $TARGET at commit $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve deployment evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployed-${{ inputs.environment }}
+          path: deployment.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Remove runner SSH material
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519 ~/.ssh/known_hosts

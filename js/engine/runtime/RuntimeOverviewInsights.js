@@ -1,11 +1,32 @@
 'use strict';
 
 (function () {
+  const RESOURCE_KEYS = new Set([
+    'metal', 'crystal', 'deuterium', 'food', 'rare_earth',
+    'population', 'happiness', 'energy', 'dark_matter',
+  ]);
+  const FOCUS_BUILDINGS = new Set([
+    'metal_mine', 'crystal_mine', 'deuterium_synth', 'hydroponic_farm',
+    'rare_earth_drill', 'habitat_dome', 'hospital', 'solar_plant',
+  ]);
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function numericId(value) {
+    const id = Number(value);
+    return Number.isSafeInteger(id) && id > 0 ? id : 0;
+  }
+
   function createOverviewInsights(opts = {}) {
     const {
       fmt = (value) => String(value ?? 0),
-      fmtName = (value) => String(value || ''),
-      esc = (value) => String(value || ''),
       getUiState = () => ({}),
       getCurrentColony = () => null,
       getResourceInsightConfig = () => null,
@@ -13,6 +34,8 @@
       getResourceInsightTotal = () => 0,
       formatResourceInsightValue = () => '0',
     } = opts;
+    const esc = escapeHtml;
+    const formatted = (value) => esc(fmt(value));
 
     function riskFocusFromFlags(flags) {
       const list = Array.isArray(flags) ? flags.map((f) => String(f || '')) : [];
@@ -46,7 +69,8 @@
     }
 
     function signed(value, digits = 0) {
-      const n = Number(value || 0);
+      const parsed = Number(value || 0);
+      const n = Number.isFinite(parsed) ? parsed : 0;
       const fixed = digits > 0 ? n.toFixed(digits) : Math.round(n).toString();
       return `${n >= 0 ? '+' : ''}${fixed}`;
     }
@@ -68,9 +92,9 @@
         ? `<div class="system-row" style="font-size:0.8rem;line-height:1.45;margin-top:0.25rem">
             ${topRisks.map((risk) => {
               const flags = Array.isArray(risk.risk_flags) ? risk.risk_flags.join(', ') : '';
-              const cid = Number(risk.colony_id || 0);
+              const cid = numericId(risk.colony_id);
               const focus = riskFocusFromFlags(risk.risk_flags);
-              return `Risk ${esc(String(risk.colony_name || 'Colony'))}: ${riskLabel(risk.status)} | Score ${esc(String(risk.risk_score || 0))} | Food ${esc(String(risk.food_rate_per_hour || 0))}/h | Energy ${esc(String(risk.energy || 0))}${flags ? ` | ${esc(flags)}` : ''} <button type="button" class="btn btn-secondary btn-sm" data-risk-action="focus" data-risk-cid="${cid}" data-risk-focus="${esc(focus)}" style="margin-left:0.35rem;padding:0.2rem 0.45rem;font-size:0.7rem">Fix</button><button type="button" class="btn btn-primary btn-sm" data-risk-action="auto" data-risk-cid="${cid}" data-risk-focus="${esc(focus)}" style="margin-left:0.25rem;padding:0.2rem 0.45rem;font-size:0.7rem">Auto +1</button>`;
+              return `Risk ${esc(String(risk.colony_name || 'Colony'))}: ${riskLabel(risk.status)} | Score ${esc(String(risk.risk_score || 0))} | Food ${esc(String(risk.food_rate_per_hour || 0))}/h | Energy ${esc(String(risk.energy || 0))}${flags ? ` | ${esc(flags)}` : ''} ${cid ? `<button type="button" class="btn btn-secondary btn-sm" data-risk-action="focus" data-risk-cid="${cid}" data-risk-focus="${focus}" style="margin-left:0.35rem;padding:0.2rem 0.45rem;font-size:0.7rem">Fix</button><button type="button" class="btn btn-primary btn-sm" data-risk-action="auto" data-risk-cid="${cid}" data-risk-focus="${focus}" style="margin-left:0.25rem;padding:0.2rem 0.45rem;font-size:0.7rem">Auto +1</button>` : ''}`;
             }).join('<br>')}
           </div>`
         : '<div class="system-row text-cyan" style="font-size:0.8rem">Keine akuten Wirtschaftsrisiken erkannt.</div>';
@@ -82,8 +106,8 @@
             Metal ${signed(netRates?.metal, 1)}/h | Crystal ${signed(netRates?.crystal, 1)}/h | Deuterium ${signed(netRates?.deuterium, 1)}/h | Food ${signed(netRates?.food, 1)}/h | Population ${signed(netRates?.population, 2)}/h
           </div>
           <div class="system-row" style="font-size:0.8rem;color:var(--text-secondary)">
-            Stabil: ${statusCounts.stable || 0} | Beobachten: ${statusCounts.watch || 0} | Kritisch: ${statusCounts.strain || 0}
-            ${economy ? ` | Wohlfahrt >= ${(Number(economy.avg_welfare || 0)).toFixed(1)}%` : ''}
+            Stabil: ${esc(statusCounts.stable || 0)} | Beobachten: ${esc(statusCounts.watch || 0)} | Kritisch: ${esc(statusCounts.strain || 0)}
+            ${economy ? ` | Wohlfahrt >= ${Math.min(100, Math.max(0, Number(economy.avg_welfare) || 0)).toFixed(1)}%` : ''}
           </div>
           ${topRiskHtml}
         </div>`;
@@ -93,20 +117,21 @@
       const uiState = getUiState();
       const currentColony = getCurrentColony();
       const config = getResourceInsightConfig(uiState.resourceInsight);
-      if (!config || !currentColony) return '';
+      if (!config || !currentColony || !RESOURCE_KEYS.has(config.key)) return '';
       const netRates = offline?.economy?.net_rates_per_hour || offline?.rates_per_hour || {};
       const currentValue = getResourceInsightValue(config.key, currentColony, meta);
       const totalValue = getResourceInsightTotal(config.key, meta);
       const share = totalValue > 0 ? Math.min(100, Math.round((currentValue / totalValue) * 100)) : 0;
-      const perHour = config.rateKey ? Number(netRates?.[config.rateKey] || 0) : null;
+      const perHourValue = config.rateKey ? Number(netRates?.[config.rateKey] || 0) : null;
+      const perHour = perHourValue !== null && Number.isFinite(perHourValue) ? perHourValue : null;
       const actions = [];
-      if (config.focusBuilding) {
+      if (FOCUS_BUILDINGS.has(config.focusBuilding)) {
         actions.push(`<button type="button" class="btn btn-secondary btn-sm" data-resource-action="focus-building" data-resource-focus="${esc(config.focusBuilding)}">Produktionsfokus</button>`);
       }
-      if (config.transportable) {
+      if (config.transportable && ['metal', 'crystal', 'deuterium'].includes(config.key)) {
         actions.push(`<button type="button" class="btn btn-secondary btn-sm" data-resource-action="transport" data-resource="${esc(config.key)}">Transport starten</button>`);
       }
-      if (config.tradeable) {
+      if (config.tradeable && ['metal', 'crystal', 'deuterium'].includes(config.key)) {
         actions.push(`<button type="button" class="btn btn-primary btn-sm" data-resource-action="market-sell" data-resource="${esc(config.key)}">Verkaufen</button>`);
         actions.push(`<button type="button" class="btn btn-primary btn-sm" data-resource-action="market-buy" data-resource="${esc(config.key)}">Kaufen</button>`);
       }
@@ -136,7 +161,7 @@
             </div>
             <div class="resource-insight-stat">
               <div class="resource-insight-stat-label">Nettofluss</div>
-              <div class="resource-insight-stat-value">${perHour === null ? 'Kontextwert' : `${perHour >= 0 ? '+' : ''}${fmt(Math.abs(perHour))}/h`}</div>
+              <div class="resource-insight-stat-value">${perHour === null ? 'Kontextwert' : `${perHour >= 0 ? '+' : ''}${formatted(Math.abs(perHour))}/h`}</div>
             </div>
           </div>
           <div class="resource-insight-actions">${actions.join('')}</div>

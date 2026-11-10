@@ -1,0 +1,5 @@
+-- Run once as database administrator; set the same password in mysql-exporter.cnf.
+-- Do not load through the canonical gameplay migration manifest.
+CREATE USER 'metrics'@'%' IDENTIFIED BY 'REPLACE_WITH_SEPARATE_METRICS_PASSWORD'
+    WITH MAX_USER_CONNECTIONS 3;
+GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'metrics'@'%';

@@ -65,6 +65,12 @@ final class ColonyEconomyPersistenceTest extends TestCase
         }
         $this->db->exec($migration);
         $this->db->exec($migration);
+        $development = file_get_contents(__DIR__ . '/../../sql/migrate_body_development_v1.sql');
+        if (!$dsn) {
+            $development = str_replace('ENGINE=InnoDB', '', $development);
+        }
+        $this->db->exec($development);
+        $this->db->exec($development);
         $this->start = (int)strtotime('2026-01-01 00:00:00');
     }
 
@@ -113,9 +119,32 @@ final class ColonyEconomyPersistenceTest extends TestCase
         for ($minute = 1; $minute <= 720; $minute++) {
             update_colony_resources($this->db, 2, $this->start + $minute * 60);
         }
+
         self::assertSame($this->state(1), $this->state(2));
         self::assertGreaterThan(100, (int)$this->state(1)['population']);
         self::assertFalse($this->db->inTransaction());
+    }
+
+    public function testLegacySettlementRetainsBodyMilestonesAndSharesTransactionRollback(): void
+    {
+        $this->seed();
+        $this->db->exec('UPDATE colonies SET population=40000 WHERE id=1');
+        update_colony_resources($this->db, 1, $this->start);
+        if (!\GalaxyQuest\Terrain\BodyDevelopment::enabled()) {
+            self::assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM body_development')->fetchColumn());
+            return;
+        }
+        $history = \GalaxyQuest\Terrain\BodyDevelopment::read($this->db, 1);
+        self::assertSame(6, $history['founded_count']);
+        $this->db->exec('UPDATE colonies SET population=100 WHERE id=1');
+        update_colony_resources($this->db, 1, $this->start);
+        self::assertSame($history, \GalaxyQuest\Terrain\BodyDevelopment::read($this->db, 1));
+        $this->db->beginTransaction();
+        $this->db->exec('UPDATE colonies SET population=1000000 WHERE id=1');
+        update_colony_resources($this->db, 1, $this->start);
+        self::assertSame(10, \GalaxyQuest\Terrain\BodyDevelopment::read($this->db, 1)['founded_count']);
+        $this->db->rollBack();
+        self::assertSame($history, \GalaxyQuest\Terrain\BodyDevelopment::read($this->db, 1));
     }
 
     public function testFiniteExtractionIsConservedAfterAllBonusesAndFullStorageDoesNotWasteDeposits(): void

@@ -2,6 +2,32 @@
  * EspionageUI - Spy network and operations display
  */
 
+function finiteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function createListSection(doc, className, title, emptyMessage, items, renderItem) {
+  const section = doc.createElement('div');
+  section.className = className;
+  const heading = doc.createElement('h3');
+  heading.textContent = `${title} (${items.length})`;
+  const list = doc.createElement('ul');
+  if (items.length === 0) {
+    const emptyItem = doc.createElement('li');
+    emptyItem.textContent = emptyMessage;
+    list.append(emptyItem);
+  } else {
+    items.forEach(item => {
+      const listItem = doc.createElement('li');
+      listItem.textContent = renderItem(item);
+      list.append(listItem);
+    });
+  }
+  section.append(heading, list);
+  return section;
+}
+
 export class EspionageUI {
   constructor(espionageController, domTarget) {
     this.controller = espionageController;
@@ -13,85 +39,47 @@ export class EspionageUI {
 
   render() {
     if (!this.container) return;
-    this.container.innerHTML = this._buildHtml();
-    this._attachEventHandlers();
-  }
+    const doc = this.container.ownerDocument;
+    const panel = doc.createElement('div');
+    panel.className = 'espionage-panel';
 
-  _buildHtml() {
-    return `
-      <div class="espionage-panel">
-        <h2>🕵️ Espionage</h2>
-        ${this._buildSpiesSection()}
-        ${this._buildIntelligenceSection()}
-        ${this._buildOperationsSection()}
-        <button class="btn-save" id="btn-save">💾 Save</button>
-      </div>
-    `;
-  }
+    const heading = doc.createElement('h2');
+    heading.textContent = '🕵️ Espionage';
 
-  _buildSpiesSection() {
     const spies = this.controller.getFactionSpies('player_faction');
-    let html = `<div class="spies"><h3>Active Spies (${spies.length})</h3><ul>`;
-
-    if (spies.length === 0) {
-      html += `<li>No active spies</li>`;
-    } else {
-      spies.forEach(spy => {
-        const status = spy.status === 'active' ? '✅' : '❌';
-        html += `<li>${status} ${spy.name} → ${spy.targetFaction} (Skill: ${Math.round(spy.skill)})</li>`;
-      });
-    }
-
-    html += `</ul></div>`;
-    return html;
-  }
-
-  _buildIntelligenceSection() {
-    const intel = this.controller.getFactionIntelligence('player_faction');
-    let html = `<div class="intelligence"><h3>Intelligence Reports (${intel.length})</h3><ul>`;
-
-    if (intel.length === 0) {
-      html += `<li>No intelligence gathered</li>`;
-    } else {
-      intel.forEach(i => {
-        const discovered = i.discovered ? '🚨 COMPROMISED' : '✅';
-        html += `<li>${discovered} ${i.type} from ${i.target} (${Math.round(i.reliability)}% reliable)</li>`;
-      });
-    }
-
-    html += `</ul></div>`;
-    return html;
-  }
-
-  _buildOperationsSection() {
+    const intelligence = this.controller.getFactionIntelligence('player_faction');
     const operations = this.controller.getOperations();
-    let html = `<div class="operations"><h3>Sabotage Operations (${operations.length})</h3><ul>`;
+    panel.append(
+      heading,
+      createListSection(doc, 'spies', 'Active Spies', 'No active spies', spies, spy => {
+        const status = spy.status === 'active' ? '✅' : '❌';
+        return `${status} ${String(spy.name ?? '')} → ${String(spy.targetFaction ?? '')} (Skill: ${Math.round(finiteNumber(spy.skill))})`;
+      }),
+      createListSection(doc, 'intelligence', 'Intelligence Reports', 'No intelligence gathered', intelligence, report => {
+        const discovered = report.discovered ? '🚨 COMPROMISED' : '✅';
+        return `${discovered} ${String(report.type ?? '')} from ${String(report.target ?? '')} (${Math.round(finiteNumber(report.reliability))}% reliable)`;
+      }),
+      createListSection(doc, 'operations', 'Sabotage Operations', 'No active operations', operations, operation => {
+        const status = operation.status === 'active' ? '🔄' : '✅';
+        const progress = Math.min(100, Math.max(0, finiteNumber(operation.progress)));
+        return `${status} ${String(operation.targetType ?? '')} vs ${String(operation.target ?? '')} (${progress}%)`;
+      }),
+    );
 
-    if (operations.length === 0) {
-      html += `<li>No active operations</li>`;
-    } else {
-      operations.forEach(op => {
-        const statusEmoji = op.status === 'active' ? '🔄' : '✅';
-        html += `<li>${statusEmoji} ${op.targetType} vs ${op.target} (${op.progress}%)</li>`;
-      });
-    }
-
-    html += `</ul></div>`;
-    return html;
-  }
-
-  _attachEventHandlers() {
-    const saveBtn = this.container.querySelector('#btn-save');
-    if (saveBtn) {
-      saveBtn.addEventListener('click', async () => {
-        try {
-          await this.controller.save();
-          alert('✅ Espionage saved');
-        } catch (err) {
-          alert(`Error: ${err.message}`);
-        }
-      });
-    }
+    const saveButton = doc.createElement('button');
+    saveButton.className = 'btn-save';
+    saveButton.id = 'btn-save';
+    saveButton.textContent = '💾 Save';
+    saveButton.addEventListener('click', async () => {
+      try {
+        await this.controller.save();
+        alert('✅ Espionage saved');
+      } catch (error) {
+        alert(`Error: ${error.message}`);
+      }
+    });
+    panel.append(saveButton);
+    this.container.replaceChildren(panel);
   }
 
   handleStateChange(change) {

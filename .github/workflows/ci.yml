@@ -11,7 +11,7 @@
 #   phpunit          — Complete PHPUnit suite (PHP 8.2 + MySQL 8.4 service)
 #   vitest           — Vitest JavaScript unit tests
 #   playwright-smoke — Playwright smoke test (isolated built web image + database)
-#   docker-build     — Build & push versioned Docker image to GHCR (main only)
+#   docker-build     — Build, scan and publish web/TTS images (develop/main)
 
 name: CI/CD Pipeline
 
@@ -374,9 +374,12 @@ jobs:
   docker-build:
     name: Build & Publish Docker Image
     runs-on: ubuntu-latest
-    # Only publish images for pushes to main (not PRs)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Never publish PR images or deploy untrusted pull request code.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     needs: [lint-php, lint-js, phpunit-unit, phpunit, vitest, playwright-smoke]
+    outputs:
+      web-image: ${{ steps.release.outputs.web-image }}
+      tts-image: ${{ steps.release.outputs.tts-image }}
 
     permissions:
       contents: read
@@ -392,7 +395,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=sha,prefix=sha-
+            type=sha,prefix=sha-,format=long
             type=ref,event=branch
             type=raw,value=latest,enable={{is_default_branch}}
 
@@ -417,6 +420,41 @@ jobs:
           ignore-unfixed: false
           exit-code: "1"
 
+      - name: Build TTS candidate without publishing
+        id: tts
+        uses: docker/build-push-action@v6
+        with:
+          context: ./tts_service
+          load: true
+          push: false
+          tags: galaxyquest-tts:publish-candidate
+
+      - name: Scan exact TTS candidate before registry authentication
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: galaxyquest-tts:publish-candidate
+          format: table
+          scanners: vuln,secret
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "1"
+
+      - name: Set up Node.js for production stack acceptance
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Accept exact production web and TTS candidates on a fresh database
+        env:
+          GQ_TEST_WEB_IMAGE: galaxyquest:publish-candidate
+          GQ_TEST_TTS_IMAGE: galaxyquest-tts:publish-candidate
+        run: |
+          docker pull mysql:8.4
+          docker pull axllent/mailpit:v1.29
+          node scripts/check_production_stack.mjs
+          node scripts/check_smtp_delivery.mjs
+
       - name: Log in to GitHub Container Registry after scan
         uses: docker/login-action@v3
         with:
@@ -437,3 +475,53 @@ jobs:
             docker tag "$CANDIDATE_ID" "$tag"
             docker push "$tag"
           done <<< "$IMAGE_TAGS"
+
+      - name: Publish scanned TTS and resolve immutable release references
+        id: release
+        env:
+          TTS_ID: ${{ steps.tts.outputs.imageid }}
+          IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test -n "$TTS_ID"
+          test "$(docker image inspect --format '{{.Id}}' galaxyquest-tts:publish-candidate)" = "$TTS_ID"
+          repository="${IMAGE_REPOSITORY,,}"
+          tts_tag="$repository-tts:sha-$GITHUB_SHA"
+          docker tag "$TTS_ID" "$tts_tag"
+          docker push "$tts_tag"
+          web_digest=$(docker buildx imagetools inspect "$repository:sha-$GITHUB_SHA" --format '{{.Manifest.Digest}}')
+          tts_digest=$(docker buildx imagetools inspect "$tts_tag" --format '{{.Manifest.Digest}}')
+          [[ "$web_digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          [[ "$tts_digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "web-image=$repository@$web_digest" >> "$GITHUB_OUTPUT"
+          echo "tts-image=$repository-tts@$tts_digest" >> "$GITHUB_OUTPUT"
+          jq -n --arg commit "$GITHUB_SHA" --arg web "$repository@$web_digest" --arg tts "$repository-tts@$tts_digest" \
+            '{commit:$commit,web:$web,tts:$tts}' > release.json
+
+      - name: Preserve release manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-release
+          path: release.json
+          if-no-files-found: error
+          retention-days: 90
+
+  deploy-staging:
+    needs: docker-build
+    if: vars.PLESK_DEPLOY_ENABLED == 'true'
+    uses: ./.github/workflows/deploy-plesk.yml
+    with:
+      environment: staging
+      web-image: ${{ needs.docker-build.outputs.web-image }}
+      tts-image: ${{ needs.docker-build.outputs.tts-image }}
+    secrets: inherit
+
+  deploy-production:
+    needs: [docker-build, deploy-staging]
+    if: github.ref == 'refs/heads/main' && vars.PLESK_DEPLOY_ENABLED == 'true'
+    uses: ./.github/workflows/deploy-plesk.yml
+    with:
+      environment: production
+      web-image: ${{ needs.docker-build.outputs.web-image }}
+      tts-image: ${{ needs.docker-build.outputs.tts-image }}
+    secrets: inherit

@@ -7,12 +7,14 @@
  */
 use GalaxyQuest\Economy\OnDemandEconomy;
 use GalaxyQuest\Economy\ResourceLedger;
+use GalaxyQuest\Terrain\BodyDevelopment;
 
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/cache.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/achievements.php';
 require_once __DIR__ . '/../src/Economy/ResourceLedger.php';
+require_once __DIR__ . '/../lib/BodyDevelopment.php';
 
 if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
     $action = $_GET['action'] ?? '';
@@ -25,7 +27,8 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             $db  = get_db();
             verify_colony_ownership($db, $cid, $uid);
             $cacheKeyParams = ['uid' => $uid, 'cid' => $cid];
-            $cached = ON_DEMAND_ECONOMY_ENABLED ? null : gq_cache_get('buildings_list', $cacheKeyParams);
+            $cached = ON_DEMAND_ECONOMY_ENABLED || BodyDevelopment::enabled()
+                ? null : gq_cache_get('buildings_list', $cacheKeyParams);
             if (is_array($cached) && isset($cached['buildings'])) {
                 json_ok($cached);
             }
@@ -34,7 +37,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
 
             $planetStmt = $db->prepare(
                 'SELECT cb.galaxy_index AS galaxy, cb.system_index AS `system`, cb.position,
-                    p.type, p.planet_class, p.diameter,
+                    c.body_id, c.population, p.type, p.planet_class, p.diameter,
                         p.in_habitable_zone, p.temp_min, p.temp_max,
                         c.colony_type, c.name
                  FROM colonies c
@@ -121,13 +124,17 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             unset($b);
 
             $payload = [
+                'body_development' => BodyDevelopment::enabled()
+                    ? BodyDevelopment::read($db, (int)$planet['body_id']) : null,
                 'buildings' => $buildings,
                 'planet' => $planet,
                 'layout' => $layout,
                 'orbital_facilities' => summarize_orbital_facilities($buildings, $ships),
                 'upgrade_queue' => $queueRows,
             ];
-            gq_cache_set('buildings_list', $cacheKeyParams, $payload, CACHE_TTL_DEFAULT);
+            if (!BodyDevelopment::enabled()) {
+                gq_cache_set('buildings_list', $cacheKeyParams, $payload, CACHE_TTL_DEFAULT);
+            }
             json_ok($payload);
             break;
 

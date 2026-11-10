@@ -1,0 +1,17 @@
+global:
+  smtp_smarthost: themisdb.org:587
+  smtp_from: galaxyquest@themisdb.org
+  smtp_auth_username: galaxyquest@themisdb.org
+  smtp_auth_password: REPLACE_WITH_MAILBOX_PASSWORD
+  smtp_require_tls: true
+route:
+  receiver: operations
+  group_by: [alertname, job]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+receivers:
+  - name: operations
+    email_configs:
+      - to: REPLACE_WITH_OPERATOR_EMAIL
+        send_resolved: true

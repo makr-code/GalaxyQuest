@@ -47,7 +47,7 @@
       variant === 'lava' ? '#522719' : variant === 'rocky' ? '#8c8173'
         : ['gas', 'desert'].includes(variant) ? '#bd9e75' : '#688253');
     const descriptor = {
-      version: 'planet-pipeline-2',
+      version: 'planet-pipeline-4',
       seed: typeof seed === 'number' && Number.isFinite(seed) ? seed >>> 0 : hash(seed),
       variant,
       ocean: finite(terrain.ocean ?? terrain.water, variant === 'ocean' ? 0.9 : variant === 'terrestrial' ? 0.56 : 0),
@@ -116,21 +116,36 @@
       seed: descriptor.seed, variant: descriptor.variant === 'terrestrial' ? 'rocky' : descriptor.variant,
       palette: { base: descriptor.land, secondary: descriptor.secondary,
         accent: descriptor.accent, ice: descriptor.iceColor },
-      clouds: descriptor.clouds, ice_caps: descriptor.ice,
+      clouds: descriptor.clouds, ice_caps: 0,
       banding: descriptor.banding, craters: descriptor.craters, glow: descriptor.glow,
       // These only locate candidate lights. No city/economy state enters the maps.
       city_density: 0.65, city_grid: 0.6,
     }, { size: width, separateClouds: true });
     const { height } = raw;
     const surface = new Uint8Array(raw.albedo);
+    const land = new Uint8Array(raw.albedo);
+    const geographyWidth = width * 4, geographyHeight = height * 4;
+    const geography = new Uint8Array(geographyWidth * geographyHeight * 4);
+    for (let y = 0; y < geographyHeight; y++) {
+      for (let x = 0; x < geographyWidth; x++) {
+        const offset = (y * geographyWidth + x) * 4;
+        const relief = Math.round(Pipeline.terrainRelief(descriptor.seed,
+          (x + 0.5) / geographyWidth, (y + 0.5) / geographyHeight) * 65535);
+        // Linear RG filtering commutes with this weighted 16-bit decode.
+        geography[offset] = relief >>> 8;
+        geography[offset + 1] = relief & 255;
+        geography[offset + 3] = 255;
+      }
+    }
     const cloud = new Uint8Array(raw.cloud);
     const night = new Uint8Array(surface.length);
     const ocean = rgb(descriptor.oceanColor);
+    const iceColor = rgb(descriptor.iceColor).map(channel => Math.round(channel * 255));
     for (let y = 0; y < height; y++) {
-      const latitude = Math.abs(y / (height - 1) - 0.5) * Math.PI;
+      const latitude = Math.abs((y + 0.5) / height - 0.5) * Math.PI;
       for (let x = 0; x < width; x++) {
         const offset = (y * width + x) * 4;
-        const relief = (raw.bump[offset] - 45) / 210;
+        const relief = Pipeline.terrainRelief(descriptor.seed, (x + 0.5) / width, (y + 0.5) / height);
         const ice = descriptor.ice > 0 && latitude > (1 - descriptor.ice) * 1.08;
         const water = !ice && descriptor.ocean > 0 && relief < descriptor.ocean * 0.85;
         if (water) {
@@ -138,13 +153,14 @@
             surface[offset + channel] = Math.round(ocean[channel] * (0.65 + relief * 0.5) * 255);
           }
         }
+        if (ice) surface.set(iceColor, offset);
         surface[offset + 3] = water ? 255 : 0;
         const glow = descriptor.variant === 'lava' ? raw.emissive[offset] * 2.5
-          : water || ice ? 0 : raw.city[offset] * 4;
+          : raw.city[offset] * 4;
         night.set([Math.min(255, glow), Math.min(255, glow * 0.72), Math.min(255, glow * 0.3), 255], offset);
       }
     }
-    const result = { width, height, surface, cloud, night, key };
+    const result = { width, height, geographyWidth, geographyHeight, surface, land, geography, cloud, night, key };
     cache.set(key, result);
     while (cache.size > 8) cache.delete(cache.keys().next().value);
     return result;

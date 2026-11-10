@@ -1,0 +1,11 @@
+[Unit]
+Description=GalaxyQuest verified database and generated-asset backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=REPLACE_WITH_DEPLOY_USER
+ExecStart=/bin/bash -c 'exec /bin/bash "$(cat /srv/galaxyquest/production/current-bundle)/stack.sh" /srv/galaxyquest/production backup'
+# Leave enough time for a full restore test. Failure deliberately leaves writers stopped.
+TimeoutStartSec=3600

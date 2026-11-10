@@ -19,6 +19,12 @@ test(`persistent colony terrain ${scenario.kind}${scenario.regions ? ' GeoJSON r
     contentType: 'text/html',
     body: '<html><body style="margin:0"><div id="host" style="position:relative;width:1000px;height:700px"><canvas id="galaxy" style="width:100%;height:100%"></canvas></div></body></html>',
   }));
+  await page.route('http://localhost/js/**', (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (!/^\/js\/[\w/.-]+\.js$/.test(pathname) || pathname.includes('..')) return route.abort();
+    return route.fulfill({ contentType: 'application/javascript',
+      body: fs.readFileSync(path.join(root, pathname.slice(1)), 'utf8') });
+  });
   await page.route('**/api/colony_economy.php?*', (route) => route.fulfill({
     status: 503, json: { success: false, error: 'Economy not part of terrain fixture' },
   }));
@@ -95,15 +101,23 @@ test(`persistent colony terrain ${scenario.kind}${scenario.regions ? ' GeoJSON r
     return route.fulfill({ json: { success: true, tiles } });
   });
   await page.goto('http://localhost/persistent-terrain-test');
-  const available = await page.evaluate(async () => !!navigator.gpu && !!await navigator.gpu.requestAdapter());
+  const available = await page.evaluate(async () => {
+    if (!navigator.gpu) return false;
+    const requestAdapter = navigator.gpu.requestAdapter.bind(navigator.gpu);
+    const adapter = await requestAdapter({ forceFallbackAdapter: true }) || await requestAdapter();
+    if (!adapter) return false;
+    navigator.gpu.requestAdapter = async () => adapter;
+    return true;
+  });
+  if (process.env.GQ_WEBGPU_SHADER_CI === '1') expect(available, 'Actual GPU terrain test must run').toBe(true);
   test.skip(!available, 'No WebGPU adapter available');
   for (const file of [
-    'js/runtime/galaxy-chunk-utils.js', 'js/rendering/body-material.js', 'js/rendering/Galaxy3DRendererWebGPU.js',
+    'js/runtime/galaxy-chunk-utils.js', 'js/rendering/body-material.js', 'js/rendering/colony-surface-plan.js', 'js/rendering/Galaxy3DRendererWebGPU.js',
     'js/engine/zoom/IZoomLevelRenderer.js', 'js/engine/zoom/RendererRegistry.js',
     'js/engine/zoom/CameraFlightPath.js', 'js/engine/zoom/SeamlessZoomOrchestrator.js',
     'js/engine/zoom/levels/PlanetApproachLevelWebGPU.js',
     'js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js',
-  ]) await page.addScriptTag({ content: fs.readFileSync(path.join(root, file), 'utf8') });
+  ]) await page.addScriptTag({ url: `http://localhost/${file}` });
 
   await page.evaluate(async ({ diameter, kind, sheltered }) => {
     const canvas = document.querySelector('#galaxy');
@@ -133,6 +147,7 @@ test(`persistent colony terrain ${scenario.kind}${scenario.regions ? ' GeoJSON r
     if (systemError) throw new Error(`System body shape WebGPU validation failed: ${systemError.message}`);
     renderer.device.pushErrorScope('validation');
     const scene = {
+      reduced_motion: true,
       colony: { id: 7, body_id: 12, name: 'Persistent terrain', diameter_km: diameter, body_type: kind, population: 100 },
       slots: sheltered ? Array.from({ length: 12 }, (_, index) => ({
         slot_x: index % 4, slot_y: Math.floor(index / 4), building_type: 'habitat', level: index % 3 + 1,
@@ -140,23 +155,25 @@ test(`persistent colony terrain ${scenario.kind}${scenario.regions ? ' GeoJSON r
     };
     window.terrainTest = { renderer, orchestrator, validationErrors, scene, systemShapes };
     await orchestrator.zoomTo(2, scene, { skipCameraFlight: true });
+    window.terrainTest.approach = orchestrator._active._persistentRenderer;
+    if (!window.terrainTest.approach) throw new Error('Persistent approach renderer was not selected');
   }, scenario);
-  await expect.poll(() => page.evaluate(() => window.terrainTest.orchestrator._active._terrainManifest?.shape)).toEqual(scenario.shape);
+  await expect.poll(() => page.evaluate(() => window.terrainTest.approach._terrainManifest?.shape)).toEqual(scenario.shape);
   const expectedMaterial = require('../../js/rendering/body-material.js').resolveBodyMaterial({}, manifest);
-  await expect.poll(() => page.evaluate(() => window.terrainTest.orchestrator._active._materialState)).toEqual(expectedMaterial);
-  const approachMaterial = await page.evaluate(() => window.terrainTest.orchestrator._active._materialState);
+  await expect.poll(() => page.evaluate(() => window.terrainTest.approach._materialState)).toEqual(expectedMaterial);
+  const approachMaterial = await page.evaluate(() => window.terrainTest.approach._materialState);
   if (scenario.regions) {
-    await expect.poll(() => page.evaluate(() => window.terrainTest.orchestrator._active._solidBuffer?.label))
+    await expect.poll(() => page.evaluate(() => window.terrainTest.approach._solidBuffer?.label))
       .toBe('approach_geojson_regions');
   }
   if (scenario.composite) {
     expect(await page.evaluate(() => window.GQColonySurfaceLevelWebGPU.terrainRegionVisual(
-      window.terrainTest.orchestrator._active._terrainManifest.regions, [1, 0, 0], 6
+      window.terrainTest.approach._terrainManifest.regions, [1, 0, 0], 6
     ))).toEqual({ weight: 1, color: [18 / 255, 71 / 255, 125 / 255] });
-    await expect.poll(() => page.evaluate(() => window.terrainTest.orchestrator._active._solidBuffer?.label)).toBe('approach_composite_solid');
+    await expect.poll(() => page.evaluate(() => window.terrainTest.approach._solidBuffer?.label)).toBe('approach_composite_solid');
     const systemSolid = await page.evaluate(async () => {
-      const { renderer, orchestrator } = window.terrainTest;
-      const approach = orchestrator._active;
+      const { renderer } = window.terrainTest;
+      const approach = window.terrainTest.approach;
       const buffer = approach._solidBuffer;
       const destroy = buffer.destroy.bind(buffer);
       buffer.destroy = () => { window.terrainTest.approachDestroyed = true; destroy(); };
@@ -217,11 +234,20 @@ test(`persistent colony terrain ${scenario.kind}${scenario.regions ? ' GeoJSON r
   const settled = async () => page.evaluate(() => {
     const city = window.terrainTest.orchestrator._active;
     const stream = city._terrainStream;
-    return city._camera.progress === 1 && !!stream?.manifest && !stream.failed && !stream.request
-      && (stream.manifest.solid || stream.wanted.every((tile) => stream.tiles.has(`${tile.face}/${tile.lod}/${tile.x}/${tile.y}`)))
-      && city._terrainBuffer?.label === (stream.manifest.solid ? 'colony_composite_solid' : 'colony_persisted_cube_tiles');
+    return {
+      cameraReady: city._camera.progress === 1,
+      manifestReady: !!stream?.manifest,
+      failed: !!stream?.failed,
+      pending: !!stream?.request,
+      tilesReady: !!stream?.manifest && (!!stream.manifest.solid
+        || stream.wanted.every((tile) => stream.tiles.has(`${tile.face}/${tile.lod}/${tile.x}/${tile.y}`))),
+      buffer: city._terrainBuffer?.label || null,
+    };
   });
-  await expect.poll(settled, { timeout: 30000 }).toBe(true);
+  await expect.poll(settled, { timeout: 30000 }).toEqual({
+    cameraReady: true, manifestReady: true, failed: false, pending: false, tilesReady: true,
+    buffer: scenario.composite ? 'colony_composite_solid' : 'colony_persisted_cube_tiles',
+  });
   if (scenario.composite) expect(await page.evaluate(() => window.terrainTest.approachDestroyed)).toBe(true);
   if (scenario.composite) expect(batches).toBe(0);
   else expect(batches).toBeGreaterThan(1);
@@ -263,7 +289,7 @@ test(`persistent colony terrain ${scenario.kind}${scenario.regions ? ' GeoJSON r
   });
   expect(result).toMatchObject({ reused: true, sameDevice: true, hooks: 1, raf: 0, scopedError: null, errors: [] });
   expect(result.vertices).toBeGreaterThan(scenario.composite ? 1000 : 6 * 1920);
-  expect(result.bytes).toBeLessThanOrEqual(8 * 1024 * 1024);
+  expect(result.bytes).toBeLessThanOrEqual(12 * 1024 * 1024);
   expect(result.shape).toMatchObject(scenario.shape);
   expect(result.radiusMeters).toBeCloseTo(scenario.diameter * 500, 6);
   expect(result.material).toEqual(approachMaterial);

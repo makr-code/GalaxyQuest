@@ -615,25 +615,40 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
     rendererStatus.setAttribute('role', 'status');
     retry.hidden = true;
     rendererStatus.textContent = 'Starte interaktives Spielfeld ...';
+    const findOwnedColony = (position, data) => session.getState()?.colonies.find((entry) =>
+      Number(entry.galaxy) === Number(data.systemPayload.galaxy)
+      && Number(entry.system) === Number(data.systemPayload.system) && Number(entry.position) === position);
+    async function loadBuildingState(colony, signal) {
+      signal?.throwIfAborted();
+      if (!isCurrent()) throw new DOMException('Renderer changed.', 'AbortError');
+      const buildings = await API.get(`api/buildings.php?action=list&colony_id=${colony.id}`, { signal });
+      signal?.throwIfAborted();
+      if (!isCurrent()) throw new DOMException('Renderer changed.', 'AbortError');
+      if (buildings?.success !== true || !Array.isArray(buildings.buildings)) {
+        throw new Error('Ungültige Gebäudedaten für die Kolonieoberfläche.');
+      }
+      return buildings;
+    }
     try {
       next = await createRenderer(host, {
         externalCanvas: canvas,
         signal: rendererAbort.signal,
+        async loadPlanetData(position, data, signal) {
+          const colony = findOwnedColony(position, data);
+          if (!colony) return data;
+          const buildings = await loadBuildingState(colony, signal);
+          return { ...data, ...buildings, colony: { ...data.focusPlanet, ...colony,
+            population: buildings.planet?.population ?? colony.population } };
+        },
         async loadColonyData(position, data, signal) {
-          const colony = session.getState()?.colonies.find((entry) =>
-            Number(entry.galaxy) === Number(data.systemPayload.galaxy)
-            && Number(entry.system) === Number(data.systemPayload.system) && Number(entry.position) === position);
+          const colony = findOwnedColony(position, data);
           if (!colony) throw new Error('Die Kolonieoberfläche ist nur für eigene Kolonien verfügbar.');
-          const buildings = await API.get(`api/buildings.php?action=list&colony_id=${colony.id}`, { signal });
-          signal?.throwIfAborted();
-          if (!isCurrent()) throw new DOMException('Renderer changed.', 'AbortError');
-          if (buildings?.success !== true || !Array.isArray(buildings.buildings)) {
-            throw new Error('Ungültige Gebäudedaten für die Kolonieoberfläche.');
-          }
+          const buildings = await loadBuildingState(colony, signal);
           const context = {};
           surfaceContext = context;
           return {
-            ...data, ...buildings, colony: { ...data.focusPlanet, ...colony },
+            ...data, ...buildings, colony: { ...data.focusPlanet, ...colony,
+              population: buildings.planet?.population ?? colony.population },
             onOpenBuildings: (slot) => {
               session.events.emit('buildings:open-requested', {
                 colonyId: Number(colony.id), buildingType: slot?.type || '',
@@ -647,7 +662,8 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
               if (updated?.success !== true || !Array.isArray(updated.buildings)) {
                 throw new Error('Ungültige Gebäudedaten für die Kolonieoberfläche.');
               }
-              return { ...snapshot, buildings: updated.buildings, layout: updated.layout };
+              return { ...snapshot, buildings: updated.buildings, layout: updated.layout,
+                body_development: updated.body_development ?? snapshot.body_development };
             },
             onError: (error) => {
               if (!isCurrent() || surfaceContext !== context) return;

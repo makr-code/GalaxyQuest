@@ -18,6 +18,398 @@ const scene = (overrides = {}) => ({
   ...overrides,
 });
 
+describe('Navigable decorative satellite cities', () => {
+  const manifest = {
+    body_id: 12, generator_version: 1, projection: 'cube-sphere', seed: 35, biome: 'terran',
+    radius_km: 6371, amplitude_km: 8, height_min_km: -16, height_max_km: 16, sea_level_km: 0,
+    max_lod: 14, resolution: 17, tile_encoding: 'uint16-json',
+  };
+  const data = (overrides = {}) => scene({
+    colony: { id: 7, name: 'Satellite test', population: 40000, diameter_km: 12742 },
+    bodyTerrainManifest: manifest, reduced_motion: true,
+    buildings: [{ type: 'farm', level: 8 }, { type: 'mine', level: 4 }, { type: 'factory', level: 2 }],
+    slots: [], ...overrides,
+  });
+
+  describe('Local industrial smoke', () => {
+    it('seeds smoke deterministically, animates upward without GPU allocation and freezes live motion policy', async () => {
+      let reducedMotion = false;
+      vi.stubGlobal('matchMedia', () => ({ matches: reducedMotion }));
+      const { level, backend } = await makeLevel();
+      const data = scene({ slots: [{ x: 0, z: 0, type: 'factory', level: 2 }],
+        vfx_quality: 'high' });
+      await level.enter(2, data);
+      const particles = structuredClone(level._buildingVfxParticles);
+      expect(particles.length).toBeGreaterThan(0);
+      expect(particles.every(p => p.smoke)).toBe(true);
+      expect(level._smokeVertexCount).toBe(particles.length * 6);
+      level._rebuildBuildingVfx(level._slots);
+      expect(level._buildingVfxParticles).toEqual(particles);
+      const uploaded = () => {
+        const call = backend.device.queue.writeBuffer.mock.calls.filter(([buffer]) => buffer === level._buildingVfxBuffer).at(-1);
+        return new Float32Array(call[2]).slice();
+      };
+      level._updateBuildingVfxBuffer(0.1);
+      const first = uploaded();
+      const puff = level._buildingVfxParticles[0];
+      const age = (0.1 / 8 + puff.pulsePhase / (Math.PI * 2)) % 1;
+      const expected = projectColonySurfacePoint(level._viewProjection, level._bodySurface.radius,
+        puff.x + age * 0.9, puff.y + age * 3.2, puff.z + Math.sin(age * Math.PI) * 0.3,
+        level._bodySurface.terrain);
+      expect((first[0] + first[10]) / 2).toBeCloseTo(expected[0], 5);
+      expect((first[1] + first[21]) / 2).toBeCloseTo(expected[1], 5);
+      expect(first[6]).toBeCloseTo(puff.baseOpacity * Math.sin(age * Math.PI) ** 2, 6);
+      const allocations = backend.device.createBuffer.mock.calls.length;
+      level._updateBuildingVfxBuffer(0.1);
+      expect(uploaded()).not.toEqual(first);
+      expect(backend.device.createBuffer).toHaveBeenCalledTimes(allocations);
+      const second = uploaded();
+      reducedMotion = true;
+      level._updateBuildingVfxBuffer(0.1);
+      expect(uploaded()).toEqual(second);
+      reducedMotion = false;
+      level._updateBuildingVfxBuffer(0.1);
+      expect(uploaded()).not.toEqual(second);
+      for (let i = 0; i < first.length; i += 10) {
+        expect(first[i + 6]).toBeGreaterThanOrEqual(0);
+        expect(first[i + 6]).toBeLessThanOrEqual(0.6);
+        expect(first[i + 9]).toBe(1);
+      }
+      const time = level._buildingVfxTime;
+      level._sceneData.visible = false;
+      level._updateBuildingVfxBuffer(0.1);
+      expect(level._buildingVfxTime).toBe(time);
+      expect(uploaded().filter((_v, i) => i % 10 === 6).every(a => a === 0)).toBe(true);
+      level._sceneData.visible = true;
+      level._sceneData.vfx_enabled = false;
+      level._updateBuildingVfxBuffer(0.1);
+      expect(uploaded().filter((_v, i) => i % 10 === 6).every(a => a === 0)).toBe(true);
+      level._sceneData.vfx_enabled = true;
+      puff.pulsePhase = 0;
+      level._buildingVfxTime = 0;
+      level._updateBuildingVfxBuffer(0);
+      const birth = uploaded()[6];
+      level._buildingVfxTime = 7.999;
+      level._updateBuildingVfxBuffer(0);
+      expect(uploaded()[6]).toBeLessThan(0.001);
+      expect(birth).toBeLessThan(0.001);
+      level.dispose();
+    });
+
+    it('preserves activity gates through runtime slot mapping and excludes disabled emitters', async () => {
+      const buildings = [
+        { type: 'factory', level: 2, powered: false },
+        { type: 'refinery', level: 2, effects: { state: { activity: 0 } } },
+        { type: 'mine', level: 2, active: false },
+      ];
+      const mapped = mapping.buildColonySurfaceVfxSlots({}, { buildings });
+      expect(mapped.slots).toHaveLength(3);
+      expect(mapped.slots[0].powered).toBe(false);
+      expect(mapped.slots[1].effects.state.activity).toBe(0);
+      const { level } = await makeLevel();
+      await level.enter(2, scene({ slots: mapped.slots }));
+      expect(level._smokeVertexCount).toBe(0);
+      expect(level._buildingVfxVertexCount).toBe(0);
+      level.setSceneData(scene({ slots: [{ type: 'factory', level: 2, upgrade_end: 'pending' }] }));
+      expect(level._buildingVfxParticles.every(p => !p.smoke)).toBe(true);
+      level.dispose();
+    });
+
+    it('keeps bounded smoke and additive particles in separate draw ranges of one owned buffer', async () => {
+      const { level, backend } = await makeLevel();
+      await level.enter(2, scene({ slots: [
+        { type: 'factory', level: 2, x: -3 }, { type: 'research_lab', level: 2, x: 3 },
+      ] }));
+      expect(level._smokeVertexCount).toBeGreaterThan(0);
+      expect(level._buildingVfxVertexCount).toBeGreaterThan(level._smokeVertexCount);
+      const descriptors = backend.device.createRenderPipeline.mock.calls.map(([descriptor]) => descriptor);
+      expect(descriptors.find(p => p.label === 'colony_industrial_smoke')
+        .fragment.targets[0].blend.color.dstFactor).toBe('one-minus-src-alpha');
+      expect(descriptors.find(p => p.label === 'colony_building_vfx')
+        .fragment.targets[0].blend.color.dstFactor).toBe('one');
+      level._updateBuildingVfxBuffer(0.1);
+      backend.pass.draw.mockClear();
+      level._drawFrame();
+      expect(backend.pass.draw).toHaveBeenCalledWith(level._smokeVertexCount, 1, 0, 0);
+      expect(backend.pass.draw).toHaveBeenCalledWith(level._buildingVfxVertexCount - level._smokeVertexCount,
+        1, level._smokeVertexCount, 0);
+      expect(level._buildingVfxBuffer.size).toBe(level._buildingVfxVertexCount * 40);
+      for (const [quality, cap] of [['low',100],['medium',240],['high',612]]) {
+        level.setSceneData(scene({ vfx_quality: quality,
+          slots: Array.from({ length: 256 }, (_, x) => ({ type: 'factory', level: 2, x })) }));
+        expect(level._buildingVfxParticles.length).toBeLessThanOrEqual(cap);
+        expect(level._buildingVfxParticles.length).toBeLessThanOrEqual(900);
+      }
+      const buffer = level._buildingVfxBuffer;
+      await level.exit();
+      expect(buffer.destroy).toHaveBeenCalledOnce();
+      expect(level._buildingVfxVertexCount).toBe(0);
+    });
+  });
+
+  it('keeps a selected satellite as visitable ruins after decline and reactivates it on recovery', async () => {
+    const { level, host } = await makeLevel();
+    const body_development = { body_id: 12, version: 1, founded_count: 6, peak_population: 40000 };
+    await level.enter(2, data({ body_development }));
+    const satellite = level._surfacePlan.settlements[4];
+    level.selectSettlement(satellite.id);
+    level.setSceneData({ ...level._sceneData, colony: { ...level._sceneData.colony, population: 1000 } });
+    expect(level._activeSettlement.id).toBe(satellite.id);
+    expect(level._activeSettlement.ruined).toBe(true);
+    expect(level._city.ruined).toBe(true);
+    expect(level._slots).toEqual([]);
+    expect(level._people).toEqual([]);
+    expect(host.querySelector('[data-city-settlement]').selectedOptions[0].textContent).toContain('(ruins)');
+    expect(host.textContent).toContain('Abandoned settlement ruins');
+    level.setSceneData({ ...level._sceneData, colony: { ...level._sceneData.colony, population: 40000 } });
+    expect(level._activeSettlement.id).toBe(satellite.id);
+    expect(level._activeSettlement.ruined).toBe(false);
+    expect(level._city.ruined).toBe(false);
+    expect(host.querySelector('[data-city-settlement]').selectedOptions[0].textContent).not.toContain('ruins');
+  });
+
+  it('renders primary ruins as decorative geometry when no living population or buildings remain', async () => {
+    const { level, host } = await makeLevel();
+    await level.enter(2, data({ colony: { id: 7, population: 0 }, buildings: [],
+      body_development: { body_id: 12, version: 1, founded_count: 6, peak_population: 40000 } }));
+    expect(level._activeSettlement).toBe(level._surfacePlan.settlements[0]);
+    expect(level._city.ruined).toBe(true);
+    expect(level._slots).toEqual([]);
+    expect(host.textContent).toContain('Abandoned settlement ruins');
+    expect(host.querySelector('[data-city-focus]').disabled).toBe(true);
+  });
+
+  it('keeps the original persisted valley floor for a ruined primary settlement', async () => {
+    const { level } = await makeLevel();
+    const valley = { ...manifest, biome: 'ice', settlement: {
+      version: 1, kind: 'valley-dome', direction: [1, 0, 0], floor_height_km: -2, dome_height_ratio: 0.55,
+    } };
+    await level.enter(2, data({ bodyTerrainManifest: valley, colony: { id: 7, population: 0 }, buildings: [],
+      body_development: { body_id: 12, version: 1, founded_count: 6, peak_population: 40000 } }));
+    level.render(0.016);
+    const terrain = level._bodySurface.terrain;
+    expect(level._city.ruined).toBe(true);
+    expect(terrain.shape.frame[1]).toEqual([1, 0, 0]);
+    expect(terrain.groundHeight / terrain.radius * valley.radius_km).toBeCloseTo(-2);
+    expect(terrain.shelter).not.toBeNull();
+  });
+
+  it('reuses geography-only regional roads across site changes and economic snapshots', async () => {
+    const { level, host } = await makeLevel();
+    const land = { ...manifest, sea_level_km: -8 };
+    await level.enter(2, data({ bodyTerrainManifest: land }));
+    const roads = level._surfaceRoads;
+    expect(level._surfacePlan.roads.length).toBeGreaterThan(0);
+    expect(host.textContent).toContain('visual regional connections');
+    level.selectSettlement(level._surfacePlan.settlements[1].id);
+    expect(level._surfaceRoads).toBe(roads);
+    level.setSceneData({ ...level._sceneData, colony: { ...level._sceneData.colony, population: 1000 },
+      buildings: [{ type: 'factory', level: 8 }] });
+    expect(level._surfaceRoads).toBe(roads);
+    expect(level._surfacePlan.roads).toEqual([]);
+    level.setSceneData({ ...level._sceneData, bodyTerrainManifest: { ...land, seed: 36 } });
+    expect(level._surfaceRoads).not.toBe(roads);
+    level.dispose();
+    expect(level._surfaceRoads).toBeNull();
+  });
+
+  it('reports absent land routes for an island world instead of drawing ocean crossings', async () => {
+    const { level, host } = await makeLevel();
+    await level.enter(2, data());
+    expect(level._surfacePlan.roadStatus.disconnected.length).toBeGreaterThan(0);
+    expect(host.textContent).toContain('regions without a visual land route');
+  });
+
+  it('refreshes regional HUD labels and geometry after economic snapshots without moving the selected site', async () => {
+    const { level, host } = await makeLevel();
+    await level.enter(2, data({ buildings: [{ type: 'farm', level: 8 }] }));
+    const satellite = level._surfacePlan.settlements[1];
+    level.selectSettlement(satellite.id);
+    const farm = structuredClone(level._city.parts);
+    expect(host.querySelector('[data-city-settlement]').selectedOptions[0].textContent).toContain('Agriculture');
+    expect(host.textContent).toContain('Visual region: Agriculture; colony-wide production unchanged');
+    level.setSceneData({ ...level._sceneData, buildings: [{ type: 'mine', level: 8 }] });
+    expect(level._activeSettlement.id).toBe(satellite.id);
+    expect(level._activeSettlement.direction).toEqual(satellite.direction);
+    expect(host.querySelector('[data-city-settlement]').selectedOptions[0].textContent).toContain('Mining');
+    expect(host.textContent).toContain('Visual region: Mining; colony-wide production unchanged');
+    expect(level._city.parts).not.toEqual(farm);
+    expect(level._slots).toEqual([]);
+    level.dispose();
+  });
+
+  it('inspects selected regions, refreshes snapshots and live motion policy, and removes the panel on exit', async () => {
+    const { level, host } = await makeLevel();
+    await level.enter(2, data({ bodyTerrainManifest: { ...manifest, sea_level_km: -8 },
+      buildings: [{ type: 'farm', level: 8 }] }));
+    const satellite = level._surfacePlan.settlements[1];
+    level.selectSettlement(satellite.id);
+    const panel = host.querySelector('[aria-label="Selected settlement region"]');
+    expect(panel.textContent).toContain('Satellite 1 — regional inspection');
+    expect(panel.textContent).toContain('Agriculture 100.0%');
+    expect(panel.textContent).toContain('Primary settlement');
+    expect(panel.textContent).toContain('Disabled by reduced-motion or VFX settings');
+    expect(panel.textContent).toContain('no regional totals are simulated');
+    const content = panel.firstChild;
+    level.render(0.016);
+    expect(panel.firstChild).toBe(content);
+    level.setSceneData({ ...level._sceneData, reduced_motion: false, buildings: [{ type: 'mine', level: 8 }] });
+    expect(panel.textContent).toContain('Mining 100.0%');
+    expect(panel.textContent).not.toContain('Agriculture 100.0%');
+    const priorMatchMedia = window.matchMedia;
+    try {
+      window.matchMedia = () => ({ matches: true });
+      level.render(0.016);
+      expect(panel.textContent).toContain('Disabled by reduced-motion or VFX settings');
+      window.matchMedia = () => ({ matches: false });
+      level.render(0.016);
+      expect(panel.textContent).toContain('Decorative convoy markers only');
+    } finally { window.matchMedia = priorMatchMedia; }
+    level.setSceneData({ ...level._sceneData, colony: { ...level._sceneData.colony, population: 1000 },
+      body_development: { body_id: 12, version: 1, founded_count: 6, peak_population: 40000 } });
+    expect(panel.textContent).toContain('Ruins — no inhabitants or production');
+    expect(panel.textContent).toContain('(abandoned route)');
+    expect(panel.textContent).toContain('No active economic land use');
+    expect(panel.textContent).not.toContain('Mining 100.0%');
+    await level.exit();
+    expect(host.querySelector('[data-city-region]')).toBeNull();
+    level.dispose();
+  });
+
+  it('reports the selected isolated region without implying all sites have no routes', async () => {
+    const { level, host } = await makeLevel();
+    await level.enter(2, data());
+    const isolated = level._surfacePlan.roadStatus.disconnected[0];
+    level.selectSettlement(isolated.id);
+    const panel = host.querySelector('[data-city-region]');
+    expect(panel.textContent).toContain('No land route to an earlier site found');
+    expect(panel.textContent).toContain('coarse routing may miss narrow connections');
+    level.dispose();
+  });
+
+  it('selects a seeded satellite through the HUD without duplicating buildings, effects or production', async () => {
+    const { level, backend, host } = await makeLevel();
+    await level.enter(2, data());
+    const primary = level._activeSettlement;
+    const satellite = level._surfacePlan.settlements[1];
+    const keys = level._slots.map(slot => slot.key);
+    const originalBuildings = level._sceneData.buildings;
+    const buffer = level._instanceBuffer;
+    const allocationCount = backend.device.createRenderPipeline.mock.calls.length;
+    const select = host.querySelector('[data-city-settlement]');
+    expect(select.options).toHaveLength(6);
+    expect(select.disabled).toBe(false);
+    select.value = satellite.id;
+    select.dispatchEvent(new Event('change'));
+    expect(level._activeSettlement.id).toBe(satellite.id);
+    expect(level._sceneData.settlement_id).toBe(satellite.id);
+    expect(level._satelliteView).toBe(true);
+    expect(level._city.decorative).toBe(true);
+    expect(level._city.parts.length).toBeGreaterThan(100);
+    expect(level._slots).toEqual([]);
+    expect(level._people).toEqual([]);
+    expect(level._buildingVfxStats.emitters).toBe(0);
+    expect(level._sceneData.buildings).toBe(originalBuildings);
+    expect(level._bodySurface.terrain.shape.frame[1]).toEqual(satellite.direction);
+    expect(level._camera.progress).toBe(1);
+    expect(level._camera.span).toBeCloseTo(level._citySpan);
+    expect(buffer.destroy).toHaveBeenCalledOnce();
+    expect(backend.device.createRenderPipeline).toHaveBeenCalledTimes(allocationCount);
+    expect(host.textContent).toContain('no additional production');
+    expect(host.querySelector('[data-city-focus]').disabled).toBe(true);
+    expect(() => level.validateBuilding({ type: 'farm', slot_x: 0, slot_y: 0 })).toThrow('existing colony building');
+    level.selectSettlement(primary.id);
+    expect(level._slots.map(slot => slot.key)).toEqual(keys);
+    expect(level._satelliteView).toBe(false);
+    expect(level._sceneData.buildings).toBe(originalBuildings);
+    expect(level._bodySurface.terrain.shape.frame[1]).toEqual(primary.direction);
+  });
+
+  it('preserves selection through growth and resolves a deactivated satellite explicitly to primary', async () => {
+    const { level, host } = await makeLevel();
+    await level.enter(2, data());
+    const satellite = level._surfacePlan.settlements[4];
+    level.selectSettlement(satellite.id);
+    level.setSceneData({ ...level._sceneData, colony: { ...level._sceneData.colony, population: 1000000 } });
+    expect(level._activeSettlement.id).toBe(satellite.id);
+    expect(level._satelliteView).toBe(true);
+    expect(level._surfacePlan.settlements.length).toBeGreaterThan(6);
+    level.setSceneData({ ...level._sceneData, colony: { ...level._sceneData.colony, population: 1000 } });
+    expect(level._activeSettlement.id).toBe(level._surfacePlan.settlements[0].id);
+    expect(level._sceneData.settlement_id).toBe(level._activeSettlement.id);
+    expect(level._satelliteView).toBe(false);
+    expect(level._slots).toHaveLength(3);
+    expect(host.textContent).toContain('Settlement no longer active');
+    expect(host.querySelector('[data-city-settlement]').disabled).toBe(true);
+  });
+
+  it('does not accept stale site IDs or switch during building focus and releases retained site state', async () => {
+    const { level, host } = await makeLevel();
+    await level.enter(2, data());
+    expect(() => level.selectSettlement('invalid')).toThrow('not active');
+    const site = level._surfacePlan.settlements[1];
+    level.enterBuilding(level._slots[0]);
+    expect(host.querySelector('[data-city-settlement]').disabled).toBe(true);
+    expect(() => level.selectSettlement(site.id)).toThrow('Leave the building');
+    level.leaveBuilding();
+    expect(host.querySelector('[data-city-settlement]').disabled).toBe(false);
+    level.selectSettlement(site.id);
+    level.dispose();
+    expect(level._activeSettlement).toBeNull();
+    expect(level._surfacePlan).toBeNull();
+    expect(() => level.selectSettlement(site.id)).toThrow('disposed');
+  });
+
+  it('rebuilds the selected satellite after late terrain arrival without losing the requested site', async () => {
+    const { level } = await makeLevel();
+    const module = require('../../js/rendering/colony-surface-plan.js');
+    const { livingSurfaceCandidates } = require('../../js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js');
+    const site = livingSurfaceCandidates(manifest, module)[1];
+    const input = data({ bodyTerrainManifest: undefined, settlement_id: site.id });
+    await level.enter(2, input);
+    expect(level._surfacePlan).toBeNull();
+    expect(level._sceneData.settlement_id).toBe(site.id);
+    level._terrainStream.manifest = manifest;
+    level.render(0.016);
+    expect(level._activeSettlement.id).toBe(site.id);
+    expect(level._satelliteView).toBe(true);
+    expect(level._bodySurface.terrain.shape.frame[1]).toEqual(site.direction);
+    expect(level._slots).toEqual([]);
+  });
+
+  it('retains the selected satellite through authorized snapshots, exit and re-entry', async () => {
+    const { level } = await makeLevel();
+    const initial = data();
+    const loadSnapshot = vi.fn(async () => ({
+      success: true, colony: { ...initial.colony, population: 1000000 }, economy: {},
+      buildings: initial.buildings,
+    }));
+    await level.enter(2, { ...initial, loadSnapshot });
+    await vi.waitFor(() => expect(level._snapshotLoaded).toBe(true));
+    const site = level._surfacePlan.settlements[1];
+    level.selectSettlement(site.id);
+    level._camera.target = { x: 2, z: 3 };
+    level._setCameraSpan(40);
+    await level.refreshSnapshot(7);
+    expect(level._activeSettlement.id).toBe(site.id);
+    expect(level._camera.target).toEqual({ x: 2, z: 3 });
+    expect(level._camera.span).toBeCloseTo(40);
+    expect(level._slots).toEqual([]);
+    await level.exit(2);
+    await level.enter(2, { colony: initial.colony });
+    expect(level._activeSettlement.id).toBe(site.id);
+    expect(level._satelliteView).toBe(true);
+    loadSnapshot.mockResolvedValueOnce({
+      success: true, colony: { ...initial.colony, population: 1000 }, economy: {}, buildings: initial.buildings,
+    });
+    await level.refreshSnapshot(7);
+    expect(level._satelliteView).toBe(false);
+    expect(level._slots).toHaveLength(3);
+    expect(level._camera.target).toEqual({ x: 0, z: 0 });
+    expect(level._camera.span).toBeCloseTo(level._citySpan);
+  });
+});
+
 function gpu() {
   const pass = { setPipeline: vi.fn(), setBindGroup: vi.fn(), setVertexBuffer: vi.fn(), draw: vi.fn(), end: vi.fn() };
   const encoder = { beginRenderPass: vi.fn(() => pass), finish: vi.fn(() => ({})) };
@@ -352,10 +744,10 @@ describe('Detailed body terrain', () => {
     const terrain = resolveBodySurface({ colony: { id: 7, planet_class: 'terran', diameter_km: 3 } }, 24, 18).terrain;
     const mesh = buildColonyTerrainMesh(terrain);
     expect(mesh.vertexCount).toBe(104 * 128 * 6);
-    expect(mesh.vertices.byteLength).toBeLessThan(2.5 * 1024 * 1024);
+    expect(mesh.vertices.byteLength).toBeLessThan(3.75 * 1024 * 1024);
     expect([...mesh.vertices].every(Number.isFinite)).toBe(true);
     const radialHeights = [];
-    for (let i = 0; i < mesh.vertices.length; i += 8) {
+    for (let i = 0; i < mesh.vertices.length; i += 12) {
       radialHeights.push(Math.hypot(mesh.vertices[i], mesh.vertices[i + 1] + terrain.radius, mesh.vertices[i + 2]) - terrain.radius);
     }
     expect(Math.max(...radialHeights)).toBeGreaterThan(2);
@@ -369,6 +761,20 @@ describe('Detailed body terrain', () => {
     const matrix = cityCameraMatrix(1.5, 25, 1, { x, z }, terrain.radius, terrain);
     expect(projectColonySurfacePoint(matrix, terrain.radius, x, 0, z, terrain)[0]).toBeCloseTo(0);
     expect(projectColonySurfacePoint(matrix, terrain.radius, x, 0, z, terrain)[1]).toBeCloseTo(0);
+  });
+
+  it('preserves explicit dry foundations and frozen shelter floors independently of their elevation', () => {
+    for (const height of [-10, 10]) {
+      const terrain = { ...terrainFor('terran'), groundHeight: height };
+      expect(sampleColonyTerrain(terrain, 0, 0).boundaries).toEqual([1, -1, 0, 0]);
+      terrain.heightSampler = () => height;
+      const mesh = buildColonyTerrainMesh(terrain, 0);
+      for (let offset = 0; offset < mesh.vertices.length; offset += 12) {
+        expect(Array.from(mesh.vertices.subarray(offset + 8, offset + 12))).toEqual([1, -1, 0, 0]);
+      }
+    }
+    const terrain = { ...terrainFor('ice_dwarf'), shelter: { radius: 5, floor: -10 } };
+    expect(sampleColonyTerrain(terrain, 0, 0).boundaries).toEqual([1, 1, 0, 1]);
   });
 
   it('does not invent mountains or liquid surfaces on a gas giant', () => {
@@ -478,7 +884,7 @@ describe('Demand-driven terrain detail', () => {
     canvas.getBoundingClientRect = rect;
     level.render(0.016);
     expect(level._terrainLod).toBe(0);
-    expect(level._terrainBuffer.size).toBe(196608);
+    expect(level._terrainBuffer.size).toBe(294912);
   });
 
   it('refines on zoom and viewport resolution, and reuses previously generated levels', async () => {
@@ -537,7 +943,8 @@ describe('Demand-driven terrain detail', () => {
 
   it('uses shared footprint-filtered physical material details', () => {
     const { WGSL } = require('../../js/rendering/body-material.js');
-    expect(COLONY_BODY_WGSL).toContain('gqSurface(bodyPoint,meters,canonicalNormal,in.material)');
+    expect(COLONY_BODY_WGSL).toContain('gqTerrainMasks(in.boundaries)');
+    expect(COLONY_BODY_WGSL).toContain('gqSurface(bodyPoint,meters,canonicalNormal,0.0)');
     expect(WGSL).toContain('length(dpdx(meters))');
     expect(WGSL).toContain('footprint / period');
   });

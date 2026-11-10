@@ -20,7 +20,6 @@
     getAudioManager: () => null,
     getApi: () => null,
     getSettingsController: () => null,
-    esc: (value) => String(value || ''),
     gameLog: () => {},
     documentRef: (typeof document !== 'undefined' ? document : null),
     windowRef: (typeof window !== 'undefined' ? window : null),
@@ -92,56 +91,72 @@
 
   function renderTopbarTrackQuickList(activeTrackUrl = '') {
     const documentRef = runtimeCtx.documentRef;
-    const esc = runtimeCtx.esc;
     const list = documentRef?.getElementById('topbar-player-track-list');
     if (!list) return;
 
     const options = runtimeCtx.getAudioTrackOptions();
     const active = String(activeTrackUrl || '').trim();
     if (!Array.isArray(options) || !options.length) {
-      list.innerHTML = '<div class="topbar-player-track-empty">Keine Titel verfuegbar.</div>';
+      const empty = documentRef.createElement('div');
+      empty.className = 'topbar-player-track-empty';
+      empty.textContent = 'Keine Titel verfuegbar.';
+      list.replaceChildren(empty);
       return;
     }
 
-    list.innerHTML = options.map((entry) => {
+    const buttons = options.map((entry) => {
       const value = String(entry?.value || '').trim();
       const label = String(entry?.label || value || '-').trim() || '-';
       const isActive = !!value && value === active;
-      return `<button type="button" class="topbar-player-track-item${isActive ? ' is-active' : ''}" data-track="${esc(value)}" role="option" aria-selected="${isActive ? 'true' : 'false'}" title="${esc(label)}">${esc(label)}</button>`;
-    }).join('');
+      const button = documentRef.createElement('button');
+      button.type = 'button';
+      button.className = `topbar-player-track-item${isActive ? ' is-active' : ''}`;
+      button.dataset.track = value;
+      button.setAttribute('role', 'option');
+      button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      button.title = label;
+      button.textContent = label;
+      return button;
+    });
+    list.replaceChildren(...buttons);
   }
 
   function refreshSettingsMusicPresetOptions() {
     const documentRef = runtimeCtx.documentRef;
     const settingsState = runtimeCtx.getSettingsState() || {};
     const options = runtimeCtx.getAudioTrackOptions();
-    const esc = runtimeCtx.esc;
     const select = documentRef?.querySelector('#set-music-preset');
     const miniSelect = documentRef?.querySelector('#set-player-track');
     const topbarSelect = documentRef?.querySelector('#topbar-player-track');
     const current = select ? String(select.value || '') : '';
     const miniCurrent = miniSelect ? String(miniSelect.value || '') : '';
     const topbarCurrent = topbarSelect ? String(topbarSelect.value || '') : '';
-    const optionsHtml = options
-      .map((entry) => `<option value="${esc(entry.value)}">${esc(entry.label)}</option>`)
-      .join('');
+    const createTrackOptions = () => options.map((entry) => {
+      const option = documentRef.createElement('option');
+      option.value = String(entry.value || '');
+      option.textContent = String(entry.label || '');
+      return option;
+    });
 
     if (select) {
-      select.innerHTML = `<option value="">Keine Vorlage</option>${optionsHtml}`;
+      const empty = documentRef.createElement('option');
+      empty.value = '';
+      empty.textContent = 'Keine Vorlage';
+      select.replaceChildren(empty, ...createTrackOptions());
       if (current && options.some((entry) => String(entry.value) === current)) {
         select.value = current;
       }
     }
 
     if (miniSelect) {
-      miniSelect.innerHTML = optionsHtml;
+      miniSelect.replaceChildren(...createTrackOptions());
       if (miniCurrent && options.some((entry) => String(entry.value) === miniCurrent)) {
         miniSelect.value = miniCurrent;
       }
     }
 
     if (topbarSelect) {
-      topbarSelect.innerHTML = optionsHtml;
+      topbarSelect.replaceChildren(...createTrackOptions());
       if (topbarCurrent && options.some((entry) => String(entry.value) === topbarCurrent)) {
         topbarSelect.value = topbarCurrent;
       }

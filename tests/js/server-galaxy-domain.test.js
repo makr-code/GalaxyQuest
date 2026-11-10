@@ -611,6 +611,37 @@ describe('Authoritative galaxy playing field', () => {
       get.mockRestore();
     }
   });
+  it('loads initial orbit building visuals only for owned colonies and rejects malformed snapshots', async () => {
+    const renderer = { getRenderStats: () => ({ backend: 'webgpu' }), setStars: vi.fn(),
+      fitCameraToStars: vi.fn(), enterSystemView: vi.fn(), exitSystemView: vi.fn(),
+      setGalaxyFleets: vi.fn(), resize: vi.fn(), destroy: vi.fn() };
+    const factory = vi.fn().mockResolvedValue(renderer);
+    cleanups.push(mountGameGalaxy({ session, domain, createRenderer: factory }));
+    window.dispatchEvent(new CustomEvent('gq:authenticated'));
+    await vi.waitFor(() => expect(window.galaxy3d).toBe(renderer));
+    const callbacks = factory.mock.calls[0][1];
+    const buildings = [{ type: 'farm', level: 8 }];
+    const body_development = { body_id: 12, version: 1, founded_count: 6, peak_population: 40000 };
+    const get = vi.spyOn(API, 'get').mockResolvedValue({
+      success: true, buildings, body_development, planet: { population: 1000 },
+    });
+    const data = { focusPlanet: { seed: 35 }, systemPayload: { galaxy: 1, system: 10 } };
+    try {
+      const foreign = await callbacks.loadPlanetData(4, data);
+      expect(foreign).toBe(data);
+      expect(get).not.toHaveBeenCalled();
+      const own = await callbacks.loadPlanetData(3, data);
+      expect(own).toMatchObject({ buildings, body_development, colony: { id: 1, seed: 35, name: 'Home', population: 1000 } });
+      expect(get).toHaveBeenCalledWith('api/buildings.php?action=list&colony_id=1', { signal: undefined });
+      get.mockResolvedValueOnce({ success: false, error: 'Unavailable' });
+      await expect(callbacks.loadPlanetData(3, data)).rejects.toThrow('Ungültige Gebäudedaten');
+      const controller = new AbortController();
+      controller.abort();
+      const count = get.mock.calls.length;
+      await expect(callbacks.loadPlanetData(3, data, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+      expect(get).toHaveBeenCalledTimes(count);
+    } finally { get.mockRestore(); }
+  });
   it('connects canonical planet context to canvas selection and gates private actions to owned colonies', async () => {
     const renderer = { getRenderStats: () => ({ backend: 'webgpu' }), setStars: vi.fn(),
       fitCameraToStars: vi.fn(), enterSystemView: vi.fn(), exitSystemView: vi.fn(), setGalaxyFleets: vi.fn(),

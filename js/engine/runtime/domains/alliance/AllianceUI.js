@@ -17,7 +17,7 @@ export class AllianceUI {
 
   render() {
     if (!this.container) return;
-    this.container.innerHTML = this._buildHtml();
+    this.container.replaceChildren(this._buildHtml());
     this._attachEventHandlers();
   }
 
@@ -26,115 +26,161 @@ export class AllianceUI {
     const section = this.container.querySelector(`.alliance-section-${sectionName}`);
     if (!section) return;
 
-    let html = '';
+    let updatedSection = null;
     switch (sectionName) {
       case 'list':
-        html = this._buildListSection();
+        updatedSection = this._buildListSection();
         break;
       case 'details':
-        html = this._buildDetailsSection();
+        updatedSection = this._buildDetailsSection();
         break;
     }
 
-    section.innerHTML = html;
-    this._attachEventHandlers();
+    if (!updatedSection) return;
+    section.replaceWith(updatedSection);
   }
 
   _buildHtml() {
-    return `
-      <div class="alliance-panel">
-        <div class="alliance-header">
-          <h2>🏛️ Alliances</h2>
-        </div>
+    const doc = this.container.ownerDocument;
+    const panel = doc.createElement('div');
+    panel.className = 'alliance-panel';
 
-        ${this._buildListSection()}
-        ${this._buildDetailsSection()}
+    const header = doc.createElement('div');
+    header.className = 'alliance-header';
+    const title = doc.createElement('h2');
+    title.textContent = '🏛️ Alliances';
+    header.append(title);
 
-        <div class="alliance-footer">
-          <button class="alliance-btn-create" id="btn-create">✨ Create Alliance</button>
-          <button class="alliance-btn-save" id="btn-save">💾 Save</button>
-        </div>
-      </div>
-    `;
+    const footer = doc.createElement('div');
+    footer.className = 'alliance-footer';
+
+    const createButton = doc.createElement('button');
+    createButton.className = 'alliance-btn-create';
+    createButton.id = 'btn-create';
+    createButton.textContent = '✨ Create Alliance';
+
+    const saveButton = doc.createElement('button');
+    saveButton.className = 'alliance-btn-save';
+    saveButton.id = 'btn-save';
+    saveButton.textContent = '💾 Save';
+    footer.append(createButton, saveButton);
+
+    panel.append(header, this._buildListSection(), this._buildDetailsSection(), footer);
+    return panel;
   }
 
   _buildListSection() {
+    const doc = this.container.ownerDocument;
     const alliances = this.controller.getAllAlliances();
+    const section = doc.createElement('div');
+    section.className = 'alliance-section alliance-section-list';
 
-    let html = `
-      <div class="alliance-section alliance-section-list">
-        <h3>Alliances (${alliances.length})</h3>
-        <div class="alliance-list">
-    `;
+    const heading = doc.createElement('h3');
+    heading.textContent = `Alliances (${alliances.length})`;
+    const list = doc.createElement('div');
+    list.className = 'alliance-list';
+    section.append(heading, list);
 
     alliances.forEach(alliance => {
-      const isSelected = this.state.selectedAllianceId === alliance.id;
-      html += `
-        <div class="alliance-card ${isSelected ? 'selected' : ''}" data-alliance-id="${alliance.id}">
-          <div class="alliance-name">${alliance.name}</div>
-          <div class="alliance-info">
-            <span>👥 ${alliance.members.length} members</span>
-            <span>💰 ${alliance.treasury.credits}</span>
-          </div>
-        </div>
-      `;
+      const allianceId = String(alliance.id ?? '');
+      const members = Array.isArray(alliance.members) ? alliance.members : [];
+      const treasury = alliance.treasury ?? {};
+      const card = doc.createElement('div');
+      card.className = `alliance-card${this.state.selectedAllianceId === allianceId ? ' selected' : ''}`;
+
+      const name = doc.createElement('div');
+      name.className = 'alliance-name';
+      name.textContent = String(alliance.name ?? '');
+
+      const info = doc.createElement('div');
+      info.className = 'alliance-info';
+      const memberCount = doc.createElement('span');
+      memberCount.textContent = `👥 ${members.length} members`;
+      const credits = doc.createElement('span');
+      credits.textContent = `💰 ${String(treasury.credits ?? '')}`;
+      info.append(memberCount, credits);
+      card.append(name, info);
+
+      card.addEventListener('click', () => {
+        this.state.selectedAllianceId = allianceId;
+        this.container.querySelectorAll('.alliance-card').forEach(item => item.classList.remove('selected'));
+        card.classList.add('selected');
+        this._rerenderSection('details');
+      });
+      list.append(card);
     });
 
-    html += `
-        </div>
-      </div>
-    `;
-    return html;
+    return section;
   }
 
   _buildDetailsSection() {
+    const doc = this.container.ownerDocument;
+    const section = doc.createElement('div');
+    section.className = 'alliance-section alliance-section-details';
+
     if (!this.state.selectedAllianceId) {
-      return `
-        <div class="alliance-section alliance-section-details">
-          <p class="empty-message">Select an alliance to view details</p>
-        </div>
-      `;
+      const emptyMessage = doc.createElement('p');
+      emptyMessage.className = 'empty-message';
+      emptyMessage.textContent = 'Select an alliance to view details';
+      section.append(emptyMessage);
+      return section;
     }
 
     const alliance = this.controller.getAlliance(this.state.selectedAllianceId);
     if (!alliance) {
-      return `
-        <div class="alliance-section alliance-section-details">
-          <p class="error-message">Alliance not found</p>
-        </div>
-      `;
+      const errorMessage = doc.createElement('p');
+      errorMessage.className = 'error-message';
+      errorMessage.textContent = 'Alliance not found';
+      section.append(errorMessage);
+      return section;
     }
 
-    return `
-      <div class="alliance-section alliance-section-details">
-        <h3>${alliance.name}</h3>
-        <div class="details">
-          <p><strong>Leader:</strong> ${alliance.leader}</p>
-          <p><strong>Members (${alliance.members.length}):</strong></p>
-          <ul>
-            ${alliance.members.map(m => `<li>${m}</li>`).join('')}
-          </ul>
-          <p><strong>Treasury:</strong></p>
-          <ul>
-            <li>💰 ${alliance.treasury.credits}</li>
-            <li>⛏️ ${alliance.treasury.minerals}</li>
-            <li>⚡ ${alliance.treasury.energy}</li>
-          </ul>
-        </div>
-      </div>
-    `;
+    const members = Array.isArray(alliance.members) ? alliance.members : [];
+    const treasury = alliance.treasury ?? {};
+    const heading = doc.createElement('h3');
+    heading.textContent = String(alliance.name ?? '');
+
+    const details = doc.createElement('div');
+    details.className = 'details';
+    const leader = doc.createElement('p');
+    const leaderLabel = doc.createElement('strong');
+    leaderLabel.textContent = 'Leader:';
+    leader.append(leaderLabel, ` ${String(alliance.leader ?? '')}`);
+
+    const membersLabel = doc.createElement('p');
+    const membersHeading = doc.createElement('strong');
+    membersHeading.textContent = `Members (${members.length}):`;
+    membersLabel.append(membersHeading);
+
+    const memberList = doc.createElement('ul');
+    members.forEach(member => {
+      const item = doc.createElement('li');
+      item.textContent = String(member ?? '');
+      memberList.append(item);
+    });
+
+    const treasuryLabel = doc.createElement('p');
+    const treasuryHeading = doc.createElement('strong');
+    treasuryHeading.textContent = 'Treasury:';
+    treasuryLabel.append(treasuryHeading);
+
+    const treasuryList = doc.createElement('ul');
+    [
+      ['💰', treasury.credits],
+      ['⛏️', treasury.minerals],
+      ['⚡', treasury.energy],
+    ].forEach(([icon, amount]) => {
+      const item = doc.createElement('li');
+      item.textContent = `${icon} ${String(amount ?? '')}`;
+      treasuryList.append(item);
+    });
+
+    details.append(leader, membersLabel, memberList, treasuryLabel, treasuryList);
+    section.append(heading, details);
+    return section;
   }
 
   _attachEventHandlers() {
-    this.container.querySelectorAll('.alliance-card').forEach(card => {
-      card.addEventListener('click', () => {
-        this.state.selectedAllianceId = card.dataset.allianceId;
-        this.container.querySelectorAll('.alliance-card').forEach(c => c.classList.remove('selected'));
-        card.classList.add('selected');
-        this._rerenderSection('details');
-      });
-    });
-
     const createBtn = this.container.querySelector('#btn-create');
     if (createBtn) {
       createBtn.addEventListener('click', () => {

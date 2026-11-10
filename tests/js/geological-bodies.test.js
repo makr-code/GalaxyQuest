@@ -6,7 +6,7 @@ const {
   validateBodySolid, bodySolidDistance, bodySolidBound, bodySolidRadius,
   validateBodyGeology, validateTerrainRegions, terrainRegionCoverages, terrainRegionVisual,
   bodyGeologicalHeight, buildTerrainRegionSphereMesh, buildCompositeBodyMesh, compositeSurfaceDistance,
-  applyTerrainSettlement, resolveBodySurface, bodyCenterRadius, mapColonySurfacePoint, constrainBodyCamera,
+  applyTerrainSettlement, resolveBodySurface, bodyCenterRadius, mapColonySurfacePoint, constrainBodyCamera, terrainSphereResolution,
 } = require('../../js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js');
 
 const solid = {
@@ -26,6 +26,55 @@ const manifest = {
 };
 
 describe('Persistent geological and composite bodies', () => {
+  it('selects bounded orbital sampling with hysteresis instead of rebuilding around a zoom threshold', () => {
+    expect([0, 255, 256, 767, 768, 100000].map(pixels => terrainSphereResolution(pixels)))
+      .toEqual([32, 32, 64, 64, 128, 128]);
+    expect(terrainSphereResolution(280, 32)).toBe(32);
+    expect(terrainSphereResolution(300, 32)).toBe(64);
+    expect(terrainSphereResolution(230, 64)).toBe(64);
+    expect(terrainSphereResolution(210, 64)).toBe(32);
+    expect(terrainSphereResolution(800, 64)).toBe(64);
+    expect(terrainSphereResolution(900, 64)).toBe(128);
+    expect(terrainSphereResolution(700, 128)).toBe(128);
+    expect(terrainSphereResolution(600, 128)).toBe(64);
+    for (const pixels of [NaN, Infinity, -1]) expect(() => terrainSphereResolution(pixels)).toThrow();
+    expect(() => terrainSphereResolution(100, 33)).toThrow();
+  });
+
+  it('reduces actual shoreline height interpolation error at close orbital resolution without moving canonical samples', () => {
+    const body = { ...manifest, solid: null, biome: 'terran', radius_km: 6371, amplitude_km: 8 };
+    const errors = [];
+    for (const rows of [64, 128]) {
+      const mesh = buildTerrainRegionSphereMesh(body, rows, rows * 2);
+      expect(mesh.vertexCount * 48).toBeLessThanOrEqual(12 * 1024 * 1024);
+      let total = 0, count = 0;
+      for (let offset = 0; offset < mesh.vertices.length; offset += 21) {
+        const points = [0, 7, 14].map(index => Array.from(mesh.vertices.subarray(offset + index, offset + index + 3)));
+        const heights = points.map(point => bodyGeologicalHeight(body, point.map(n => n / Math.hypot(...point))));
+        if (Math.min(...heights) >= 0 || Math.max(...heights) < 0) continue;
+        const center = [0, 1, 2].map(axis => points.reduce((sum, point) => sum + point[axis], 0) / 3);
+        const exact = bodyGeologicalHeight(body, center.map(n => n / Math.hypot(...center)));
+        total += Math.abs(exact - heights.reduce((sum, height) => sum + height, 0) / 3);
+        count++;
+      }
+      expect(count).toBeGreaterThan(100);
+      errors.push(total / count);
+      if (rows === 128) {
+        const edges = new Map();
+        for (let offset = 0; offset < mesh.vertices.length; offset += 21) {
+          const points = [0, 7, 14].map(index => Array.from(mesh.vertices.subarray(offset + index, offset + index + 3)).join(','));
+          if (new Set(points).size < 3) continue;
+          for (let edge = 0; edge < 3; edge++) {
+            const key = [points[edge], points[(edge + 1) % 3]].sort().join(';');
+            edges.set(key, (edges.get(key) || 0) + 1);
+          }
+        }
+        expect([...edges.values()].every(count => count === 2)).toBe(true);
+      }
+    }
+    expect(errors[1]).toBeLessThan(errors[0] * 0.6);
+  });
+
   it('validates versioned bounded solids and rejects malformed geometry', () => {
     expect(validateBodySolid(solid)).toBe(solid);
     for (const change of [{ version: 2 }, { blend: 0 }, { lobes: [] }, { cuts: Array(9).fill(solid.cuts[0]) },

@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace GalaxyQuest\Economy;
 
+use GalaxyQuest\Terrain\BodyDevelopment;
 use DomainException;
 use PDO;
 use PDOStatement;
 use RuntimeException;
 use Throwable;
+
+require_once __DIR__ . '/../../lib/BodyDevelopment.php';
 
 /**
  * One ledger for primary resources, manufactured goods, population and market
@@ -63,6 +66,7 @@ final class OnDemandEconomy
             }
             $this->query('SELECT id FROM users WHERE id = ?' . $this->lock(), [$lookup['user_id']]);
             $colony = $this->query('SELECT * FROM colonies WHERE id = ?' . $this->lock(), [$colonyId])->fetch();
+            $developmentPeak = (int)$colony['population'];
             $saved = $this->query('SELECT * FROM colony_economy_state WHERE colony_id = ?', [$colonyId])->fetch();
             $state = $saved ? json_decode($saved['state_json'], true, 512, JSON_THROW_ON_ERROR) : [
                 'settled_at' => $now,
@@ -121,7 +125,9 @@ final class OnDemandEconomy
                 if ($end === false || $end > $target) {
                     break;
                 }
-                $state = ColonyEconomySimulation::advance($state, $context, max($end, (int)$state['settled_at']), true);
+                $state = ColonyEconomySimulation::advance(
+                    $state, $context, max($end, (int)$state['settled_at']), true, $developmentPeak
+                );
                 $this->query(
                     'UPDATE buildings SET level = ?, upgrade_end = NULL WHERE colony_id = ? AND type = ?',
                     [$running['target_level'], $colonyId, $running['building_type']]
@@ -143,7 +149,7 @@ final class OnDemandEconomy
                 // Never skip an unprocessed construction event when catching up.
                 $target = (int)$state['settled_at'];
             }
-            $state = ColonyEconomySimulation::advance($state, $context, $target, $mutation);
+            $state = ColonyEconomySimulation::advance($state, $context, $target, $mutation, $developmentPeak);
             $state['pending_seconds'] = $now - (int)$state['settled_at'];
             if (!$saved || $previousCursor !== (int)$state['settled_at']) {
                 $this->persist($colony, $state, $context);
@@ -155,6 +161,8 @@ final class OnDemandEconomy
                 'energy' => $context['energy_available'],
             ], array_intersect_key($state['stock'], array_flip(ColonyEconomySimulation::PRIMARY)));
             return [
+                'body_development' => BodyDevelopment::enabled()
+                    ? BodyDevelopment::observe($this->db, $colony, $developmentPeak, $now) : null,
                 'colony' => $colony,
                 'economy' => $state,
                 'buildings' => array_map(

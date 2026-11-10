@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily verified GalaxyQuest backup
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+RandomizedDelaySec=300
+Persistent=true
+Unit=galaxyquest-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -87,6 +87,91 @@ describe('Authenticated shared colony zoom bridge', () => {
     expect(hooks.size).toBe(0);
   });
 
+  it.each(['back', 'returnTo'])('keeps the refreshed economy and population when %s returns to orbit', async action => {
+    runtime = await createGameColonyZoom(options);
+    await runtime.surface(async () => ({ colony: { id: 7, population: 1000 } }));
+    const zoom = window.__GQ_ZOOM_ORCHESTRATOR;
+    const updated = { colony: { id: 7, population: 40000 }, buildings: [{ type: 'farm', level: 8 }] };
+    zoom._active._sceneData = updated;
+    const planet = zoom._registry.resolve(2, zoom._backend);
+    const enter = vi.spyOn(planet, 'enter');
+    if (action === 'back') {
+      runtime.back();
+      await vi.waitFor(() => expect(zoom._activeLevel).toBe(2));
+    } else await runtime.returnTo('planet');
+    expect(enter).toHaveBeenLastCalledWith(3, updated);
+  });
+
+  it('carries a picked orbit site and its manifest through the authorized surface loader', async () => {
+    options.onSettlement = vi.fn();
+    runtime = await createGameColonyZoom(options);
+    await runtime.approach({ colony: { id: 7 } });
+    const zoom = window.__GQ_ZOOM_ORCHESTRATOR;
+    const orbit = zoom._active;
+    orbit._surfacePlan = { settlements: [{ id: 'satellite-2' }] };
+    orbit._terrainManifest = { seed: 35, radius_km: 6371 };
+    orbit.pickSettlement = vi.fn(() => 'satellite-2');
+    expect(runtime.pickSettlement(60, 90)).toBe('satellite-2');
+    expect(orbit.pickSettlement).toHaveBeenCalledWith(60, 90);
+    zoom._backend.onSettlementSelect('satellite-2');
+    expect(options.onSettlement).toHaveBeenCalledExactlyOnceWith('satellite-2');
+    const city = zoom._registry.resolve(3, zoom._backend);
+    const enter = vi.spyOn(city, 'enter');
+    const buildings = [{ type: 'farm', level: 8 }];
+    const load = vi.fn(async () => ({ colony: { id: 7, population: 40000 }, buildings }));
+    await runtime.surface(load, 'satellite-2');
+    expect(load).toHaveBeenCalledOnce();
+    expect(enter).toHaveBeenLastCalledWith(2, {
+      colony: { id: 7, population: 40000 }, buildings, settlement_id: 'satellite-2',
+      bodyTerrainManifest: orbit._terrainManifest,
+    });
+    expect(runtime.pickSettlement(60, 90)).toBeNull();
+    expect(zoom._backend.onSettlementSelect('satellite-2')).toBe(false);
+  });
+
+  it('rejects an orbital site that deactivated while its authorized snapshot was loading', async () => {
+    runtime = await createGameColonyZoom(options);
+    await runtime.approach({ colony: { id: 7 } });
+    const zoom = window.__GQ_ZOOM_ORCHESTRATOR;
+    zoom._active._surfacePlan = { settlements: [{ id: 'primary' }] };
+    await expect(runtime.surface(async () => ({ colony: { id: 7 } }), 'retired')).rejects.toThrow('no longer active');
+    expect(zoom._activeLevel).toBe(2);
+  });
+
+  it('disables additional marker navigation while the authorized surface read is pending and restores it after failure', async () => {
+    options.onSettlement = vi.fn();
+    runtime = await createGameColonyZoom(options);
+    await runtime.approach({ colony: { id: 7 } });
+    const zoom = window.__GQ_ZOOM_ORCHESTRATOR;
+    zoom._active.pickSettlement = vi.fn(() => 'satellite');
+    let reject;
+    const pending = runtime.surface(() => new Promise((_resolve, fail) => { reject = fail; }), 'satellite');
+    expect(zoom._backend.canSelectSettlement()).toBe(false);
+    expect(runtime.pickSettlement(60, 90)).toBeNull();
+    expect(zoom._backend.onSettlementSelect('satellite')).toBe(false);
+    expect(options.onSettlement).not.toHaveBeenCalled();
+    const failure = new Error('Authorized building read failed');
+    const rejected = expect(pending).rejects.toBe(failure);
+    reject(failure);
+    await rejected;
+    expect(zoom._backend.canSelectSettlement()).toBe(true);
+    expect(runtime.pickSettlement(60, 90)).toBe('satellite');
+  });
+
+  it('ignores a stale picked-site load after leaving the orbit', async () => {
+    runtime = await createGameColonyZoom(options);
+    await runtime.approach({ colony: { id: 7 } });
+    const zoom = window.__GQ_ZOOM_ORCHESTRATOR;
+    zoom._active._surfacePlan = { settlements: [{ id: 'satellite' }] };
+    let finish;
+    const pending = runtime.surface(() => new Promise(resolve => { finish = resolve; }), 'satellite');
+    runtime.back();
+    await vi.waitFor(() => expect(zoom._activeLevel).toBe(1));
+    finish({ colony: { id: 7 } });
+    expect(await pending).toBe(false);
+    expect(zoom._activeLevel).toBe(1);
+  });
+
   it.each(['back', 'returnTo'])('cancels a pending surface load after %s navigation', async action => {
     runtime = await createGameColonyZoom(options);
     await runtime.approach({ planet: { id: 1 } });

@@ -4,7 +4,7 @@ function exported(module, globalName, name) {
   return value;
 }
 
-export async function createGameColonyZoom({ renderer, canvas, getCameraState, onLevel, onReturn, onError, signal }) {
+export async function createGameColonyZoom({ renderer, canvas, getCameraState, onLevel, onReturn, onError, onSettlement, signal }) {
   const backend = renderer.getSharedZoomBackend();
   await Promise.all([
     import('../engine/zoom/IZoomLevelRenderer.js'),
@@ -25,10 +25,14 @@ export async function createGameColonyZoom({ renderer, canvas, getCameraState, o
   let revision = 0;
   let current = null;
   let approachPending = null;
+  let surfaceLoads = 0;
   const levels = { system: 1, planet: 2, colony: 3, building: 5 };
   function activeSurface() {
     if (disposed || zoom._transition || ![levels.colony, levels.building].includes(zoom._activeLevel)) return null;
     return zoom._active;
+  }
+  function canSelectSettlement() {
+    return !disposed && !surfaceLoads && !zoom._transition && zoom._activeLevel === levels.planet;
   }
   class SharedSystemLevel {
     async initialize() {}
@@ -41,6 +45,11 @@ export async function createGameColonyZoom({ renderer, canvas, getCameraState, o
     requireSharedBackend: true,
     backend: {
       ...backend,
+      canSelectSettlement,
+      onSettlementSelect: typeof onSettlement === 'function' ? id => {
+        if (!canSelectSettlement()) return false;
+        return onSettlement(id);
+      } : undefined,
       addFrameHook(hook) {
         return backend.addFrameHook((dt) => {
           if (disposed) return;
@@ -120,6 +129,7 @@ export async function createGameColonyZoom({ renderer, canvas, getCameraState, o
       const target = levels[level];
       if (zoom._activeLevel == null || zoom._activeLevel < target) return false;
       const version = ++revision;
+      if (zoom._activeLevel >= levels.colony && zoom._active?._sceneData) current = zoom._active._sceneData;
       if (zoom._activeLevel === levels.building) await zoom.zoomTo(levels.colony, null);
       if (disposed || version !== revision) return false;
       if (target === levels.planet && zoom._activeLevel === levels.colony) {
@@ -127,16 +137,25 @@ export async function createGameColonyZoom({ renderer, canvas, getCameraState, o
       }
       return !disposed && version === revision && zoom._activeLevel === target;
     },
-    async surface(loadData) {
+    async surface(loadData, settlementId = null) {
       if (disposed) return false;
       const version = ++revision;
-      const data = await loadData();
+      let data;
+      surfaceLoads++;
+      try { data = await loadData(); }
+      finally { surfaceLoads--; }
       if (disposed || version !== revision) return false;
       await approachPending;
       if (disposed || version !== revision || zoom._transition) return false;
       if (zoom._activeLevel !== levels.planet) {
         await zoom.zoomTo(levels.planet, data, { skipCameraFlight: true });
         if (disposed || version !== revision || zoom._activeLevel !== levels.planet) return false;
+      }
+      if (settlementId != null) {
+        if (!zoom._active?._surfacePlan?.settlements.some(site => site.id === settlementId)) {
+          throw new RangeError('Settlement is no longer active in this orbit');
+        }
+        data = { ...data, settlement_id: settlementId, bodyTerrainManifest: zoom._active._terrainManifest };
       }
       await zoom.zoomTo(levels.colony, data);
       if (disposed || version !== revision || zoom._activeLevel !== levels.colony) return false;
@@ -149,6 +168,7 @@ export async function createGameColonyZoom({ renderer, canvas, getCameraState, o
       if (zoom._activeLevel === levels.building) {
         void zoom.zoomTo(levels.colony, null).catch(report);
       } else if (zoom._activeLevel === levels.colony) {
+        current = zoom._active._sceneData || current;
         void zoom.zoomTo(levels.planet, current, { skipCameraFlight: true }).catch(report);
       } else {
         void zoom.zoomTo(levels.system, null).catch(report);
@@ -161,6 +181,10 @@ export async function createGameColonyZoom({ renderer, canvas, getCameraState, o
     panView: (dx, dy) => activeSurface()?.panView?.(dx, dy),
     zoomBy: (amount) => activeSurface()?.zoomBy?.(amount),
     selectAt: (x, y) => activeSurface()?.selectAt?.(x, y),
+    pickSettlement(x, y) {
+      if (!canSelectSettlement()) return null;
+      return zoom._active?.pickSettlement?.(x, y) ?? null;
+    },
     nudgeZoom: (direction) => activeSurface()?.nudgeZoom?.(direction),
     refreshColony(colonyId) {
       return activeSurface()?.refreshSnapshot(colonyId);

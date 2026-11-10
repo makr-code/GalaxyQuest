@@ -8,10 +8,24 @@
  *           lib/ColonizationEngine.php  /  api/colonization.php
  */
 (function () {
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function positiveSafeInteger(value) {
+    const number = Number(value);
+    return Number.isSafeInteger(number) && number > 0 ? String(number) : null;
+  }
+
   function createColonizationController(opts = {}) {
     const wm = opts.wm;
     const api = opts.api;
-    const esc = opts.esc || ((v) => String(v ?? ''));
+    const esc = escapeHtml;
     const uiKitSkeletonHTML = opts.uiKitSkeletonHTML || (() => '<p class="text-muted">Loading…</p>');
     const uiKitEmptyStateHTML = opts.uiKitEmptyStateHTML || (() => '');
     const gameLog = typeof opts.gameLog === 'function' ? opts.gameLog : (() => {});
@@ -132,10 +146,12 @@
               <td style="text-align:center;">${Number(s.approval_rating || 50)} / 100</td>
               <td style="text-align:center;">${s.governor_id ? `+${Number(s.governor_admin_bonus || 5)} AdminCap` : '<span style="color:#9fb0ce;">–</span>'}</td>
               <td>
-                <button class="btn btn-sm btn-secondary sec-detail-btn" data-sector-id="${esc(String(s.id))}"
-                  title="Sektor-Details anzeigen">Detail</button>
-                <button class="btn btn-sm btn-danger sec-delete-btn" data-sector-id="${esc(String(s.id))}"
-                  data-sector-name="${esc(s.name || '')}" title="Sektor löschen" style="margin-left:4px;">✕</button>
+                ${positiveSafeInteger(s.id) ? `
+                  <button class="btn btn-sm btn-secondary sec-detail-btn" data-sector-id="${positiveSafeInteger(s.id)}"
+                    title="Sektor-Details anzeigen">Detail</button>
+                  <button class="btn btn-sm btn-danger sec-delete-btn" data-sector-id="${positiveSafeInteger(s.id)}"
+                    data-sector-name="${esc(s.name || '')}" title="Sektor löschen" style="margin-left:4px;">✕</button>
+                ` : '<span class="text-muted">–</span>'}
               </td>
             </tr>`).join('')
           : `<tr><td colspan="6">${uiKitEmptyStateHTML('Keine Sektoren', 'Erstelle deinen ersten Sektor.')}</td></tr>`;
@@ -170,9 +186,11 @@
               <td style="text-align:center;">${Number(g.salary || 0).toLocaleString('de-DE')} ¢/Tick</td>
               <td>${g.sector_id ? `<span style="color:#88ff88;">${esc(g.sector_name || `Sektor #${g.sector_id}`)}</span>` : '<span style="color:#9fb0ce;">Frei</span>'}</td>
               <td>
-                ${g.sector_id
-                  ? `<button class="btn btn-sm btn-warning gov-dismiss-btn" data-governor-id="${esc(String(g.id))}" title="Gouverneur abberufen">Abberufen</button>`
-                  : `<button class="btn btn-sm gov-appoint-btn" data-governor-id="${esc(String(g.id))}" title="Gouverneur zuweisen">Zuweisen</button>`}
+                ${positiveSafeInteger(g.id)
+                  ? g.sector_id
+                    ? `<button class="btn btn-sm btn-warning gov-dismiss-btn" data-governor-id="${positiveSafeInteger(g.id)}" title="Gouverneur abberufen">Abberufen</button>`
+                    : `<button class="btn btn-sm gov-appoint-btn" data-governor-id="${positiveSafeInteger(g.id)}" title="Gouverneur zuweisen">Zuweisen</button>`
+                  : '<span class="text-muted">–</span>'}
               </td>
             </tr>`).join('')
           : `<tr><td colspan="5">${uiKitEmptyStateHTML('Keine Gouverneure', 'Stelle Gouverneure ein.')}</td></tr>`;
@@ -205,7 +223,10 @@
         };
 
         const edictCards = edicts.map((e) => {
-          const meta = edictLabels[e.edict_type] || { icon: '⚙️', label: e.edict_type, desc: '' };
+          const knownEdict = Object.hasOwn(edictLabels, e.edict_type);
+          const meta = knownEdict
+            ? edictLabels[e.edict_type]
+            : { icon: '⚙️', label: 'Unbekanntes Edikt', desc: '' };
           const isActive = !!e.active;
           return `
             <div style="flex:1 1 160px;min-width:160px;background:${isActive ? '#1b2e1b' : '#1f2533'};border:1px solid ${isActive ? '#4a7a4a' : '#3a4762'};border-radius:8px;padding:10px;">
@@ -213,9 +234,9 @@
               <div style="font-size:12px;font-weight:700;color:#e3efff;margin-bottom:2px;">${esc(meta.label)}</div>
               <div style="font-size:11px;color:#9fb0ce;margin-bottom:6px;">${esc(meta.desc)}</div>
               <div style="font-size:11px;color:#ffcc44;margin-bottom:8px;">${Number(e.cost_per_tick || 0).toLocaleString('de-DE')} ¢/Tick</div>
-              <button class="btn btn-sm ${isActive ? 'btn-warning edict-deactivate-btn' : 'edict-activate-btn'}"
-                data-edict-type="${esc(e.edict_type)}"
-                style="width:100%;">${isActive ? '⏹ Deaktivieren' : '▶ Aktivieren'}</button>
+              ${knownEdict ? `<button class="btn btn-sm ${isActive ? 'btn-warning edict-deactivate-btn' : 'edict-activate-btn'}"
+                data-edict-type="${e.edict_type}"
+                style="width:100%;">${isActive ? '⏹ Deaktivieren' : '▶ Aktivieren'}</button>` : ''}
             </div>`;
         }).join('');
 

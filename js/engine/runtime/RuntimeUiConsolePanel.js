@@ -10,7 +10,6 @@
   function createUiConsoleController(opts = {}) {
     const store = opts.store;
     const showToast = typeof opts.showToast === 'function' ? opts.showToast : (() => {});
-    const esc = typeof opts.esc === 'function' ? opts.esc : ((value) => String(value || ''));
     const documentRef = opts.documentRef || document;
     const windowRef = opts.windowRef || window;
     const navigatorRef = opts.navigatorRef || navigator;
@@ -66,7 +65,13 @@
         const log = documentRef.getElementById('ui-console-log');
         if (!log) return;
         const visibleLines = this.getVisibleLines();
-        log.innerHTML = visibleLines.map((line) => `<div>${esc(line)}</div>`).join('');
+        const fragment = documentRef.createDocumentFragment();
+        visibleLines.forEach((line) => {
+          const entry = documentRef.createElement('div');
+          entry.textContent = String(line ?? '');
+          fragment.appendChild(entry);
+        });
+        log.replaceChildren(fragment);
         log.scrollTop = log.scrollHeight;
       },
 

@@ -5,7 +5,7 @@ const path = require('node:path');
 test.use({
   launchOptions: {
     executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined,
-    args: ['--enable-unsafe-webgpu', '--use-angle=swiftshader', '--use-vulkan=swiftshader',
+    args: process.platform === 'win32' ? ['--enable-unsafe-webgpu', '--use-angle=d3d11'] : ['--enable-unsafe-webgpu', '--use-angle=swiftshader', '--use-vulkan=swiftshader',
       '--enable-features=Vulkan', '--disable-vulkan-fallback-to-gl-for-testing',
       '--disable-dawn-features=disallow_unsafe_apis'],
   },
@@ -40,7 +40,8 @@ for (const backend of ['WebGPU', 'ThreeJS']) {
       const canvas = document.querySelector('canvas');
       let device, context, pixels;
       if (native) {
-        const adapter = await navigator.gpu?.requestAdapter();
+        const adapter = await navigator.gpu?.requestAdapter({ forceFallbackAdapter: true })
+          || await navigator.gpu?.requestAdapter();
         if (!adapter) return { unavailable: true };
         device = await adapter.requestDevice();
         device.addEventListener('uncapturederror', event => errors.push(event.error.message));
@@ -51,6 +52,7 @@ for (const backend of ['WebGPU', 'ThreeJS']) {
         pixels = device.createBuffer({ size: 512 * 384 * 4,
           usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
       }
+
       const Level = window[`GQPlanetApproachLevel${backend}`][`PlanetApproachLevel${backend}`];
       const level = new Level();
       // Actual backend slot/body + public manifest shape, not bespoke terrain.
@@ -162,6 +164,7 @@ for (const backend of ['WebGPU', 'ThreeJS']) {
         atmosphereDifference, cloudMotionDifference, motionDifference, ownerDifference, ownerMapUnchanged, reducedMotion, hiddenFrozen,
         noFlashDifference, offDifference, seedDifference, deterministic, released, reentryDifference, freedTextures };
     }, backend);
+    if (process.env.GQ_WEBGPU_SHADER_CI === '1') expect(result.unavailable).not.toBe(true);
     test.skip(result.unavailable, 'WebGPU adapter unavailable');
     expect(pageErrors).toEqual([]);
     expect(result.errors).toEqual([]);
@@ -180,6 +183,135 @@ for (const backend of ['WebGPU', 'ThreeJS']) {
     expect(result.seedDifference).toBeGreaterThan(100);
     expect(result.deterministic).toBe(0);
     expect(result.reentryDifference).toBe(0);
-    if (backend === 'ThreeJS') expect(result.freedTextures).toBe(3);
+    if (backend === 'ThreeJS') expect(result.freedTextures).toBe(4);
   });
+}
+
+for (const backend of ['WebGPU', 'ThreeJS']) {
+test(`${backend}: map coast thresholds retain pixel-wide boundaries and sub-8-bit elevation precision`, async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') pageErrors.push(message.text()); });
+  await setup(page, backend);
+  const result = await page.evaluate(async backend => {
+    const native = backend === 'WebGPU';
+    const adapter = native ? await navigator.gpu?.requestAdapter({ forceFallbackAdapter: true })
+      || await navigator.gpu?.requestAdapter() : null;
+    if (native && !adapter) return null;
+    const device = native ? await adapter.requestDevice() : null;
+    const errors = [];
+    if (native) {
+      device.addEventListener('uncapturederror', event => errors.push(event.error.message));
+      device.pushErrorScope('validation');
+      const createShaderModule = device.createShaderModule.bind(device);
+      device.createShaderModule = descriptor => createShaderModule({ ...descriptor,
+        code: descriptor.code.replace('return vec4f(linearToSrgb(col / (col + vec3f(1.0))), 1.0);',
+          'return vec4f(select(0.0,water,hit > 0.0),ice,clamp(col.r,0.0,1.0) * 0.000001,1.0);'),
+      });
+    }
+    await import('/js/rendering/planet-textures.js');
+    await import('/js/engine/zoom/levels/PlanetLivingWorld.js');
+    const world = window.GQPlanetLivingWorld;
+    const originalMaps = world.maps;
+    let ramp = { base: 0, scale: 1 };
+    world.maps = descriptor => {
+      const maps = originalMaps(descriptor, 64);
+      const geography = maps.geography.slice();
+      for (let y = 0; y < maps.geographyHeight; y++) {
+        for (let x = 0; x < maps.geographyWidth; x++) {
+          const value = Math.round((ramp.base + ramp.scale * (x + 0.5) / maps.geographyWidth) * 65535);
+          const offset = (y * maps.geographyWidth + x) * 4;
+          geography[offset] = value >>> 8;
+          geography[offset + 1] = value & 255;
+        }
+      }
+      return { ...maps, geography };
+    };
+    const canvas = document.querySelector('canvas');
+    const context = native ? canvas.getContext('webgpu') : null;
+    if (native) context.configure({ device, format: 'rgba8unorm',
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+    const Level = window[`GQPlanetApproachLevel${backend}`][`PlanetApproachLevel${backend}`];
+    const level = new Level();
+    const readback = native ? device.createBuffer({ size: 512 * 384 * 4,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }) : null;
+    await level.initialize(canvas, native ? { device, context } : {});
+    const rows = [];
+    const cases = [0.2, 0.3, 0.4].map(sea => ({ sea, base: 0, scale: 1 }))
+      .concat([0.4999, 0.49995, 0.5].map(sea => ({ sea, base: 0.4998, scale: 0.0005 })));
+    for (const scenario of cases) {
+      const { sea } = scenario;
+      ramp = scenario;
+      await level.enter(1, { reduced_motion: true, terrain: { seed: 35, ocean: sea / 0.85, ice_caps: 0, clouds: 0, atmosphere: 0 } });
+      if (!native) {
+        level._scene.background = new window.THREE.Color(0x000000);
+        const material = level._planetMesh.material;
+        const compile = material.onBeforeCompile;
+        material.onBeforeCompile = shader => {
+          compile(shader);
+          shader.fragmentShader = shader.fragmentShader.replace('#include <colorspace_fragment>',
+            '#include <colorspace_fragment>\ngl_FragColor = vec4(gqWater,gqFrozen,0.0,1.0);');
+        };
+        material.needsUpdate = true;
+      }
+      level.render(0);
+      let pixels;
+      if (native) {
+        const encoder = device.createCommandEncoder();
+        encoder.copyTextureToBuffer({ texture: context.getCurrentTexture() },
+          { buffer: readback, bytesPerRow: 2048 }, [512, 384]);
+        device.queue.submit([encoder.finish()]);
+        await readback.mapAsync(GPUMapMode.READ);
+        pixels = new Uint8Array(readback.getMappedRange());
+      } else {
+        const gl = level._renderer.getContext();
+        pixels = new Uint8Array(512 * 384 * 4);
+        gl.readPixels(0, 0, 512, 384, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      }
+      rows.push(Array.from({ length: 512 }, (_, x) => pixels[(192 * 512 + x) * 4]));
+      if (native) readback.unmap();
+      await level.exit();
+    }
+    const validation = native ? await device.popErrorScope() : null;
+    level.dispose();
+    readback?.destroy();
+    device?.destroy();
+    return { rows, cases, errors, validation: validation?.message || null };
+  }, backend);
+  if (process.env.GQ_WEBGPU_SHADER_CI === '1') expect(result).not.toBeNull();
+  test.skip(!result, 'WebGPU adapter unavailable');
+  expect(result.errors).toEqual([]);
+  expect(pageErrors).toEqual([]);
+  expect(result.validation).toBeNull();
+  const lengths = [];
+  for (const [index, row] of result.rows.entries()) {
+    // Exclude the Three.js mesh's multisampled silhouette from the coastline measurement.
+    const interior = backend === 'ThreeJS' ? row.slice(176, 336) : row;
+    expect(interior.filter(value => value > 0 && value < 255).length).toBeLessThanOrEqual(2);
+    const length = row.filter(value => value >= 128).length;
+    expect(length).toBeGreaterThan(5);
+    let expected = 0;
+    for (let x = 0; x < 512; x++) {
+      const direction = [0.57735027 * ((x + 0.5) / 512 * 2 - 1) * 512 / 384,
+        0.57735027 * (1 - 192.5 / 384 * 2), -1];
+      const magnitude = Math.hypot(...direction);
+      const ray = direction.map(value => value / magnitude);
+      const b = 20 * ray[2], discriminant = b * b - 375;
+      if (discriminant < 0) continue;
+      const hit = -b - Math.sqrt(discriminant);
+      const u = 0.5 - Math.atan2(20 + ray[2] * hit,ray[0] * hit) / (Math.PI * 2);
+      const coordinate = u * 256 - 0.5, first = Math.floor(coordinate), fraction = coordinate - first;
+      const { base, scale, sea } = result.cases[index];
+      const value = column => Math.round((base + scale * ((((column % 256 + 256) % 256) + 0.5) / 256)) * 65535) / 65535;
+      const relief = value(first) * (1 - fraction) + value(first + 1) * fraction;
+      if (relief < sea) expected++;
+    }
+    expect(Math.abs(length - expected)).toBeLessThanOrEqual(backend === 'WebGPU' ? 1 : 3);
+    lengths.push(length);
+  }
+  expect(lengths[1]).toBeGreaterThan(lengths[0]);
+  expect(lengths[2]).toBeGreaterThan(lengths[1]);
+  expect(lengths[4]).toBeGreaterThan(lengths[3]);
+  expect(lengths[5]).toBeGreaterThan(lengths[4]);
+});
 }

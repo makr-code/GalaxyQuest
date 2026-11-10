@@ -7,17 +7,13 @@
 'use strict';
 
 (function () {
-  function createMinimapDomScaffold(opts = {}) {
-    const hudHtml = typeof opts.hudHtml === 'string'
-      ? opts.hudHtml
-      : '<span class="minimap-badge">LIVE</span><span class="minimap-meta">Ziehen bewegt die Kamera</span><span class="minimap-hint">Klick fokussiert Systeme, Mausrad zoomt</span>';
-
+  function createMinimapDomScaffold() {
     function ensure(root) {
       if (!root) return { wrap: null, canvas: null, hud: null };
 
       let wrap = root.querySelector('.minimap-wrap');
       if (!wrap) {
-        root.innerHTML = '';
+        root.replaceChildren();
         wrap = document.createElement('div');
         wrap.className = 'minimap-wrap';
         root.appendChild(wrap);
@@ -34,7 +30,17 @@
       if (!hud) {
         hud = document.createElement('div');
         hud.className = 'minimap-hud';
-        hud.innerHTML = hudHtml;
+        const content = [
+          ['minimap-badge', 'LIVE'],
+          ['minimap-meta', 'Ziehen bewegt die Kamera'],
+          ['minimap-hint', 'Klick fokussiert Systeme, Mausrad zoomt'],
+        ];
+        content.forEach(([className, text]) => {
+          const item = document.createElement('span');
+          item.className = className;
+          item.textContent = text;
+          hud.appendChild(item);
+        });
         wrap.appendChild(hud);
       }
 

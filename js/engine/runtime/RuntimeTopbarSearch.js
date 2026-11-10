@@ -29,11 +29,6 @@
 
   let initialized = false;
 
-  const templates = {
-    item: '<button type="button" class="topbar-search-item" data-search-source="{{{source}}}" data-search-index="{{{index}}}" role="option"><div class="topbar-search-title">{{{name}}}</div><div class="topbar-search-meta">{{{coords}}} | {{{starClass}}} | {{{origin}}}</div></button>',
-    sections: '<div class="topbar-search-section"><div class="topbar-search-head">Lokal (Three)</div>{{{localHtml}}}</div><div class="topbar-search-section"><div class="topbar-search-head">Server-Erweiterung</div>{{{serverHtml}}}</div>',
-  };
-
   function configureTopbarSearchRuntime(options = {}) {
     Object.assign(runtimeConfig, options || {});
   }
@@ -72,7 +67,7 @@
     if (!overlay || !store) return;
     if (!store.open) {
       overlay.classList.add('hidden');
-      overlay.innerHTML = '';
+      overlay.replaceChildren();
       return;
     }
 
@@ -81,40 +76,64 @@
     const renderRow = (star, source, index) => {
       const name = star?.name || star?.catalog_name || `System ${Number(star?.system_index || 0)}`;
       const cls = `${String(star?.spectral_class || '?')}${String(star?.subtype || '')}`;
-      const g = Number(star?.galaxy_index || runtimeConfig.getActiveGalaxy?.() || 1);
-      const s = Number(star?.system_index || 0);
-      return runtimeConfig.renderInlineTemplate?.(templates.item, {
-        source: runtimeConfig.esc?.(source),
-        index: runtimeConfig.esc?.(String(index)),
-        name: runtimeConfig.esc?.(name),
-        coords: runtimeConfig.esc?.(`${g}:${s}`),
-        starClass: runtimeConfig.esc?.(cls),
-        origin: source === 'local' ? 'lokal (3D)' : 'server',
-      });
+      const rawGalaxy = Number(star?.galaxy_index || runtimeConfig.getActiveGalaxy?.() || 1);
+      const rawSystem = Number(star?.system_index || 0);
+      const g = Number.isSafeInteger(rawGalaxy) && rawGalaxy > 0
+        ? rawGalaxy
+        : Number(runtimeConfig.getActiveGalaxy?.() || 1);
+      const s = Number.isSafeInteger(rawSystem) && rawSystem >= 0 ? rawSystem : 0;
+      const button = runtimeConfig.documentRef.createElement('button');
+      button.type = 'button';
+      button.className = 'topbar-search-item';
+      button.dataset.searchSource = source;
+      button.dataset.searchIndex = String(index);
+      button.setAttribute('role', 'option');
+
+      const title = runtimeConfig.documentRef.createElement('div');
+      title.className = 'topbar-search-title';
+      title.textContent = String(name);
+      const meta = runtimeConfig.documentRef.createElement('div');
+      meta.className = 'topbar-search-meta';
+      meta.textContent = `${g}:${s} | ${cls} | ${source === 'local' ? 'lokal (3D)' : 'server'}`;
+      button.append(title, meta);
+      return button;
     };
 
-    const localHtml = localRows.length
-      ? localRows.map((star, idx) => renderRow(star, 'local', idx)).join('')
-      : '<div class="topbar-search-empty">Keine lokalen Treffer im aktuell geladenen 3D-Sternfeld.</div>';
+    const createSection = (heading, rows, source, emptyMessage) => {
+      const section = runtimeConfig.documentRef.createElement('div');
+      section.className = 'topbar-search-section';
+      const header = runtimeConfig.documentRef.createElement('div');
+      header.className = 'topbar-search-head';
+      header.textContent = heading;
+      section.appendChild(header);
 
-    const serverHtml = store.serverPending
-      ? '<div class="topbar-search-empty">Server-Suche laeuft...</div>'
-      : (serverRows.length
-        ? serverRows.map((star, idx) => renderRow(star, 'server', idx)).join('')
-        : '<div class="topbar-search-empty">Keine zusaetzlichen Server-Treffer.</div>');
+      if (rows.length) {
+        rows.forEach((star, index) => section.appendChild(renderRow(star, source, index)));
+      } else {
+        const empty = runtimeConfig.documentRef.createElement('div');
+        empty.className = 'topbar-search-empty';
+        empty.textContent = emptyMessage;
+        section.appendChild(empty);
+      }
+      return section;
+    };
 
-    overlay.innerHTML = runtimeConfig.renderInlineTemplate?.(templates.sections, {
-      localHtml,
-      serverHtml,
-    });
+    const serverEmptyMessage = store.serverPending
+      ? 'Server-Suche laeuft...'
+      : 'Keine zusaetzlichen Server-Treffer.';
+    overlay.replaceChildren(
+      createSection('Lokal (Three)', localRows, 'local', 'Keine lokalen Treffer im aktuell geladenen 3D-Sternfeld.'),
+      createSection('Server-Erweiterung', store.serverPending ? [] : serverRows, 'server', serverEmptyMessage),
+    );
     overlay.classList.remove('hidden');
 
     overlay.querySelectorAll('.topbar-search-item').forEach((button) => {
       button.addEventListener('click', async () => {
         const source = String(button.getAttribute('data-search-source') || 'local');
-        const index = Number(button.getAttribute('data-search-index') || -1);
+        if (source !== 'local' && source !== 'server') return;
+        const index = Number(button.getAttribute('data-search-index'));
         const list = source === 'server' ? serverRows : localRows;
-        const star = (index >= 0 && index < list.length) ? list[index] : null;
+        const star = Number.isSafeInteger(index) && index >= 0 && index < list.length ? list[index] : null;
         if (!star) return;
         await runtimeConfig.onJumpToSearchStar?.(star);
         closeTopbarSearchOverlay();

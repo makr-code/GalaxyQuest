@@ -11,6 +11,29 @@ companion `_down.sql` files.
 
 ## Quick Start
 
+### Persistent body development (opt-in)
+
+`migrate_body_development_v1.sql` appends a body-keyed `body_development`
+table to the canonical manifest. Review the normal migration status/dry-run
+and resolve earlier pending migrations through the existing governance before
+deployment; do not execute this file directly to bypass tracking.
+Apply it through the canonical runner with a verified backup and operator
+approval, then enable `BODY_DEVELOPMENT_ENABLED=1`. The default is `0`;
+no live schema or development history is changed merely by deploying this code.
+
+The table references `celestial_bodies`, not colonies or users. Highest observed
+population and founded-site count survive conquest and colony deletion. Existing
+colonies are initialized on their next economy settlement, without fabricating
+earlier growth history. Both economy modes write within their existing
+transaction/savepoint; rendering remains read-model-only. Ruined cities reactivate
+at the normal population thresholds and create no gameplay production.
+
+Disable the flag before using the down migration. Rollback drops the history
+table and irreversibly removes its milestones; it does not delete terrain,
+buildings, colonies or resources. Re-enabling requires the migration and starts
+from current observations, not the erased history. Take a backup if that history
+must be retained.
+
 ### Verified actor-history adoption
 
 ```bash

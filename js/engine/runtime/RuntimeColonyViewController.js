@@ -1,6 +1,33 @@
 'use strict';
 
 (function () {
+  const COLONY_ZONES = new Set(['industrial', 'utility', 'civic', 'science', 'military', 'orbital', 'flex']);
+  const EVENT_META = {
+    solar_flare: { icon: 'ÔÿÇ´©Å', label: 'Solar Flare', cls: 'event-solar', desc: 'Energy production ÔêÆ30%' },
+    mineral_vein: { icon: 'ÔøÅ´©Å', label: 'Mineral Vein', cls: 'event-mineral', desc: 'Metal production +20%' },
+    disease: { icon: '­ƒªá', label: 'Disease Outbreak', cls: 'event-disease', desc: 'Happiness ÔêÆ25 (until Hospital Lv3)' },
+    archaeological_find: { icon: '­ƒÅ║', label: 'Archaeological Find', cls: 'event-unknown', desc: '+500 Dark Matter discovered' },
+  };
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function safeZone(value) {
+    const zone = String(value || '');
+    return COLONY_ZONES.has(zone) ? zone : 'flex';
+  }
+
+  function safeBuildingType(value) {
+    const type = String(value || '');
+    return /^[a-z][a-z0-9_]*$/.test(type) ? type : 'colony_hq';
+  }
+
   function createColonyViewController(opts = {}) {
     const {
       wm = null,
@@ -18,10 +45,10 @@
       focusColonyDevelopment = () => {},
       queueColonySurfaceSceneData = () => {},
       fmtName = (value) => String(value || ''),
-      esc = (value) => String(value || ''),
       showToast = () => {},
       gameLog = () => {},
     } = opts;
+    const esc = escapeHtml;
 
     function colonyDistance(a, b) {
       const ga = Number(a?.galaxy || 0);
@@ -85,12 +112,9 @@
         ${(() => {
           const ev = currentColony.active_event;
           if (!ev) return '';
-          const meta = {
-            solar_flare: { icon: 'ÔÿÇ´©Å', label: 'Solar Flare', cls: 'event-solar', desc: 'Energy production ÔêÆ30%' },
-            mineral_vein: { icon: 'ÔøÅ´©Å', label: 'Mineral Vein', cls: 'event-mineral', desc: 'Metal production +20%' },
-            disease: { icon: '­ƒªá', label: 'Disease Outbreak', cls: 'event-disease', desc: 'Happiness ÔêÆ25 (until Hospital Lv3)' },
-            archaeological_find: { icon: '­ƒÅ║', label: 'Archaeological Find', cls: 'event-unknown', desc: '+500 Dark Matter discovered' },
-          }[ev.type] || { icon: 'ÔÜá´©Å', label: ev.type, cls: 'event-unknown', desc: '' };
+          const meta = Object.hasOwn(EVENT_META, ev.type)
+            ? EVENT_META[ev.type]
+            : { icon: 'ÔÜá´©Å', label: ev.type, cls: 'event-unknown', desc: '' };
           const rawMins = ev.ends_in_min;
           const parsedMins = rawMins === null || rawMins === undefined || rawMins === ''
             ? NaN
@@ -123,19 +147,20 @@
           return `<div class="colony-event-banner ${esc(meta.cls)}"><span class="ce-icon">${meta.icon}</span><span class="ce-label"><strong>${esc(meta.label)}</strong> ÔÇö ${esc(meta.desc)}</span><span class="ce-timer">ends in ${esc(timeLeft)}</span>${eventProgressHtml}</div>`;
         })()}
         <div class="colony-capacity-row">${Object.entries(classCaps).map(([key, value]) => `<span class="colony-cap-chip">${esc(buildingZoneLabel(key))}: ${esc(String(value))}</span>`).join('')}</div>
-        <div class="colony-grid" style="grid-template-columns:repeat(${grid.cols}, minmax(0, 1fr));">
+        <div class="colony-grid" style="grid-template-columns:repeat(${Number.isSafeInteger(Number(grid.cols)) && Number(grid.cols) > 0 && Number(grid.cols) <= 12 ? Number(grid.cols) : 1}, minmax(0, 1fr));">
           ${grid.cells.map((cell) => {
             const building = cell.building;
             const anchor = !!building && cell.fill === 0;
-            const focusType = building ? String(building.type || '') : pickZoneBuildFocus(cell.zone, currentColony, buildings);
-            return `<button type="button" class="colony-cell colony-zone-${esc(cell.zone)} ${building ? 'occupied' : 'empty'} ${anchor ? 'anchor' : ''} ${buildingFocus && focusType === buildingFocus ? 'colony-cell-focus' : ''}" data-focus-building="${esc(focusType)}" data-cell-zone="${esc(cell.zone)}" data-cell-state="${building ? 'occupied' : 'empty'}" title="${building ? esc(building.meta?.label || fmtName(building.type)) : esc(buildingZoneLabel(cell.zone))}">
+            const zone = safeZone(cell.zone);
+            const focusType = safeBuildingType(building ? building.type : pickZoneBuildFocus(zone, currentColony, buildings));
+            return `<button type="button" class="colony-cell colony-zone-${zone} ${building ? 'occupied' : 'empty'} ${anchor ? 'anchor' : ''} ${buildingFocus && focusType === buildingFocus ? 'colony-cell-focus' : ''}" data-focus-building="${focusType}" data-cell-zone="${zone}" data-cell-state="${building ? 'occupied' : 'empty'}" title="${building ? esc(building.meta?.label || fmtName(building.type)) : esc(buildingZoneLabel(zone))}">
               ${building ? `<span class="colony-cell-icon">${esc(building.meta?.icon || '­ƒÅù')}</span><span class="colony-cell-label">${esc(fmtName(building.type))}</span><span class="colony-cell-level">Lv ${esc(String(building.level || 0))}</span>` : `<span class="colony-cell-icon">${esc(getBuildingUiMeta(focusType).icon || '­ƒÅù')}</span><span class="colony-cell-label">${esc(fmtName(focusType))}</span><span class="colony-cell-empty">${esc(buildingZoneLabel(cell.zone))}</span>`}
             </button>`;
           }).join('')}
         </div>
         <div class="colony-orbital-band">
           <h4>Orbital Layer</h4>
-          <div class="colony-orbital-list">${orbitalFacilities.length ? orbitalFacilities.map((facility) => `<button type="button" class="colony-orbital-card" data-focus-building="${esc(facility.type || 'solar_satellite')}"><strong>${esc(facility.icon)} ${esc(facility.label)}</strong><span>Lv ${esc(String(facility.level || 0))}</span></button>`).join('') : '<p class="text-muted">No orbital facilities online.</p>'}</div>
+          <div class="colony-orbital-list">${orbitalFacilities.length ? orbitalFacilities.map((facility) => `<button type="button" class="colony-orbital-card" data-focus-building="${safeBuildingType(facility.type || 'solar_satellite')}"><strong>${esc(facility.icon)} ${esc(facility.label)}</strong><span>Lv ${esc(String(facility.level || 0))}</span></button>`).join('') : '<p class="text-muted">No orbital facilities online.</p>'}</div>
         </div>`;
       },
 
@@ -206,9 +231,9 @@
 
         root.querySelectorAll('[data-focus-building]').forEach((el) => {
           el.addEventListener('click', () => {
-            const focusBuilding = String(el.getAttribute('data-focus-building') || getRecommendedBuildingFocus(currentColony));
+            const focusBuilding = safeBuildingType(el.getAttribute('data-focus-building') || getRecommendedBuildingFocus(currentColony));
             const cellState = String(el.getAttribute('data-cell-state') || 'occupied');
-            const cellZone = String(el.getAttribute('data-cell-zone') || 'flex');
+            const cellZone = safeZone(el.getAttribute('data-cell-zone'));
             if (focusBuilding === 'solar_satellite') {
               selectColonyById(currentColony.id, { openWindows: false });
               wm.open('shipyard');

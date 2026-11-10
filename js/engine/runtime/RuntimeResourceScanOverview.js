@@ -30,6 +30,20 @@
     { min: 0,         label: 'Gering',     color: '#7c8694' },
   ];
 
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function safeColor(value) {
+    const color = String(value || '');
+    return /^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i.test(color) ? color : '#7db7ee';
+  }
+
   function depositTier(amount) {
     for (const tier of DEPOSIT_TIERS) {
       if (amount >= tier.min) return tier;
@@ -40,11 +54,16 @@
   /**
    * Build a resource deposit badge HTML string.
    */
-  function resourceBadge(key, amount, esc) {
-    const meta = RESOURCE_META[key] || { label: key, icon: '▪', color: '#ccc' };
-    const tier = depositTier(Number(amount || 0));
-    const amountFmt = Number(amount || 0).toLocaleString('de-DE');
-    return `<span style="display:inline-flex;align-items:center;gap:3px;border:1px solid ${tier.color}66;border-radius:999px;padding:1px 7px;font-size:0.73em;color:${tier.color};background:rgba(0,0,0,0.25);" title="${esc(meta.label)}: ${amountFmt}">${meta.icon} ${amountFmt}</span>`;
+  function resourceBadge(key, amount) {
+    const meta = Object.hasOwn(RESOURCE_META, key)
+      ? RESOURCE_META[key]
+      : { label: String(key ?? 'Unbekannt'), icon: '▪', color: '#ccc' };
+    const parsedAmount = Number(amount);
+    const safeAmount = Number.isFinite(parsedAmount) ? Math.max(0, parsedAmount) : 0;
+    const tier = depositTier(safeAmount);
+    const color = safeColor(tier.color);
+    const amountFmt = safeAmount.toLocaleString('de-DE');
+    return `<span style="display:inline-flex;align-items:center;gap:3px;border:1px solid ${color}66;border-radius:999px;padding:1px 7px;font-size:0.73em;color:${color};background:rgba(0,0,0,0.25);" title="${escapeHtml(meta.label)}: ${amountFmt}">${escapeHtml(meta.icon)} ${amountFmt}</span>`;
   }
 
   /**
@@ -52,13 +71,13 @@
    * returned by the API (each planet has deposit_metal, deposit_crystal, etc.)
    * or from inferred colony surplus/deficit.
    */
-  function summarizePlanetDeposits(planet, esc) {
+  function summarizePlanetDeposits(planet) {
     const keys = ['metal', 'crystal', 'deuterium', 'rare_earth'];
     const badges = [];
     for (const key of keys) {
       const amount = Number(planet[`deposit_${key}`] || planet[key] || 0);
       if (amount > 0) {
-        badges.push(resourceBadge(key, amount, esc));
+        badges.push(resourceBadge(key, amount));
       }
     }
     return badges.join(' ');
@@ -80,7 +99,7 @@
     const api = opts.api;
     const getGalaxyStars = typeof opts.getGalaxyStars === 'function' ? opts.getGalaxyStars : (() => []);
     const getColonies = typeof opts.getColonies === 'function' ? opts.getColonies : (() => []);
-    const esc = typeof opts.esc === 'function' ? opts.esc : (v) => String(v ?? '');
+    const esc = escapeHtml;
     const gameLog = typeof opts.gameLog === 'function' ? opts.gameLog : (() => {});
     const uiKitSkeletonHTML = typeof opts.uiKitSkeletonHTML === 'function' ? opts.uiKitSkeletonHTML : (() => '<p class="text-muted">Lädt…</p>');
     const uiKitEmptyStateHTML = typeof opts.uiKitEmptyStateHTML === 'function' ? opts.uiKitEmptyStateHTML : (() => '');
@@ -222,8 +241,9 @@
         const name = esc(star.name || `System ${star.system_index}`);
         const spectral = esc(String(star.spectral_class || '') + String(star.subtype || ''));
         const coords = `${star.galaxy_index}:${star.system_index}`;
-        const colonyCount = Number(star.colony_count || 0);
-        const colonyColor = String(star.colony_owner_color || star.faction_color || '#7db7ee');
+        const parsedColonyCount = Number(star.colony_count || 0);
+        const colonyCount = Number.isFinite(parsedColonyCount) ? Math.max(0, parsedColonyCount) : 0;
+        const colonyColor = safeColor(star.colony_owner_color || star.faction_color);
         const ownerLabel = isOwn
           ? '<span style="color:#44ee88;font-size:0.78em;">Eigene Kolonie</span>'
           : (colonyCount > 0
@@ -265,7 +285,7 @@
           }
           const badges = Object.entries(totals)
             .filter(([, v]) => v > 0)
-            .map(([k, v]) => resourceBadge(k, v, esc));
+            .map(([k, v]) => resourceBadge(k, v));
           if (badges.length) return badges.join(' ');
         }
 
@@ -273,9 +293,9 @@
         if (surveys.length) {
           const cargo = surveys[surveys.length - 1]?.cargo || {};
           const badges = Object.entries(cargo)
-            .filter(([k]) => RESOURCE_META[k])
+            .filter(([k]) => Object.hasOwn(RESOURCE_META, k))
             .filter(([, v]) => Number(v || 0) > 0)
-            .map(([k, v]) => resourceBadge(k, v, esc));
+            .map(([k, v]) => resourceBadge(k, v));
           if (badges.length) return badges.join(' ');
         }
 

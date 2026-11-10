@@ -7,10 +7,19 @@
 'use strict';
 
 (function () {
+  const HINT_TYPE_CLASSES = new Set(['quest_hint', 'warning', 'tip', 'action_required']);
+  const ACTION_WINDOWS = new Set(['colony', 'research', 'buildings', 'leaders', 'quests', 'shipyard', 'factions', 'fleet']);
+
+  function createElement(documentRef, tagName, className = '', text = null) {
+    const element = documentRef.createElement(tagName);
+    if (className) element.className = className;
+    if (text !== null) element.textContent = String(text);
+    return element;
+  }
+
   function createAdvisorWidget(opts = {}) {
     const api = opts.api;
     const wm = opts.wm;
-    const esc = opts.esc || ((value) => String(value ?? ''));
     const documentRef = opts.documentRef || document;
     const getLeadersController = typeof opts.getLeadersController === 'function' ? opts.getLeadersController : (() => null);
 
@@ -21,17 +30,108 @@
       const widget = documentRef.createElement('div');
       widget.id = 'advisor-widget';
       widget.style.display = 'none';
-      widget.innerHTML = `<div id="advisor-bubble" title="Advisor - click for hints">
-        <span id="advisor-bubble-portrait">A</span>
-        <div id="advisor-bubble-info">
-          <span id="advisor-bubble-name">Advisor</span>
-          <span id="advisor-bubble-badge"></span>
-        </div>
-      </div>`;
+      const bubble = createElement(documentRef, 'div');
+      bubble.id = 'advisor-bubble';
+      bubble.title = 'Advisor - click for hints';
+      bubble.appendChild(createElement(documentRef, 'span', '', 'A')).id = 'advisor-bubble-portrait';
+      const info = createElement(documentRef, 'div');
+      info.id = 'advisor-bubble-info';
+      info.appendChild(createElement(documentRef, 'span', '', 'Advisor')).id = 'advisor-bubble-name';
+      info.appendChild(createElement(documentRef, 'span')).id = 'advisor-bubble-badge';
+      bubble.appendChild(info);
+      widget.appendChild(bubble);
       documentRef.body.appendChild(widget);
-      widget.querySelector('#advisor-bubble')?.addEventListener('click', () => {
+      bubble.addEventListener('click', () => {
         wm.open('advisor-hints');
       });
+    }
+
+    function renderAdvisorHeader(root) {
+      const header = createElement(documentRef, 'div');
+      header.style.display = 'flex';
+      header.style.alignItems = 'center';
+      header.style.gap = '0.75rem';
+      header.style.marginBottom = '1rem';
+
+      const portrait = createElement(documentRef, 'span', '', advisor.portrait || 'A');
+      portrait.style.fontSize = '2rem';
+      const details = createElement(documentRef, 'div');
+      details.appendChild(createElement(documentRef, 'strong', '', advisor.name || 'Advisor'));
+      const tagline = createElement(documentRef, 'div', '', advisor.tagline || '');
+      tagline.style.fontSize = '0.75rem';
+      tagline.style.color = 'var(--text-secondary)';
+      details.appendChild(tagline);
+      header.append(portrait, details);
+      root.appendChild(header);
+    }
+
+    function createRefreshButton(root) {
+      const button = createElement(documentRef, 'button', 'btn btn-secondary btn-sm', 'Re-scan');
+      button.id = 'advisor-refresh-btn';
+      button.type = 'button';
+      button.style.marginTop = '0.5rem';
+      button.addEventListener('click', async () => {
+        const res = await api.advisorTick();
+        if (res.success) {
+          hints = res.hints || [];
+          advisor = res.advisor || advisor;
+          updateWidget();
+          renderHintsWindow();
+        }
+      });
+      root.appendChild(button);
+    }
+
+    function createHintCard(hint) {
+      const card = createElement(documentRef, 'div', 'advisor-hint-card');
+      const hintType = HINT_TYPE_CLASSES.has(hint.hint_type) ? hint.hint_type : 'tip';
+      card.classList.add(`hint-${hintType}`);
+
+      const header = createElement(documentRef, 'div');
+      header.style.display = 'flex';
+      header.style.justifyContent = 'space-between';
+      header.style.alignItems = 'flex-start';
+      const title = createElement(documentRef, 'div', 'advisor-hint-title', hint.title || '');
+      header.appendChild(title);
+
+      const rawId = Number(hint.id);
+      const hintId = Number.isSafeInteger(rawId) && rawId > 0 ? rawId : null;
+      if (hintId !== null) {
+        card.dataset.hid = String(hintId);
+        const dismissButton = createElement(documentRef, 'button', 'btn btn-secondary btn-sm dismiss-hint-btn', 'x');
+        dismissButton.type = 'button';
+        dismissButton.dataset.hid = String(hintId);
+        dismissButton.style.padding = '0 5px';
+        dismissButton.style.fontSize = '0.7rem';
+        dismissButton.style.marginLeft = '0.5rem';
+        dismissButton.addEventListener('click', async () => {
+          await api.dismissHint(hintId);
+          hints = hints.filter((entry) => Number(entry.id) !== hintId);
+          updateWidget();
+          renderHintsWindow();
+        });
+        header.appendChild(dismissButton);
+      }
+
+      card.appendChild(header);
+      card.appendChild(createElement(documentRef, 'div', 'advisor-hint-body', hint.body || ''));
+
+      const actionWindow = String(hint.action_window || '');
+      if (hint.action_label && ACTION_WINDOWS.has(actionWindow)) {
+        const actionButton = createElement(
+          documentRef,
+          'button',
+          'btn btn-primary btn-sm hint-action-btn',
+          hint.action_label,
+        );
+        actionButton.type = 'button';
+        actionButton.dataset.window = actionWindow;
+        actionButton.style.marginTop = '0.4rem';
+        actionButton.style.fontSize = '0.75rem';
+        actionButton.addEventListener('click', () => wm.open(actionWindow));
+        card.appendChild(actionButton);
+      }
+      return card;
     }
 
     function renderHintsWindow() {
@@ -44,68 +144,27 @@
       }
 
       if (!advisor) {
-        root.innerHTML = '<p class="text-muted">No advisor assigned. Hire an Advisor from the Leaders Marketplace.</p>';
+        root.replaceChildren(createElement(
+          documentRef,
+          'p',
+          'text-muted',
+          'No advisor assigned. Hire an Advisor from the Leaders Marketplace.',
+        ));
         return;
       }
 
+      root.replaceChildren();
+      renderAdvisorHeader(root);
       if (hints.length === 0) {
-        root.innerHTML = `
-          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
-            <span style="font-size:2rem">${esc(advisor.portrait || 'A')}</span>
-            <div><strong>${esc(advisor.name)}</strong>
-              <div style="font-size:0.75rem;color:var(--text-secondary)">${esc(advisor.tagline || '')}</div></div>
-          </div>
-          <p class="text-muted">No active hints. Check back soon.</p>
-          <button class="btn btn-secondary btn-sm" id="advisor-refresh-btn" style="margin-top:0.5rem">Re-scan</button>`;
+        root.appendChild(createElement(documentRef, 'p', 'text-muted', 'No active hints. Check back soon.'));
+        createRefreshButton(root);
       } else {
-        root.innerHTML = `
-          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
-            <span style="font-size:2rem">${esc(advisor.portrait || 'A')}</span>
-            <div><strong>${esc(advisor.name)}</strong>
-              <div style="font-size:0.75rem;color:var(--text-secondary)">${esc(advisor.tagline || '')}</div></div>
-          </div>
-          <div id="hints-list">
-            ${hints.map((h) => `
-              <div class="advisor-hint-card hint-${h.hint_type}" data-hid="${h.id}">
-                <div style="display:flex;justify-content:space-between;align-items:flex-start">
-                  <div class="advisor-hint-title">${esc(h.title)}</div>
-                  <button class="btn btn-secondary btn-sm dismiss-hint-btn" data-hid="${h.id}" style="padding:0 5px;font-size:0.7rem;margin-left:0.5rem">x</button>
-                </div>
-                <div class="advisor-hint-body">${esc(h.body)}</div>
-                ${h.action_label && h.action_window ? `
-                  <button class="btn btn-primary btn-sm hint-action-btn" data-window="${h.action_window}" style="margin-top:0.4rem;font-size:0.75rem">
-                    ${esc(h.action_label)}
-                  </button>` : ''}
-              </div>`).join('')}
-          </div>
-          <button class="btn btn-secondary btn-sm" id="advisor-refresh-btn" style="margin-top:0.5rem">Re-scan</button>`;
+        const list = createElement(documentRef, 'div');
+        list.id = 'hints-list';
+        hints.forEach((hint) => list.appendChild(createHintCard(hint)));
+        root.appendChild(list);
+        createRefreshButton(root);
       }
-
-      root.querySelector('#advisor-refresh-btn')?.addEventListener('click', async () => {
-        const res = await api.advisorTick();
-        if (res.success) {
-          hints = res.hints || [];
-          advisor = res.advisor || advisor;
-          updateWidget();
-          renderHintsWindow();
-        }
-      });
-
-      root.querySelectorAll('.dismiss-hint-btn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const hid = parseInt(btn.dataset.hid, 10);
-          await api.dismissHint(hid);
-          hints = hints.filter((h) => Number(h.id) !== hid);
-          updateWidget();
-          renderHintsWindow();
-        });
-      });
-
-      root.querySelectorAll('.hint-action-btn').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          wm.open(btn.dataset.window);
-        });
-      });
     }
 
     function updateWidget() {

@@ -140,6 +140,13 @@
         upgrade_end: building.upgrade_end || null,
         vfx_profile: mapped.profile,
         vfx_intensity: mapped.intensity,
+        active: building.active,
+        powered: building.powered,
+        visible: building.visible,
+        vfx_enabled: building.vfx_enabled,
+        activity: building.activity,
+        effects: building.effects,
+        appearance: building.appearance,
       });
     });
     return {

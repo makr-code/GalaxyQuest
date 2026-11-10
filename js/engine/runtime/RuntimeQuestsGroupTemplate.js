@@ -4,13 +4,22 @@
  * Builds one quest category group wrapper and embeds pre-rendered card HTML.
  */
 (function () {
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function createQuestsGroupTemplateBuilder() {
-    function build({ categoryLabel, done, total, claimable, cardsHtml, esc }) {
+    function build({ categoryLabel, done, total, claimable, cardsHtml }) {
       return `<div class="quest-group">
           <h3 class="quest-group-title">
-            ${esc(categoryLabel)}
-            <span class="quest-group-progress">${done}/${total}</span>
-            ${claimable ? `<span class="quest-claimable-badge">${claimable} ready!</span>` : ''}
+            ${escapeHtml(categoryLabel)}
+            <span class="quest-group-progress">${escapeHtml(done)}/${escapeHtml(total)}</span>
+            ${claimable ? `<span class="quest-claimable-badge">${escapeHtml(claimable)} ready!</span>` : ''}
           </h3><div class="quest-list">${cardsHtml}</div></div>`;
     }
 

@@ -47,8 +47,25 @@
 
   const RESEARCH_CATEGORY_ORDER = ['Energy', 'Computing', 'Weapons', 'Defense', 'Drives', 'Exploration', 'Industry', 'Biology'];
 
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function safeResearchType(value) {
+    const type = String(value || '');
+    return /^[a-z][a-z0-9_]*$/.test(type) && Object.hasOwn(RESEARCH_UI_META, type) ? type : '';
+  }
+
   function getResearchUiMeta(type) {
-    return RESEARCH_UI_META[String(type || '')] || { cat: 'Other', tier: 0, icon: 'RES', desc: '' };
+    const key = String(type || '');
+    return Object.hasOwn(RESEARCH_UI_META, key)
+      ? RESEARCH_UI_META[key]
+      : { cat: 'Other', tier: 0, icon: 'RES', desc: '' };
   }
 
   function createResearchController(opts = {}) {
@@ -59,22 +76,23 @@
       getAudioManager = () => null,
       fmtName = (value) => String(value || ''),
       fmt = (value) => String(value || 0),
-      esc = (value) => String(value || ''),
       countdown = (value) => String(value || ''),
       updateResourceBar = () => {},
       showToast = () => {},
       gameLog = () => {},
     } = opts;
+    const esc = escapeHtml;
 
     return {
       buildCardHtml(row) {
         const meta = getResearchUiMeta(row.type);
+        const researchType = safeResearchType(row.type);
         const busy = !!row.research_end;
         const unlocked = row.can_research !== false;
         const locked = !unlocked;
-        const cost = row.next_cost;
+        const cost = row.next_cost || {};
         const missing = Array.isArray(row.missing_prereqs) ? row.missing_prereqs : [];
-        const missingText = missing.map((m) => m.tech + ' L' + m.required_level).join(', ');
+        const missingText = missing.map((m) => `${m?.tech ?? ''} L${m?.required_level ?? ''}`).join(', ');
         let researchProgressPct = null;
         if (busy && row.research_start && row.research_end) {
           const now = Date.now();
@@ -100,21 +118,21 @@
         <div class="item-card research-card ${locked ? 'item-card-locked' : ''}">
           <div class="item-card-header">
             <span class="research-icon-badge" aria-label="Technology icon">${esc(meta.icon)}</span>
-            <span class="item-name">${fmtName(row.type)}</span>
-            <span class="item-level" aria-label="Technology level">Lv ${row.level}</span>
+            <span class="item-name">${esc(fmtName(row.type))}</span>
+            <span class="item-level" aria-label="Technology level">Lv ${esc(row.level)}</span>
             <span class="research-tier-badge" title="Tech tier" aria-label="Technology tier ${meta.tier}">T${meta.tier}</span>
           </div>
           ${meta.desc ? `<div class="research-desc">${esc(meta.desc)}</div>` : ''}
           ${locked ? '<div class="item-locked-badge">\uD83D\uDD12 Locked</div>' : ''}
           <div class="item-cost">
-            ${cost.metal ? `<span class="cost-metal">\u26CF\uFE0F ${fmt(cost.metal)}</span>` : ''}
-            ${cost.crystal ? `<span class="cost-crystal">\uD83D\uDC8E ${fmt(cost.crystal)}</span>` : ''}
-            ${cost.deuterium ? `<span class="cost-deut">\u26A1 ${fmt(cost.deuterium)}</span>` : ''}
+            ${cost.metal ? `<span class="cost-metal">\u26CF\uFE0F ${esc(fmt(cost.metal))}</span>` : ''}
+            ${cost.crystal ? `<span class="cost-crystal">\uD83D\uDC8E ${esc(fmt(cost.crystal))}</span>` : ''}
+            ${cost.deuterium ? `<span class="cost-deut">\u26A1 ${esc(fmt(cost.deuterium))}</span>` : ''}
           </div>
           ${locked && missing.length ? `<div class="item-prereq-hint" title="Prerequisites">Requires: ${esc(missingText)}</div>` : ''}
           ${busy
-            ? `<div class="item-timer">\u23F1 <span data-end="${esc(row.research_end)}">${countdown(row.research_end)}</span></div>${researchProgressHtml}`
-            : unlocked ? `<button class="btn btn-primary btn-sm research-btn" data-type="${esc(row.type)}">Research</button>` : '<button class="btn btn-secondary btn-sm" disabled>Locked</button>'}
+            ? `<div class="item-timer">\u23F1 <span data-end="${esc(row.research_end)}">${esc(countdown(row.research_end))}</span></div>${researchProgressHtml}`
+            : unlocked && researchType ? `<button class="btn btn-primary btn-sm research-btn" data-type="${researchType}">Research</button>` : '<button class="btn btn-secondary btn-sm" disabled>Locked</button>'}
         </div>`;
       },
 
@@ -147,11 +165,16 @@
       bindActions(root) {
         root.querySelectorAll('.research-btn').forEach((btn) => {
           btn.addEventListener('click', async () => {
+            const researchType = safeResearchType(btn.dataset.type);
+            if (!researchType) {
+              showToast('Research data not found.', 'error');
+              return;
+            }
             btn.disabled = true;
             const currentColony = getCurrentColony();
-            const response = await api.doResearch(currentColony.id, btn.dataset.type);
+            const response = await api.doResearch(currentColony.id, researchType);
             if (response.success) {
-              showToast(`Researching ${fmtName(btn.dataset.type)}\u2026`, 'success');
+              showToast(`Researching ${fmtName(researchType)}\u2026`, 'success');
               const audioManager = getAudioManager();
               if (audioManager && typeof audioManager.playResearchStart === 'function') audioManager.playResearchStart();
               const resources = await api.resources(currentColony.id);

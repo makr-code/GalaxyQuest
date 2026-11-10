@@ -1,6 +1,20 @@
 'use strict';
 
 (function () {
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function safeBuildingType(value) {
+    const type = String(value || '');
+    return /^[a-z][a-z0-9_]*$/.test(type) ? type : '';
+  }
+
   function createBuildingsController(opts = {}) {
     const {
       wm = null,
@@ -12,7 +26,6 @@
       getBuildingUiMeta = () => ({ cat: 'Other', icon: '', desc: '' }),
       fmtName = (value) => String(value || ''),
       fmt = (value) => String(value || 0),
-      esc = (value) => String(value || ''),
       countdown = (value) => String(value || ''),
       simulateBuildingUpgrade = () => ({}),
       buildUpgradePreviewModal = () => '',
@@ -21,12 +34,15 @@
       showToast = () => {},
       gameLog = () => {},
     } = opts;
+    const esc = escapeHtml;
 
     function levelPips(level) {
       const displayMax = 5;
-      const f = Math.min(level, displayMax);
+      const parsed = Number(level);
+      const safeLevel = Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0;
+      const f = Math.min(safeLevel, displayMax);
       const e = Math.max(0, displayMax - f);
-      return `<span class="item-level-pips" title="Level ${level}">${'●'.repeat(f)}${'○'.repeat(e)}</span>`;
+      return `<span class="item-level-pips" title="Level ${esc(safeLevel)}">${'●'.repeat(f)}${'○'.repeat(e)}</span>`;
     }
 
     function readPercent(...values) {
@@ -50,7 +66,7 @@
       },
 
       groupByCategory(buildings) {
-        const byCategory = {};
+        const byCategory = Object.create(null);
         for (const building of buildings) {
           const meta = getBuildingUiMeta(building.type);
           (byCategory[meta.cat] ??= []).push({ ...building, meta });
@@ -65,7 +81,7 @@
         return `
         <div class="system-card" style="margin-bottom:0.8rem">
           <div class="system-row"><strong>Bauauftrags-Queue</strong></div>
-          ${active ? `<div class="system-row">­ƒöº Aktiv: ${esc(fmtName(active.type || 'building'))} -> Lv ${esc(String(active.target_level || '?'))} ┬À ETA <span data-end="${esc(active.eta)}">${countdown(active.eta)}</span></div>` : '<div class="system-row text-muted">Aktuell kein aktiver Auftrag.</div>'}
+          ${active ? `<div class="system-row">­ƒöº Aktiv: ${esc(fmtName(active.type || 'building'))} -> Lv ${esc(String(active.target_level || '?'))} ┬À ETA <span data-end="${esc(active.eta)}">${esc(countdown(active.eta))}</span></div>` : '<div class="system-row text-muted">Aktuell kein aktiver Auftrag.</div>'}
           ${queued.length ? `<div class="system-row">­ƒôï Wartend: ${queued.map((q) => `${esc(fmtName(q.type || 'building'))} -> Lv ${esc(String(q.target_level || '?'))}`).join(' ┬À ')}</div>` : '<div class="system-row text-muted">Keine weiteren Auftr├ñge in Warteschlange.</div>'}
         </div>`;
       },
@@ -127,19 +143,21 @@
             html += `
             <div class="item-card ${buildingFocus === building.type ? 'item-card-focus' : ''}" data-building-type="${esc(building.type)}">
               <div class="item-card-header">
-                <span class="item-name">${building.meta.icon} ${fmtName(building.type)}</span>
+              <span class="item-name">${esc(building.meta.icon)} ${esc(fmtName(building.type))}</span>
                 ${levelPips(building.level)}
               </div>
-              <div class="item-desc">${building.meta.desc}</div>
+            <div class="item-desc">${esc(building.meta.desc)}</div>
               ${statusRows ? `<div class="entity-bars" aria-label="Building status bars">${statusRows}</div>` : ''}
               <div class="item-cost">
-                ${cost.metal ? `<span class="cost-metal">Ô¼í ${fmt(cost.metal)}</span>` : ''}
-                ${cost.crystal ? `<span class="cost-crystal">­ƒÆÄ ${fmt(cost.crystal)}</span>` : ''}
-                ${cost.deuterium ? `<span class="cost-deut">­ƒöÁ ${fmt(cost.deuterium)}</span>` : ''}
+                ${cost.metal ? `<span class="cost-metal">Ô¼í ${esc(fmt(cost.metal))}</span>` : ''}
+                ${cost.crystal ? `<span class="cost-crystal">­ƒÆÄ ${esc(fmt(cost.crystal))}</span>` : ''}
+                ${cost.deuterium ? `<span class="cost-deut">­ƒöÁ ${esc(fmt(cost.deuterium))}</span>` : ''}
               </div>
               ${busy
-                ? `<div class="item-timer">ÔÅ│ ETA <span data-end="${esc(building.upgrade_end)}">${countdown(building.upgrade_end)}</span></div>${upgradeProgressHtml}`
-                : `<button class="btn btn-primary btn-sm upgrade-btn" data-type="${esc(building.type)}">Ôåæ Upgrade</button>`}
+                ? `<div class="item-timer">ÔÅ│ ETA <span data-end="${esc(building.upgrade_end)}">${esc(countdown(building.upgrade_end))}</span></div>${upgradeProgressHtml}`
+                : (safeBuildingType(building.type)
+                  ? `<button class="btn btn-primary btn-sm upgrade-btn" data-type="${esc(building.type)}">Ôåæ Upgrade</button>`
+                  : '')}
             </div>`;
           }
           html += '</div></div>';
@@ -170,6 +188,10 @@
         root.querySelectorAll('.upgrade-btn').forEach((btn) => {
           btn.addEventListener('click', async () => {
             const buildingType = btn.dataset.type;
+            if (!safeBuildingType(buildingType)) {
+              showToast('Building data not found.', 'error');
+              return;
+            }
             const building = windowRef._GQ_buildings?.find((b) => String(b.type || '') === String(buildingType || '')) || null;
 
             if (!building) {
@@ -239,7 +261,8 @@
           });
         });
         if (buildingFocus) {
-          const focusEl = root.querySelector(`.item-card[data-building-type="${buildingFocus}"]`);
+          const focusEl = Array.from(root.querySelectorAll('.item-card[data-building-type]'))
+            .find((card) => card.dataset.buildingType === buildingFocus);
           if (focusEl) focusEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
       },
@@ -271,7 +294,7 @@
           queueColonySurfaceSceneData(currentColony, data);
           let html = '';
           if (buildingFocus) {
-            html += `<div class="build-focus-banner">Fokus: ${fmtName(buildingFocus)}${uiState.colonyViewFocus?.source ? ` ┬À Quelle: ${esc(uiState.colonyViewFocus.source)}` : ''}</div>`;
+            html += `<div class="build-focus-banner">Fokus: ${esc(fmtName(buildingFocus))}${uiState.colonyViewFocus?.source ? ` ┬À Quelle: ${esc(uiState.colonyViewFocus.source)}` : ''}</div>`;
           }
           html += this.buildQueueHtml(upgradeQueue);
           html += this.buildCardsHtml(byCategory, buildingFocus);

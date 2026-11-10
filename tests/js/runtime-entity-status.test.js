@@ -103,8 +103,10 @@ describe('RuntimeOverviewController colony status bars', () => {
     loadModule('RuntimeOverviewController', 'GQRuntimeOverviewController');
   });
 
-  function renderColony(colony) {
+  function renderColony(colony, { fmt, fmtName, populateSelect = false } = {}) {
     const root = document.createElement('div');
+    const planetSelect = populateSelect ? document.createElement('select') : null;
+    root.planetSelect = planetSelect;
     const { createOverviewController } = window.GQRuntimeOverviewController;
     const controller = createOverviewController({
       wm: { body: () => root },
@@ -114,10 +116,10 @@ describe('RuntimeOverviewController colony status bars', () => {
       getColonies: () => [colony],
       setColonies: () => {},
       getCurrentColony: () => null,
-      getPlanetSelect: () => null,
+      getPlanetSelect: () => planetSelect,
       getUiState: () => ({}),
-      fmt: (value) => String(value ?? 0),
-      fmtName: (value) => String(value ?? ''),
+      fmt: fmt || ((value) => String(value ?? 0)),
+      fmtName: fmtName || ((value) => String(value ?? '')),
       esc: (value) => String(value ?? ''),
       showToast: () => {},
       shouldRedirectOnAuthLoadError: () => false,
@@ -140,6 +142,7 @@ describe('RuntimeOverviewController colony status bars', () => {
       bindOverviewActionsFn: () => {},
     });
 
+    if (populateSelect) controller.populatePlanetSelect();
     controller.render();
     return root;
   }
@@ -189,5 +192,48 @@ describe('RuntimeOverviewController colony status bars', () => {
 
     expect(root.querySelector('[aria-label="Colony status bars"]')?.textContent).toContain('47%');
     expect(root.querySelector('[aria-label="Colony status bars"]')?.textContent).not.toContain('Shield');
+  });
+
+  it('escapes colony API values and constrains inline percentage styles', () => {
+    const root = renderColony({
+      id: '1"><img src=x onerror=alert(1)>',
+      name: '<img src=x onerror=alert(2)>',
+      galaxy: '1"><svg onload=alert(3)>',
+      system: 2,
+      position: 3,
+      planet_type: '<iframe src=javascript:alert(4)>',
+      leaders: [{
+        role: 'colony_manager',
+        level: '1"><img src=x onerror=alert(5)>',
+        last_action: '<svg onload=alert(6)>',
+        name: '<img src=x onerror=alert(7)>',
+      }],
+      metal: 10,
+      crystal: 10,
+      deuterium: 10,
+      energy: 5000,
+      food: 10,
+      happiness: '70%;background:url(javascript:alert(8))',
+      public_services: '80%;background:url(javascript:alert(9))',
+      population: 0,
+      max_population: 500,
+    }, {
+      fmt: (value) => `<b onclick=alert(10)>${value}</b>`,
+      fmtName: () => '<svg onload=alert(11)>',
+      populateSelect: true,
+    });
+
+    expect(root.querySelector('img, svg, iframe, b')).toBeNull();
+    expect(root.querySelector('[onerror], [onload], [onclick]')).toBeNull();
+    expect(root.querySelector('.planet-card-name')?.textContent).toContain('<img src=x onerror=alert(2)>');
+    expect(root.querySelector('.planet-card-coords')?.textContent).toContain('<svg onload=alert(3)>');
+    expect(root.querySelector('.planet-card-type')?.textContent).toContain('<svg onload=alert(11)>');
+    expect(Array.from(root.querySelectorAll('.bar-happiness, .bar-services'))
+      .map((bar) => bar.style.width)).toEqual(['70%', '70%', '0%']);
+    expect(root.planetSelect.options[0]?.value).toBe('1"><img src=x onerror=alert(1)>');
+    expect(root.planetSelect.options[0]?.textContent)
+      .toContain('<img src=x onerror=alert(2)> [1"><svg onload=alert(3)>:2:3]');
+    expect(root.querySelector('.planet-card')?.getAttribute('data-cid'))
+      .toBe('1"><img src=x onerror=alert(1)>');
   });
 });

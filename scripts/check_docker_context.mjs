@@ -27,6 +27,10 @@ const excluded = [
   'generated/trellis2/logs/events.jsonl', 'generated/trellis2/import_log.jsonl',
   'generated/dev-only/heralds/model.glb',
   'generated/comfyui/output/3D/trellis2_teaser_transfer_ship_00001_.glb',
+  'deploy/runtime.env', 'deploy/database.env', 'deploy/tts.env', 'deploy/grafana.env',
+  'deploy/mysql-exporter.cnf', 'deploy/alertmanager.yml', 'deploy/backups/recovery.sql.gz',
+  'deploy/candidate.env', 'deploy/current.env', 'deploy/previous.env', 'deploy/failed.env',
+  'deploy/releases/fixture/runtime.env',
 ];
 const included = [
   '.htaccess', 'index.html', 'package.json', 'package-lock.json', 'vite.config.mjs',

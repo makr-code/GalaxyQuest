@@ -2,10 +2,61 @@ import { describe, expect, it } from 'vitest';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { resolveBodyMaterial, materialUniforms, materialLod, srgbToLinear, linearToSrgb } =
+const { resolveBodyMaterial, materialUniforms, materialLod, terrainBoundaries, srgbToLinear, linearToSrgb } =
   require('../../js/rendering/body-material.js');
 
 describe('Shared body material contract', () => {
+  it('packs a bounded water loop into existing padding without changing the material layout', () => {
+    const material = resolveBodyMaterial({ seed: 35 });
+    const first = materialUniforms(material, 1000, [0, 0, 0], { seconds: 5, enabled: true });
+    const loop = materialUniforms(material, 1000, [0, 0, 0], { seconds: 125, enabled: true });
+    expect(first).toEqual(loop);
+    expect(first.byteLength).toBe(112);
+    expect(first[23]).toBe(5);
+    expect(new Int32Array(first.buffer)[27]).toBe(1);
+    expect(new Int32Array(materialUniforms(material, 1000).buffer)[27]).toBe(0);
+    for (const water of [{ seconds: -1, enabled: true }, { seconds: NaN, enabled: true },
+      { seconds: Infinity, enabled: true }, { seconds: 1, enabled: 1 }]) {
+      expect(() => materialUniforms(material, 1000, [0, 0, 0], water)).toThrow('Invalid water animation state');
+    }
+  });
+
+  it('passes canonical geometric normals to the shared terrain surface in orbit and city', () => {
+    const { COLONY_BODY_WGSL } = require('../../js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js');
+    const { PLANET_APPROACH_WGSL } = require('../../js/engine/zoom/levels/PersistentBodyPlanetApproachRenderer.js');
+    for (const shader of [COLONY_BODY_WGSL, PLANET_APPROACH_WGSL]) {
+      expect(shader).toMatch(/gqTerrainSurface\(gqSurface\([^\n]+canonicalNormal,0\.0\),masks,canonicalNormal\)/);
+      expect(shader.indexOf('gqTerrainSurface(')).toBeLessThan(shader.indexOf('gqLivingSurface('));
+      expect(shader.indexOf('gqWaterSurface(')).toBeGreaterThan(shader.indexOf('gqTerrainSurface('));
+      expect(shader.indexOf('gqWaterSurface(')).toBeLessThan(shader.indexOf('gqLivingSurface('));
+      expect(shader.indexOf('gqLavaSurface(')).toBeGreaterThan(shader.indexOf('gqTerrainSurface('));
+      expect(shader.indexOf('gqLavaSurface(')).toBeLessThan(shader.indexOf('gqLivingSurface('));
+      expect(shader).toMatch(/gqLavaSurface\(surface,masks\.z \* \(1\.0 - in\.(color|region)\.a\),/);
+    }
+  });
+
+  it('shares seeded spherical cloud turbulence between the persistent orbital and city shaders', () => {
+    const { CLOUD_WGSL } = require('../../js/rendering/body-material.js');
+    const { COLONY_SKY_WGSL } = require('../../js/engine/zoom/levels/ColonySurfaceLevelWebGPU.js');
+    const { PLANET_APPROACH_WGSL } = require('../../js/engine/zoom/levels/PersistentBodyPlanetApproachRenderer.js');
+    expect(COLONY_SKY_WGSL).toContain(CLOUD_WGSL);
+    expect(COLONY_SKY_WGSL).toContain('camera.transition.w,camera.frame0.w');
+    expect(PLANET_APPROACH_WGSL).toContain('normalize(in.bodyPoint) * 12.0');
+    expect(PLANET_APPROACH_WGSL).not.toContain('noise(in.uv');
+    expect(PLANET_APPROACH_WGSL).toContain('gqCloudNoise(cloudPoint,cloudTime,gqMaterial.scale.x,cloudFootprint)');
+    expect(COLONY_SKY_WGSL.indexOf('dpdx(noisePoint)')).toBeLessThan(COLONY_SKY_WGSL.indexOf('discard;'));
+  });
+
+  it('encodes signed sea and snow boundaries without interpolating material categories', () => {
+    expect(terrainBoundaries('terran', -0.5, 8, 1)).toEqual([-1.5, -4.9, 1, 1]);
+    expect(terrainBoundaries('terran', 2, 8, 1)[0]).toBe(1);
+    expect(terrainBoundaries('ocean', 2, 8, 1).slice(2)).toEqual([1, 0]);
+    expect(terrainBoundaries('lava', -1, 8).slice(2)).toEqual([3, 0]);
+    expect(terrainBoundaries('ice', -2, 8)).toEqual([-2, 1, 0, 1]);
+    expect(terrainBoundaries('rock', -2, 8).slice(2)).toEqual([0, 0]);
+    expect(() => terrainBoundaries('terran', NaN, 8)).toThrow('Invalid');
+    expect(() => terrainBoundaries('terran', 0, -1)).toThrow('Invalid');
+  });
   it('uses physical linear-space PBR presets without texture downloads', () => {
     for (const biome of ['terran', 'ocean', 'ice', 'desert', 'lava', 'rock', 'gas']) {
       const material = resolveBodyMaterial({}, { biome, seed: 35, radius_km: 6 });

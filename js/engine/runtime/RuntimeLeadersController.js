@@ -1,10 +1,31 @@
 'use strict';
 (function () {
+  const RARITY_KEYS = new Set(['common', 'uncommon', 'rare', 'legendary']);
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function numericId(value) {
+    const id = Number(value);
+    return Number.isSafeInteger(id) && id > 0 ? id : 0;
+  }
+
+  function boundedSkill(value) {
+    const skill = Number(value);
+    return Number.isFinite(skill) ? Math.min(10, Math.max(0, skill)) : 0;
+  }
+
   function createLeadersController(opts = {}) {
     const wm = opts.wm;
     const api = opts.api;
     const documentRef = opts.documentRef || document;
-    const esc = opts.esc || ((v) => String(v ?? ''));
+    const esc = escapeHtml;
     const showToast = opts.showToast || (() => {});
     const getColonies = typeof opts.getColonies === 'function' ? opts.getColonies : (() => []);
     const getAdvisorWidget = typeof opts.getAdvisorWidget === 'function' ? opts.getAdvisorWidget : (() => null);
@@ -102,10 +123,10 @@
                 <span style="font-size:1.6rem">${esc(leader.portrait || '')}</span>
                 <div style="flex:1">
                   <div style="font-weight:700">${esc(leader.name)}</div>
-                  <div style="font-size:0.72rem;color:var(--text-secondary)">${this.rarityLabel[leader.rarity] || ''} - Lv ${leader.level}</div>
+                  <div style="font-size:0.72rem;color:var(--text-secondary)">${Object.hasOwn(this.rarityLabel, leader.rarity) ? this.rarityLabel[leader.rarity] : ''} - Lv ${esc(leader.level)}</div>
                   ${leader.tagline ? `<div style="font-size:0.73rem;font-style:italic;color:var(--accent)">${esc(leader.tagline)}</div>` : ''}
                 </div>
-                <button class="btn btn-danger btn-sm dismiss-btn" data-lid="${leader.id}" title="Dismiss">X</button>
+                ${numericId(leader.id) ? `<button class="btn btn-danger btn-sm dismiss-btn" data-lid="${numericId(leader.id)}" title="Dismiss">X</button>` : ''}
               </div>`).join('')}
           </div>` : ''}
 
@@ -121,30 +142,30 @@
                 <td style="font-size:1.2rem;text-align:center">${esc(leader.portrait || '')}</td>
                 <td>
                   ${esc(leader.name)}
-                  ${leader.rarity && leader.rarity !== 'common' ? `<span class="rarity-badge rarity-${leader.rarity}" style="position:static;margin-left:4px">${this.rarityLabel[leader.rarity]}</span>` : ''}
+                  ${RARITY_KEYS.has(leader.rarity) && leader.rarity !== 'common' ? `<span class="rarity-badge rarity-${leader.rarity}" style="position:static;margin-left:4px">${this.rarityLabel[leader.rarity]}</span>` : ''}
                 </td>
-                <td>${this.roleLabel[leader.role] ?? leader.role}</td>
-                <td>${leader.level}</td>
+                <td>${Object.hasOwn(this.roleLabel, leader.role) ? this.roleLabel[leader.role] : esc(leader.role)}</td>
+                <td>${esc(leader.level)}</td>
                 <td>${leader.colony_name
                   ? `${esc(leader.colony_name)} [${esc(leader.colony_coords || '?')}]`
-                  : leader.fleet_id ? `Fleet #${leader.fleet_id}` : '<em>Unassigned</em>'}</td>
+                  : numericId(leader.fleet_id) ? `Fleet #${numericId(leader.fleet_id)}` : '<em>Unassigned</em>'}</td>
                 <td>
-                  <select class="input-sm autonomy-sel" data-lid="${leader.id}">
+                  <select class="input-sm autonomy-sel" data-lid="${numericId(leader.id)}">
                     <option value="0" ${+leader.autonomy === 0 ? 'selected' : ''}>Off</option>
                     <option value="1" ${+leader.autonomy === 1 ? 'selected' : ''}>Suggest</option>
                     <option value="2" ${+leader.autonomy === 2 ? 'selected' : ''}>Full Auto</option>
                   </select>
                 </td>
-                <td style="font-size:0.72rem;max-width:170px;overflow:hidden;text-overflow:ellipsis" title="${esc(leader.last_action || '')}">
-                  ${leader.last_action ? esc(leader.last_action.substring(0, 55)) + '...' : '-'}
+                <td style="font-size:0.72rem;max-width:170px;overflow:hidden;text-overflow:ellipsis" title="${esc(String(leader.last_action || ''))}">
+                  ${leader.last_action ? esc(String(leader.last_action).substring(0, 55)) + '...' : '-'}
                 </td>
                 <td style="white-space:nowrap">
-                  <select class="input-sm assign-col-sel" data-lid="${leader.id}">
+                  <select class="input-sm assign-col-sel" data-lid="${numericId(leader.id)}">
                     <option value="">- Colony -</option>
-                    ${colonies.map((colony) => `<option value="${colony.id}">${esc(colony.name)}</option>`).join('')}
+                    ${colonies.map((colony) => `<option value="${numericId(colony.id)}">${esc(colony.name)}</option>`).join('')}
                   </select>
-                  <button class="btn btn-secondary btn-sm assign-col-btn" data-lid="${leader.id}">Assign</button>
-                  <button class="btn btn-danger btn-sm dismiss-btn" data-lid="${leader.id}">X</button>
+                  ${numericId(leader.id) ? `<button class="btn btn-secondary btn-sm assign-col-btn" data-lid="${numericId(leader.id)}">Assign</button>
+                  <button class="btn btn-danger btn-sm dismiss-btn" data-lid="${numericId(leader.id)}">X</button>` : ''}
                 </td>
               </tr>`).join('')
             : '<tr><td colspan="8" class="text-muted">No officers hired yet - visit the Marketplace.</td></tr>'}
@@ -174,16 +195,19 @@
       renderCard(candidate) {
         const isHired = !!+candidate.is_hired;
         const skills = this._skillsForRole(candidate.role, candidate);
+        const rarity = RARITY_KEYS.has(candidate.rarity) ? candidate.rarity : 'common';
+        const roleLabel = Object.hasOwn(this.roleLabel, candidate.role) ? this.roleLabel[candidate.role] : esc(candidate.role);
+        const candidateId = numericId(candidate.id);
         const mt = +candidate.hire_metal;
         const cr = +candidate.hire_crystal;
         const dt = +candidate.hire_deuterium;
         const free = mt === 0 && cr === 0 && dt === 0;
         return `
-          <div class="leader-card rarity-${candidate.rarity} ${isHired ? 'is-hired' : ''}">
-            <span class="rarity-badge rarity-${candidate.rarity}">${this.rarityLabel[candidate.rarity]}</span>
+          <div class="leader-card rarity-${rarity} ${isHired ? 'is-hired' : ''}">
+            <span class="rarity-badge rarity-${rarity}">${Object.hasOwn(this.rarityLabel, rarity) ? this.rarityLabel[rarity] : this.rarityLabel.common}</span>
             <span class="leader-portrait-lg">${esc(candidate.portrait || '')}</span>
             <div class="leader-card-name">${esc(candidate.name)}</div>
-            <div class="leader-card-role">${this.roleLabel[candidate.role] ?? candidate.role}</div>
+            <div class="leader-card-role">${roleLabel}</div>
             <div class="leader-card-tagline">${esc(candidate.tagline)}</div>
             <div class="leader-card-traits">
               ${candidate.trait_1 ? `<span class="chip-trait">${esc(candidate.trait_1)}</span>` : ''}
@@ -193,8 +217,8 @@
               ${skills.map((skill) => `
                 <div class="skill-bar-row">
                   <span class="skill-bar-label">${esc(skill.label)}</span>
-                  <div class="skill-bar-track"><div class="skill-bar-fill" style="width:${Math.round(+skill.val / 10 * 100)}%"></div></div>
-                  <span style="font-size:0.65rem;color:#aaa;width:16px;text-align:right">${skill.val}</span>
+                  <div class="skill-bar-track"><div class="skill-bar-fill" style="width:${Math.round(boundedSkill(skill.val) / 10 * 100)}%"></div></div>
+                  <span style="font-size:0.65rem;color:#aaa;width:16px;text-align:right">${boundedSkill(skill.val)}</span>
                 </div>`).join('')}
             </div>
             <details style="margin-top:0.35rem">
@@ -208,7 +232,7 @@
             </div>
             ${isHired
               ? '<button class="btn btn-secondary btn-sm" style="margin-top:0.4rem" disabled>Hired</button>'
-              : `<button class="btn btn-primary btn-sm hire-candidate-btn" data-cid="${candidate.id}" style="margin-top:0.4rem">Hire</button>`}
+              : (candidateId ? `<button class="btn btn-primary btn-sm hire-candidate-btn" data-cid="${candidateId}" style="margin-top:0.4rem">Hire</button>` : '')}
           </div>`;
       }
 
@@ -221,7 +245,7 @@
           trade_director: [{ label: 'Efficiency', val: candidate.skill_efficiency }, { label: 'Production', val: candidate.skill_production }],
           advisor: [{ label: 'Guidance', val: candidate.skill_guidance }, { label: 'Research', val: candidate.skill_research }],
         };
-        return map[role] || [{ label: 'Skill', val: 1 }];
+        return Object.hasOwn(map, role) ? map[role] : [{ label: 'Skill', val: 1 }];
       }
 
       bindTabs(root) {
@@ -257,7 +281,11 @@
       bindHireCandidateButtons(root) {
         root.querySelectorAll('.hire-candidate-btn').forEach((btn) => {
           btn.addEventListener('click', async () => {
-            const cid = parseInt(btn.dataset.cid, 10);
+            const cid = numericId(btn.dataset.cid);
+            if (!cid) {
+              showToast('Candidate data not found.', 'error');
+              return;
+            }
             btn.disabled = true;
             try {
               const response = await api.hireCandidate(cid);
@@ -284,7 +312,10 @@
       bindAutonomyControls(root) {
         root.querySelectorAll('.autonomy-sel').forEach((sel) => {
           sel.addEventListener('change', async () => {
-            const response = await api.setAutonomy(parseInt(sel.dataset.lid, 10), parseInt(sel.value, 10));
+            const leaderId = numericId(sel.dataset.lid);
+            const autonomy = Number(sel.value);
+            if (!leaderId || !Number.isInteger(autonomy) || autonomy < 0 || autonomy > 2) return;
+            const response = await api.setAutonomy(leaderId, autonomy);
             if (response.success) showToast(response.message, 'info');
             else showToast(response.error, 'error');
           });
@@ -294,9 +325,12 @@
       bindAssignmentControls(root) {
         root.querySelectorAll('.assign-col-btn').forEach((btn) => {
           btn.addEventListener('click', async () => {
-            const lid = parseInt(btn.dataset.lid, 10);
-            const sel = root.querySelector(`.assign-col-sel[data-lid="${lid}"]`);
-            const cid = sel?.value ? parseInt(sel.value, 10) : null;
+            const lid = numericId(btn.dataset.lid);
+            if (!lid) return;
+            const sel = Array.from(root.querySelectorAll('.assign-col-sel'))
+              .find((candidate) => candidate.dataset.lid === String(lid));
+            const cid = sel?.value ? numericId(sel.value) : null;
+            if (sel?.value && !cid) return;
             const response = await api.assignLeader(lid, cid, null);
             if (response.success) {
               showToast(response.message, 'success');
@@ -311,8 +345,10 @@
       bindDismissControls(root) {
         root.querySelectorAll('.dismiss-btn').forEach((btn) => {
           btn.addEventListener('click', async () => {
+            const leaderId = numericId(btn.dataset.lid);
+            if (!leaderId) return;
             if (!confirm('Dismiss this leader?')) return;
-            const response = await api.dismissLeader(parseInt(btn.dataset.lid, 10));
+            const response = await api.dismissLeader(leaderId);
             if (response.success) {
               showToast(response.message, 'success');
               wm.refresh('leaders');

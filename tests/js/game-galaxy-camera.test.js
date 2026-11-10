@@ -106,6 +106,89 @@ describe('Shared galaxy camera controls', () => {
     expect(state().level).toBe('system');
   });
 
+  it('loads authorized visual state before the initial orbit without entering the city', async () => {
+    const enriched = { colony: { id: 1, population: 40000 }, buildings: [{ type: 'farm', level: 8 }] };
+    options.loadPlanetData = vi.fn(async (_position, data) => ({ ...data, ...enriched }));
+    adapter.enterSystemView(star, payload);
+    adapter.focusPlanet(3);
+    await vi.waitFor(() => expect(options.loadPlanetData).toHaveBeenCalledOnce());
+    const runtime = await options.createZoomRuntime.mock.results[0].value;
+    await vi.waitFor(() => expect(runtime.approach).toHaveBeenCalledOnce());
+    expect(options.loadPlanetData).toHaveBeenCalledWith(3, expect.objectContaining({ systemPayload: payload }), expect.any(AbortSignal));
+    expect(runtime.approach.mock.calls[0][0]).toMatchObject(enriched);
+    expect(options.loadColonyData).not.toHaveBeenCalled();
+    expect(runtime.surface).not.toHaveBeenCalled();
+  });
+
+  it('does not restore a superseded orbit after its visual-state read finishes', async () => {
+    let finish;
+    options.loadPlanetData = vi.fn((_position, data) => Promise.resolve(data))
+      .mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    adapter.enterSystemView(star, payload);
+    adapter.focusPlanet(3);
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    const previous = await options.createZoomRuntime.mock.results[0].value;
+    const signal = options.loadPlanetData.mock.calls[0][2];
+    adapter.focusPlanet(5);
+    await vi.waitFor(() => expect(options.loadPlanetData).toHaveBeenCalledTimes(2));
+    const current = await options.createZoomRuntime.mock.results[1].value;
+    await vi.waitFor(() => expect(current.approach).toHaveBeenCalledOnce());
+    finish({ colony: { id: 1, population: 40000 } });
+    await Promise.resolve();
+    expect(signal.aborted).toBe(true);
+    expect(previous.approach).not.toHaveBeenCalled();
+    expect(state().planetPosition).toBe(5);
+    expect(options.onError).not.toHaveBeenCalled();
+  });
+
+  it.each(['marker', 'canvas'])('visits the picked city through the authorized loader from a %s selection', async input => {
+    adapter.enterSystemView(star, payload);
+    adapter.focusPlanet(3);
+    await vi.waitFor(() => expect(options.createZoomRuntime).toHaveBeenCalledOnce());
+    const runtime = await options.createZoomRuntime.mock.results[0].value;
+    await vi.waitFor(() => expect(state().level).toBe('planet'));
+    if (input === 'marker') {
+      options.createZoomRuntime.mock.calls[0][0].onSettlement('surface-v1-44');
+    } else {
+      runtime.pickSettlement = vi.fn(() => 'surface-v1-44');
+      pointer('pointerdown', 400, 300);
+      pointer('pointerup', 400, 300);
+      expect(runtime.pickSettlement).toHaveBeenCalledWith(400, 300);
+    }
+    await vi.waitFor(() => expect(runtime.surface).toHaveBeenCalledOnce());
+    expect(runtime.surface).toHaveBeenCalledWith(expect.any(Function), 'surface-v1-44');
+    expect(options.loadColonyData).toHaveBeenCalledExactlyOnceWith(
+      3, expect.objectContaining({ systemPayload: payload }), expect.any(AbortSignal));
+    expect(state().level).toBe('colony');
+  });
+
+  it('does not interpret an orbital camera drag as a city selection', async () => {
+    adapter.enterSystemView(star, payload);
+    adapter.focusPlanet(3);
+    await vi.waitFor(() => expect(options.createZoomRuntime).toHaveBeenCalledOnce());
+    const runtime = await options.createZoomRuntime.mock.results[0].value;
+    await vi.waitFor(() => expect(state().level).toBe('planet'));
+    runtime.pickSettlement = vi.fn(() => 'surface-v1-44');
+    drag();
+    expect(runtime.pickSettlement).not.toHaveBeenCalled();
+    expect(runtime.surface).not.toHaveBeenCalled();
+  });
+
+  it('reports an initial visual-state read failure and restores system controls', async () => {
+    const failure = new Error('Building visual snapshot unavailable');
+    options.loadPlanetData = vi.fn(async () => {
+      const runtime = await options.createZoomRuntime.mock.results[0].value;
+      runtime.getStats = () => ({ level: null });
+      throw failure;
+    });
+    adapter.enterSystemView(star, payload);
+    adapter.focusPlanet(3);
+    await vi.waitFor(() => expect(options.onError).toHaveBeenCalledWith(failure));
+    expect(state().level).toBe('system');
+    const runtime = await options.createZoomRuntime.mock.results[0].value;
+    expect(runtime.approach).not.toHaveBeenCalled();
+  });
+
   it('returns to system and permits a fresh colony runtime after a failed entry', async () => {
     adapter.enterSystemView(star, payload);
     adapter.focusPlanet(3);

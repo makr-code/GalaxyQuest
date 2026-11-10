@@ -73,6 +73,11 @@ final class OnDemandEconomyTest extends TestCase
                 colony_id INTEGER, building_type TEXT, method TEXT, UNIQUE(colony_id,building_type)
             );
             CREATE TABLE colony_economy_state (colony_id INTEGER PRIMARY KEY, settled_at INTEGER, state_json TEXT);
+            CREATE TABLE body_development (
+                body_id INTEGER PRIMARY KEY REFERENCES celestial_bodies(id) ON DELETE CASCADE,
+                version INTEGER NOT NULL, peak_population INTEGER NOT NULL, founded_count INTEGER NOT NULL,
+                initialized_at INTEGER NOT NULL, observed_at INTEGER NOT NULL
+            );
             CREATE TABLE economy_colony_market (
                 colony_id INTEGER, good_type TEXT, galaxy_index INTEGER, system_index INTEGER,
                 quantity REAL, production REAL, consumption REAL, settled_at INTEGER,
@@ -116,6 +121,35 @@ final class OnDemandEconomyTest extends TestCase
         $snapshot = $this->economy->settle(1, 1, 1000000);
         self::assertSame($writes, $this->db->query('SELECT total_changes()')->fetchColumn());
         self::assertSame(100, array_sum($snapshot['pop_classes']));
+    }
+
+    public function testBodyDevelopmentTracksSettledPopulationOnlyWhenEnabled(): void
+    {
+        $this->db->exec('UPDATE colonies SET population=40000 WHERE id=1');
+        $snapshot = $this->economy->settle(1, 1, 1000000);
+        if (!\GalaxyQuest\Terrain\BodyDevelopment::enabled()) {
+            self::assertNull($snapshot['body_development']);
+            self::assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM body_development')->fetchColumn());
+            return;
+        }
+        self::assertSame(40000, $snapshot['body_development']['peak_population']);
+        self::assertSame(6, $snapshot['body_development']['founded_count']);
+        $this->db->exec('UPDATE colonies SET population=100 WHERE id=1');
+        $declined = $this->economy->settle(1, 1, 1000000);
+        self::assertSame(100, $declined['colony']['population']);
+        self::assertSame($snapshot['body_development'], $declined['body_development']);
+        self::assertSame($snapshot['body_development'], \GalaxyQuest\Terrain\BodyDevelopment::read($this->db, 1));
+    }
+
+    public function testUnauthorizedDevelopmentObservationCannotWrite(): void
+    {
+        try {
+            $this->economy->settle(1, 2, 1000000);
+            self::fail('An unrelated owner must not settle or observe this body.');
+        } catch (DomainException $error) {
+            self::assertSame(404, $error->getCode());
+        }
+        self::assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM body_development')->fetchColumn());
     }
 
     public function testActualLedgerProcessesProductionAndUpdatesMarketOnDemand(): void

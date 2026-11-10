@@ -1,9 +1,17 @@
 'use strict';
 (function () {
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function createLeaderboardController(opts = {}) {
     const wm = opts.wm;
     const api = opts.api;
-    const esc = opts.esc || ((value) => String(value ?? ''));
     const fmt = opts.fmt || ((value) => String(value ?? ''));
     const uiKitSkeletonHTML = opts.uiKitSkeletonHTML || (() => '');
     const uiKitEmptyStateHTML = opts.uiKitEmptyStateHTML || (() => '');
@@ -30,10 +38,10 @@
           root.innerHTML = data.leaderboard.map((row, index) => `
             <div class="lb-row">
               <span class="lb-rank">${index + 1}</span>
-              <span class="lb-name">${esc(row.username)} ${row.username === currentUser.username ? '(You)' : ''}${row.alliance_tag ? ` <span class="lb-alliance-tag">[${esc(row.alliance_tag)}]</span>` : ''}</span>
-              <span class="lb-stat">RP ${fmt(row.rank_points)}</span>
-              <span class="lb-stat">PLANETS ${row.planet_count}</span>
-              <span class="lb-stat">DM ${fmt(row.dark_matter)}</span>
+              <span class="lb-name">${escapeHtml(row.username)} ${row.username === currentUser.username ? '(You)' : ''}${row.alliance_tag ? ` <span class="lb-alliance-tag">[${escapeHtml(row.alliance_tag)}]</span>` : ''}</span>
+              <span class="lb-stat">RP ${escapeHtml(fmt(row.rank_points))}</span>
+              <span class="lb-stat">PLANETS ${escapeHtml(row.planet_count)}</span>
+              <span class="lb-stat">DM ${escapeHtml(fmt(row.dark_matter))}</span>
             </div>`).join('');
         } catch (err) {
           gameLog('warn', 'Leaderboard laden fehlgeschlagen', err);

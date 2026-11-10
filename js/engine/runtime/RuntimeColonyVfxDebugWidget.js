@@ -17,9 +17,88 @@
     return String(rawBackend || '?');
   }
 
+  function createTextElement(documentRef, tagName, className, text) {
+    const element = documentRef.createElement(tagName);
+    if (className) element.className = className;
+    element.textContent = String(text);
+    return element;
+  }
+
+  function createWidgetContent(documentRef, stats, mapper) {
+    const content = documentRef.createElement('div');
+    content.className = 'vfx-debug-widget-content';
+    content.appendChild(createTextElement(documentRef, 'div', 'vfx-debug-header', 'Colony VFX Stats'));
+
+    const statsSection = documentRef.createElement('div');
+    statsSection.className = 'vfx-debug-section';
+    [
+      ['Backend:', formatBackendLabel(stats?.backend || '?')],
+      ['Quality:', stats?.quality || 'auto'],
+      ['Emitters:', stats?.emitters || 0],
+      ['Particles:', stats?.particles || 0],
+      ['Burst:', stats?.burstActive ? 'on' : 'off'],
+    ].forEach(([label, value]) => {
+      const line = documentRef.createElement('div');
+      line.className = 'vfx-stat-line';
+      line.appendChild(createTextElement(documentRef, 'strong', '', label));
+      line.appendChild(documentRef.createTextNode(` ${String(value)}`));
+      statsSection.appendChild(line);
+    });
+    content.appendChild(statsSection);
+
+    const profileSection = documentRef.createElement('div');
+    profileSection.className = 'vfx-debug-section';
+    profileSection.appendChild(createTextElement(documentRef, 'div', 'vfx-debug-sublabel', 'Profiles'));
+    const profiles = stats?.profileCounts || {};
+    const profileEntries = Object.entries(profiles);
+    if (profileEntries.length) {
+      profileEntries.forEach(([name, count]) => {
+        const line = documentRef.createElement('div');
+        line.className = 'vfx-stat-line';
+        line.appendChild(createTextElement(documentRef, 'span', 'vfx-profile-name', name));
+        line.appendChild(documentRef.createTextNode(`: ${String(count)}`));
+        profileSection.appendChild(line);
+      });
+    } else {
+      profileSection.appendChild(createTextElement(documentRef, 'div', 'vfx-stat-line', '(none)'));
+    }
+    content.appendChild(profileSection);
+
+    const mapperSlots = mapper?.stats?.mappedSlots || 0;
+    if (mapperSlots > 0) {
+      const mapperSection = documentRef.createElement('div');
+      mapperSection.className = 'vfx-debug-section';
+      mapperSection.appendChild(createTextElement(
+        documentRef,
+        'div',
+        'vfx-debug-sublabel',
+        `Mapper: ${mapperSlots} slots`,
+      ));
+
+      const mapperLines = documentRef.createElement('div');
+      mapperLines.className = 'vfx-stat-line';
+      mapperLines.style.fontSize = '0.85em';
+      mapperLines.style.flexWrap = 'wrap';
+      mapperLines.style.display = 'flex';
+      mapperLines.style.gap = '4px';
+      const mapperProfiles = Object.entries(mapper?.stats?.profileCounts || {});
+      if (mapperProfiles.length) {
+        mapperProfiles.forEach(([name, count]) => {
+          mapperLines.appendChild(createTextElement(documentRef, 'span', 'vfx-mapper-tag', `${name}=${count}`));
+        });
+      } else {
+        mapperLines.appendChild(documentRef.createTextNode('(none)'));
+      }
+
+      mapperSection.appendChild(mapperLines);
+      content.appendChild(mapperSection);
+    }
+
+    return content;
+  }
+
   function initColonyVfxDebugWidget(opts = {}) {
     const {
-      esc = (value) => String(value || ''),
       documentRef = (typeof document !== 'undefined' ? document : null),
       windowRef = (typeof window !== 'undefined' ? window : null),
       logger = console,
@@ -32,50 +111,6 @@
 
     const zoomLevel = windowRef?.GQSeamlessZoomOrchestrator?.ZOOM_LEVEL || { COLONY_SURFACE: 3 };
     const colonySurface = Number(zoomLevel.COLONY_SURFACE || 3);
-
-    function createWidgetHtml(stats, mapper) {
-      const backend = formatBackendLabel(stats?.backend || '?');
-      const quality = stats?.quality || 'auto';
-      const emitters = stats?.emitters || 0;
-      const particles = stats?.particles || 0;
-      const burstActive = stats?.burstActive ? 'on' : 'off';
-
-      const profiles = stats?.profileCounts || {};
-      const profileLines = Object.entries(profiles)
-        .map(([name, count]) => `<div class="vfx-stat-line"><span class="vfx-profile-name">${esc(name)}</span>: ${count}</div>`)
-        .join('');
-
-      const mapperSlots = mapper?.stats?.mappedSlots || 0;
-      const mapperCounts = mapper?.stats?.profileCounts || {};
-      const mapperLines = Object.entries(mapperCounts)
-        .map(([name, count]) => `<span class="vfx-mapper-tag">${esc(name)}=${count}</span>`)
-        .join(' ');
-
-      return `
-        <div class="vfx-debug-widget-content">
-          <div class="vfx-debug-header">Colony VFX Stats</div>
-          <div class="vfx-debug-section">
-            <div class="vfx-stat-line"><strong>Backend:</strong> ${esc(backend)}</div>
-            <div class="vfx-stat-line"><strong>Quality:</strong> ${esc(quality)}</div>
-            <div class="vfx-stat-line"><strong>Emitters:</strong> ${emitters}</div>
-            <div class="vfx-stat-line"><strong>Particles:</strong> ${particles}</div>
-            <div class="vfx-stat-line"><strong>Burst:</strong> ${burstActive}</div>
-          </div>
-          <div class="vfx-debug-section">
-            <div class="vfx-debug-sublabel">Profiles</div>
-            ${profileLines || '<div class="vfx-stat-line">(none)</div>'}
-          </div>
-          ${mapperSlots > 0 ? `
-          <div class="vfx-debug-section">
-            <div class="vfx-debug-sublabel">Mapper: ${mapperSlots} slots</div>
-            <div class="vfx-stat-line" style="font-size:0.85em; flex-wrap:wrap; display:flex; gap:4px;">
-              ${mapperLines || '(none)'}
-            </div>
-          </div>
-          ` : ''}
-        </div>
-      `;
-    }
 
     function updateWidget() {
       const stats = windowRef?.__GQ_COLONY_VFX_STATS;
@@ -101,15 +136,15 @@
       const shouldShow = isColonyLevel && hasStats;
 
       if (!shouldShow) {
-        widget.innerHTML = '';
+        widget.replaceChildren();
         widget.style.display = 'none';
         return;
       }
 
       const changed = JSON.stringify(stats) !== JSON.stringify(lastStats)
         || JSON.stringify(mapper) !== JSON.stringify(lastMapper);
-      if (changed || !widget.innerHTML) {
-        widget.innerHTML = createWidgetHtml(stats, mapper);
+      if (changed || !widget.firstChild) {
+        widget.replaceChildren(createWidgetContent(documentRef, stats, mapper));
         lastStats = stats;
         lastMapper = mapper;
       }

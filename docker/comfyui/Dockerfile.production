@@ -1,0 +1,39 @@
+FROM python:3.12-bookworm AS builder
+
+ARG COMFYUI_COMMIT=bbd810e647c64da8212b0d4ab94f1354c9d523f6
+RUN apt-get update && apt-get install -y --no-install-recommends git build-essential libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+WORKDIR /workspace
+RUN git init . && git remote add origin https://github.com/Comfy-Org/ComfyUI.git \
+    && git fetch --depth 1 origin "$COMFYUI_COMMIT" && git checkout --detach FETCH_HEAD \
+    && test "$(git rev-parse HEAD)" = "$COMFYUI_COMMIT" && rm -rf .git
+RUN pip install --no-cache-dir torch==2.9.1 torchvision==0.24.1 torchaudio==2.9.1 --index-url https://download.pytorch.org/whl/cu128
+RUN sed -E '/^(torch|torchvision|torchaudio)([<>=!~].*)?$/d' requirements.txt > /tmp/requirements.txt \
+    && pip install --no-cache-dir -r /tmp/requirements.txt
+COPY tools/comfyui-trellis2 /workspace/custom_nodes/ComfyUI-Trellis2
+RUN pip install --no-cache-dir -r custom_nodes/ComfyUI-Trellis2/requirements.txt \
+    && pip install --no-cache-dir transformers diffusers accelerate safetensors omegaconf einops \
+        trimesh plyfile scikit-image spconv-cu121==2.3.8 nvidia-cuda-runtime-cu12 onnxruntime xformers==0.0.33.post2 \
+    && pip install --no-cache-dir --no-deps custom_nodes/ComfyUI-Trellis2/wheels/Linux/Torch291/*.whl \
+    && pip check
+
+FROM python:3.12-slim-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends curl libgl1 libglib2.0-0 libgomp1 libxrender1 libsm6 libxext6 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 1001 comfyui && useradd --uid 1001 --gid 1001 --create-home comfyui
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder --chown=comfyui:comfyui /workspace /workspace
+ENV PATH="/opt/venv/bin:$PATH" \
+    LD_LIBRARY_PATH="/opt/venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib" \
+    PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
+    HF_HOME=/workspace/models/huggingface \
+    ATTN_BACKEND=xformers SPARSE_ATTN_BACKEND=xformers
+WORKDIR /workspace
+RUN mkdir -p models input output temp && chown -R comfyui:comfyui /workspace
+USER comfyui
+EXPOSE 8188
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=10 \
+    CMD curl --fail --silent --max-time 5 http://127.0.0.1:8188/system_stats || exit 1
+CMD ["python", "main.py", "--listen", "0.0.0.0", "--port", "8188"]

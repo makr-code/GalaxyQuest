@@ -42,10 +42,142 @@ function trackedBackend() {
 }
 
 describe('Actual in-game planet and colony GPU resource ownership', () => {
+  it('refines the real orbital mesh only when a hysteresis boundary is crossed and releases the previous buffer', async () => {
+    document.body.innerHTML = '<div><canvas width="1024" height="768"></canvas></div>';
+    const canvas = document.querySelector('canvas');
+    const { backend, resources } = trackedBackend();
+    const level = new PersistentBodyPlanetApproachRenderer();
+    const scene = { reduced_motion: true, bodyTerrainManifest: {
+      body_id: 12, seed: 35, biome: 'terran', radius_km: 6371, amplitude_km: 8,
+      sea_level_km: 0, generator_version: 1, projection: 'cube-sphere',
+      height_min_km: -16, height_max_km: 16, max_lod: 14, resolution: 17, tile_encoding: 'uint16-json',
+    } };
+    try {
+      await level.initialize(canvas, backend);
+      await level.enter(1, scene);
+      const draw = pixels => level._drawFrame({ position: { x: 0, y: 0, z: canvas.height * 1.73 / pixels } });
+      draw(500);
+      const coarse = level._solidBuffer;
+      const coarseCount = level._solidVertexCount;
+      draw(800);
+      expect(level._solidBuffer).toBe(coarse);
+      draw(900);
+      const fine = level._solidBuffer;
+      expect(fine).not.toBe(coarse);
+      expect(coarse.destroy).toHaveBeenCalledOnce();
+      expect(level._solidVertexCount).toBeGreaterThan(coarseCount * 4);
+      expect(fine.size).toBeLessThanOrEqual(12 * 1024 * 1024);
+      draw(700);
+      expect(level._solidBuffer).toBe(fine);
+      draw(600);
+      expect(fine.destroy).toHaveBeenCalledOnce();
+      expect(level._solidVertexCount).toBe(coarseCount);
+    } finally { level.dispose(); }
+    resources.forEach(resource => expect(resource.destroy).toHaveBeenCalledOnce());
+    expect(backend.device.destroy).not.toHaveBeenCalled();
+  });
+
   const levels = [
     ['planet', PersistentBodyPlanetApproachRenderer],
     ['colony', ColonySurfaceLevelWebGPU],
   ];
+
+  it.each(levels)('updates decorative regional transport in the existing %s frame without new GPU resources', async (_name, Renderer) => {
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    let reducedMotion = false;
+    vi.stubGlobal('matchMedia', query => ({ matches: reducedMotion && query === '(prefers-reduced-motion: reduce)' }));
+    document.body.innerHTML = '<div><canvas width="512" height="384"></canvas></div>';
+    const canvas = document.querySelector('canvas');
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 512, height: 384, right: 512, bottom: 384 });
+    const { backend, resources } = trackedBackend();
+    const level = new Renderer();
+    const model = require('../../js/rendering/colony-surface-plan.js');
+    const scene = {
+      colony: { name: 'Regional transport', population: 4000, diameter_km: 12742 },
+      buildings: [{ type: 'farm', level: 8 }], slots: [],
+      bodyTerrainManifest: { body_id: 12, seed: 35, biome: 'terran', radius_km: 6371, amplitude_km: 8,
+        sea_level_km: -8, generator_version: 1, projection: 'cube-sphere',
+        height_min_km: -16, height_max_km: 16, max_lod: 14, resolution: 17, tile_encoding: 'uint16-json' },
+    };
+    const uploaded = () => backend.device.queue.writeBuffer.mock.calls.filter(call => call[0] === level._surfaceBuffer).at(-1)[2];
+    const water = () => backend.device.queue.writeBuffer.mock.calls.filter(call => call[0] === level._materialBuffer).at(-1)[2];
+    const clouds = () => backend.device.queue.writeBuffer.mock.calls
+      .filter(call => call[0] === (_name === 'planet' ? level._uniformBuffer : level._cameraBuffer)).at(-1)[2];
+    try {
+      await level.initialize(canvas, backend);
+      await level.enter(1, scene);
+      level.render(0.1);
+      const first = uploaded().slice();
+      const firstWater = water()[23];
+      if (_name === 'colony') {
+        expect(clouds()[19]).toBe(water()[23]);
+        expect(clouds()[55]).toBe(water()[12]);
+      }
+      expect(new Int32Array(water().buffer)[27]).toBe(1);
+      expect(first[model.ROAD_OFFSET]).toBeGreaterThan(0);
+      expect(first[model.ROAD_OFFSET + 19]).toBe(1);
+      const allocations = resources.length;
+      level.render(0.1);
+      expect(uploaded().slice(model.ROAD_OFFSET + 16, model.ROAD_OFFSET + 19))
+        .not.toEqual(first.slice(model.ROAD_OFFSET + 16, model.ROAD_OFFSET + 19));
+      expect(resources).toHaveLength(allocations);
+      expect(water()[23]).toBeGreaterThan(firstWater);
+      const waterTime = water()[23];
+      reducedMotion = true;
+      level.render(0.1);
+      expect(water()[23]).toBe(waterTime);
+      if (_name === 'colony') expect(clouds()[19]).toBe(waterTime);
+      expect(new Int32Array(water().buffer)[27]).toBe(1);
+      expect(uploaded()[model.ROAD_OFFSET + 19]).toBe(0);
+      reducedMotion = false;
+      level.render(0.1);
+      expect(water()[23]).toBeGreaterThan(waterTime);
+      expect(uploaded()[model.ROAD_OFFSET + 19]).toBe(1);
+      level.setSceneData({ ...scene, visible: false });
+      level.render(0.1);
+      expect(uploaded()[model.ROAD_OFFSET + 19]).toBe(0);
+      expect(new Int32Array(water().buffer)[27]).toBe(0);
+      expect(clouds()[_name === 'planet' ? 35 : 46]).toBe(0);
+      const hiddenTime = water()[23];
+      level.render(0.1);
+      expect(water()[23]).toBe(hiddenTime);
+      level.setSceneData({ ...scene, reduced_flash: true });
+      level.render(0.1);
+      expect(new Int32Array(water().buffer)[27]).toBe(0);
+      if (_name === 'colony') expect(clouds()[19]).toBe(0);
+      level.setSceneData({ ...scene, vfx_quality: 'off' });
+      level.render(0.1);
+      expect(new Int32Array(water().buffer)[27]).toBe(0);
+      expect(clouds()[_name === 'planet' ? 35 : 46]).toBe(0);
+      level.setSceneData({ ...scene, colony: { ...scene.colony, has_atmosphere: false } });
+      level.render(0.1);
+      expect(clouds()[_name === 'planet' ? 35 : 43]).toBe(0);
+      level.setSceneData({ ...scene, colony: { ...scene.colony, cloud_coverage: 0 } });
+      level.render(0.1);
+      expect(clouds()[_name === 'planet' ? 23 : 46]).toBe(0);
+      level.setSceneData({ ...scene, reduced_motion: true });
+      const explicitFreeze = level._waterTime;
+      level.render(0.1);
+      expect(level._waterTime).toBe(explicitFreeze);
+      level.setSceneData(scene);
+      level._waterTime = 119.95;
+      level.render(0.1);
+      expect(level._waterTime).toBeCloseTo(0.05, 8);
+      if (_name === 'planet') {
+        level.renderBackdrop(1000, null, 0.5);
+        expect(level._waterTime).toBeCloseTo(0.15, 8);
+        reducedMotion = true;
+        level.renderBackdrop(0.1, null, 0.5);
+        expect(level._waterTime).toBeCloseTo(0.15, 8);
+      }
+      await level.exit();
+      const writes = backend.device.queue.writeBuffer.mock.calls.length;
+      level.render(0.1);
+      expect(backend.device.queue.writeBuffer).toHaveBeenCalledTimes(writes);
+    } finally { level.dispose(); }
+    resources.forEach(resource => expect(resource.destroy).toHaveBeenCalledOnce());
+    expect(backend.device.destroy).not.toHaveBeenCalled();
+  });
 
   it.each(['planet', 'colony', 'flight'])('releases real %s resources when the owner aborts', async view => {
     document.body.innerHTML = '<div><canvas></canvas></div>';

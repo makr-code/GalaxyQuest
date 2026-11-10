@@ -158,4 +158,5 @@ return [
 
     // ── NPC worker replay protection ─────────────────────────────────────
     'migrate_npc_ai_worker_nonce_v1.sql',
+    'migrate_body_development_v1.sql',
 ];

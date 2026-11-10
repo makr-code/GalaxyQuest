@@ -93,7 +93,7 @@ describe('Colony surface GPU residency', () => {
     await level.enter(2);
     expect(level._buildingVfxStats.profileCounts.industry).toBe(1);
     const pipelines = [level._meshPipeline, level._bodyPipeline, level._vfxPipeline];
-    const sharedBuffers = [level._cameraBuffer, level._materialBuffer];
+    const sharedBuffers = [level._cameraBuffer, level._materialBuffer, level._surfaceBuffer];
 
     for (let cycle = 0; cycle < 3; cycle++) {
       level.setSceneData(sceneData(10 + cycle, cycle % 2 ? 'pending' : null));

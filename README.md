@@ -2082,6 +2082,14 @@ Winners loot up to 50% of metal/crystal/deuterium and 30% of rare earth (capped 
 
 ## Installation
 
+### Plesk deployment (staging and production)
+
+Use the separate [GitHub-to-Plesk runbook](docs/technical/PLESK_DEPLOYMENT.md)
+and [production Compose stack](deploy/compose.yml), not the development
+bind-mounted stack below. Images are tested/scanned in GitHub, deployed by
+digest to staging, and promoted from `main` through a protected production
+Environment. Server credentials and persistent game data never travel through Git.
+
 ### Docker Desktop (recommended for development)
 
 Requirements:

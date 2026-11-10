@@ -4,6 +4,13 @@
  * Single entry point for quests rendering flow.
  */
 (function () {
+  function setTextMessage(root, className, text) {
+    const message = root.ownerDocument.createElement('p');
+    message.className = className;
+    message.textContent = text;
+    root.replaceChildren(message);
+  }
+
   function createQuestsRenderFacade() {
     async function render({
       wm,
@@ -20,17 +27,17 @@
     }) {
       const root = wm.body('quests');
       if (!root) return;
-      root.innerHTML = '<p class="text-muted">LoadingÔÇª</p>';
+      setTextMessage(root, 'text-muted', 'Loading…');
 
       try {
         const check = await api.checkAchievements();
         if (!check.success) {
-          root.innerHTML = '<p class="text-red">Error updating quests.</p>';
+          setTextMessage(root, 'text-red', 'Error updating quests.');
           return;
         }
         const data = await api.achievements();
         if (!data.success) {
-          root.innerHTML = '<p class="text-red">Error loading quests.</p>';
+          setTextMessage(root, 'text-red', 'Error loading quests.');
           return;
         }
 
@@ -61,11 +68,11 @@
             total: quests.length,
             claimable,
             cardsHtml,
-            esc,
           });
         }
 
-        root.innerHTML = html || '<p class="text-muted">No quests found.</p>';
+        if (html) root.innerHTML = html;
+        else setTextMessage(root, 'text-muted', 'No quests found.');
 
         questsClaimBindings.bindClaimButtons({
           root,
@@ -74,8 +81,10 @@
           loadOverview,
           rerenderQuests,
         });
-      } catch (_) {
-        root.innerHTML = '<p class="text-red">Failed to load quests.</p>';
+      } catch (error) {
+        setTextMessage(root, 'text-red', 'Failed to load quests.');
+        if (typeof showToast === 'function') showToast('Failed to load quests.', 'error');
+        if (typeof console !== 'undefined') console.error('Quest rendering failed', error);
       }
     }
 

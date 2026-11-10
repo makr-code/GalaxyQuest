@@ -13,6 +13,7 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
     this._canvas = this._backend = this._sceneData = null;
     this._scene = this._camera = this._renderer = null;
     this._planetMesh = this._cloudMesh = this._atmoMesh = this._ownershipRing = null;
+    this._terrainUniforms = null;
     this._textures = [];
     this._rotation = this._cloudRotation = 0;
     this._unloaded = false;
@@ -138,6 +139,7 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
     this._renderer?.dispose();
     this._renderer = this._scene = this._camera = null;
     this._planetMesh = this._cloudMesh = this._atmoMesh = this._ownershipRing = null;
+    this._terrainUniforms = null;
     this._mapKey = null;
   }
 
@@ -155,18 +157,43 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
     });
     // Preserve the standard lighting/material path, only gate emission at night.
     this._nightUniform = { value: this._descriptor.variant === 'lava' ? 1 : 0 };
+    this._terrainUniforms = {
+      gqGeography: { value: null },
+      gqOcean: { value: new T.Color() },
+      gqIce: { value: new T.Color() },
+      gqTerrain: { value: new T.Vector4() },
+    };
     planetMat.onBeforeCompile = shader => {
       shader.uniforms.gqLava = this._nightUniform;
+      Object.assign(shader.uniforms, this._terrainUniforms);
       shader.vertexShader = `varying vec3 vGQWorldNormal;\n${shader.vertexShader}`
         .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
           vGQWorldNormal = normalize(mat3(modelMatrix) * objectNormal);`);
-      shader.fragmentShader = `varying vec3 vGQWorldNormal;\nuniform float gqLava;\n${shader.fragmentShader}`
+      shader.fragmentShader = `varying vec3 vGQWorldNormal;
+        uniform float gqLava;
+        uniform sampler2D gqGeography;
+        uniform vec3 gqOcean;
+        uniform vec3 gqIce;
+        uniform vec4 gqTerrain;
+        float gqCoverage(float value, float threshold) {
+          float gradient = fwidth(value);
+          float pixel = max(gradient,0.000001) * 0.5;
+          return gradient == 0.0 ? float(value > threshold) : smoothstep(-pixel,pixel,value - threshold);
+        }
+        ${shader.fragmentShader}`
+        .replace('#include <map_fragment>', `#include <map_fragment>
+          float gqRelief = dot(texture2D(gqGeography,vMapUv).rg,vec2(256.0 / 257.0,1.0 / 257.0));
+          float gqFrozen = gqCoverage(abs(vMapUv.y - 0.5) * 3.14159265,gqTerrain.y) * gqTerrain.w;
+          float gqWater = gqCoverage(gqTerrain.x - gqRelief,0.0) * gqTerrain.z * (1.0 - gqFrozen);
+          diffuseColor.rgb = mix(mix(diffuseColor.rgb,gqOcean * (0.65 + gqRelief * 0.5),gqWater),gqIce,gqFrozen);`)
+        .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+          roughnessFactor = mix(roughnessFactor,0.16,gqWater);`)
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
           float gqNight = 1.0 - smoothstep(-0.15, 0.2,
             dot(normalize(vGQWorldNormal), normalize(vec3(-0.75, 0.4, 0.38))));
-          totalEmissiveRadiance *= mix(gqNight, 1.0, gqLava);`);
+          totalEmissiveRadiance *= mix(gqNight * (1.0 - gqWater) * (1.0 - gqFrozen), 1.0, gqLava);`);
     };
-    planetMat.customProgramCacheKey = () => 'gq-planet-night-1';
+    planetMat.customProgramCacheKey = () => 'gq-planet-coast-3';
     this._planetMesh = new T.Mesh(new T.SphereGeometry(5, segments, segments), planetMat);
     this._cloudMesh = new T.Mesh(new T.SphereGeometry(5.12, segments, segments),
       new T.MeshStandardMaterial({
@@ -207,18 +234,25 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
     const maps = this._world.maps(this._descriptor, this._world.policy(this._sceneData).size);
     if (maps.key === this._mapKey) return;
     this._textures.forEach(texture => texture.dispose());
-    this._textures = ['surface', 'cloud', 'night'].map(name => {
-      const texture = new T.DataTexture(maps[name], maps.width, maps.height, T.RGBAFormat);
+    this._textures = ['land', 'cloud', 'night', 'geography'].map(name => {
+      const width = name === 'geography' ? maps.geographyWidth : maps.width;
+      const height = name === 'geography' ? maps.geographyHeight : maps.height;
+      const texture = new T.DataTexture(maps[name], width, height, T.RGBAFormat);
       texture.wrapS = T.RepeatWrapping;
       texture.wrapT = T.ClampToEdgeWrapping;
       texture.flipY = true;
       texture.magFilter = texture.minFilter = T.LinearFilter;
-      texture.colorSpace = name === 'cloud' ? T.NoColorSpace : T.SRGBColorSpace;
+      texture.colorSpace = ['cloud', 'geography'].includes(name) ? T.NoColorSpace : T.SRGBColorSpace;
       texture.needsUpdate = true;
       return texture;
     });
     this._planetMesh.material.map = this._textures[0];
     this._planetMesh.material.emissiveMap = this._textures[2];
+    this._terrainUniforms.gqGeography.value = this._textures[3];
+    this._terrainUniforms.gqOcean.value.set(this._descriptor.oceanColor);
+    this._terrainUniforms.gqIce.value.set(this._descriptor.iceColor);
+    this._terrainUniforms.gqTerrain.value.set(this._descriptor.ocean * 0.85,
+      (1 - this._descriptor.ice) * 1.08, this._descriptor.ocean > 0 ? 1 : 0, this._descriptor.ice > 0 ? 1 : 0);
     this._planetMesh.material.needsUpdate = true;
     this._cloudMesh.material.map = this._textures[1];
     this._cloudMesh.material.needsUpdate = true;

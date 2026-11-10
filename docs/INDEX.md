@@ -30,6 +30,7 @@
 | [../ROADMAP.md](../ROADMAP.md) | **Production-Readiness-Roadmap** — verbindlicher Weg zum Launch (Phasen 0–9, Go-Live-Gates) |
 | [technical/PRODUCTION_AUDIT_2026-10-31.md](technical/PRODUCTION_AUDIT_2026-10-31.md) | **Production-Readiness-Audit** — Befunde mit IDs (Security, Backend, DB, Frontend, CI, Infra, Legal), Stand 31.10.2026 |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | Branch, pull request, and quality-check guidance |
+| [technical/PLESK_DEPLOYMENT.md](technical/PLESK_DEPLOYMENT.md) | Immutable GitHub-to-Plesk delivery, separate staging/production, GPU, SMTP, backup and recovery gates |
 | [../CACHE_QUICK_REFERENCE.md](../CACHE_QUICK_REFERENCE.md) | Cache operations quick reference; diagnostics are admin-only and metrics require explicit recording |
 | [../SECURITY.md](../SECURITY.md) | Private vulnerability reporting policy |
 | [technical/REALITY_CHECK_2026-10-29.md](technical/REALITY_CHECK_2026-10-29.md) | **Reality Check** — evidenzbasierter Implementierungsstand, Stand 29.10.2026 |

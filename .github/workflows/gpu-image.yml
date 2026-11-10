@@ -1,0 +1,77 @@
+name: Build and accept ComfyUI TRELLIS2 image
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: galaxyquest-gpu-image
+  cancel-in-progress: false
+jobs:
+  image:
+    # Dedicated, disposable NVIDIA runner; never use a public PR runner here.
+    runs-on: [self-hosted, linux, x64, galaxyquest-gpu]
+    environment: gpu-build
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Require trusted branch and NVIDIA runtime
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main || "$GITHUB_REF" == refs/heads/develop ]]
+          nvidia-smi
+          test -z "$(git -C tools/comfyui-trellis2 status --porcelain)"
+      - name: Build candidate
+        run: docker build -f docker/comfyui/Dockerfile.production -t galaxyquest-gpu:candidate .
+      - name: Scan candidate before authentication
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: galaxyquest-gpu:candidate
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "1"
+      - name: Require CUDA and TRELLIS2 node loading
+        run: |
+          set -euo pipefail
+          docker run --rm --gpus all galaxyquest-gpu:candidate python -c 'import torch; assert torch.cuda.is_available()'
+          id=$(docker run -d --gpus all galaxyquest-gpu:candidate)
+          trap 'docker rm -f "$id"' EXIT
+          ready=0
+          for attempt in $(seq 1 90); do
+            if docker exec "$id" curl -fsS --max-time 5 http://127.0.0.1:8188/object_info > nodes.json; then
+              ready=1
+              break
+            fi
+            sleep 3
+          done
+          test "$ready" = 1
+          jq -e 'has("Trellis2LoadModel") and has("Trellis2MeshWithVoxelGenerator") and has("Trellis2ExportMesh")' nodes.json
+          docker image inspect galaxyquest-gpu:candidate --format '{{.Id}}' > accepted-image-id
+      - name: Log in after acceptance
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish accepted candidate without rebuild
+        run: |
+          set -euo pipefail
+          id=$(cat accepted-image-id)
+          test "$(docker image inspect galaxyquest-gpu:candidate --format '{{.Id}}')" = "$id"
+          tag="ghcr.io/${GITHUB_REPOSITORY,,}-gpu:sha-$GITHUB_SHA"
+          docker tag "$id" "$tag"
+          docker push "$tag"
+          digest=$(docker buildx imagetools inspect "$tag" --format '{{.Manifest.Digest}}')
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "GPU_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}-gpu@$digest" | tee gpu-release.env
+      - uses: actions/upload-artifact@v4
+        with:
+          name: accepted-gpu-image
+          path: |
+            gpu-release.env
+            nodes.json
+          if-no-files-found: error

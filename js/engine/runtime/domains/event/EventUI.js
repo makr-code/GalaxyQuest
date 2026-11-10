@@ -2,6 +2,21 @@
  * EventUI - Game event log and trigger display
  */
 
+const SEVERITY_EMOJI = {
+  critical: '🔴',
+  major: '🟠',
+  moderate: '🟡',
+  minor: '🔵',
+  positive: '🟢',
+};
+
+function createTextElement(doc, tagName, className, text) {
+  const element = doc.createElement(tagName);
+  if (className) element.className = className;
+  element.textContent = text;
+  return element;
+}
+
 export class EventUI {
   constructor(eventController, domTarget) {
     this.controller = eventController;
@@ -13,101 +28,107 @@ export class EventUI {
 
   render() {
     if (!this.container) return;
-    this.container.innerHTML = this._buildHtml();
-    this._attachEventHandlers();
-  }
+    const doc = this.container.ownerDocument;
+    const panel = doc.createElement('div');
+    panel.className = 'event-panel';
+    panel.append(
+      createTextElement(doc, 'h2', '', '⚡ Game Events'),
+      this._buildAvailableEventsSection(),
+      this._buildEventLogSection(),
+    );
 
-  _buildHtml() {
-    return `
-      <div class="event-panel">
-        <h2>⚡ Game Events</h2>
-        ${this._buildAvailableEventsSection()}
-        ${this._buildEventLogSection()}
-        <button class="btn-save" id="btn-save">💾 Save</button>
-      </div>
-    `;
+    const saveButton = createTextElement(doc, 'button', 'btn-save', '💾 Save');
+    saveButton.id = 'btn-save';
+    saveButton.addEventListener('click', async () => {
+      try {
+        await this.controller.save();
+        alert('✅ Events saved');
+      } catch (error) {
+        alert(`Error: ${error.message}`);
+      }
+    });
+    panel.append(saveButton);
+    this.container.replaceChildren(panel);
   }
 
   _buildAvailableEventsSection() {
+    const doc = this.container.ownerDocument;
     const events = this.controller.getAllEvents();
-    let html = `<div class="available-events"><h3>Available Events</h3><div class="event-list">`;
+    const section = doc.createElement('div');
+    section.className = 'available-events';
+    section.append(createTextElement(doc, 'h3', '', 'Available Events'));
 
+    const list = doc.createElement('div');
+    list.className = 'event-list';
     events.forEach(event => {
-      const triggered = event.triggered ? '✅ Triggered' : '⏳ Pending';
-      const severityEmoji = {
-        'critical': '🔴',
-        'major': '🟠',
-        'moderate': '🟡',
-        'minor': '🔵',
-        'positive': '🟢'
-      }[event.severity] || '⚪';
+      const eventType = String(event.type ?? '');
+      const severityEmoji = Object.hasOwn(SEVERITY_EMOJI, event.severity)
+        ? SEVERITY_EMOJI[event.severity]
+        : '⚪';
+      const card = doc.createElement('div');
+      card.className = 'event-card';
+      card.dataset.eventType = eventType;
 
-      html += `
-        <div class="event-card" data-event-type="${event.type}">
-          <div class="event-header">
-            <span>${severityEmoji} ${event.title}</span>
-            <span class="status">${triggered}</span>
-          </div>
-          <p class="event-desc">${event.description}</p>
-          <button class="btn-trigger" data-event-type="${event.type}" ${event.triggered ? 'disabled' : ''}>
-            🎯 Trigger
-          </button>
-        </div>
-      `;
+      const header = doc.createElement('div');
+      header.className = 'event-header';
+      header.append(
+        createTextElement(doc, 'span', '', `${severityEmoji} ${String(event.title ?? '')}`),
+        createTextElement(doc, 'span', 'status', event.triggered ? '✅ Triggered' : '⏳ Pending'),
+      );
+      const description = createTextElement(doc, 'p', 'event-desc', String(event.description ?? ''));
+      const triggerButton = createTextElement(doc, 'button', 'btn-trigger', '🎯 Trigger');
+      triggerButton.dataset.eventType = eventType;
+      triggerButton.disabled = Boolean(event.triggered);
+      triggerButton.addEventListener('click', (clickEvent) => {
+        const type = clickEvent.currentTarget.dataset.eventType;
+        const currentEvent = this.controller.getAllEvents().find(item => String(item.type) === type);
+        if (!currentEvent || currentEvent.triggered) return;
+        try {
+          this.controller.triggerEvent(type);
+          this.render();
+        } catch (error) {
+          alert(`Error: ${error.message}`);
+        }
+      });
+
+      card.append(header, description, triggerButton);
+      list.append(card);
     });
-
-    html += `</div></div>`;
-    return html;
+    section.append(list);
+    return section;
   }
 
   _buildEventLogSection() {
+    const doc = this.container.ownerDocument;
     const log = this.controller.getEventLog(20);
-    let html = `<div class="event-log"><h3>Event Log (Last 20)</h3><ul>`;
+    const section = doc.createElement('div');
+    section.className = 'event-log';
+    section.append(createTextElement(doc, 'h3', '', 'Event Log (Last 20)'));
 
+    const list = doc.createElement('ul');
     if (log.length === 0) {
-      html += `<li>No events triggered</li>`;
+      list.append(createTextElement(doc, 'li', '', 'No events triggered'));
     } else {
       log.forEach(entry => {
-        const timeStr = new Date(entry.timestamp).toLocaleTimeString();
-        html += `
-          <li>
-            <strong>${entry.title}</strong> @ ${timeStr}
-            <br>
-            <span class="severity-${entry.severity}">Consequences: ${entry.consequences.join(', ')}</span>
-          </li>
-        `;
+        const item = doc.createElement('li');
+        const title = createTextElement(doc, 'strong', '', String(entry.title ?? ''));
+        const timestamp = new Date(entry.timestamp).toLocaleTimeString();
+        const consequences = Array.isArray(entry.consequences) ? entry.consequences : [];
+        const severity = Object.hasOwn(SEVERITY_EMOJI, entry.severity)
+          ? entry.severity
+          : 'unknown';
+        const consequenceText = createTextElement(
+          doc,
+          'span',
+          `severity-${severity}`,
+          `Consequences: ${consequences.map(value => String(value ?? '')).join(', ')}`,
+        );
+        item.append(title, ` @ ${timestamp}`, doc.createElement('br'), consequenceText);
+        list.append(item);
       });
     }
-
-    html += `</ul></div>`;
-    return html;
-  }
-
-  _attachEventHandlers() {
-    const triggerButtons = this.container.querySelectorAll('.btn-trigger');
-    triggerButtons.forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const eventType = e.target.dataset.eventType;
-        try {
-          this.controller.triggerEvent(eventType);
-          this.render();
-        } catch (err) {
-          alert(`Error: ${err.message}`);
-        }
-      });
-    });
-
-    const saveBtn = this.container.querySelector('#btn-save');
-    if (saveBtn) {
-      saveBtn.addEventListener('click', async () => {
-        try {
-          await this.controller.save();
-          alert('✅ Events saved');
-        } catch (err) {
-          alert(`Error: ${err.message}`);
-        }
-      });
-    }
+    section.append(list);
+    return section;
   }
 
   handleStateChange(change) {

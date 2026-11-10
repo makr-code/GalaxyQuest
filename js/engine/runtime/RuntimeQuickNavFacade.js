@@ -9,11 +9,33 @@
     { id: 'combat', label: 'Kampf' },
     { id: 'watch', label: 'Beobachten' },
   ];
+  const QUICKNAV_RIBBON_IDS = new Set(QUICKNAV_RIBBONS.map(({ id }) => id));
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function safeIndex(value) {
+    const index = Number(value);
+    return Number.isSafeInteger(index) && index > 0 ? index : 0;
+  }
+
+  function favoriteKey(entry) {
+    if (!entry || typeof entry !== 'object') return '';
+    const galaxyIndex = safeIndex(entry.galaxy_index);
+    const systemIndex = safeIndex(entry.system_index);
+    return galaxyIndex && systemIndex ? `${galaxyIndex}:${systemIndex}` : '';
+  }
 
   function createQuickNavFacade(options = {}) {
     const wm = options.wm;
     const documentRef = options.documentRef || global.document;
-    const esc = typeof options.esc === 'function' ? options.esc : (value) => String(value || '');
+    const esc = escapeHtml;
     const gameLog = typeof options.gameLog === 'function' ? options.gameLog : function () {};
     const showToast = typeof options.showToast === 'function' ? options.showToast : function () {};
     const runPhysicsCinematicFlight = typeof options.runPhysicsCinematicFlight === 'function'
@@ -61,7 +83,33 @@
 
     function getQuickNavFavorites() {
       const raw = loadQuickNavData();
-      return Array.isArray(raw.favorites) ? raw.favorites : [];
+      if (!Array.isArray(raw.favorites)) return [];
+      return raw.favorites.filter((entry) => entry && typeof entry === 'object' && !Array.isArray(entry))
+        .map((entry) => {
+          const key = favoriteKey(entry);
+          if (!key) return null;
+          const [galaxyIndex, systemIndex] = key.split(':').map(Number);
+          const ribbon = String(entry.ribbon || '');
+          const coordinate = (value) => {
+            const number = Number(value);
+            return Number.isFinite(number) ? number : 0;
+          };
+          return {
+            key,
+            galaxy_index: galaxyIndex,
+            system_index: systemIndex,
+            name: String(entry.name ?? ''),
+            catalog_name: String(entry.catalog_name ?? ''),
+            spectral_class: String(entry.spectral_class ?? 'G'),
+            subtype: String(entry.subtype ?? ''),
+            x_ly: coordinate(entry.x_ly),
+            y_ly: coordinate(entry.y_ly),
+            z_ly: coordinate(entry.z_ly),
+            ribbon: QUICKNAV_RIBBON_IDS.has(ribbon) ? ribbon : '',
+            pinnedAt: Number.isFinite(Number(entry.pinnedAt)) ? Number(entry.pinnedAt) : 0,
+          };
+        })
+        .filter(Boolean);
     }
 
     function isFavoriteStar(star) {
@@ -71,10 +119,11 @@
     }
 
     function addFavorite(star, ribbon) {
-      const ribbonValue = String(ribbon || '');
-      const g = Number(star && star.galaxy_index ? star.galaxy_index : 1);
-      const s = Number(star && star.system_index ? star.system_index : 0);
-      if (!s) return;
+      const requestedRibbon = String(ribbon || '');
+      const ribbonValue = QUICKNAV_RIBBON_IDS.has(requestedRibbon) ? requestedRibbon : '';
+      const g = safeIndex(star && star.galaxy_index ? star.galaxy_index : 1);
+      const s = safeIndex(star && star.system_index ? star.system_index : 0);
+      if (!g || !s) return;
       const key = String(g) + ':' + String(s);
       const data = loadQuickNavData();
       if (!Array.isArray(data.favorites)) data.favorites = [];
@@ -99,16 +148,17 @@
     function removeFavorite(key) {
       const data = loadQuickNavData();
       if (!Array.isArray(data.favorites)) return;
-      data.favorites = data.favorites.filter((entry) => entry.key !== key);
+      data.favorites = data.favorites.filter((entry) => favoriteKey(entry) !== key);
       saveQuickNavData(data);
     }
 
     function setFavoriteRibbon(key, ribbon) {
       const data = loadQuickNavData();
       if (!Array.isArray(data.favorites)) return;
-      const favorite = data.favorites.find((entry) => entry.key === key);
+      const favorite = data.favorites.find((entry) => favoriteKey(entry) === key);
       if (favorite) {
-        favorite.ribbon = String(ribbon || '');
+        const requestedRibbon = String(ribbon || '');
+        favorite.ribbon = QUICKNAV_RIBBON_IDS.has(requestedRibbon) ? requestedRibbon : '';
         saveQuickNavData(data);
       }
     }
@@ -243,7 +293,7 @@
         }
 
         listEl.innerHTML = favorites.map((fav) => {
-          const ribbonId = fav.ribbon || '';
+          const ribbonId = QUICKNAV_RIBBON_IDS.has(fav.ribbon) ? fav.ribbon : '';
           const cls = String(fav.spectral_class || 'G') + String(fav.subtype || '');
           return '<div class="quicknav-item" data-fav-key="' + esc(fav.key) + '">'
             + '<div class="quicknav-ribbon-dot" data-r="' + esc(ribbonId) + '"></div>'

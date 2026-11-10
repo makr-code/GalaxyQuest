@@ -36,6 +36,26 @@ final class ColonyEconomySimulationTest extends TestCase
         self::assertSame($state, $result);
     }
 
+    public function testOptionalPopulationPeakCapturesGrowthBeforeStarvationWithoutChangingSimulation(): void
+    {
+        $state = $this->state();
+        $state['classes']['colonist'] = 1999;
+        $state['stock']['food'] = 5;
+        $state['growth_remainder'] = 0.99;
+        $context = $this->context();
+        $context['raw_production'] = [];
+        $context['population_capacity'] = 5000;
+        $peak = 1999;
+        $result = ColonyEconomySimulation::advance($state, $context, 1086400, false, $peak);
+        self::assertGreaterThanOrEqual(2000, $peak);
+        self::assertLessThan(1999, array_sum($result['classes']));
+        self::assertSame(ColonyEconomySimulation::advance($state, $context, 1086400), $result);
+        $partialPeak = 0;
+        $partial = ColonyEconomySimulation::advance($state, $context, 1000100, true, $partialPeak);
+        self::assertSame(array_sum($partial['classes']), $partialPeak);
+        self::assertSame(1000100, $partial['settled_at']);
+    }
+
     public function testRefreshFrequencyDoesNotAffectSimulation(): void
     {
         $state = $this->state();

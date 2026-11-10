@@ -1338,6 +1338,7 @@ function clamp_int_range(int $value, int $min, int $max): int {
 
 function update_colony_resources(PDO $db, int $colonyId, ?int $now = null): void
 {
+    require_once __DIR__ . '/../lib/BodyDevelopment.php';
     if (ON_DEMAND_ECONOMY_ENABLED) {
         (new OnDemandEconomy($db))->settle($colonyId, null, $now);
         return;
@@ -1363,6 +1364,7 @@ function update_colony_resources(PDO $db, int $colonyId, ?int $now = null): void
             throw new UnexpectedValueException('Invalid colony last_update.');
         }
         $now ??= time();
+        $developmentPeak = (int)$row['population'];
         // Numerical integration is performed only on demand; no minute boundary is awaited.
         $elapsedSeconds = max(0, $now - $last);
         if ($elapsedSeconds > 0) {
@@ -1420,6 +1422,7 @@ function update_colony_resources(PDO $db, int $colonyId, ?int $now = null): void
                 $row['food'] = round($snapshot['food_balance']['stock'], 4);
                 $stockRemainders['food'] = round($snapshot['food_balance']['stock'] - $row['food'], 12);
                 $row['population'] = $population['population'];
+                $developmentPeak = max($developmentPeak, (int)$row['population']);
                 $row['happiness'] = $snapshot['welfare']['happiness'];
                 $darkGain += $snapshot['dark_matter_per_hour'] * $hours;
             }
@@ -1466,6 +1469,9 @@ function update_colony_resources(PDO $db, int $colonyId, ?int $now = null): void
                 $db->prepare('UPDATE users SET dark_matter = dark_matter + ? WHERE id = ?')
                     ->execute([$darkWhole, $row['user_id']]);
             }
+        }
+        if (\GalaxyQuest\Terrain\BodyDevelopment::enabled()) {
+            \GalaxyQuest\Terrain\BodyDevelopment::observe($db, $row, $developmentPeak, $now);
         }
         if ($ownsTransaction) {
             $db->commit();

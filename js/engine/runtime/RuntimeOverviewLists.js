@@ -1,10 +1,23 @@
 'use strict';
 
 (function () {
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function numericId(value) {
+    const id = Number(value);
+    return Number.isSafeInteger(id) && id > 0 ? id : 0;
+  }
+
   function createOverviewLists(opts = {}) {
     const {
       windowRef = window,
-      esc = (value) => String(value || ''),
       fmt = (value) => String(value ?? 0),
       fmtName = (value) => String(value || ''),
       countdown = () => '-',
@@ -12,6 +25,7 @@
       showToast = () => {},
       getAudioManager = () => null,
     } = opts;
+    const esc = escapeHtml;
 
     function readPercent(...values) {
       for (const value of values) {
@@ -35,14 +49,18 @@
       const fleets = windowRef._GQ_fleets || [];
       if (!fleetList) return;
       if (!fleets.length) {
-        fleetList.innerHTML = '<p class="text-muted">No active fleets.</p>';
+        const empty = windowRef.document.createElement('p');
+        empty.className = 'text-muted';
+        empty.textContent = 'No active fleets.';
+        fleetList.replaceChildren(empty);
         return;
       }
 
       fleetList.innerHTML = renderTemplateList('fleetRow', fleets.map((fleet) => {
         const pos = fleet.current_pos || {};
-        const positionHtml = (pos.x !== undefined)
-          ? `<span class="fleet-pos" title="3D position">POS ${esc(String(pos.x.toFixed(0)))}, ${esc(String(pos.y.toFixed(0)))}, ${esc(String(pos.z.toFixed(0)))} ly</span>`
+        const coordinates = [pos.x, pos.y, pos.z].map(Number);
+        const positionHtml = coordinates.every(Number.isFinite)
+          ? `<span class="fleet-pos" title="3D position">POS ${coordinates.map((value) => esc(String(Math.round(value)))).join(', ')} ly</span>`
           : '';
         const vesselChips = (fleet.vessels || [])
           .slice(0, 5)
@@ -73,7 +91,8 @@
           }
         }
 
-        const stealthSec = Number(fleet.stealth_remaining_s || 0);
+        const rawStealthSec = Number(fleet.stealth_remaining_s || 0);
+        const stealthSec = Number.isFinite(rawStealthSec) && rawStealthSec > 0 ? Math.floor(rawStealthSec) : 0;
         const stealthBadge = stealthSec > 0
           ? `<span class="fleet-stealth-badge" title="Vel'Ar stealth: ${stealthSec}s remaining">Stealth ${stealthSec}s</span>`
           : '';
@@ -99,13 +118,14 @@
             </div>
           </div>`;
 
+        const fleetId = numericId(fleet.id);
         return {
-          fleetId: esc(String(fleet.id || '')),
+          fleetId: fleetId ? String(fleetId) : '',
           fleetLabelHtml: (() => {
             const label = fleet.fleet_label ? esc(String(fleet.fleet_label)) : '';
             return `<span class="fleet-label-wrap">` +
               `<span class="fleet-label-text" title="${label || 'Fleet ' + esc(String(fleet.id || ''))}">${label || ''}</span>` +
-              `<button class="fleet-label-edit-btn" aria-label="Fleet umbenennen" title="Fleet umbenennen" data-fid="${esc(String(fleet.id || ''))}" data-label="${label}">✎</button>` +
+              `${fleetId ? `<button class="fleet-label-edit-btn" aria-label="Fleet umbenennen" title="Fleet umbenennen" data-fid="${fleetId}" data-label="${label}">✎</button>` : ''}` +
               `</span>`;
           })(),
           mission: esc(String(fleet.mission || '').toUpperCase()),
@@ -123,15 +143,17 @@
           vesselListHtml,
           returningBadgeHtml: fleet.returning ? '<span class="fleet-returning">Returning</span>' : '',
           ftlBadgesHtml: stealthBadge + hullBadge,
-          recallButtonHtml: !fleet.returning
-            ? `<button class="btn btn-warning btn-sm recall-btn" data-fid="${esc(String(fleet.id || ''))}">Recall</button>`
+          recallButtonHtml: !fleet.returning && fleetId
+            ? `<button class="btn btn-warning btn-sm recall-btn" data-fid="${fleetId}">Recall</button>`
             : '',
         };
       }));
 
       fleetList.querySelectorAll('.recall-btn').forEach((btn) => {
         btn.addEventListener('click', async () => {
-          const response = await api.recallFleet(parseInt(btn.dataset.fid, 10));
+          const fleetId = numericId(btn.dataset.fid);
+          if (!fleetId) return;
+          const response = await api.recallFleet(fleetId);
           if (response.success) {
             const audioManager = getAudioManager();
             if (audioManager && typeof audioManager.playFleetRecall === 'function') audioManager.playFleetRecall();
@@ -147,6 +169,8 @@
         btn.addEventListener('click', () => {
           const wrap = btn.closest('.fleet-label-wrap');
           if (!wrap || wrap.querySelector('.fleet-label-input')) return;
+          const fleetId = numericId(btn.dataset.fid);
+          if (!fleetId) return;
           const textSpan = wrap.querySelector('.fleet-label-text');
           const currentLabel = btn.dataset.label || '';
           const input = windowRef.document.createElement('input');
@@ -163,9 +187,8 @@
 
           async function _save() {
             const newLabel = input.value.trim().slice(0, 48);
-            const fid = parseInt(btn.dataset.fid, 10);
             try {
-              const res = await api.renameFleet(fid, newLabel);
+              const res = await api.renameFleet(fleetId, newLabel);
               if (res && res.success !== false) {
                 btn.dataset.label = newLabel;
                 textSpan.textContent = newLabel;
@@ -200,7 +223,10 @@
       if (!battleLog) return;
       const battles = windowRef._GQ_battles || [];
       if (!battles.length) {
-        battleLog.innerHTML = '<p class="text-muted">No battles yet.</p>';
+        const empty = windowRef.document.createElement('p');
+        empty.className = 'text-muted';
+        empty.textContent = 'No battles yet.';
+        battleLog.replaceChildren(empty);
         return;
       }
 

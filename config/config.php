@@ -39,6 +39,7 @@ define('DB_CHARSET', env_value('DB_CHARSET', 'utf8mb4'));
 // Game configuration
 define('GAME_SPEED', (int) env_value('GAME_SPEED', 1));   // Resource/fleet speed multiplier
 define('ON_DEMAND_ECONOMY_ENABLED', (int) env_value('ON_DEMAND_ECONOMY_ENABLED', 0));
+define('BODY_DEVELOPMENT_ENABLED', (int) env_value('BODY_DEVELOPMENT_ENABLED', 0));
 define('BATTLE_ENCOUNTERS_ENABLED', (int) env_value('BATTLE_ENCOUNTERS_ENABLED', 0));
 define('LIVE_BATTLE_JOURNAL_WORKER_ENABLED', (int) env_value('LIVE_BATTLE_JOURNAL_WORKER_ENABLED', 0));
 define('LIVE_BATTLE_JOURNAL_READ_ENABLED', (int) env_value('LIVE_BATTLE_JOURNAL_READ_ENABLED', 0));

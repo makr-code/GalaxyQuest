@@ -7,6 +7,21 @@ vendor
 # Local environment material is injected at runtime, never baked into layers.
 **/.env
 **/.env.*
+deploy/runtime.env
+deploy/database.env
+deploy/tts.env
+deploy/grafana.env
+deploy/mysql-exporter.cnf
+deploy/alertmanager.yml
+deploy/backups
+deploy/releases
+deploy/current.env
+deploy/previous.env
+deploy/candidate.env
+deploy/failed.env
+deploy/current-bundle
+deploy/previous-bundle
+deploy/deployment.lock
 **/*.pem
 **/*.key
 **/.git

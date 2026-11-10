@@ -4,6 +4,7 @@
 > For the high-level "what", see [README.md](../../README.md).  
 > For the "what's next", see [FUTURE_ENHANCEMENTS.md](FUTURE_ENHANCEMENTS.md).  
 > For the game engine specifically, see [webgpu_architecture.md](webgpu_architecture.md).
+> For staging/production infrastructure and delivery, see [Plesk deployment](PLESK_DEPLOYMENT.md).
 
 ---
 
@@ -1302,6 +1303,495 @@ WebGPU workflow: a missing adapter fails rather than skips. Local runs without
 an adapter are explicitly skipped. This fixture has no authenticated server
 snapshot; it is a buffer/texture lifetime contract, not a proof of total driver
 memory reclamation or the complete logged-in game lifecycle.
+
+### Terrain material boundaries in persistent WebGPU views
+
+The persistent planet approach and colony terrain classify water, lava and snow
+from interpolated signed elevations, not interpolated numeric material IDs.
+Each terrain vertex carries height relative to the manifest sea level and
+snowline, plus body-wide liquid/snow flags. The shared body material evaluates
+these boundaries in the fragment shader with a derivative-based, approximately
+one-pixel antialiasing band. Flat surfaces exactly at a threshold retain the
+dry/unfrozen classification. Snow is suppressed under liquid, avoiding phantom
+intermediate materials on triangles that connect land and water.
+Classification uses geological height before city grading, so preparing a city
+floor cannot move the canonical coastline. The local non-persistent terrain
+fallback retains its existing graded-height and -0.5 sea-level convention.
+
+Boundary masks blend PBR albedo, roughness and lava emission independently of
+filtered procedural microdetail. This is not a global sharpening postprocess.
+Water coverage also blends the perturbed rock micro-normal back to the
+canonical geometric normal, then normalizes it. Both persistent renderers
+pass that normal in the same canonical frame as their PBR lighting. Fully
+submerged fragments therefore no longer inherit terrestrial noise in water
+highlights; partially covered coast fragments interpolate with the same
+antialiasing mask as color and roughness. Dry ground, ice and lava retain
+their existing micro-normal detail, with water roughness 0.16, ice roughness
+0.38 and the base lava emission unchanged.
+The persistent orbital and city renderers then add seeded, two-scale moving
+water normals in that same canonical frame, excluding explicit prepared
+foundations. Smooth procedural gradients follow a repeatable 120-second loop;
+pixel-footprint and projected-detail filtering suppress unresolved ripples.
+The existing render callbacks advance a separate bounded phase, including
+orbital backdrops. Live reduced-motion settings freeze/resume that phase;
+hidden views do not advance it, and disabled VFX or reduced-flash settings
+use calm water. Time and enable flags occupy previously unused material
+uniform padding, keeping the 112-byte layout and resource count unchanged.
+These are visual normal waves, not displaced water geometry or fluid physics:
+no timers, textures or simulation are added, and terrain triangles stay intact.
+Lava coverage in these two persistent renderers also receives slowly drifting,
+seeded triplanar emission detail at 32 m and 8 m scales. The same canonical
+anchor split, bounded phase and enable flag keep it aligned with local/orbital
+coordinates and apply the existing reduced-motion freeze/resume, visibility,
+VFX-off and reduced-flash behavior. Pixel-footprint and projected-detail
+filtering restore the base emission when unresolved; prepared foundations
+exclude the effect. The modulation is bounded to +/-18 percent of the base
+lava emission, weighted by antialiased lava coverage, without altering its
+color ratio, surface albedo, normals, roughness or metallic value. There are
+no added lights, particles, timers, geometry or resource allocations; this is
+visual glow advection, not lava flow simulation or a fire/damage system.
+Local industrial building profiles in the city renderer now emit seeded smoke
+puffs rather than additive amber particles. Each puff rises and drifts over an
+eight-second lifetime, expands and fades smoothly to zero at birth/death.
+Body terrain seed and stable building coordinates/type preserve puff identity
+across snapshot rebuilds; no damage or fire status is inferred from industry.
+Construction, power, research and other existing particle profiles retain
+their additive rendering. Smoke uses soft radial coverage and standard alpha
+blending in a separate pipeline/draw range of the same view-owned vertex
+buffer (40 bytes/vertex). Existing emitter/quality limits and the 900-particle
+ceiling remain; there are no textures, lights, timers or extra render passes.
+The existing city frame callback advances particle motion; live reduced-motion
+freezes/resumes it, while hidden/off VFX suppress opacity. Runtime building
+slot mapping preserves activity/power/visibility/effect state, so disabled
+buildings do not acquire active industrial plumes. Rebuilds remove stale
+emitters and exit/disposal releases their buffer. This is decorative local
+smoke, not atmospheric transport or a damage/fire simulation; satellite
+proxies, the orbital view and map-based paths have no new smoke emitters.
+Unit tests cover seeded rebuilds, state gates, live motion policy, bounded
+particle counts, separate alpha/additive draw ranges and buffer teardown.
+A GPU readback verifies soft edges, darkening rather than additive glow,
+transparent disabled output and the unchanged shape of non-smoke particles.
+
+Persistent orbital clouds and the city's cloud shell/crossing veil now share
+a seeded three-dimensional, domain-warped density function. A bounded
+120-second circular drift plus slow harmonic warping deforms the cloud mass
+rather than merely translating a fixed image. Orbital sampling uses canonical
+body direction instead of longitude/latitude texture coordinates, removing
+the longitude wrap discontinuity. The city shell/veil retain their existing
+local scales and cloud-altitude/fog rules; this is not a continuous global
+weather simulation or matching storm geography between views.
+Broad and fine density detail fade by pixel footprint, with shell derivatives
+evaluated before ray-intersection discards. Both paths reuse the existing
+surface-animation phase: reduced motion freezes/resumes drift and deformation,
+reduced flash uses a fixed phase, and hidden/off VFX suppress cloud coverage.
+The city phase no longer follows the unconditionally advancing camera clock.
+Orbital cloud coverage now honors the same atmosphere absence/strength and
+explicit coverage metadata as the city, including airless bodies and zero
+coverage. Atmospheric haze remains separate. City seed occupies existing
+camera padding; orbital coverage/strength use existing uniform components.
+No textures, timers, geometry, render passes or buffers are added.
+GPU readbacks measure deformation beyond rigid translation, deterministic
+seed/phase output, temporal-loop and spatial continuity, bounded density,
+zero coverage and minification. Renderer tests check live policy changes,
+phase uploads and atmosphere/coverage gates in both paths.
+
+The alternate map-based Three.js/WebGPU approach paths still use static water
+and lava.
+An actual GPU float readback checks normalized normals, half-covered
+transitions, albedo, roughness, metallic and emission separately, including
+measurable dry-ground microdetail, deterministic repeated renders, moving
+water, loop repeatability, filtering and unchanged non-target materials.
+It separately measures lava motion, seeded spatial variation, loop-boundary
+continuity, half-covered emission blending, anchor invariance, bounded
+emission/color ratios and preservation of all non-emission material channels.
+Terrain vertices now occupy 48 bytes (12 floats); the bounded terrain LRU grows
+proportionally from 8 to 12 MiB to retain equivalent cached LOD coverage.
+The canonical orbital sphere selects 32 by 64, 64 by 128 or 128 by 256 cells
+from projected diameter, with 15% hysteresis around 256/768-pixel thresholds.
+At the closest level, liquid-world coast edges with significant midpoint
+geological-height error are ranked and up to 8,192 receive one subdivision.
+Both neighboring triangles share each split, including longitude seams and
+poles; one/two/three-edge triangulation avoids T-junctions. This adds detail
+where linear elevation interpolation is least accurate without evaluating the
+entire generator per fragment. Final 48-byte GPU vertices are limited to
+12 MiB. Zoom-level changes replace/destroy the old buffer; ordinary frames and
+small threshold oscillations reuse it. Picking consumes the same refined
+vertex layout. Seeds and server terrain data are unchanged.
+
+Coast shape still follows the sampled mesh; this is not per-fragment evaluation
+of the entire geological generator. Authored GeoJSON region colors retain
+their explicit transition widths. The real WebGPU coast
+fixture checks at most two transitional pixels and less than one pixel of
+sea-level displacement, along with liquid/snow exclusivity, flat thresholds
+and deterministic output.
+
+The separate map-based planet approach (native WebGPU and Three.js standard
+material) now separates dry surface detail from a continuous public geography
+map. `GQPlanetTexturePipeline.terrainRelief()` samples a deterministic spherical
+field, continuous across longitude and constant at the poles, rather than
+deriving land boundaries from the old decorrelated per-texel bump noise.
+`PlanetLivingWorld` samples it at texel centers into a linear, non-sRGB
+geography texture. Color/cloud/night maps retain their 64/128/256 width
+policy; geography independently uses 256/512/1024 by 128/256/512 texels.
+Elevation is rounded to 16-bit UNORM and packed high-byte/low-byte into RG
+of an ordinary `rgba8unorm`/Three.js no-color-space texture. Both shaders
+decode the filtered channels with `dot(rg, vec2(256/257, 1/257))`.
+Because that operation is linear, filtering commutes with decoding even
+across byte carries; no integer rounding may be applied after sampling.
+This needs no float-texture features, extra samplers or additional textures.
+Both shaders interpolate elevation first, then classify water and polar ice
+with derivative-sized antialiasing. Water color/specularity or roughness and
+ice color are applied after classification, not bilinearly blurred together
+as already-classified color texels. Candidate night lights remain public;
+the fragment masks suppress them over water/ice and existing view uniforms
+still control actual activity. Cloud motion is independent.
+
+Each map renderer owns four textures (dry color, clouds, candidate night
+lights, geography) and frees all four on replacement/exit/disposal. The CPU
+LRU still holds at most eight public bundles, never ownership/economic state.
+Maximum retained CPU map bytes are 20 MiB across eight high-quality bundles;
+one high-quality renderer uploads 2.375 MiB of texels in its four textures,
+excluding driver overhead and uniforms. The preview-only surface color map
+is retained on the CPU but not uploaded. Replacements free the old textures.
+The map descriptor is versioned `planet-pipeline-4` to distinguish the new
+precision/layout. This is a deliberate visual change in the legacy approach,
+not a change to persistent canonical terrain, colony locations or gameplay.
+The old CanvasTexture/server-texture pipeline remains byte-compatible; the
+map approach's spherical field is not a second authoritative terrain model.
+Finite map resolution and bilinear reconstruction still limit shape accuracy
+even when the fragment boundary itself is sharp. The spherical field and its
+seeds do not change with this precision upgrade. Tests compare interpolated
+geography with the exact field across three seeds (at least 80% lower mean
+absolute error than the old low-resolution 8-bit map), check 16-bit rounding,
+byte carries, cache bytes and actual upload dimensions. Production WebGPU and
+Three.js shader readbacks check at most two transitional coastline pixels,
+projected threshold position and distinct coverage for sea-level changes of
+0.00005, below the old 1/255 elevation step. The Three.js coast measurement
+excludes the mesh's multisampled silhouette; its projection tolerance is
+three pixels versus one for the native analytic sphere.
+
+### Seeded settlement and economic surface presentation
+
+`js/rendering/colony-surface-plan.js` adds a versioned, deterministic visual
+read model to the persistent WebGPU planet approach and colony surface. It
+samples 768 equal-area spherical candidates against the existing canonical
+terrain, rejects water, steep ground and unsuitable ice/high-altitude regions,
+and selects at most 12 geographically separated anchors. Persisted valley-dome
+sites remain primary. Candidate identity depends on terrain seed and generator
+version, never on camera, owner, population or economic specialization.
+There is no new economy tick, scheduler, resource deposit or gameplay building.
+
+Population activates a stable prefix of anchors (one at up to 1,999 inhabitants,
+then one additional region per population doubling, capped at 12).
+Without persisted development enabled, the count is derived only from the
+current snapshot and shrinking population deactivates satellites. With
+`BODY_DEVELOPMENT_ENABLED=1`, the server retains a body-wide high-water mark;
+anchors above the current active count remain present as visitable ruins.
+Existing managed buildings remain in the primary city with unchanged selection
+keys, levels and gameplay effects. Its local terrain frame points at the same
+canonical primary anchor seen from orbit. The geographic candidate list is
+reused until the manifest changes; snapshot updates only rebuild development.
+
+The surface HUD's settlement selector visits active satellites in their own
+canonical terrain frames. Each visited satellite creates one bounded instanced
+decorative city (8 by 8 fixed lots, at most 64 occupied lots and fewer than 512
+cuboid parts). Independent per-lot hashes keep houses stable during population
+growth and ownership changes. Economic lots show agricultural rows/greenhouses,
+extraction rigs or industrial halls from the existing capacity mix.
+Ice/rock/lava satellites receive a visual shelter; the primary persisted valley
+dome is not relocated or reused as the satellite's geographic anchor.
+
+Only the selected site's detailed geometry is resident. Switching sites
+releases the old instance/terrain buffers without creating new pipelines or
+duplicating the building inventory. Satellite views contain no authoritative
+building slots, building detail selection, production VFX or invented people.
+The Buildings action can still open colony-wide management. Switching is
+disabled while inspecting a primary building. Site changes reset the local
+camera without inventing a flight through the planet; return to orbit and
+re-entry preserve the selection. Snapshot updates retain a still-active site;
+if population decline deactivates it without history, the HUD explicitly reports
+the return to the primary site. With history, the selected site remains in view
+and switches to ruins instead. An unknown direct selection request throws.
+
+Built, non-orbital farm/hydroponics, extraction and industrial levels determine
+mixed land-use proportions. Construction with no completed level contributes
+no capacity. Farms use field parcels, extraction uses terraced color bands,
+and industry uses sealed/darkened ground; urban blocks and activity/damage-aware
+night lights share those anchors. Procedural shader masks modify albedo,
+roughness and emission without baking private state into public terrain caches.
+The completed colony-wide sector capacity is distributed over active anchors
+using positive geographic suitability weights: flat temperate lowlands favor
+outdoor agriculture, elevated/rough terrain favors extraction, and flat sites
+near the primary favor industry. On non-agricultural biomes, flat terrain
+instead favors protected cultivation; this does not enable outdoor fields.
+These are visual suitability proxies, not soil, ore deposits, actual freight
+accessibility or production modifiers. Primary proximity is geographic only;
+it does not imply a passable regional road. The persisted valley floor is
+treated as a prepared flat site.
+
+Each sector's regional capacity sums to its original completed-building
+capacity; each active site's normalized mix drives the shared GPU land-use
+masks, decorative satellite modules and localized orbital/English surface
+labels. Sites below 50% dominance are labelled mixed economy. The primary's
+authoritative building inventory stays untouched even if its visual region
+favors another sector. Regional extents use local capacity relative to the
+active-site average; freight corridor coloring uses endpoint regional mixes.
+Growth or economic snapshots may redistribute the mix, but never relocate
+anchors, roads or residential lots. Ruins receive zero capacity and no
+specialization label; recovery recomputes the same distribution for the same
+inputs. No historical economic specialization is invented.
+
+Water/lava materials, steep surfaces and explicit terrain-region overrides are
+protected. Outdoor agriculture is restricted to terran/ocean biomes; protected
+hydroponic buildings remain part of the existing city geometry on other worlds.
+Detail is footprint-filtered rather than independently randomized per zoom.
+The shared material adds seeded crop parcels with alternating row orientation
+and darker boundary strips, elliptical quarry pits with bench bands, and
+industrial roof/yard/loading-strip patterns. Each sector also modifies
+roughness: rough field margins and quarry floors contrast with smoother
+industrial roofs. These are albedo/roughness cues only, not terrain excavation,
+normal displacement, extra meshes or independently selectable buildings.
+Economic detail emits no new light and does not change weather, production
+or the protected cultivation rules.
+
+Outdoor crop canopies also receive restrained traveling wind-light bands,
+with seed/site-specific direction and phase. This is a maximum eight-percent
+linear-albedo modulation inside existing field margins, not moving parcel
+borders, individual stalk geometry or a physical wind simulation. It reuses
+the water material's bounded 120-second phase and enable flag, so the existing
+orbital/city callbacks, backdrops, live reduced-motion freeze/resume, visibility,
+VFX-off and reduced-flash gates apply without new clocks or resources.
+Fine-detail footprint filtering fades the bands before they become subpixel.
+Roughness, normals, emission, mining, industry, urban cores, ruins and sealed
+cultivation are unchanged; existing water/ice/lava, region and slope exclusion
+continues to apply. The alternate map-based approach paths have no field wind.
+
+Parcel coordinates use each anchor's canonical tangent frame and a
+seed/site-ID hash. Parcel angular scale is derived from body radius
+(`12 / radius_km`, bounded to 0.0002–0.006 radians), not current urban radius
+or population. Consequently growth, ownership and sector-capacity changes
+do not slide the parcel grid; the chosen scale is a bounded visual proxy,
+not surveyed field dimensions. Fine crop rows and quarry benches fade before
+the parcel structure; unresolved parcels converge to fixed sector averages
+for both color and roughness. Orbit and city use the same function and
+uniform layout, with no extra resource allocation or render pass.
+Regional economic extents grow with built capacity and are bounded in angular
+size. Subpixel city cores have a small screen-space visibility floor in the
+orbital material; these regional proxies are not a physical building-area or
+resource-deposit measurement.
+
+Both views use the same bounded 4,912-byte view-owned uniform buffer
+(12 sites, a road header and at most 64 road segments).
+Orbit meshes classify water/ice using the canonical geological height sampler;
+the approach no longer uses a terrain-independent smooth shell when a complete
+manifest is available. The managed city accepts the same complete manifest and
+uses canonical heights while persisted tiles are loading. Returning to orbit
+retains the latest authorized building/population snapshot.
+
+Orbital settlement markers are view-owned accessible DOM buttons over the shared
+canvas. Their positions use the canonical body shape/solid radius and geological
+height, the approach shader's Y rotation and the actual view-projection matrix.
+Camera/frustum clipping and segment intersections against the rendered terrain
+triangles hide rear-side sites and sites occluded by intervening composite-body
+lobes. A small endpoint tolerance avoids self-occlusion on tessellated terrain.
+CSS-pixel coordinates are recalculated with canvas resize/offset changes, separate
+from the GPU drawing-buffer resolution. There is no additional RAF, GPU pass or
+WebGPU device. Backdrop rendering never exposes active marker interactions.
+
+Clicking a visible marker or its canvas hit area selects that stable site ID.
+In the authenticated galaxy adapter this goes through `focusColony` and the
+existing authorized `loadColonyData` callback, not the orbit's incomplete snapshot.
+The zoom bridge carries the selected `settlement_id` and public terrain manifest
+into the managed surface. Pending data reads/transitions block additional marker
+navigation; superseded loads cannot re-enter an abandoned orbit. Foreign sites
+remain read-only and do not initiate private building requests. Buttons/listeners
+and CPU picking geometry are released on exit/disposal, including repeated
+orbit/surface visits.
+
+Regional roads use a second geography-only read model, cached alongside the
+candidate sites for each view's manifest. A seed-rotated 192-node equal-area
+land graph attaches sites to nearby passable nodes. Each successive candidate
+finds a shortest angular path to an earlier site; future sites cannot reroute
+an existing prefix. Validated shortcuts simplify the paths into bounded
+great-circle segments. Growth activates matching route prefixes; ownership,
+population and specialization never move their centerlines.
+
+Routing samples canonical geological height, shape-aware slope and explicit
+water/lava/ice region exclusions at intervals no larger than 0.012 radians.
+Liquid-biome routes must stay above sea level and slopes must not exceed 0.35.
+This is coarse regional visualization, not an engineering survey or authoritative
+transport network: narrow terrain features between samples can be missed.
+Shader masks additionally suppress water/lava, region overrides and steep
+rendered surfaces. There are no ocean bridges, ferries or tunnels. Isolated
+islands or insufficient graph resolution may leave sites unconnected; the
+surface HUD reports those sites. Whole routes that exceed the 64-segment budget
+are omitted with an explicit read-model status, never drawn as partial connections.
+Concave composite bodies are explicitly unsupported for roads, rather than
+connecting lobes through voids.
+
+Both persistent views evaluate the same route uniforms in their existing
+surface material pass. Agricultural corridors use earth-toned surfaces;
+mining/industry shift them toward darker freight surfaces, with width derived
+from built capacity and faint activity/damage-aware night lighting. Angular
+widths and the capped screen-space visibility floor are visual proxies, not
+physical road widths. Urban cores suppress the regional road overlay so it
+does not pave over detailed city terrain. There are no new meshes, textures,
+render passes, simulation ticks or gameplay production effects.
+
+Regional transport uses the same material pass and road segments, with one
+bounded convoy marker per active connected route. Its seed/route-ID phase
+traverses the complete polyline by cumulative angular distance, including
+validated detours, and reverses at endpoints over a 120-second round trip.
+Shorter segment subdivisions cannot change its speed or position. Travel
+speed and the capped screen-space marker size are illustrative, not physical
+vehicle scale, cargo delivery times or exact surface-distance measurements.
+The view's existing elapsed clock drives motion; re-entry restarts the seeded
+phase. There is no timer, additional RAF, GPU pass, mesh or persistent trip.
+
+The endpoint regions' dominant combined sector colors the marker green for
+agriculture, amber for extraction or blue for industry. It is visible by day
+and steadily emissive at night, without flashing. The existing
+`PlanetLivingWorld.policy()` gates it in both views: scene/OS reduced motion,
+disabled/off VFX and scene/planet/document visibility suppress traffic.
+Missing completed economic capacity, zero population, zero activity, loss of
+power or fully damaged colonies also suppress it; partial activity/damage
+attenuates the marker. Ruined routes never carry traffic. Disconnected,
+over-budget and unsupported routes generate none. Water/lava, region and
+slope masks and urban-core suppression apply to traffic as well as roads.
+At very close city scale the regional marker is hidden in the detailed urban
+core; it does not invent local vehicles or duplicate authoritative inventory.
+These proxies do not represent real goods, jobs, fleets or economy mutations.
+
+Scope: satellites use regional materials at distance and bounded representative
+3D geometry when visited, not additional interactive building inventories.
+They are selected through the surface HUD or visible orbital markers.
+Their local decorative plots are not a physical reconstruction of every
+building in the regional material mask. Mining terraces do not
+excavate terrain geometry. Missing economic data produces no invented
+specialization. For owned colonies, initial orbit entry reads the authorized
+building list on demand; other planets retain only their existing public
+selection payload and trigger no private building request.
+Missing/unavailable terrain leaves the existing terrain-error path in
+place; a populated world without a suitable anchor is reported in the city HUD.
+Legacy non-persistent Three.js/planet texture paths are unchanged.
+
+Persistent development is opt-in after `migrate_body_development_v1.sql`.
+`lib/BodyDevelopment.php` stores version 1 milestones in `body_development`,
+keyed only by `celestial_bodies.id`: highest observed population, maximum
+founded-prefix count (12), initialization time and last milestone observation.
+Both authoritative `OnDemandEconomy::settle()` and legacy
+`update_colony_resources()` observe the initial population and every existing
+simulation step (including partial mutation steps), so growth followed by
+starvation within one offline catch-up still founds the crossed-threshold site.
+The simulation exposes an optional peak accumulator without changing its
+step bounds, return state or gameplay results. These observations participate in
+the owning colony transaction/savepoint. Atomic maximum upserts cannot lose a higher concurrent
+observation; unchanged or declining observations issue no writes. No scheduler
+or client-side persistence is introduced. This is bounded development memory,
+not a per-city event journal, and cannot reconstruct peaks before activation
+or population changes never observed by settlement.
+
+Existing colonies initialize lazily from their current state, without invented
+historical founding dates. Development survives ownership changes and colony
+deletion/recolonization; only deletion of the celestial body cascades the history.
+Threshold growth has no waiting period. Decline preserves the founded prefix as
+weathered, reduced-height decorative ruins and muted orbital urban masks.
+Ruined sites and their regional corridors emit no activity lights, have no
+economic land-use masks, authoritative building slots, inhabitants or production.
+Returning population reactivates the same canonical anchors and roads. Ruin
+geometry is a deterministic representative settlement sized by the observed
+population high-water mark, not a reconstruction of past building inventories
+or economic specialization. The selected site's lifecycle is labelled in the
+surface selector/HUD and in accessible orbital markers.
+
+The existing surface overlay includes a named selected-region inspection
+section, updated on site selection, authoritative snapshots and live visual
+policy changes. It reports the normalized visual sector mix, colony activity
+at that site, outdoor versus protected cultivation, actual displayed adjacent
+land links (including abandoned ones), and the reason transport is disabled.
+Missing founding links distinguish `no-land-route`, the segment budget and
+unsupported composite-body routing; an omitted founding link does not imply
+that a later site cannot have connected to this region. A primary with no
+displayed links is not described as an impassable island.
+
+Ruins expose no active economic mix or activity. The panel never allocates
+local population, inventory, output or consumption and explicitly identifies
+all such gameplay totals as colony-wide. Percentages describe visual land use,
+not regional production shares. Inspection reuses the bounded surface read
+model and existing frame hook, creates no network requests or extra timers,
+and replaces DOM content only when the inspected values change. The overlay
+scrolls within the viewport and stays collapsed by default in the in-game
+details UI; it is disposed with the existing surface controls.
+
+History is returned only through owner-authorized building lists/economy
+snapshots; building lists bypass their legacy cache when the feature is enabled.
+The loader uses the freshly settled population from the building response,
+rather than an older overview population. Development never enters the public
+terrain manifest/tile caches or foreign-planet reads. Invalid/cross-body/stale
+history fails explicitly instead of inventing or discarding milestones.
+The deployment flag defaults to zero: apply/review the canonical migration and
+enable `BODY_DEVELOPMENT_ENABLED=1` only afterward. Missing schema with the flag
+enabled is an error, not a silent fallback. Disable it before rollback; rollback
+permanently deletes the stored development memory.
+
+Validation: `npx vitest run tests/js/colony-surface-plan.test.js` checks spherical
+spacing, geography constraints, stable growth, mixed economies and uniform
+layout. `npx playwright test colony-surface-plan-webgpu.spec.js --project=chromium --workers=1`
+uses a real WebGPU fallback adapter to verify distinct economic pixels,
+water/region protection, night-light activity, shared orbit/city anchors,
+building identity, repeated satellite visits, actual orbital marker clicks,
+rotation/rear-side occlusion, high-DPI canvas resizing and exact GPU resource cleanup.
+It also measures road pixels against an otherwise identical road-free material,
+agricultural/freight appearance, day/night activity, water/region/steep-surface
+protection and identical non-empty orbit/city route plans.
+`npx vitest run tests/js/colony-regional-roads.test.js` checks deterministic
+connections, land detours, isolation status, stable growth prefixes, bounded
+canonical routing and the aligned uniform payload.
+`npx vitest run tests/js/orbital-settlement-markers.test.js tests/js/game-colony-zoom.test.js tests/js/game-galaxy-camera.test.js`
+also covers intervening-lobe occlusion, clipping, authorized loader propagation,
+pending/stale navigation, non-click camera drags and detached-control cleanup.
+`tests/Unit/BodyDevelopmentTest.php` and the economy persistence integration
+tests cover threshold parity, initialization, decline, conquest/recolonization,
+idempotency, ownership rejection and transaction rollback. Run the persistence
+tests with `BODY_DEVELOPMENT_ENABLED=0` and `1`; keep
+`ON_DEMAND_ECONOMY_ENABLED=0` when including the legacy persistence fixture.
+`tests/Unit/ColonyEconomySimulationTest.php` verifies that an intermediate
+growth threshold survives subsequent starvation and that peak observation
+leaves the simulation result unchanged, including partial mutation steps.
+`tests/js/colony-development-history.test.js` and the surface-controller tests
+cover retained ruined-site selection and recovery; the real GPU suite also
+checks unlit ruin/corridor pixels and navigates to a ruined satellite.
+Surface-plan tests additionally verify regional geographic preferences,
+per-sector capacity conservation, active-only redistribution, regional
+architecture, endpoint freight colors and the extended site uniform layout.
+Marker/HUD tests cover economic snapshot label refreshes; the real GPU fixture
+compares distinct regional pixels with identical global economy and footprints.
+`tests/js/colony-regional-traffic.test.js` checks multi-segment traversal,
+constant angular speed, turn/junction continuity, seed/period determinism,
+segment subdivision invariance, economic styles and disabled states. Real
+renderer lifecycle tests verify per-frame motion, live reduced-motion policy
+changes and teardown without additional GPU resources. The GPU fixture
+measures moving day/night convoy pixels and checks motion/visibility gates,
+ruins, water/region/slope exclusion and detailed urban-core protection.
+The economic landscape GPU fixture measures seeded fine pattern differences,
+field margins, quarry floor/bench variation, roof/yard roughness contrast,
+repeatability and convergence to constant minified sector averages.
+It also measures crop-wind motion, bounded color modulation, repeatable loop
+and loop-boundary continuity, unchanged field margins/roughness and static
+minified output. The production surface GPU fixture uses an actual close
+field view to check motion and verifies exclusion of closed farms, ruins,
+urban cores and nonagricultural/protected surfaces. The distant view stays
+identical to static fields rather than aliasing the canopy bands.
+The production material fixture checks all three economic sectors against
+water, lava, ice, explicit region and steep-surface masks. Surface-plan tests
+verify that growth and ownership preserve parcel scale/seeds without expanding
+the shared uniform buffer.
+`tests/js/colony-region-inspection.test.js` verifies regional-only output,
+bidirectional adjacency, missing-link reasons, abandoned links, recovery and
+transport-policy explanations. Surface-controller tests cover stale-label
+removal, stable DOM on unchanged frames and teardown; the real GPU browser
+flow inspects a satellite and its ruins and switches the OS reduced-motion
+preference live.
 
 The zoom orchestrator shares backend initialization across repeated/concurrent
 callers; failed initialization may be retried. Injected backends are borrowed,

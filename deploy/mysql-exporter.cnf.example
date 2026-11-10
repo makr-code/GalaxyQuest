@@ -1,0 +1,5 @@
+[client]
+host=db
+port=3306
+user=metrics
+password=REPLACE_WITH_SEPARATE_METRICS_PASSWORD

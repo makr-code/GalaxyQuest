@@ -45,7 +45,8 @@ function extractWgslFromModule(relPath, exportedKey) {
   // already resolved in the returned string.
   const mod = require(path.join(ROOT, relPath));
   return ['COLONY_BODY_WGSL', 'PLANET_APPROACH_WGSL'].includes(exportedKey)
-    ? require(path.join(ROOT, 'js/rendering/body-material.js')).shader(mod[exportedKey])
+    ? require(path.join(ROOT, 'js/rendering/body-material.js')).shader(
+      require(path.join(ROOT, 'js/rendering/colony-surface-plan.js')).WGSL + mod[exportedKey])
     : mod[exportedKey];
 }
 

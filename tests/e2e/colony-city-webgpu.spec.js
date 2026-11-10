@@ -37,6 +37,7 @@ test('colony city uses the live galaxy device, canvas and frame loop', async ({ 
   for (const file of [
     'js/runtime/galaxy-chunk-utils.js',
     'js/rendering/body-material.js',
+    'js/rendering/colony-surface-plan.js',
     'js/rendering/Galaxy3DRendererWebGPU.js',
     'js/engine/zoom/IZoomLevelRenderer.js',
     'js/engine/zoom/RendererRegistry.js',

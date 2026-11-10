@@ -115,12 +115,14 @@ class PlanetLivingWorldApproachRenderer extends ZoomLevelRendererBase {
     const module = device.createShaderModule({ code: /* wgsl */`
       struct Uniforms {
         camera: vec4f, aim: vec4f, motion: vec4f, effects: vec4f, owner: vec4f,
+        ocean: vec4f, ice: vec4f, terrain: vec4f,
       };
       @group(0) @binding(0) var<uniform> u: Uniforms;
       @group(0) @binding(1) var mapSampler: sampler;
       @group(0) @binding(2) var surfaceMap: texture_2d<f32>;
       @group(0) @binding(3) var cloudMap: texture_2d<f32>;
       @group(0) @binding(4) var nightMap: texture_2d<f32>;
+      @group(0) @binding(5) var geographyMap: texture_2d<f32>;
       struct Vertex { @builtin(position) position: vec4f, @location(0) screen: vec2f };
       @vertex fn vs_main(@builtin(vertex_index) index: u32) -> Vertex {
         let p = vec2f(f32((index << 1u) & 2u), f32(index & 2u)) * 2.0 - 1.0;
@@ -148,6 +150,12 @@ class PlanetLivingWorldApproachRenderer extends ZoomLevelRendererBase {
         return select(1.055 * pow(value, vec3f(1.0 / 2.4)) - 0.055, value * 12.92,
           value <= vec3f(0.0031308));
       }
+      fn terrainCoverage(value: f32, threshold: f32) -> f32 {
+        let gradient = fwidth(value);
+        let pixel = max(gradient,0.000001) * 0.5;
+        return select(smoothstep(-pixel,pixel,value - threshold),
+          select(0.0,1.0,value > threshold),gradient == 0.0);
+      }
       @fragment fn fs_main(in: Vertex) -> @location(0) vec4f {
         let origin = u.camera.xyz;
         let forward = normalize(u.aim.xyz - origin);
@@ -159,18 +167,22 @@ class PlanetLivingWorldApproachRenderer extends ZoomLevelRendererBase {
         let sun = normalize(vec3f(-0.75, 0.4, 0.38));
         var col = srgbToLinear(vec3f(0.016, 0.031, 0.078));
         let hit = intersect(origin, ray, 5.0);
+        let normal = normalize(origin + ray * max(hit,0.0));
+        let coords = uv(normal, u.motion.x);
+        let relief = dot(textureSampleLevel(geographyMap,mapSampler,coords,0.0).rg,vec2f(256.0 / 257.0,1.0 / 257.0));
+        let ice = terrainCoverage(abs(asin(clamp(normal.y,-1.0,1.0))),u.terrain.y) * u.terrain.w;
+        let water = terrainCoverage(u.terrain.x - relief,0.0) * u.terrain.z * (1.0 - ice);
         if (hit > 0.0) {
-          let normal = normalize(origin + ray * hit);
-          let coords = uv(normal, u.motion.x);
           let surface = textureSampleLevel(surfaceMap, mapSampler, coords, 0.0);
+          let albedo = mix(mix(surface.rgb,u.ocean.rgb * (0.65 + relief * 0.5),water),u.ice.rgb,ice);
           let daylight = max(0.0, dot(normal, sun));
           let night = 1.0 - smoothstep(-0.15, 0.2, dot(normal, sun));
-          col = surface.rgb * (0.045 + daylight * 1.3);
+          col = albedo * (0.045 + daylight * 1.3);
           let halfVector = normalize(sun - ray);
           col += vec3f(0.55, 0.72, 0.85) * pow(max(0.0, dot(normal, halfVector)), 60.0)
-            * surface.a * daylight;
+            * water * daylight;
           let emission = textureSampleLevel(nightMap, mapSampler, coords, 0.0).rgb;
-          col += emission * (night * u.effects.z + u.effects.w);
+          col += emission * (night * u.effects.z * (1.0 - water) * (1.0 - ice) + u.effects.w);
           col += vec3f(0.12, 0.35, 0.65) * pow(1.0 - max(0.0, dot(normal, -ray)), 4.0)
             * u.effects.y * (0.15 + daylight);
         }
@@ -222,7 +234,7 @@ class PlanetLivingWorldApproachRenderer extends ZoomLevelRendererBase {
     if (!this._isCurrent(epoch, device)) return;
     this._pipeline = pipeline;
     this._uniformBuffer = device.createBuffer({
-      size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
   }
 
@@ -239,13 +251,15 @@ class PlanetLivingWorldApproachRenderer extends ZoomLevelRendererBase {
     if (key === this._mapKey) return;
     const maps = this._world.maps(descriptor, policy.size);
     this._textures.forEach(texture => texture.destroy());
-    this._textures = ['surface', 'cloud', 'night'].map(name => {
+    this._textures = ['land', 'cloud', 'night', 'geography'].map(name => {
+      const width = name === 'geography' ? maps.geographyWidth : maps.width;
+      const height = name === 'geography' ? maps.geographyHeight : maps.height;
       const texture = this._device.createTexture({
-        size: [maps.width, maps.height], format: name === 'cloud' ? 'rgba8unorm' : 'rgba8unorm-srgb',
+        size: [width, height], format: ['cloud', 'geography'].includes(name) ? 'rgba8unorm' : 'rgba8unorm-srgb',
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
       });
       this._device.queue.writeTexture({ texture }, maps[name],
-        { bytesPerRow: maps.width * 4 }, [maps.width, maps.height]);
+        { bytesPerRow: width * 4 }, [width, height]);
       return texture;
     });
     this._bindGroup = this._device.createBindGroup({
@@ -277,6 +291,12 @@ class PlanetLivingWorldApproachRenderer extends ZoomLevelRendererBase {
       policy.enabled ? this._world.state(this._sceneData) : 0,
       policy.enabled && this._descriptor.variant === 'lava' ? 0.6 : 0,
       ...owner, this._visualPalette.isOwned ? 1 : 0,
+      ...this._world.rgb(this._descriptor.oceanColor).map(channel => channel <= 0.04045
+        ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4), 0,
+      ...this._world.rgb(this._descriptor.iceColor).map(channel => channel <= 0.04045
+        ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4), 0,
+      this._descriptor.ocean * 0.85, (1 - this._descriptor.ice) * 1.08,
+      this._descriptor.ocean > 0 ? 1 : 0, this._descriptor.ice > 0 ? 1 : 0,
     ]));
     const encoder = this._device.createCommandEncoder();
     const pass = encoder.beginRenderPass({ colorAttachments: [{

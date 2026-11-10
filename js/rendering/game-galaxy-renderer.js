@@ -151,6 +151,7 @@ export async function createGameGalaxyRenderer(host, options) {
       },
       onReturn: () => { frameSystem(); },
       onError: reportZoom,
+      onSettlement: id => focusColony(planetPosition, id),
     }).then((runtime) => {
       if (disposed || signal.aborted) { runtime.dispose(); throw new DOMException('Zoom cancelled.', 'AbortError'); }
       zoomRuntime = runtime;
@@ -173,8 +174,12 @@ export async function createGameGalaxyRenderer(host, options) {
   function approachPlanet(from = null) {
     const version = ++zoomRevision;
     const data = planetData();
-    void getZoom().then((runtime) => {
-      if (version === zoomRevision) return runtime.approach(data, from);
+    const signal = zoomController.signal;
+    void getZoom().then(async (runtime) => {
+      if (version !== zoomRevision) return;
+      const resolved = options.loadPlanetData
+        ? await options.loadPlanetData(Number(data.focusPlanet.position), data, signal) : data;
+      if (version === zoomRevision) return runtime.approach(resolved, from);
     }).catch((error) => { if (version === zoomRevision) reportZoom(error); });
   }
   function planet(position = planetPosition) {
@@ -226,7 +231,7 @@ export async function createGameGalaxyRenderer(host, options) {
     approachPlanet(from);
     return true;
   }
-  function focusColony(position) {
+  function focusColony(position, settlementId = null) {
     if (colonyPending) return true;
     const body = planet(position);
     if (!body?.userData.inhabited || !options.loadColonyData) {
@@ -240,7 +245,7 @@ export async function createGameGalaxyRenderer(host, options) {
     colonyPending = true;
     void getZoom().then((runtime) => {
       if (version !== zoomRevision) return;
-      return runtime.surface(() => options.loadColonyData(Number(position), data, signal));
+      return runtime.surface(() => options.loadColonyData(Number(position), data, signal), settlementId);
     }).catch((error) => { if (version === zoomRevision) reportZoom(error); })
       .finally(() => { if (!signal.aborted) colonyPending = false; });
     return true;
@@ -357,6 +362,13 @@ export async function createGameGalaxyRenderer(host, options) {
     if (['colony', 'building'].includes(level)) {
       zoomRuntime?.selectAt(event.clientX, event.clientY);
       return;
+    }
+    if (level === 'planet') {
+      const settlement = zoomRuntime?.pickSettlement?.(event.clientX, event.clientY);
+      if (settlement) {
+        focusColony(planetPosition, settlement);
+        return;
+      }
     }
     selectObject(pick(event));
   }
@@ -512,6 +524,13 @@ export async function createGameGalaxyRenderer(host, options) {
   listen('contextmenu', (event) => event.preventDefault());
   listen('dblclick', (event) => {
     if (event.button !== 0) return;
+    if (level === 'planet') {
+      const settlement = zoomRuntime?.pickSettlement?.(event.clientX, event.clientY);
+      if (settlement) {
+        focusColony(planetPosition, settlement);
+        return;
+      }
+    }
     const object = pick(event);
     if (!object) return;
     if (!system) options.onDoubleClick?.(object);

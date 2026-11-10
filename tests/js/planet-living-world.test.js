@@ -40,6 +40,82 @@ function gpu() {
 }
 
 describe('seeded public planet maps', () => {
+  it('samples continuous spherical geography with stable seeds, closed longitude and constant poles', () => {
+    for (const seed of [0, 35, 122334]) {
+      for (const v of [0, 0.2, 0.5, 0.9, 1]) {
+        expect(Pipeline.terrainRelief(seed, 0, v)).toBeCloseTo(Pipeline.terrainRelief(seed, 1, v), 12);
+      }
+      for (const u of [0, 0.3, 0.6, 1]) {
+        for (const v of [0, 1]) expect(Pipeline.terrainRelief(seed, u, v)).toBeCloseTo(Pipeline.terrainRelief(seed, 0, v), 12);
+      }
+      const relief = Pipeline.terrainRelief(seed, 0.3, 0.4);
+      expect(Math.abs(relief - Pipeline.terrainRelief(seed, 0.30001, 0.40001))).toBeLessThan(0.001);
+      expect(relief).toBeGreaterThanOrEqual(0);
+      expect(relief).toBeLessThanOrEqual(1);
+    }
+    expect(() => Pipeline.terrainRelief(NaN, 0, 0)).toThrow();
+    const dry = world.maps(world.describe({ seed: 35, terrain: { seed: 35, ocean: 0, ice_caps: 0 } }), 128);
+    const wet = world.maps(world.describe({ terrain: { seed: 35, ocean: 0.8, ice_caps: 0.4 } }), 128);
+    expect(wet.geography).toEqual(dry.geography);
+    expect(wet.land).toEqual(dry.land);
+    expect(wet.night).toEqual(dry.night);
+    expect(wet.surface).not.toEqual(dry.surface);
+    for (const width of [64, 128, 256]) {
+      const maps = world.maps(world.describe({ terrain: { seed: 35 } }), width);
+      expect(maps.geographyWidth).toBe(width * 4);
+      expect(maps.geographyHeight).toBe(maps.height * 4);
+      expect(maps.geography.byteLength).toBe(maps.geographyWidth * maps.geographyHeight * 4);
+      for (const [x, y] of [[10, 10], [25, 20], [3, 8]]) {
+        const offset = (y * maps.geographyWidth + x) * 4;
+        const decoded = (maps.geography[offset] * 256 + maps.geography[offset + 1]) / 65535;
+        expect(Math.abs(decoded - Pipeline.terrainRelief(35,
+          (x + 0.5) / maps.geographyWidth, (y + 0.5) / maps.geographyHeight))).toBeLessThanOrEqual(0.5 / 65535);
+      }
+    }
+  });
+
+  it('reduces actual interpolated geography error versus the previous low-resolution 8-bit map', () => {
+    const sample = (bytes, width, height, u, v, decode) => {
+      const x = u * width - 0.5, y = v * height - 0.5;
+      const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+      const value = (x, y) => decode(bytes, (Math.max(0, Math.min(height - 1, y)) * width
+        + (x % width + width) % width) * 4);
+      return (value(ix, iy) * (1 - fx) + value(ix + 1, iy) * fx) * (1 - fy)
+        + (value(ix, iy + 1) * (1 - fx) + value(ix + 1, iy + 1) * fx) * fy;
+    };
+    for (const seed of [0, 35, 777]) {
+      const maps = world.maps(world.describe({ terrain: { seed } }), 64);
+      const previous = new Uint8Array(maps.width * maps.height * 4);
+      for (let y = 0; y < maps.height; y++) {
+        for (let x = 0; x < maps.width; x++) previous[(y * maps.width + x) * 4]
+          = Math.round(Pipeline.terrainRelief(seed, (x + 0.5) / maps.width, (y + 0.5) / maps.height) * 255);
+      }
+      let oldError = 0, newError = 0;
+      for (let i = 0; i < 2048; i++) {
+        const u = (i * 0.61803398875) % 1, v = (i + 0.5) / 2048;
+        const exact = Pipeline.terrainRelief(seed, u, v);
+        oldError += Math.abs(exact - sample(previous, maps.width, maps.height, u, v, (data, offset) => data[offset] / 255));
+        newError += Math.abs(exact - sample(maps.geography, maps.geographyWidth, maps.geographyHeight, u, v,
+          (data, offset) => (data[offset] * 256 + data[offset + 1]) / 65535));
+      }
+      expect(newError).toBeLessThan(oldError * 0.2);
+    }
+  });
+
+  it('keeps packed elevation interpolation continuous across byte carries and renders polar preview ice', () => {
+    for (const [a, b] of [[255, 256], [32767, 32768], [0, 65535]]) {
+      for (const t of [0, 0.01, 0.25, 0.5, 0.9, 1]) {
+        const red = ((a >>> 8) * (1 - t) + (b >>> 8) * t) / 255;
+        const green = ((a & 255) * (1 - t) + (b & 255) * t) / 255;
+        expect(red * 256 / 257 + green / 257).toBeCloseTo((a * (1 - t) + b * t) / 65535, 14);
+      }
+    }
+    const maps = world.maps(world.describe({ terrain: { seed: 35, ocean: 1, ice_caps: 0.4,
+      palette: { ice: '#abcdef' } } }), 64);
+    expect(Array.from(maps.surface.subarray(0, 4))).toEqual([171, 205, 239, 0]);
+    expect(maps.land.subarray(0, 4)).not.toEqual(maps.surface.subarray(0, 4));
+  });
+
   it('is deterministic, sensitive to public terrain, excludes private state, and bounds the cache', () => {
     const data = { focusPlanet: { id: 22, terrain: { seed: 'terra', ocean: 0.4 } } };
     const descriptor = world.describe(data);
@@ -59,6 +135,17 @@ describe('seeded public planet maps', () => {
     expect(world.cache.size).toBe(8);
     expect(world.maps(descriptor, 1e9).surface.length).toBe(128 * 64 * 4);
     expect(JSON.stringify([...world.cache.keys()])).not.toContain('resources');
+  });
+
+  it('caps the high-quality public cache at 20 MiB of map bytes and leaves color maps small', () => {
+    for (let seed = 0; seed < 9; seed++) world.maps(world.describe({ terrain: { seed } }), 256);
+    expect(world.cache.size).toBe(8);
+    const bytes = [...world.cache.values()].reduce((sum, maps) => {
+      expect([maps.width, maps.height, maps.geographyWidth, maps.geographyHeight]).toEqual([256, 128, 1024, 512]);
+      return sum + ['surface', 'land', 'cloud', 'night', 'geography']
+        .reduce((total, name) => total + maps[name].byteLength, 0);
+    }, 0);
+    expect(bytes).toBe(20 * 1024 * 1024);
   });
 
   it('sanitizes parameters, has no invented city activity and clamps delta in seconds', () => {
@@ -196,7 +283,11 @@ describe('native planet living world', () => {
     level.setSceneData({ seed: 22, owner_color: '#ff0000', night_lights: 1 });
     await level.initialize({ width: 512, height: 384 }, mock);
     expect(mock.device.createTexture.mock.calls.map(([options]) => options.format))
-      .toEqual(['rgba8unorm-srgb', 'rgba8unorm', 'rgba8unorm-srgb']);
+      .toEqual(['rgba8unorm-srgb', 'rgba8unorm', 'rgba8unorm-srgb', 'rgba8unorm']);
+    expect(mock.device.createTexture.mock.calls.map(([options]) => options.size))
+      .toEqual([[128, 64], [128, 64], [128, 64], [512, 256]]);
+    expect(mock.device.queue.writeTexture.mock.calls.map(([, , layout, size]) => [layout.bytesPerRow, size]))
+      .toEqual([[512, [128, 64]], [512, [128, 64]], [512, [128, 64]], [2048, [512, 256]]]);
     const shader = mock.device.createShaderModule.mock.calls[0][0].code;
     expect(shader).toContain('linearToSrgb(col / (col + vec3f(1.0)))');
     const key = level._mapKey;
@@ -214,13 +305,17 @@ describe('native planet living world', () => {
     const writes = mock.device.queue.writeBuffer.mock.calls.length;
     level.render(0.016);
     expect(mock.device.queue.writeBuffer).toHaveBeenCalledTimes(writes);
+    level.setSceneData({ seed: 22, vfx_quality: 'high' });
+    const sizes = mock.device.createTexture.mock.calls.slice(-4).map(([descriptor]) => descriptor.size);
+    expect(sizes).toEqual([[256, 128], [256, 128], [256, 128], [1024, 512]]);
+    expect(sizes.reduce((bytes, [width, height]) => bytes + width * height * 4, 0)).toBe(2490368);
     await level.exit(0);
     mock.textures.forEach(texture => expect(texture.destroy).toHaveBeenCalledOnce());
     mock.buffers.forEach(buffer => expect(buffer.destroy).toHaveBeenCalledOnce());
     expect(level._textures).toHaveLength(0);
     await level.enter(0, { seed: 22, vfx_quality: 'low' });
     level.render(0.016);
-    expect(level._textures).toHaveLength(3);
+    expect(level._textures).toHaveLength(4);
     level.dispose(); level.dispose();
     expect(mock.device.destroy).not.toHaveBeenCalled();
     expect(mock.context.unconfigure).not.toHaveBeenCalled();
@@ -330,7 +425,7 @@ describe('native planet living world', () => {
     expect(level._pipeline).toBe(activePipeline);
     expect(level._uniformBuffer).toBe(activeBuffer);
     expect(mock.buffers).toHaveLength(1);
-    expect(mock.textures).toHaveLength(3);
+    expect(mock.textures).toHaveLength(4);
     level.render(0.016);
     await level.exit(0);
     expect(activeBuffer.destroy).toHaveBeenCalledOnce();
@@ -389,9 +484,11 @@ describe('Three planet living world', () => {
     expect(level._renderer.outputColorSpace).toBe(THREE.SRGBColorSpace);
     expect(level._renderer.toneMapping).toBe(THREE.ReinhardToneMapping);
     expect(level._textures.map(texture => texture.colorSpace))
-      .toEqual([THREE.SRGBColorSpace, THREE.NoColorSpace, THREE.SRGBColorSpace]);
+      .toEqual([THREE.SRGBColorSpace, THREE.NoColorSpace, THREE.SRGBColorSpace, THREE.NoColorSpace]);
     expect(level._atmoMesh.material.fragmentShader).toContain('#include <colorspace_fragment>');
-    expect(level._planetMesh.material.map.image.data).toBe(world.maps(level._descriptor).surface);
+    expect(level._planetMesh.material.map.image.data).toBe(world.maps(level._descriptor).land);
+    expect(level._textures.map(texture => [texture.image.width, texture.image.height]))
+      .toEqual([[128, 64], [128, 64], [128, 64], [512, 256]]);
     const texture = level._planetMesh.material.map;
     const released = [];
     level._scene.traverse(object => {

@@ -21,6 +21,7 @@ function loadModule(name) {
 function loadAll() {
   loadModule('RuntimeQuestsDataModel');
   loadModule('RuntimeQuestsCardTemplate');
+  loadModule('RuntimeQuestsGroupTemplate');
   loadModule('RuntimeQuestsClaimBindings');
 }
 
@@ -150,6 +151,60 @@ describe('RuntimeQuestsCardTemplate – regular achievement', () => {
     });
     expect(html).toContain('quest-claimed');
     expect(html).toContain('Claimed');
+  });
+
+  it('escapes all API and formatter values and constrains progress and IDs', () => {
+    const { createQuestsCardTemplateBuilder } = window.GQRuntimeQuestsCardTemplate;
+    const html = createQuestsCardTemplateBuilder().build({
+      quest: {
+        id: '9" onclick="alert(1)',
+        title: '<img src=x onerror=alert(2)>',
+        description: '<svg onload=alert(3)>',
+        completed: 1,
+        reward_claimed: 0,
+        progress: '<b onclick=alert(4)>',
+        goal: 1,
+        reward_metal: 5,
+        reward_standing: '<i onmouseover=alert(5)>',
+      },
+      esc: String,
+      fmt: () => '<iframe src=javascript:alert(6)>',
+    });
+    const root = document.createElement('div');
+    root.innerHTML = html;
+
+    expect(root.querySelector('img, svg, b, i, iframe')).toBeNull();
+    expect(root.querySelector('[onerror], [onload], [onclick], [onmouseover]')).toBeNull();
+    expect(root.querySelector('.claim-btn')).toBeNull();
+    expect(root.querySelector('.quest-card')?.dataset.aid).toBe('0');
+    expect(root.querySelector('.quest-progress-fill')?.style.width).toBe('0%');
+    expect(root.textContent).toContain('<img src=x onerror=alert(2)>');
+  });
+});
+
+describe('RuntimeQuestsGroupTemplate', () => {
+  beforeEach(() => {
+    delete window.GQRuntimeQuestsGroupTemplate;
+    loadModule('RuntimeQuestsGroupTemplate');
+  });
+
+  it('escapes category and count values even when supplied an identity callback', () => {
+    const { createQuestsGroupTemplateBuilder } = window.GQRuntimeQuestsGroupTemplate;
+    const root = document.createElement('div');
+    root.innerHTML = createQuestsGroupTemplateBuilder().build({
+      categoryLabel: '<img src=x onerror=alert(1)>',
+      done: '<svg onload=alert(2)>',
+      total: 3,
+      claimable: 1,
+      cardsHtml: '<div class="safe-card">Card</div>',
+      esc: String,
+    });
+
+    expect(root.querySelector('img, svg')).toBeNull();
+    expect(root.querySelector('[onerror], [onload]')).toBeNull();
+    expect(root.querySelector('.safe-card')).not.toBeNull();
+    expect(root.querySelector('.quest-group-title')?.textContent).toContain('<img src=x onerror=alert(1)>');
+    expect(root.querySelector('.quest-group-progress')?.textContent).toBe('<svg onload=alert(2)>/3');
   });
 });
 
@@ -373,5 +428,31 @@ describe('RuntimeQuestsClaimBindings – faction quest claim', () => {
 
     expect(claimAchievement).toHaveBeenCalledWith(5);
     expect(claimFactionQuest).toHaveBeenCalledWith(88);
+  });
+
+  it('rejects malformed quest IDs before calling claim APIs', () => {
+    const { createQuestsClaimBindings } = window.GQRuntimeQuestsClaimBindings;
+    const bindings = createQuestsClaimBindings();
+    document.body.innerHTML = `
+      <div id="root">
+        <button class="claim-btn" data-aid="7junk">Claim Achievement</button>
+        <button class="faction-claim-btn" data-uqid="8.5">Claim Faction Quest</button>
+      </div>`;
+    const root = document.getElementById('root');
+    const claimAchievement = vi.fn();
+    const claimFactionQuest = vi.fn();
+    bindings.bindClaimButtons({
+      root,
+      api: { claimAchievement, claimFactionQuest },
+      showToast: vi.fn(),
+      loadOverview: vi.fn(),
+      rerenderQuests: vi.fn(),
+    });
+
+    root.querySelector('.claim-btn').click();
+    root.querySelector('.faction-claim-btn').click();
+
+    expect(claimAchievement).not.toHaveBeenCalled();
+    expect(claimFactionQuest).not.toHaveBeenCalled();
   });
 });

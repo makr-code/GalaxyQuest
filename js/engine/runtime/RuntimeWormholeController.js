@@ -1,6 +1,25 @@
 'use strict';
 
 (function () {
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function coordinate(value, fallback = 0) {
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : fallback;
+  }
+
+  function positiveCoordinate(value) {
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0;
+  }
+
   function createWormholeController(opts = {}) {
     const {
       wm = null,
@@ -10,10 +29,11 @@
       showToast = () => {},
       uiKitEmptyStateHTML = () => '',
       uiKitSkeletonHTML = () => '',
-      esc = (value) => String(value || ''),
       fmt = (value) => String(value || 0),
       gameLog = () => {},
     } = opts;
+    const esc = escapeHtml;
+    const display = (value) => esc(fmt(value));
 
     return {
       resolveOriginCoords() {
@@ -34,6 +54,9 @@
       },
 
       async openFleetWithWormholeTarget(endpoint) {
+        const galaxy = positiveCoordinate(endpoint?.galaxy);
+        const system = positiveCoordinate(endpoint?.system);
+        if (!galaxy || !system) return;
         wm?.open?.('fleet');
         await waitMs(120);
         const root = wm?.body?.('fleet');
@@ -45,8 +68,8 @@
         const cb = root.querySelector('#f-use-wormhole');
         const missionTransport = root.querySelector('input[name="mission"][value="transport"]');
 
-        if (gInput) gInput.value = String(Number(endpoint?.galaxy || 1));
-        if (sInput) sInput.value = String(Number(endpoint?.system || 1));
+        if (gInput) gInput.value = String(galaxy);
+        if (sInput) sInput.value = String(system);
         if (pInput) pInput.value = String(Number(pInput?.value || 1));
         if (missionTransport) {
           missionTransport.checked = true;
@@ -81,19 +104,21 @@
           const availabilityText = available
             ? 'Available for jump'
             : (isPermanent && !unlocked ? 'Requires Precursor beacon unlock quest' : 'Unavailable');
+          const targetGalaxy = coordinate(to?.galaxy, 1) || 1;
+          const targetSystem = coordinate(to?.system, 1) || 1;
           return `
             <div class="item-card">
               <div class="item-card-header">
                 <span class="item-name">${esc(String(w.label || `Route #${w.id}`))}</span>
-                <span class="item-level">Stability ${fmt(w.stability || 0)}</span>
+                <span class="item-level">Stability ${display(w.stability || 0)}</span>
               </div>
               ${isPermanent ? '<div class="system-row small">Permanent Beacon Route</div>' : ''}
-              <div class="system-row small">A: [${fmt(w.a?.galaxy || 0)}:${fmt(w.a?.system || 0)}] | B: [${fmt(w.b?.galaxy || 0)}:${fmt(w.b?.system || 0)}]</div>
-              <div class="system-row small">Jump target from here: [${fmt(to?.galaxy || 0)}:${fmt(to?.system || 0)}]</div>
+              <div class="system-row small">A: [${display(w.a?.galaxy || 0)}:${display(w.a?.system || 0)}] | B: [${display(w.b?.galaxy || 0)}:${display(w.b?.system || 0)}]</div>
+              <div class="system-row small">Jump target from here: [${display(targetGalaxy)}:${display(targetSystem)}]</div>
               <div class="system-row small">Cooldown: ${esc(cooldown)}</div>
               <div class="system-row small ${statusCls}">${availabilityText}</div>
               ${available
-                ? `<button class="btn btn-primary btn-sm wormhole-use-btn" data-target-g="${esc(String(to?.galaxy || 1))}" data-target-s="${esc(String(to?.system || 1))}">Use Wormhole (Fleet)</button>`
+                ? `<button class="btn btn-primary btn-sm wormhole-use-btn" data-target-g="${targetGalaxy}" data-target-s="${targetSystem}">Use Wormhole (Fleet)</button>`
                 : '<button class="btn btn-secondary btn-sm" disabled>Unavailable</button>'}
             </div>`;
         }).join('')}</div>`;
@@ -102,8 +127,9 @@
       bindActions(root) {
         root.querySelectorAll('.wormhole-use-btn').forEach((btn) => {
           btn.addEventListener('click', async () => {
-            const g = Number(btn.getAttribute('data-target-g') || 1);
-            const s = Number(btn.getAttribute('data-target-s') || 1);
+            const g = positiveCoordinate(btn.getAttribute('data-target-g'));
+            const s = positiveCoordinate(btn.getAttribute('data-target-s'));
+            if (!g || !s) return;
             await this.openFleetWithWormholeTarget({ galaxy: g, system: s });
           });
         });

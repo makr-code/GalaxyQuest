@@ -1,5 +1,20 @@
 (function (root) {
   class GQPlanetTexturePipeline {
+    static terrainRelief(seed, u, v) {
+      if (!Number.isFinite(seed) || !Number.isFinite(u) || !Number.isFinite(v)) {
+        throw new TypeError('Invalid planet terrain coordinates');
+      }
+      const latitude = (v - 0.5) * Math.PI;
+      const longitude = u * Math.PI * 2;
+      const x = Math.cos(latitude) * Math.cos(longitude);
+      const y = Math.sin(latitude);
+      const z = Math.cos(latitude) * Math.sin(longitude);
+      const phase = (seed >>> 0) % 100000 / 1000;
+      const broad = Math.sin(x * 7 + phase + Math.sin(z * 4)) * Math.cos(z * 6 - phase + y * 5);
+      const ridge = (1 - Math.abs(Math.sin(x * 17 + z * 13 + y * 11 + phase))) ** 3;
+      return Math.max(0, Math.min(1, 0.48 + broad * 0.32 + ridge * 0.12));
+    }
+
     // Pure, bounded adapter for native renderers: no canvas, THREE, URL or GPU
     // allocation. The existing CanvasTexture path uses the same generator below.
     static generateRawMaps(descriptor = {}, options = {}) {

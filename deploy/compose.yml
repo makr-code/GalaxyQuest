@@ -1,0 +1,195 @@
+x-runtime: &runtime
+  restart: unless-stopped
+  init: true
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+services:
+  web:
+    <<: *runtime
+    image: ${WEB_IMAGE:?Set a digest-pinned WEB_IMAGE}
+    env_file: ${DEPLOY_ROOT:-.}/runtime.env
+    environment:
+      APP_ENV: production
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: galaxyquest
+      XDEBUG_MODE: "off"
+      ENABLE_DEV_AUTH_TOOLS: "0"
+      REGISTRATION_MAILPIT_URL: ""
+      TTS_ENABLED: "1"
+      TTS_SERVICE_URL: http://tts:5500
+      COMFYUI_BASE_URL: http://comfyui:8188
+      OLLAMA_ENABLED: "0"
+      SWARMUI_ENABLED: "0"
+      THEMISDB_ENABLED: "0"
+      NPC_LLM_CONTROLLER_ENABLED: "0"
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8081}:8080"
+    volumes:
+      - generated:/var/www/html/generated
+      - cache:/var/www/html/cache
+      - sessions:/var/lib/php/sessions
+    depends_on:
+      db:
+        condition: service_healthy
+      tts:
+        condition: service_healthy
+    networks: [app, metrics]
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1:8080/health/live', false, stream_context_create(['http' => ['timeout' => 3]])) === false ? 1 : 0);"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  db:
+    <<: *runtime
+    image: ${MYSQL_IMAGE:?Set a digest-pinned MYSQL_IMAGE}
+    env_file: ${DEPLOY_ROOT:-.}/database.env
+    environment:
+      MYSQL_DATABASE: galaxyquest
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - database:/var/lib/mysql
+    networks: [app]
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping --protocol=TCP -h 127.0.0.1 -uroot --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+
+  tts:
+    <<: *runtime
+    image: ${TTS_IMAGE:?Set a digest-pinned TTS_IMAGE}
+    env_file: ${DEPLOY_ROOT:-.}/tts.env
+    volumes:
+      - tts-voices:/app/voice_cache
+      - tts-audio:/app/audio_cache
+    networks: [app]
+
+  comfyui:
+    <<: *runtime
+    image: ${GPU_IMAGE:?Set an accepted digest-pinned ComfyUI-TRELLIS2 image}
+    profiles: [gpu]
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      HF_HOME: /workspace/models/huggingface
+      SPARSE_CONV_BACKEND: spconv
+      SPCONV_ALGO: native
+    volumes:
+      - gpu-models:/workspace/models
+      - gpu-input:/workspace/input
+      - gpu-output:/workspace/output
+    networks: [app]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--max-time", "5", "http://127.0.0.1:8188/system_stats"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  prometheus:
+    <<: *runtime
+    image: ${PROMETHEUS_IMAGE:?Set PROMETHEUS_IMAGE}
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=5GB
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/rules.yml:/etc/prometheus/rules.yml:ro
+      - prometheus:/prometheus
+    networks: [metrics]
+
+  grafana:
+    <<: *runtime
+    image: ${GRAFANA_IMAGE:?Set GRAFANA_IMAGE}
+    env_file: ${DEPLOY_ROOT:-.}/grafana.env
+    environment:
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana:/var/lib/grafana
+      - ./monitoring/grafana:/etc/grafana/provisioning:ro
+    networks: [metrics]
+
+  mysql-exporter:
+    <<: *runtime
+    image: ${MYSQL_EXPORTER_IMAGE:?Set MYSQL_EXPORTER_IMAGE}
+    command: ["--config.my-cnf=/etc/mysql-exporter.cnf"]
+    group_add: ["${DEPLOY_GID:?Set the host deployment group ID}"]
+    volumes:
+      - ${DEPLOY_ROOT:-.}/mysql-exporter.cnf:/etc/mysql-exporter.cnf:ro
+    networks: [app, metrics]
+
+  node-exporter:
+    <<: *runtime
+    image: ${NODE_EXPORTER_IMAGE:?Set NODE_EXPORTER_IMAGE}
+    command: ["--path.rootfs=/host", "--collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+)($$|/)"]
+    volumes:
+      - /:/host:ro,rslave
+    pid: host
+    networks: [metrics]
+
+  blackbox:
+    <<: *runtime
+    image: ${BLACKBOX_IMAGE:?Set BLACKBOX_IMAGE}
+    command: ["--config.file=/etc/blackbox.yml"]
+    volumes:
+      - ./monitoring/blackbox.yml:/etc/blackbox.yml:ro
+    networks: [metrics]
+
+  alertmanager:
+    <<: *runtime
+    image: ${ALERTMANAGER_IMAGE:?Set ALERTMANAGER_IMAGE}
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
+    group_add: ["${DEPLOY_GID:?Set the host deployment group ID}"]
+    volumes:
+      - ${DEPLOY_ROOT:-.}/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alerts:/alertmanager
+    networks: [metrics]
+
+  restore-check:
+    image: ${MYSQL_IMAGE:?Set MYSQL_IMAGE}
+    profiles: [maintenance]
+    env_file: ${DEPLOY_ROOT:-.}/database.env
+    environment:
+      MYSQL_DATABASE: galaxyquest
+    tmpfs:
+      - /var/lib/mysql
+    networks: [restore]
+
+networks:
+  app:
+  metrics:
+  restore:
+    internal: true
+
+volumes:
+  database:
+  generated:
+  cache:
+  sessions:
+  tts-voices:
+  tts-audio:
+  gpu-models:
+  gpu-input:
+  gpu-output:
+  prometheus:
+  grafana:
+  alerts:

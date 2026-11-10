@@ -22,7 +22,7 @@ if (!function_exists('fetch_colony_runtime_row')) {
     {
         $suffix = $lock && $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
         $stmt = $db->prepare(<<<SQL
-            SELECT c.id, c.planet_id, c.user_id, c.name, c.last_update, c.colony_type, c.metal, c.crystal, c.deuterium,
+            SELECT c.id, c.body_id, c.planet_id, c.user_id, c.name, c.last_update, c.colony_type, c.metal, c.crystal, c.deuterium,
                    c.rare_earth, c.food, c.energy, c.population, c.max_population,
                    c.happiness, c.public_services,
                    cb.galaxy_index, cb.system_index, cb.position,

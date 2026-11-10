@@ -1,13 +1,22 @@
 'use strict';
 
 (function () {
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function createBuildingUpgradePreview(opts = {}) {
     const {
       fmt = (value) => String(value ?? 0),
       fmtName = (value) => String(value || ''),
-      esc = (value) => String(value || ''),
       getCurrentColony = () => null,
     } = opts;
+    const esc = escapeHtml;
 
     function simulateBuildingUpgrade(building) {
       const currentLevel = Number(building.level || 0);
@@ -94,12 +103,12 @@
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; font-size:0.9rem;">
               <div>
                 <div style="color:var(--text-secondary); font-size:0.75rem; margin-bottom:0.2rem;">CURRENT STATUS</div>
-                <div style="font-weight:bold; color:var(--accent-yellow);">Level ${simulation.currentLevel}</div>
+                <div style="font-weight:bold; color:var(--accent-yellow);">Level ${esc(simulation.currentLevel)}</div>
                 <div style="font-size:0.8rem; color:var(--text-muted);">Current tier</div>
               </div>
               <div>
                 <div style="color:var(--text-secondary); font-size:0.75rem; margin-bottom:0.2rem;">AFTER UPGRADE</div>
-                <div style="font-weight:bold; color:var(--accent-green);">↗ Level ${simulation.nextLevel}</div>
+                <div style="font-weight:bold; color:var(--accent-green);">↗ Level ${esc(simulation.nextLevel)}</div>
                 <div style="font-size:0.8rem; color:var(--text-muted);">+1 tier</div>
               </div>
             </div>
@@ -117,21 +126,21 @@
               <div style="color:var(--text-secondary); font-size:0.7rem;">COST (Metal)</div>
               <div style="font-weight:bold; color:${cost.metal > 0 ? 'var(--metal-color)' : 'var(--text-muted)'};">${esc(fmt(cost.metal || 0))}</div>
               <div style="font-size:0.65rem; color:${cost.metal <= currentResources.metal ? 'var(--accent-green)' : 'var(--accent-red)'};">
-                ${cost.metal <= currentResources.metal ? '✓ Affordable' : `✗ Short ${fmt(cost.metal - currentResources.metal)}`}
+                ${cost.metal <= currentResources.metal ? '✓ Affordable' : `✗ Short ${esc(fmt(cost.metal - currentResources.metal))}`}
               </div>
             </div>
             <div style="background:var(--bg-panel2); padding:0.5rem; border-radius:4px; text-align:center;">
               <div style="color:var(--text-secondary); font-size:0.7rem;">COST (Crystal)</div>
               <div style="font-weight:bold; color:${cost.crystal > 0 ? 'var(--crystal-color)' : 'var(--text-muted)'};">${esc(fmt(cost.crystal || 0))}</div>
               <div style="font-size:0.65rem; color:${cost.crystal <= currentResources.crystal ? 'var(--accent-green)' : 'var(--accent-red)'};">
-                ${cost.crystal <= currentResources.crystal ? '✓ Affordable' : `✗ Short ${fmt(cost.crystal - currentResources.crystal)}`}
+                ${cost.crystal <= currentResources.crystal ? '✓ Affordable' : `✗ Short ${esc(fmt(cost.crystal - currentResources.crystal))}`}
               </div>
             </div>
             <div style="background:var(--bg-panel2); padding:0.5rem; border-radius:4px; text-align:center;">
               <div style="color:var(--text-secondary); font-size:0.7rem;">COST (Deuterium)</div>
               <div style="font-weight:bold; color:${cost.deuterium > 0 ? 'var(--deut-color)' : 'var(--text-muted)'};">${esc(fmt(cost.deuterium || 0))}</div>
               <div style="font-size:0.65rem; color:${cost.deuterium <= currentResources.deuterium ? 'var(--accent-green)' : 'var(--accent-red)'};">
-                ${cost.deuterium <= currentResources.deuterium ? '✓ Affordable' : `✗ Short ${fmt(cost.deuterium - currentResources.deuterium)}`}
+                ${cost.deuterium <= currentResources.deuterium ? '✓ Affordable' : `✗ Short ${esc(fmt(cost.deuterium - currentResources.deuterium))}`}
               </div>
             </div>
           </div>

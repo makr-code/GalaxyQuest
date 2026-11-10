@@ -1,5 +1,22 @@
 'use strict';
 (function () {
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function boundedPercent(value, fallback = 0) {
+    if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) {
+      return fallback;
+    }
+    const number = Number(value);
+    return Number.isFinite(number) ? Math.min(100, Math.max(0, number)) : fallback;
+  }
+
   function createOverviewController({
     wm,
     api,
@@ -12,7 +29,6 @@
     getUiState,
     fmt,
     fmtName,
-    esc,
     showToast,
     shouldRedirectOnAuthLoadError,
     redirectToLogin,
@@ -33,6 +49,9 @@
     renderBattleLogFn,
     bindOverviewActionsFn,
   } = {}) {
+    const esc = escapeHtml;
+    const formatHtml = (value) => esc(fmt(value));
+    const nameHtml = (value) => esc(fmtName(value));
     const templates = {
       fleetRow: `
           <div class="fleet-row" data-fleet-id="{{{fleetId}}}">
@@ -69,9 +88,13 @@
       const planetSelect = getPlanetSelect();
       const colonies = getColonies();
       if (planetSelect) {
-        planetSelect.innerHTML = colonies.map((colony) =>
-          `<option value="${colony.id}">${esc(colony.name)} [${colony.galaxy}:${colony.system}:${colony.position}]</option>`
-        ).join('');
+        const options = colonies.map((colony) => {
+          const option = documentRef.createElement('option');
+          option.value = String(colony.id ?? '');
+          option.textContent = `${colony.name ?? ''} [${colony.galaxy ?? ''}:${colony.system ?? ''}:${colony.position ?? ''}]`;
+          return option;
+        });
+        planetSelect.replaceChildren(...options);
       }
       if (!getCurrentColony() && colonies.length) {
         selectColonyById(colonies[0].id);
@@ -174,7 +197,13 @@
           }
           showToast(data.error || 'Overview konnte nicht geladen werden.', 'error');
           const root = wm.body('overview');
-          if (root) root.innerHTML = `<p class="text-muted" style="color:#e74c3c">Error: ${data.error || 'Nicht eingeloggt. Bitte neu laden.'}</p>`;
+          if (root) {
+            const error = documentRef.createElement('p');
+            error.className = 'text-muted';
+            error.style.color = '#e74c3c';
+            error.textContent = `Error: ${data.error || 'Nicht eingeloggt. Bitte neu laden.'}`;
+            root.replaceChildren(error);
+          }
           return;
         }
 
@@ -220,7 +249,11 @@
         showToast('Overview konnte nicht geladen werden. Bitte Seite neu laden.', 'error');
         const root = wm.body('overview');
         if (root && !root.innerHTML.trim()) {
-          root.innerHTML = `<p class="text-muted" style="color:#e74c3c">Fehler beim Laden: ${e.message || e}</p>`;
+          const error = documentRef.createElement('p');
+          error.className = 'text-muted';
+          error.style.color = '#e74c3c';
+          error.textContent = `Fehler beim Laden: ${em}`;
+          root.replaceChildren(error);
         }
       }
     }
@@ -323,8 +356,8 @@
           <button id="pvp-toggle-btn" class="btn btn-sm ${pvpOn ? 'btn-warning' : 'btn-secondary'}" ${protected_ ? 'disabled' : ''}>
             ${pvpOn ? 'Disable PvP' : 'Enable PvP'}
           </button>
-          <span class="status-chip chip-rank">Rank ${fmt(meta.rank_points ?? 0)} RP</span>
-          <span class="status-chip chip-dm">DM ${fmt(meta.dark_matter ?? 0)} DM</span>
+          <span class="status-chip chip-rank">Rank ${formatHtml(meta.rank_points ?? 0)} RP</span>
+          <span class="status-chip chip-dm">DM ${formatHtml(meta.dark_matter ?? 0)} DM</span>
           <button class="btn btn-secondary btn-sm" id="open-leaders-btn">Leaders</button>
         </div>
 
@@ -336,7 +369,7 @@
         <div class="overview-grid">
           ${colonies.map((colony) => {
             const leaderChips = (colony.leaders || []).map((leader) =>
-              `<span class="leader-chip" title="${esc(leader.role)} Lv${leader.level} - ${leader.last_action || 'idle'}">
+                `<span class="leader-chip" title="${esc(leader.role)} Lv${esc(leader.level)} - ${esc(leader.last_action || 'idle')}">
                  ${leader.role === 'colony_manager' ? 'MGR' : leader.role === 'science_director' ? 'SCI' : 'MIL'} ${esc(leader.name)}
                </span>`
             ).join('');
@@ -362,29 +395,31 @@
             const colonyShieldTone = colonyShieldPct === null
               ? ''
               : (colonyShieldPct < 30 ? 'is-critical' : (colonyShieldPct < 60 ? 'is-warning' : 'is-good'));
+            const happinessPct = boundedPercent(colony.happiness, 70);
+            const servicesPct = boundedPercent(colony.public_services);
             return `
-            <div class="planet-card ${currentColony && colony.id === currentColony.id ? 'selected' : ''}" data-cid="${colony.id}">
+            <div class="planet-card ${currentColony && colony.id === currentColony.id ? 'selected' : ''}" data-cid="${esc(colony.id)}">
               <div class="planet-card-name">${esc(colony.name)}
                 ${colony.is_homeworld ? '<span class="hw-badge">HW</span>' : ''}
               </div>
-              <div class="planet-card-coords">[${colony.galaxy}:${colony.system}:${colony.position}]</div>
+              <div class="planet-card-coords">[${esc(colony.galaxy)}:${esc(colony.system)}:${esc(colony.position)}]</div>
               <div class="planet-card-type">
-                <span class="colony-type-badge">${colonyTypeLabels[colony.colony_type] || colony.colony_type}</span>
-                \u2022 ${fmtName(colony.planet_type || 'terrestrial')}
+                <span class="colony-type-badge">${esc(Object.hasOwn(colonyTypeLabels, colony.colony_type) ? colonyTypeLabels[colony.colony_type] : colony.colony_type)}</span>
+                \u2022 ${nameHtml(colony.planet_type || 'terrestrial')}
                 ${colony.in_habitable_zone ? '<span class="hz-badge" title="Habitable Zone">\u{1F30D}</span>' : ''}
               </div>
               ${buildWarningsHtml(colony, offline)}
               <div style="margin-top:0.4rem;font-size:0.78rem;color:var(--text-secondary)">
-                \u26fe ${fmt(colony.metal)} &nbsp; \u{1F48E} ${fmt(colony.crystal)} &nbsp; \u26C1 ${fmt(colony.deuterium)}
-                ${parseFloat(colony.rare_earth || 0) > 0 ? `&nbsp; \u{1F4A0} ${fmt(colony.rare_earth)}` : ''}
+                \u26fe ${formatHtml(colony.metal)} &nbsp; \u{1F48E} ${formatHtml(colony.crystal)} &nbsp; \u26C1 ${formatHtml(colony.deuterium)}
+                ${parseFloat(colony.rare_earth || 0) > 0 ? `&nbsp; \u{1F4A0} ${formatHtml(colony.rare_earth)}` : ''}
               </div>
               ${(() => {
                 const maxMetal = Number(colony.max_metal || 10000000);
                 const maxCrystal = Number(colony.max_crystal || 8000000);
                 const maxDeuterium = Number(colony.max_deuterium || 4000000);
-                const metalPct = Math.min(100, Math.round((Number(colony.metal || 0) / maxMetal) * 100));
-                const crystalPct = Math.min(100, Math.round((Number(colony.crystal || 0) / maxCrystal) * 100));
-                const deuteriumPct = Math.min(100, Math.round((Number(colony.deuterium || 0) / maxDeuterium) * 100));
+                const metalPct = Math.round(boundedPercent((Number(colony.metal || 0) / maxMetal) * 100));
+                const crystalPct = Math.round(boundedPercent((Number(colony.crystal || 0) / maxCrystal) * 100));
+                const deuteriumPct = Math.round(boundedPercent((Number(colony.deuterium || 0) / maxDeuterium) * 100));
                 const metalTone = metalPct > 90 ? 'is-critical' : (metalPct > 70 ? 'is-warning' : 'is-good');
                 const crystalTone = crystalPct > 90 ? 'is-critical' : (crystalPct > 70 ? 'is-warning' : 'is-good');
                 const deuteriumTone = deuteriumPct > 90 ? 'is-critical' : (deuteriumPct > 70 ? 'is-warning' : 'is-good');
@@ -407,7 +442,7 @@
                 </div>`;
               })()}
               <div style="margin-top:0.2rem;font-size:0.75rem;color:var(--text-secondary)">
-                \u{1F33F} ${fmt(colony.food || 0)} &nbsp; \u26A1 ${fmt(colony.energy ?? 0)}
+                \u{1F33F} ${formatHtml(colony.food || 0)} &nbsp; \u26A1 ${formatHtml(colony.energy ?? 0)}
               </div>
               ${(() => {
                 const energyAmount = Number(colony.energy ?? 0);
@@ -423,32 +458,32 @@
                 </div>`;
               })()}
               <div class="welfare-bar" style="margin-top:0.4rem">
-                <span title="Happiness ${colony.happiness ?? 70}%">\u{1F600}</span>
-                <div class="bar-wrap"><div class="bar-fill bar-happiness" style="width:${colony.happiness ?? 70}%"></div></div>
-                <span style="font-size:0.7rem;min-width:28px">${colony.happiness ?? 70}%</span>
+                <span title="Happiness ${happinessPct}%">\u{1F600}</span>
+                <div class="bar-wrap"><div class="bar-fill bar-happiness" style="width:${happinessPct}%"></div></div>
+                <span style="font-size:0.7rem;min-width:28px">${happinessPct}%</span>
               </div>
               <div class="welfare-bar" style="margin-top:0.4rem">
-                <span title="Happiness ${colony.happiness ?? 70}%">\u{1F600}</span>
-                <div class="bar-wrap"><div class="bar-fill bar-happiness" style="width:${colony.happiness ?? 70}%"></div></div>
-                <span style="font-size:0.7rem;min-width:28px">${colony.happiness ?? 70}%</span>
+                <span title="Happiness ${happinessPct}%">\u{1F600}</span>
+                <div class="bar-wrap"><div class="bar-fill bar-happiness" style="width:${happinessPct}%"></div></div>
+                <span style="font-size:0.7rem;min-width:28px">${happinessPct}%</span>
               </div>
               ${(() => {
                 const pop = Number(colony.population ?? 0);
                 const maxPop = Number(colony.max_population ?? 500);
-                const popPct = Math.min(100, Math.round((pop / maxPop) * 100));
+                const popPct = Math.round(boundedPercent((pop / maxPop) * 100));
                 const popTone = popPct >= 95 ? 'is-critical' : (popPct >= 70 ? 'is-warning' : 'is-good');
                 return `<div class="entity-bars" style="margin-top:0.2rem;">
                   <div class="entity-bar-row" title="Population capacity ${popPct}%">
                     <span class="entity-bar-label" style="font-size:0.7rem;">Pop</span>
                     <div class="bar-wrap"><div class="bar-fill bar-integrity ${popTone}" style="width:${popPct}%;height:5px;"></div></div>
-                    <span class="entity-bar-value" style="font-size:0.7rem;">${fmt(pop)}/${fmt(maxPop)}</span>
+                    <span class="entity-bar-value" style="font-size:0.7rem;">${formatHtml(pop)}/${formatHtml(maxPop)}</span>
                   </div>
                 </div>`;
               })()}
               <div class="welfare-bar">
-                <span title="Public Services ${colony.public_services ?? 0}%">\u{1F3DB}</span>
-                <div class="bar-wrap"><div class="bar-fill bar-services" style="width:${colony.public_services ?? 0}%"></div></div>
-                <span style="font-size:0.7rem;min-width:28px">${colony.public_services ?? 0}%</span>
+                <span title="Public Services ${servicesPct}%">\u{1F3DB}</span>
+                <div class="bar-wrap"><div class="bar-fill bar-services" style="width:${servicesPct}%"></div></div>
+                <span style="font-size:0.7rem;min-width:28px">${servicesPct}%</span>
               </div>
               ${(colonyHealthPct !== null || colonyShieldPct !== null) ? `<div class="entity-bars" aria-label="Colony status bars">
                 ${colonyHealthPct === null ? '' : `<div class="entity-bar-row" title="Colony integrity ${colonyHealthPct}%">
@@ -464,9 +499,9 @@
               </div>` : ''}
               ${colony.deposit_metal >= 0 ? `
                 <div style="margin-top:0.3rem;font-size:0.7rem">
-                  <span class="deposit-chip ${colony.deposit_metal < 100000 ? 'depleted' : ''}" title="Metal deposit remaining">\u26fe ${fmt(colony.deposit_metal)}</span>
-                  <span class="deposit-chip ${colony.deposit_crystal < 50000 ? 'depleted' : ''}" title="Crystal deposit">\u{1F48E} ${fmt(colony.deposit_crystal)}</span>
-                  <span class="deposit-chip rare-earth-chip" title="Rare Earth deposit">\u{1F4A0} ${fmt(colony.deposit_rare_earth)}</span>
+                  <span class="deposit-chip ${colony.deposit_metal < 100000 ? 'depleted' : ''}" title="Metal deposit remaining">\u26fe ${formatHtml(colony.deposit_metal)}</span>
+                  <span class="deposit-chip ${colony.deposit_crystal < 50000 ? 'depleted' : ''}" title="Crystal deposit">\u{1F48E} ${formatHtml(colony.deposit_crystal)}</span>
+                  <span class="deposit-chip rare-earth-chip" title="Rare Earth deposit">\u{1F4A0} ${formatHtml(colony.deposit_rare_earth)}</span>
                 </div>` : ''}
               ${leaderChips ? `<div class="leader-chips">${leaderChips}</div>` : ''}
             </div>`;

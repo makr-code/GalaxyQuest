@@ -5,7 +5,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const workflow = readFileSync(path.resolve('.github', 'workflows', 'ci.yml'), 'utf8').replaceAll('\r\n', '\n');
-const publication = workflow.slice(workflow.indexOf('\n  docker-build:'));
+const publication = workflow.slice(workflow.indexOf('\n  docker-build:'), workflow.indexOf('\n  deploy-staging:'));
 
 function step(name) {
   const marker = `      - name: ${name}\n`;
@@ -23,7 +23,7 @@ describe('image publication workflow contract (configuration, not live registry 
     expect(dependencies).toEqual([
       'lint-php', 'lint-js', 'phpunit-unit', 'phpunit', 'vitest', 'playwright-smoke',
     ]);
-    expect(publication).toContain("github.event_name == 'push' && github.ref == 'refs/heads/main'");
+    expect(publication).toContain("github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')");
   });
 
   describe('actual publication bash with isolated Docker command fixtures', () => {
@@ -122,6 +122,6 @@ describe('image publication workflow contract (configuration, not live registry 
     expect(push).toContain('test "$(docker image inspect --format \'{{.Id}}\' galaxyquest:publish-candidate)" = "$CANDIDATE_ID"');
     expect(push).toContain('docker tag "$CANDIDATE_ID" "$tag"');
     expect(push).toContain('docker push "$tag"');
-    expect([...publication.matchAll(/uses: docker\/build-push-action/g)]).toHaveLength(1);
+    expect([...publication.matchAll(/uses: docker\/build-push-action/g)]).toHaveLength(2);
   });
 });

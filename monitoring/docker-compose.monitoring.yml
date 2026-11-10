@@ -1,13 +1,7 @@
-# Docker Compose Addition for TRELLIS2 Monitoring
-# Add these services to your existing docker-compose.yml
-#
-# Usage:
-#   1. Copy this file content
-#   2. Add to your docker-compose.yml under "services:"
-#   3. Run: docker-compose up -d prometheus grafana
-#   4. Access: 
-#      - Prometheus: http://localhost:9090
-#      - Grafana: http://localhost:3000 (password from GRAFANA_ADMIN_PASSWORD)
+# Local Docker Desktop monitoring, started as a separate Compose project.
+# Start the game first, then:
+#   docker compose -f monitoring/docker-compose.monitoring.yml up -d
+# Production: deploy/compose.yml and docs/technical/PLESK_DEPLOYMENT.md.
 
 services:
   # Prometheus - Time-series database for metrics
@@ -23,12 +17,11 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
     environment:
       - TZ=UTC
     networks:
       - galaxyquest
+      - game
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
       interval: 30s
@@ -141,6 +134,9 @@ volumes:
 networks:
   galaxyquest:
     driver: bridge
+  game:
+    external: true
+    name: ${GQ_GAME_NETWORK:-galaxyquest_default}
 
 # ─────────────────────────────────────────────────────────────────────────
 # 

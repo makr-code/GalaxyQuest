@@ -15,7 +15,6 @@
       uiState = {},
       currentUser = null,
       resolvePlayerFactionThemeSeed = () => ({ factionId: 0 }),
-      esc = (value) => String(value || ''),
       onModeChanged = null,
       onPreviewRequested = null,
     } = opts;
@@ -31,8 +30,8 @@
     const seen = new Set();
 
     const pushFactionOption = (id, name, isPlayer = false) => {
-      const factionId = Math.max(0, Number(id || 0));
-      if (factionId <= 0 || seen.has(factionId)) return;
+      const factionId = Number(id || 0);
+      if (!Number.isSafeInteger(factionId) || factionId <= 0 || seen.has(factionId)) return;
       seen.add(factionId);
       const label = String(name || `Faction #${factionId}`).trim() || `Faction #${factionId}`;
       options.push({
@@ -57,11 +56,20 @@
 
     options.sort((a, b) => String(a.label).localeCompare(String(b.label), 'en', { sensitivity: 'base' }));
 
-    const selectedFactionId = Math.max(0, Number(settingsState.uiThemeFactionId || 0));
-    const html = ['<option value="0">Player faction (auto)</option>']
-      .concat(options.map((row) => `<option value="${row.id}">${esc(row.label)}</option>`))
-      .join('');
-    factionSelect.innerHTML = html;
+    const rawSelectedFactionId = Number(settingsState.uiThemeFactionId || 0);
+    const selectedFactionId = Number.isSafeInteger(rawSelectedFactionId) && rawSelectedFactionId > 0
+      ? rawSelectedFactionId
+      : 0;
+    const optionNodes = [factionSelect.ownerDocument.createElement('option')];
+    optionNodes[0].value = '0';
+    optionNodes[0].textContent = 'Player faction (auto)';
+    options.forEach((row) => {
+      const option = factionSelect.ownerDocument.createElement('option');
+      option.value = String(row.id);
+      option.textContent = row.label;
+      optionNodes.push(option);
+    });
+    factionSelect.replaceChildren(...optionNodes);
     factionSelect.value = String(selectedFactionId);
 
     const mode = String(modeSelect.value || settingsState.uiThemeMode || 'auto').toLowerCase();
