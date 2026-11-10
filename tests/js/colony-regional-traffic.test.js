@@ -84,7 +84,7 @@ describe('Bounded decorative regional transport', () => {
     expect(values[0][3]).toBe(style);
     expect(Math.hypot(...values[0].slice(0, 3))).toBeCloseTo(1, 6);
     expect(trafficValues(later)[0]).not.toEqual(values[0]);
-    expect(first.byteLength).toBe(4912);
+    expect(first.byteLength).toBe(6640);
     expect([...first].every(Number.isFinite)).toBe(true);
     expect(surface).toEqual(original);
     expect(surface).not.toHaveProperty('production');

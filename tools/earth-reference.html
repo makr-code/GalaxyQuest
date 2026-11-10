@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GalaxyQuest - Erd-Referenz</title>
+  <style>
+    body { margin: 0; background: #070e18; color: #e3eaf4; font: 15px system-ui, sans-serif; }
+    #reference-viewport { position: fixed; inset: 0; }
+    canvas { display: block; width: 100%; height: 100%; }
+    aside { position: relative; margin: 16px; padding: 18px; max-width: 340px; background: #101c2bed; border: 1px solid #53677d; border-radius: 8px; max-height: calc(100vh - 72px); overflow: auto; }
+    h1 { font-size: 21px; margin-top: 0; }
+    p { line-height: 1.45; }
+    label { display: block; margin: 10px 0; }
+    select, button { background: #20354a; color: inherit; border: 1px solid #647c94; padding: 5px; }
+    a { color: #9ad0ff; }
+    #reference-status[data-error] { color: #ffaba2; }
+    .legend { display: flex; flex-wrap: wrap; gap: 8px; font-size: 13px; }
+    .legend span { border-left: 12px solid var(--zone); padding-left: 4px; }
+    .legend[hidden] { display: none; }
+    #point-inspection { position: fixed; right: 16px; bottom: 16px; max-width: 340px; padding: 12px; background: #101c2bf2; border: 1px solid #7a9ab8; pointer-events: none; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div id="reference-viewport" aria-label="Interaktive Erd-Referenz mit Kontinentgeometrie"></div>
+  <aside id="reference-controls">
+    <h1>Erde - Geografie-Inspektion</h1>
+    <p>ETOPO1: echte Hoehen-/Tiefenwerte fuer Geometrie und Hoehenfarben.
+      Alternativ: Natural-Earth-Kuesten und Seen aus gemeinsamen GeoJSON-Polygonen.</p>
+    <label>Renderer
+      <select name="backend">
+        <option value="production">GalaxyQuest Produktionsrenderer</option>
+        <option value="reference">Geografie-Basisvergleich</option>
+      </select>
+    </label>
+    <label>Geografiedaten
+      <select name="source">
+        <option value="relief">ETOPO1: Hoehen und Meerestiefen (0,5 Grad)</option>
+        <option value="coasts">Natural Earth: genaue Referenzpolygone</option>
+      </select>
+    </label>
+    <label>Mesh-Detail
+      <select name="detail">
+        <option value="auto">Automatisches Produktions-LOD</option>
+        <option value="32">32 Zeilen - 5,625 Grad</option>
+        <option value="64">64 Zeilen - 2,8125 Grad</option>
+        <option value="128">128 Zeilen - 1,40625 Grad</option>
+        <option value="180">180 Zeilen - 1 Grad (Inspektion)</option>
+      </select>
+    </label>
+    <label>Reliefueberhoehung
+      <select name="exaggeration">
+        <option value="1">1x - massstabsgetreu</option>
+        <option value="5">5x</option>
+        <option value="10" selected>10x</option>
+        <option value="20">20x</option>
+        <option value="40">40x - Inspektionsgrenze</option>
+      </select>
+    </label>
+    <label>Meeresspiegel
+      <select name="seaLevel">
+        <option value="-500">-500 m</option>
+        <option value="-100">-100 m</option>
+        <option value="0" selected>0 m - Datumsreferenz</option>
+        <option value="100">+100 m</option>
+        <option value="500">+500 m</option>
+      </select>
+    </label>
+    <label><input type="checkbox" name="ocean" checked> Meeresoberflaeche (aus: Meeresboden zeigen)</label>
+    <label>Ansicht
+      <select name="representation">
+        <option value="combined">Geometrie + Textur</option>
+        <option value="geometry">Nur Geometrie</option>
+        <option value="texture">Nur Textur auf Kugel</option>
+      </select>
+    </label>
+    <label>Region
+      <select name="view">
+        <option value="africa">Afrika / Europa</option>
+        <option value="americas">Amerika</option>
+        <option value="asia">Asien / Australien</option>
+        <option value="pacific">Pazifik / Datumsgrenze</option>
+        <option value="north">Nordpol</option>
+        <option value="south">Suedpol</option>
+        <option value="himalaya">Himalaya / Tibet</option>
+        <option value="andes">Anden</option>
+        <option value="mariana">Marianengraben</option>
+      </select>
+    </label>
+    <label><input type="checkbox" name="coasts" checked> Kuesten und Seeufer</label>
+    <label><input type="checkbox" name="wireframe"> Dreiecksnetz</label>
+    <label><input type="checkbox" name="grid"> Aequator, Wende- und Polarkreise</label>
+    <label>Oberflaechenfarbe (ETOPO)
+      <select name="palette">
+        <option value="height">Hoehenfarben zur Vermessung</option>
+        <option value="surface">Schematische Land-/Klimafarben</option>
+      </select>
+    </label>
+    <label>Bump aus ETOPO-Gefaelle
+      <select name="bump">
+        <option value="0">Aus - Mesh-Normalen</option>
+        <option value="1">1x - physisches Gefaelle</option>
+        <option value="10" selected>10x - Inspektionsverstaerkung</option>
+        <option value="40">40x - Inspektionsgrenze</option>
+      </select>
+    </label>
+    <label>Material-Pruefansicht
+      <select name="materialView">
+        <option value="shaded">Beleuchtetes Material</option>
+        <option value="albedo">Albedo ohne Beleuchtung</option>
+        <option value="normal">Normalen (Objektraum)</option>
+        <option value="roughness">Rauheit (linear)</option>
+        <option value="specular">Specular F0 (linear)</option>
+      </select>
+    </label>
+    <label><input type="checkbox" name="gloss" checked> Materialglanz: Roughness / Specular</label>
+    <label><input type="checkbox" name="sky" checked> Prozeduraler Weltraumhimmel</label>
+    <label><input type="checkbox" name="atmosphere" checked> Atmosphaerensaum</label>
+    <label><input type="checkbox" name="solarAtmosphere" checked> Sonnenabhaengige Atmosphaere / Daemmerung</label>
+    <label><input type="checkbox" name="lighting" checked> Tag-/Nachtbeleuchtung</label>
+    <label><input type="checkbox" name="cityLights" checked> Kolonie-Stadtlichter (Referenzsiedlungen)</label>
+    <label>Entwicklungsjahr (synthetisch, 0-200)
+      <input type="range" name="developmentYear" min="0" max="200" step="0.01" value="50">
+    </label>
+    <output data-development-status aria-live="off"></output>
+    <label><input type="checkbox" name="developmentPlaying"> Stadtwachstum abspielen (200 Jahre / 60 s)</label>
+    <label>Kolonieprofil (synthetischer Gebaeudebestand)
+      <select name="economyProfile">
+        <option value="residential">Wohnkolonie</option>
+        <option value="mixed">Gemischt</option>
+        <option value="agriculture">Agrar</option>
+        <option value="industry">Industrie</option>
+        <option value="trade">Handel</option>
+        <option value="science">Wissenschaft</option>
+      </select>
+    </label>
+    <label>Sonnenazimut (Weltraum, Grad)
+      <select name="sunAzimuth">
+        <option value="54.462322208" selected>54,46 - Referenz</option>
+        <option value="-180">-180</option><option value="-90">-90</option>
+        <option value="0">0</option><option value="90">90</option><option value="180">180</option>
+      </select>
+    </label>
+    <label>Sonnenhoehe (Weltraum, Grad)
+      <select name="sunElevation">
+        <option value="16.204" selected>16,20 - Referenz</option>
+        <option value="-90">-90</option><option value="-45">-45</option>
+        <option value="0">0</option><option value="45">45</option><option value="90">90</option>
+      </select>
+    </label>
+    <label><input type="checkbox" name="clouds" checked> Produktionswolken</label>
+    <label>Wolkendarstellung
+      <select name="cloudMode">
+        <option value="shell">Eigene tiefengepruefte Schicht</option>
+        <option value="surface">Bisheriger Oberflaechenvergleich</option>
+      </select>
+    </label>
+    <label>Wolkenhoehe
+      <select name="cloudAltitude">
+        <option value="12">12 km - physischer Abstand</option>
+        <option value="80">80 km - Inspektionsabstand</option>
+        <option value="200">200 km - Inspektionsgrenze</option>
+      </select>
+    </label>
+    <label><input type="checkbox" name="cloudShadows" checked> Projizierte Wolkenschatten (Schicht)</label>
+    <label><input type="checkbox" name="water" checked> Produktions-Wassernormalen</label>
+    <label><input type="checkbox" name="motion" checked> Material-/Wolken-/Stadtanimation</label>
+    <label>Animationsphase (120-s-Loop)
+      <select name="phase">
+        <option value="0">0 s</option>
+        <option value="30">30 s</option>
+        <option value="60">60 s</option>
+        <option value="90">90 s</option>
+        <option value="120">120 s = 0 s</option>
+      </select>
+    </label>
+    <label><input type="checkbox" name="rotation"> Physikalische Eigenrotation</label>
+    <button type="button" name="reset">Referenzzeit zuruecksetzen</button>
+    <div class="legend" data-climate-legend hidden>
+      <span style="--zone:#163f68">Wasser</span><span style="--zone:#317343">Tropen</span>
+      <span style="--zone:#668854">Gemaessigt</span><span style="--zone:#c9ac71">Wuesten</span>
+      <span style="--zone:#e5eef2">Eis</span>
+    </div>
+    <div class="legend" data-elevation-legend>
+      <span style="--zone:#12365b">Tiefe bis -11 km</span>
+      <span style="--zone:#5b894f">0 m</span><span style="--zone:#a88b67">2,5 km</span>
+      <span style="--zone:#e6e8e6">6,5 km+</span>
+    </div>
+    <p id="reference-status" role="status">WebGPU-Referenz wird geladen...</p>
+    <p id="render-diagnostics" aria-live="polite"></p>
+    <p>Ziehen: Kamera drehen. Mausrad: Zoom. Klick im ETOPO-Produktionspfad:
+      Koordinaten, Quelldaten und echte Mesh-Hoehe vergleichen.
+      Rotation: 23 h 56 min, Achsneigung 23,44 Grad; Start bei fester Referenzzeit.</p>
+    <p><strong>Grenzen:</strong> ETOPO1 ist hier auf 0,5 Grad ausgeduennt
+      (ca. 56 km am Aequator): keine lokalen Gipfel oder exakten Kuesten.
+      Hoehenfarben kodieren Meter; die Klimalegende gilt nur fuer Natural Earth.
+      Klimamasken sind schematisch. Meeresspiegel ist ein Hoehenschwellwert, keine Flutsimulation.
+      Reliefueberhoehung veraendert nur Geometrie, nicht Quelldaten.
+      Feste Mesh-Details sind nur fuer den ETOPO-Vergleich; mehr Dreiecke
+      garantieren nicht an jedem Punkt eine kleinere Hoehenabweichung.
+      Keine Wetterdaten. Produktionswolken sind prozedural, keine Erd-Wetterkarte.
+      Landfarben, Rauheit und Specular sind Materialannahmen, keine Satellitenkarten.
+      Bump zeigt das ETOPO-Gefaelle, keine erfundenen Mikrodetails; Verstaerkung ist
+      unabhaengig vom Geometrie-Relief. Himmel und Atmosphaerenhalo sind illustrativ,
+      kein Sternkatalog und keine physikalische Streusimulation.
+      Sonnenabhaengige Atmosphaerenfarben verwenden eine kuenstlerische
+      Tag-/Daemmerungsgewichtung, keine berechnete Rayleigh-/Mie-Streuung.
+      Wolkenhoehe wird nicht mit dem Gelaende ueberhoeht: ueberhoehte Berge
+      koennen die Schicht durchstossen. Wolkenschatten projizieren die Dichte entlang
+      eines Sonnenstrahls auf die Kugelschicht; keine volumetrische Streuung oder
+      Gelaende-Eigenschatten. Sonnenwinkel sind manuelle Weltraumwinkel, keine Ephemeride.
+      Referenzsiedlungen nutzen den Kolonierenderer an benannten Stadtankern,
+      mit synthetischer Groesse und Blockverteilung; keine echten Nachtaufnahmen
+      oder Bevoelkerungsdaten. Stadtlichter nur im ETOPO-Produktionspfad.
+      Die Entwicklungszeit skaliert die Referenzbevoelkerung von 12 Mio. bis
+      120 Mrd. (Jahr 200, Ueberbevoelkerungs-Szenario); Stadtflaechen wachsen auf Tag- und Nachtseite identisch.
+      Benachbarte Zentren koennen durch Quartiere zusammenwachsen.
+      Neue kosmetische Satellitenstaedte entstehen an seed-stabilen, geeigneten
+      Standorten und wachsen aus einem gemeinsamen Bevoelkerungsbudget.
+      Keine zusaetzliche serverseitige Speicherung einzelner Staedte.
+      Strassen, Lichtfarben und Dichte stammen aus dem gemeinsamen Kolonieshader,
+      keine echten Stadtkarten. Das Profil speist nur synthetische Gebaeudedaten ein.
+      Kein taeglicher Bevoelkerungswechsel. Wiedergabe pausiert bei deaktivierter
+      Animation, reduzierter Bewegung und in Vergleichs-/Diagnoseansichten.
+      Produktionsplaneten werden nicht veraendert. Netz-/Linienoverlays nur im Basisvergleich.
+      Wasserwellen werden im Orbit durch den echten Distanzfilter ausgeblendet.</p>
+    <a href="./data/earth/README.md">Datenquellen und Pruefkriterien</a>
+  </aside>
+  <output id="point-inspection" role="status" hidden></output>
+  <script src="../js/rendering/planet-textures.js"></script>
+  <script src="../js/engine/zoom/levels/PlanetLivingWorld.js"></script>
+  <script type="module" src="../js/rendering/earth-reference.js"></script>
+</body>
+</html>

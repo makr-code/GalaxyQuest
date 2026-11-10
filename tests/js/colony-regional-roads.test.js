@@ -107,7 +107,7 @@ describe('Seeded visual regional roads', () => {
     const buffer = model.uniforms(plan);
     const count = plan.roads.reduce((sum, route) => sum + route.points.length - 1, 0);
     expect(buffer[model.ROAD_OFFSET]).toBe(count);
-    expect(buffer.byteLength).toBe(4912);
+    expect(buffer.byteLength).toBe(6640);
     expect([...buffer].every(Number.isFinite)).toBe(true);
     expect(buffer.slice(model.ROAD_OFFSET + 4, model.ROAD_OFFSET + 7)).toEqual(new Float32Array(plan.roads[0].points[0]));
     expect(Math.hypot(...buffer.slice(model.ROAD_OFFSET + 12, model.ROAD_OFFSET + 15))).toBeCloseTo(1, 6);

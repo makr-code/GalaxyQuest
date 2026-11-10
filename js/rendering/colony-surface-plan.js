@@ -2,9 +2,11 @@
   'use strict';
 
   const VERSION = 1;
+  const URBAN_VERSION = 1;
   const MAX_SETTLEMENTS = 12;
+  const MAX_URBAN_CHILDREN = 7;
   const MAX_ROAD_SEGMENTS = 64;
-  const SITE_FLOATS = 16;
+  const SITE_FLOATS = 24 + MAX_URBAN_CHILDREN * 4;
   const ROAD_FLOATS = 16;
   const TRAFFIC_PERIOD = 120;
   const ROAD_OFFSET = 8 + MAX_SETTLEMENTS * SITE_FLOATS;
@@ -28,6 +30,7 @@
     const colony = source(data);
     const population = count(colony.population);
     const weights = [0, 0, 0];
+    const civic = [0, 0];
     const buildings = Array.isArray(data?.buildings) ? data.buildings : [];
     for (const building of buildings) {
       if (building.meta?.zone === 'orbital') continue;
@@ -36,6 +39,8 @@
       if (/farm|agri|food|hydropon/.test(type)) weights[0] += level;
       else if (/mine|mining|quarry|extraction/.test(type)) weights[1] += level;
       else if (/factory|refinery|forge|smelt|industr/.test(type)) weights[2] += level;
+      else if (/trade|market|commerc|logistic/.test(type)) civic[0] += level;
+      else if (/research|science|university|laboratory/.test(type)) civic[1] += level;
     }
     const capacity = weights.reduce((sum, n) => sum + n, 0);
     const total = Math.max(1, capacity);
@@ -46,8 +51,68 @@
         * (1 - clamp(count(colony.damage ?? colony.effects?.state?.damage), 0, 1));
     return {
       population, weights: weights.map((n) => n / total), capacity, lights,
+      civic: civic.map(n => n / Math.max(1, capacity + civic[0] + civic[1])),
       count: inhabited ? clamp(1 + Math.floor(Math.log2(Math.max(1, population / 1000))), 1, MAX_SETTLEMENTS) : 0,
     };
+  }
+
+  function urbanCandidates(manifest, site, sample) {
+    if (!Number.isSafeInteger(manifest?.seed) || !Number.isFinite(manifest.radius_km)
+      || manifest.radius_km <= 0 || typeof sample !== 'function') {
+      throw new TypeError('Invalid cosmetic urban geography');
+    }
+    const n = Math.hypot(site.direction[0], site.direction[2]);
+    const east = n > 1e-8 ? [-site.direction[2] / n, 0, site.direction[0] / n] : [1, 0, 0];
+    const north = [site.direction[1] * east[2] - site.direction[2] * east[1],
+      site.direction[2] * east[0] - site.direction[0] * east[2],
+      site.direction[0] * east[1] - site.direction[1] * east[0]];
+    const result = [];
+    for (let index = 0; index < MAX_URBAN_CHILDREN; index++) {
+      const id = `${site.id}:urban-v${URBAN_VERSION}:${index}`;
+      const random = key => hash(`${manifest.seed}:${id}:${key}`) / 4294967296;
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const angle = random(`angle:${attempt}`) * Math.PI * 2;
+        const distance = clamp((40 + index * 24 + random(`distance:${attempt}`) * 35) / manifest.radius_km, 0.006, 0.12);
+        const direction = site.direction.map((value, axis) => value * Math.cos(distance)
+          + (east[axis] * Math.cos(angle) + north[axis] * Math.sin(angle)) * Math.sin(distance));
+        const terrain = sample(direction);
+        if (!Number.isFinite(terrain.height) || !Number.isFinite(terrain.slope)) {
+          throw new TypeError('Non-finite cosmetic urban terrain sample');
+        }
+        if (terrain.blocked || terrain.slope > 0.35
+          || (['terran', 'ocean', 'lava'].includes(manifest.biome) && terrain.height <= (manifest.sea_level_km ?? 0))
+          || result.some(other => dot(direction, other.direction) > Math.cos(0.003))) continue;
+        result.push({ id, ordinal: index, direction, height: terrain.height, slope: terrain.slope,
+          foundingPopulation: 500000 * 4 ** index * (0.85 + random('foundation') * 0.3) });
+        break;
+      }
+    }
+    return result;
+  }
+
+  function urbanAllocation(site, population, peakPopulation, state, manifest) {
+    const ruralFraction = 0.12 + state.weights[0] * 0.33;
+    const ruralPopulation = population * ruralFraction;
+    const budget = population - ruralPopulation;
+    const historicalBudget = peakPopulation * (1 - ruralFraction);
+    const children = (site.urbanCandidates || []).filter(candidate => historicalBudget > candidate.foundingPopulation)
+      .map(candidate => {
+        const residents = Math.max(0, budget - candidate.foundingPopulation) * 0.06;
+        const historical = Math.max(0, historicalBudget - candidate.foundingPopulation) * 0.06;
+        const radius = Math.min(0.35, Math.sqrt(residents || historical) * 0.012 / manifest.radius_km);
+        return { ...candidate, population: residents, radius, ruined: residents === 0 };
+      });
+    const residents = budget - children.reduce((sum, child) => sum + child.population, 0);
+    const historical = historicalBudget
+      - children.reduce((sum, child) => sum + Math.max(0, historicalBudget - child.foundingPopulation) * 0.06, 0);
+    return { population: residents, ruralPopulation, historicalPopulation: historical, children };
+  }
+
+  function regionalPopulation(population, index, available) {
+    const weights = Array.from({ length: available }, (_, i) =>
+      (i === 0 ? 1.4 : 0.9) * Math.max(0, population - (i === 0 ? 0 : 1000 * 2 ** i)));
+    const total = weights.reduce((sum, weight) => sum + weight, 0);
+    return total > 0 ? population * weights[index] / total : 0;
   }
 
   // This list depends only on public geography, never on population, owner or camera.
@@ -95,7 +160,7 @@
       if (!next) break;
       selected.push(next);
     }
-    return selected;
+    return selected.map(site => ({ ...site, urbanCandidates: urbanCandidates(manifest, site, sample) }));
   }
 
   function roadNetwork(manifest, sites, sample) {
@@ -251,18 +316,44 @@
       const ruined = index >= state.count;
       const economy = regions[index] || { capacity: 0, sectorCapacity: [0, 0, 0], weights: [0, 0, 0] };
       const pressure = economy.capacity * regions.length;
-      const share = (ruined ? history.peak_population : state.population) / Math.max(1, founded) * (index === 0 ? 1.4 : 0.9);
-      const radius = clamp(Math.sqrt(Math.max(1000, share)) * 0.012 / manifest.radius_km, 0.0015, 0.025);
+      const activeCount = Math.min(state.count, sites.length);
+      const foundedCount = Math.min(founded, sites.length);
+      const population = ruined ? 0 : regionalPopulation(state.population, index, activeCount);
+      const peak = Math.max(population, regionalPopulation(history?.peak_population || state.population, index, foundedCount));
+      const allocation = urbanAllocation(site, population, peak, state, manifest);
+      const share = allocation.population || allocation.historicalPopulation;
+      const maximumRadius = 0.025 + 0.325 * clamp((share - 1000000000) / 10000000000, 0, 1);
+      const radius = clamp(Math.sqrt(Math.max(1000, share)) * 0.012 / manifest.radius_km, 0.0015, maximumRadius)
+        * Math.min(1, share / 1000);
       return {
-        ...site, radius, ruined,
+        ...site, radius, ruined, ...allocation,
         parcelScale: clamp(12 / manifest.radius_km, 0.0002, 0.006),
         landRadius: Math.min(0.18, radius * (3 + Math.log2(1 + pressure))
           + Math.min(0.1, Math.sqrt(pressure) * 0.012)),
         ...economy,
       };
     });
+    // Infill joins only already-nearby, active centres; this is not a traversable road route.
+    for (const site of settlements) {
+      const nearby = settlements.filter(other => other !== site && !other.ruined && !site.ruined)
+        .map(other => ({ other, distance: Math.hypot(...site.direction.map((n, axis) => n - other.direction[axis])) }))
+        .filter(({ distance }) => distance < 0.35)
+        .sort((a, b) => a.distance - b.distance || a.other.id.localeCompare(b.other.id))[0];
+      site.conurbation = nearby ? {
+        direction: nearby.other.direction,
+        width: Math.min(site.radius, nearby.other.radius) * 0.22
+          * clamp(((site.radius + nearby.other.radius) / nearby.distance - 0.65) / 0.55, 0, 1),
+      } : { direction: site.direction, width: 0 };
+    }
     return {
-      version: VERSION, seed: manifest?.seed ?? 0, settlements, state,
+      version: VERSION, urbanVersion: URBAN_VERSION, seed: manifest?.seed ?? 0, settlements, state,
+      urbanSettlements: settlements.flatMap(site => [
+        { id: site.id, direction: site.direction, population: site.population, radius: site.radius,
+          ruined: site.ruined, foundingPopulation: 0 },
+        ...site.children,
+      ]),
+      ruralPopulation: settlements.reduce((sum, site) => sum + site.ruralPopulation, 0),
+      unallocatedPopulation: settlements.length ? 0 : state.population,
       outdoorAgriculture, unavailable: founded > 0 && settlements.length === 0,
       history: history || null,
       roads: network?.routes.filter(route => route.activation < settlements.length).map(route => {
@@ -361,6 +452,11 @@
       data.set(n > 1e-8 ? [-site.direction[2] / n, 0, site.direction[0] / n, parcelSeed]
         : [1, 0, 0, parcelSeed], offset + 8);
       data.set([...site.weights, site.capacity], offset + 12);
+      data.set([...(surfacePlan.state.civic || [0, 0]), site.weights[0], site.weights[1] + site.weights[2]], offset + 16);
+      data.set([...site.conurbation.direction, site.conurbation.width], offset + 20);
+      site.children.forEach(child => {
+        data.set([...child.direction, child.radius * (child.ruined ? -1 : 1)], offset + 24 + child.ordinal * 4);
+      });
     });
     const width = 0.00035 + Math.min(0.00065, Math.sqrt(surfacePlan.state.capacity) * 0.0001);
     const trafficEnabled = policy?.motion === true && policy.visible === true
@@ -455,7 +551,10 @@
   }
 
   const WGSL = `
-struct GQLivingSite { center: vec4<f32>, land: vec4<f32>, east: vec4<f32>, economy: vec4<f32> };
+struct GQLivingSite {
+  center: vec4<f32>, land: vec4<f32>, east: vec4<f32>, economy: vec4<f32>,
+  civic: vec4<f32>, connection: vec4<f32>, nuclei: array<vec4<f32>,7>,
+};
 struct GQLivingRoad { start: vec4<f32>, end: vec4<f32>, plane: vec4<f32>, traffic: vec4<f32> };
 struct GQLivingSurface {
   state: vec4<f32>, economy: vec4<f32>, sites: array<GQLivingSite,12>,
@@ -519,6 +618,52 @@ fn gqWindLandscape(input: GQEconomicLandscape, cells: vec2<f32>, pixelCells: f32
   out.farm *= 1.0 + wave * gust * canopy * detail * clamp(strength,0.0,1.0) * 0.08;
   return out;
 }
+fn gqUrbanNoise(point: vec2<f32>, seed: u32) -> f32 {
+  let cell = vec2<i32>(floor(point));
+  let f = fract(point);
+  let blend = f * f * (3.0 - 2.0 * f);
+  return mix(mix(gqHash(cell,seed),gqHash(cell + vec2<i32>(1,0),seed),blend.x),
+    mix(gqHash(cell + vec2<i32>(0,1),seed),gqHash(cell + vec2<i32>(1,1),seed),blend.x),blend.y) * 0.5 + 0.5;
+}
+// Stable world-sized districts survive growth; only occupancy and the envelope change.
+fn gqUrbanStructure(local: vec2<f32>, radius: f32, scale: f32,
+    footprint: f32, seed: u32, civic: vec4<f32>, infill: f32) -> vec3<f32> {
+  let angle = gqHash(vec2<i32>(0),seed) * 3.14159265;
+  let p = vec2<f32>(dot(local,vec2<f32>(cos(angle),sin(angle))),
+    dot(local,vec2<f32>(-sin(angle),cos(angle))));
+  let districtScale = scale * 5.0;
+  let noise = gqUrbanNoise(p / districtScale,seed);
+  let broad = gqUrbanNoise(p / (districtScale * 3.0),seed + 17u);
+  let axes = min(abs(p.x),min(abs(p.y),abs(p.x * 0.65 + p.y * 0.76)));
+  let arms = 1.0 - smoothstep(radius * 0.08,radius * 0.26,axes);
+  let reach = radius * (0.62 + broad * 0.48 + arms * 0.32);
+  let envelope = 1.0 - smoothstep(reach * 0.72,reach,length(p));
+  let core = 1.0 - smoothstep(0.0,max(radius * 0.6,0.00001),length(p));
+  let density = clamp(0.23 + core * 0.5 + arms * 0.22 + civic.x * 0.2
+    - civic.z * 0.18 + civic.w * 0.08,0.05,0.95);
+  let occupancy = smoothstep(0.48,0.65,noise + density * 0.5);
+  let blockScale = scale * mix(1.0,1.8,civic.w);
+  let cells = p / blockScale;
+  let cellEdge = min(fract(cells),1.0 - fract(cells));
+  let lineDistance = min(cellEdge.x,cellEdge.y) * blockScale;
+  let aa = max(footprint * 0.7,blockScale * 0.015);
+  let streets = 1.0 - smoothstep(blockScale * 0.025,blockScale * 0.025 + aa,lineDistance);
+  let resolved = 1.0 - smoothstep(0.3,1.2,footprint / blockScale);
+  let lots = gqHash(vec2<i32>(floor(cells)),seed + 39u) * 0.5 + 0.5;
+  let windows = smoothstep(0.24,0.65,lots) * (1.0 - streets);
+  let districtEdge = min(fract(p / districtScale),1.0 - fract(p / districtScale));
+  let arterialDistance = min(axes,min(districtEdge.x,districtEdge.y) * districtScale);
+  let arterialWidth = scale * (0.06 + civic.x * 0.12);
+  let arterialAA = max(footprint * 0.65,scale * 0.015);
+  let arterial = (1.0 - smoothstep(arterialWidth,arterialWidth + arterialAA,arterialDistance))
+    * min(1.0,arterialWidth / arterialAA);
+  let detailedLight = streets * 0.32 + windows * (0.09 + core * 0.15);
+  let filteredLight = mix(0.04 + density * 0.07,detailedLight,resolved);
+  let extent = max(envelope,infill);
+  let built = extent * max(occupancy,arterial * 0.8);
+  let lamps = max(occupancy * filteredLight,arterial * (0.6 + civic.x * 0.4));
+  return vec3<f32>(built,extent * lamps,built * core);
+}
 fn gqLivingSurface(input: GQSurface, bodyPoint: vec3<f32>, normal: vec3<f32>,
     light: vec3<f32>, material: f32, regionWeight: f32) -> GQSurface {
   var out = input;
@@ -530,22 +675,58 @@ fn gqLivingSurface(input: GQSurface, bodyPoint: vec3<f32>, normal: vec3<f32>,
   let eligible = select(smoothstep(0.94,0.99,dot(normal,direction)),0.0,blocked);
   var best = 0.0;
   var urbanMask = 0.0;
+  var roadUrbanMask = 0.0;
+  var urbanLight = vec3<f32>(0.0);
+  var urbanColor = vec3<f32>(0.0);
   for (var i = 0u; i < u32(gqLiving.state.x); i++) {
     let site = gqLiving.sites[i];
     let siteActivity = 1.0 - site.land.z;
     let distance = length(direction - site.center.xyz);
     let land = (1.0 - smoothstep(site.land.x * 0.65,site.land.x,distance)) * eligible;
-    let urbanRadius = max(site.center.w,footprint * 0.75);
-    let urban = (1.0 - smoothstep(urbanRadius * 0.6,urbanRadius,distance)) * eligible;
-    urbanMask = max(urbanMask,urban);
     let north = cross(site.center.xyz,site.east.xyz);
     let local = vec2<f32>(dot(direction,site.east.xyz),dot(direction,north));
     let fieldScale = max(site.land.w,0.000001);
+    let segment = site.connection.xyz - site.center.xyz;
+    let t = clamp(dot(direction - site.center.xyz,segment) / max(dot(segment,segment),0.000001),0.0,1.0);
+    let connectionPoint = normalize(mix(site.center.xyz,site.connection.xyz,t));
+    let corridorDistance = length(direction - connectionPoint);
+    let infill = (1.0 - smoothstep(site.connection.w * 0.5,
+      site.connection.w + max(footprint,0.000001),corridorDistance))
+      * select(0.0,1.0,site.connection.w > 0.0);
+    var structure = vec3<f32>(0.0);
+    if (site.center.w > 0.0) {
+      structure = gqUrbanStructure(local,site.center.w,
+        fieldScale,footprint,u32(site.east.w),site.civic,infill);
+    }
+    for (var childIndex = 0u; childIndex < 7u; childIndex++) {
+      let child = site.nuclei[childIndex];
+      let radius = abs(child.w);
+      // Uniform footprint is computed above; no derivatives in this spatial cull.
+      if (radius > 0.0 && length(direction - child.xyz) < radius * 1.6) {
+        let childLocal = vec2<f32>(dot(direction - child.xyz,site.east.xyz),
+          dot(direction - child.xyz,north));
+        var childStructure = gqUrbanStructure(childLocal,radius,fieldScale,footprint,
+          u32(site.east.w) + (childIndex + 1u) * 101u,site.civic,0.0);
+        childStructure.y *= select(0.0,1.0,child.w > 0.0);
+        structure = max(structure,childStructure);
+      }
+    }
+    let sameHemisphere = select(0.0,1.0,dot(direction,site.center.xyz) > 0.8);
+    let urban = structure.x * eligible * sameHemisphere;
+    let activeLight = structure.y * eligible * siteActivity * sameHemisphere;
+    let lamp = mix(mix(vec3<f32>(1.0,0.60,0.24),vec3<f32>(1.0,0.38,0.12),site.civic.w),
+      vec3<f32>(0.48,0.74,1.0),site.civic.y);
+    urbanLight = max(urbanLight,lamp * activeLight);
+    if (urban > urbanMask) {
+      urbanColor = gqLinear(mix(vec3<f32>(0.27,0.30,0.31),vec3<f32>(0.39,0.42,0.44),structure.z))
+        * mix(0.55,1.0,siteActivity);
+    }
+    urbanMask = max(urbanMask,urban);
+    roadUrbanMask = max(roadUrbanMask,max(urban,
+      (1.0 - smoothstep(site.center.w * 0.6,site.center.w,distance)) * eligible));
     let cells = local / fieldScale;
     let detailWeight = 1.0 - smoothstep(0.25,1.0,footprint / fieldScale);
     let parcel = gqHash(vec2<i32>(floor(cells)),u32(site.east.w));
-    let edge = min(fract(cells),1.0 - fract(cells));
-    let rows = smoothstep(0.04,0.14,min(edge.x,edge.y));
     let sector = parcel * 0.5 + 0.5;
     let farmDistrict = select(0.0,1.0,sector < site.economy.x);
     let mineDistrict = select(0.0,1.0,sector >= site.economy.x && sector < site.economy.x + site.economy.y);
@@ -563,16 +744,15 @@ fn gqLivingSurface(input: GQSurface, bodyPoint: vec3<f32>, normal: vec3<f32>,
       out.albedo = mix(input.albedo,landscape.farm,agricultural * 0.85);
       out.albedo = mix(out.albedo,landscape.quarry,mining * 0.85);
       out.albedo = mix(out.albedo,landscape.industry,industry * 0.8);
-      let blocks = mix(0.55,rows,detailWeight);
-      let cityColor = mix(vec3<f32>(0.34,0.30,0.25),vec3<f32>(0.31,0.35,0.38),siteActivity);
-      out.albedo = mix(out.albedo,gqLinear(cityColor) * (0.55 + blocks * 0.45),urban * 0.95);
       var regionalRoughness = mix(input.roughness,landscape.roughness.x,agricultural * 0.85);
       regionalRoughness = mix(regionalRoughness,landscape.roughness.y,mining * 0.85);
       regionalRoughness = mix(regionalRoughness,landscape.roughness.z,industry * 0.8);
-      out.roughness = mix(regionalRoughness,0.72,urban);
-      out.emission = input.emission + vec3<f32>(1.0,0.67,0.30) * urban * blocks * night * gqLiving.state.y * 0.7 * siteActivity;
+      out.roughness = regionalRoughness;
     }
   }
+  out.albedo = mix(out.albedo,urbanColor,urbanMask * 0.95);
+  out.roughness = mix(out.roughness,0.72,urbanMask);
+  out.emission = input.emission + urbanLight * night * gqLiving.state.y * 0.9;
   var roadMask = 0.0;
   var activeRoadMask = 0.0;
   var freightMask = 0.0;
@@ -588,13 +768,13 @@ fn gqLivingSurface(input: GQSurface, bodyPoint: vec3<f32>, normal: vec3<f32>,
     let width = max(road.start.w,min(0.0015,footprint * 0.6));
     let coverage = (1.0 - smoothstep(width,width + max(footprint,0.00001),distance))
       * min(1.0,width / max(footprint,0.00001));
-    roadMask = max(roadMask,coverage * eligible * (1.0 - urbanMask));
-    activeRoadMask = max(activeRoadMask,coverage * eligible * (1.0 - urbanMask) * (1.0 - road.end.w));
-    freightMask = max(freightMask,coverage * eligible * (1.0 - urbanMask) * (1.0 - road.end.w) * road.plane.w);
+    roadMask = max(roadMask,coverage * eligible * (1.0 - roadUrbanMask));
+    activeRoadMask = max(activeRoadMask,coverage * eligible * (1.0 - roadUrbanMask) * (1.0 - road.end.w));
+    freightMask = max(freightMask,coverage * eligible * (1.0 - roadUrbanMask) * (1.0 - road.end.w) * road.plane.w);
     if (road.traffic.w > 0.0 && road.end.w < 0.5) {
       let radius = max(road.start.w * 2.0,min(0.0045,footprint * 1.1));
       let convoy = (1.0 - smoothstep(radius,radius + max(footprint,0.00001),
-        length(direction - road.traffic.xyz))) * coverage * eligible * (1.0 - urbanMask) * gqLiving.state.y;
+        length(direction - road.traffic.xyz))) * coverage * eligible * (1.0 - roadUrbanMask) * gqLiving.state.y;
       if (convoy > trafficMask) {
         trafficMask = convoy;
         trafficColor = select(vec3<f32>(0.48,0.85,0.28),vec3<f32>(1.0,0.63,0.22),road.traffic.w > 1.5);
@@ -614,9 +794,9 @@ fn gqLivingSurface(input: GQSurface, bodyPoint: vec3<f32>, normal: vec3<f32>,
 `;
 
   const api = {
-    VERSION, MAX_SETTLEMENTS, MAX_ROAD_SEGMENTS, SITE_FLOATS, ROAD_FLOATS, ROAD_OFFSET, TRAFFIC_PERIOD,
+    VERSION, URBAN_VERSION, MAX_SETTLEMENTS, MAX_URBAN_CHILDREN, MAX_ROAD_SEGMENTS, SITE_FLOATS, ROAD_FLOATS, ROAD_OFFSET, TRAFFIC_PERIOD,
     UNIFORM_BYTES, source, development, candidates, roadNetwork, plan, uniforms, trafficPosition,
-    satelliteGeometry, specializationLabel, inspectSettlement, WGSL,
+    satelliteGeometry, specializationLabel, inspectSettlement, urbanCandidates, WGSL,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') window.GQColonySurfacePlan = api;

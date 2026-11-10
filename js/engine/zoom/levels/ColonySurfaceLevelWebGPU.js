@@ -2993,6 +2993,8 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       classes, status.text, rates, this._snapshotState || 'Saved building state', this._terrainState,
       this._surfacePlan ? (this._surfacePlan.unavailable ? 'No suitable settlement terrain'
         : `${this._surfacePlan.settlements.length} visual settlement regions`) : '',
+      this._surfacePlan?.urbanSettlements
+        ? `${this._surfacePlan.urbanSettlements.filter(city => !city.ruined).length} cosmetic urban centres; no additional population` : '',
       this._surfacePlan?.roadStatus.unsupported ? 'Regional roads unavailable on composite bodies'
         : this._surfacePlan?.roadStatus.disconnected.length
           ? `${this._surfacePlan.roadStatus.disconnected.length} regions without a visual land route`

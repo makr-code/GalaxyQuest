@@ -9,7 +9,8 @@ var { IZoomLevelRenderer: ZoomLevelRendererBase } = typeof require !== 'undefine
   ? require('../IZoomLevelRenderer.js')
   : window.GQIZoomLevelRenderer;
 
-const PLANET_APPROACH_WGSL = `
+function planetApproachShader(authoredSurface = false, authoredAppearance = false) {
+  return `
 struct Uniforms {
   viewProjection: mat4x4<f32>,
   base: vec4<f32>,
@@ -20,6 +21,16 @@ struct Uniforms {
   bodyX: vec4<f32>, bodyY: vec4<f32>, bodyZ: vec4<f32>, light: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
+${authoredSurface ? `
+@group(0) @binding(4) var authoredColor: texture_2d<f32>;
+@group(0) @binding(5) var authoredSampler: sampler;
+@group(0) @binding(6) var<uniform> authoredOptions: vec4<f32>;
+${authoredAppearance ? `
+@group(0) @binding(7) var authoredMaterial: texture_2d<f32>;
+struct AuthoredAppearance { material: vec4<f32>, cloud: vec4<f32> };
+@group(0) @binding(8) var<uniform> appearanceOptions: AuthoredAppearance;
+` : ''}
+` : ''}
 struct Out {
   @builtin(position) position: vec4<f32>,
   @location(0) normal: vec3<f32>,
@@ -60,26 +71,101 @@ struct Out {
   let radialNormal = select(-geometric,geometric,dot(geometric,in.normal) >= 0.0);
   let normal = select(radialNormal,select(geometric,-geometric,front),u.animation.w > 0.5);
   let inverse = transpose(mat3x3<f32>(u.bodyX.xyz,u.bodyY.xyz,u.bodyZ.xyz));
-  let canonicalNormal = inverse * normal;
+  var canonicalNormal = inverse * normal;
   let worldView = normalize(u.eye.xyz - in.world);
   let view = inverse * worldView;
-  let masks = gqTerrainMasks(in.boundaries);
+  ${authoredSurface ? `
+  let direction = normalize(in.bodyPoint);
+  let geographicUV = vec2<f32>(atan2(-direction.z,direction.x) / 6.28318530718 + 0.5,
+    0.5 - asin(clamp(direction.y,-1.0,1.0)) / 3.14159265359);
+  let uvDx = dpdx(geographicUV);
+  let uvDy = dpdy(geographicUV);
+  let gradX = vec2<f32>(uvDx.x - round(uvDx.x),uvDx.y);
+  let gradY = vec2<f32>(uvDy.x - round(uvDy.x),uvDy.y);
+  let authored = textureSampleGrad(authoredColor,authoredSampler,geographicUV,gradX,gradY);
+  // Alpha encodes water=0, dry land=0.5, ice=1, independently of albedo.
+  let sampledMasks = vec3<f32>(1.0 - smoothstep(0.23,0.27,authored.a),
+    smoothstep(0.73,0.77,authored.a),0.0);
+  let geometricMasks = mix(vec3<f32>(select(0.0,1.0,in.material > 0.5),0,0),
+    gqTerrainMasks(in.boundaries),authoredOptions.w);
+  let masks = mix(sampledMasks,geometricMasks,authoredOptions.z);
+  canonicalNormal = normalize(mix(canonicalNormal,normalize(in.bodyPoint),masks.x * authoredOptions.w));
+  ${authoredAppearance ? `
+  let detail = textureSampleGrad(authoredMaterial,authoredSampler,geographicUV,gradX,gradY);
+  let longitude = atan2(-direction.z,direction.x);
+  let latitude = asin(clamp(direction.y,-1.0,1.0));
+  let east = vec3<f32>(-sin(longitude),0.0,-cos(longitude));
+  let north = vec3<f32>(-sin(latitude)*cos(longitude),cos(latitude),sin(latitude)*sin(longitude));
+  let mapNormal = normalize(direction - (detail.r * east + detail.g * north) * appearanceOptions.material.x);
+  let bumpWeight = select(0.0,1.0,appearanceOptions.material.x > 0.0) * authoredOptions.w
+    * (1.0 - masks.x) * (1.0 - authoredOptions.z);
+  canonicalNormal = normalize(mix(canonicalNormal,mapNormal,bumpWeight));
+  ` : ''}
+  ` : 'let masks = gqTerrainMasks(in.boundaries);'}
   let material = gqTerrainMaterial(masks);
   var surface = gqTerrainSurface(gqSurface(in.bodyPoint,in.bodyPoint * gqMaterial.scale.y,canonicalNormal,0.0),masks,canonicalNormal);
-  surface = gqWaterSurface(surface,masks.x * (1.0 - in.region.a),in.bodyPoint * gqMaterial.scale.y,canonicalNormal);
+  surface = gqWaterSurface(surface,masks.x * (1.0 - in.region.a)${authoredSurface ? ' * authoredOptions.x' : ''},in.bodyPoint * gqMaterial.scale.y,canonicalNormal);
   surface = gqLavaSurface(surface,masks.z * (1.0 - in.region.a),in.bodyPoint * gqMaterial.scale.y,canonicalNormal);
   surface.albedo = mix(surface.albedo,gqLinear(in.region.rgb),in.region.a);
+  ${authoredSurface ? `
+  let geometricAlbedo = mix(gqLinear(vec3<f32>(0.717647,0.764706,0.674510)),
+    gqLinear(vec3<f32>(0.086275,0.247059,0.407843)),masks.x);
+  surface.albedo = mix(gqLinear(authored.rgb),geometricAlbedo,authoredOptions.z);
+  ${authoredAppearance ? `
+  surface.roughness = mix(1.0,detail.b,appearanceOptions.material.y);
+  let dielectricF0 = mix(0.04,detail.a,appearanceOptions.material.y);
+  if (appearanceOptions.material.z > 0.5) {
+    var mapColor = authored.rgb;
+    if (appearanceOptions.material.z > 1.5) { mapColor = canonicalNormal * 0.5 + 0.5; }
+    if (appearanceOptions.material.z > 2.5) { mapColor = vec3<f32>(detail.b); }
+    if (appearanceOptions.material.z > 3.5) { mapColor = vec3<f32>(detail.a); }
+    return vec4<f32>(mapColor,1.0);
+  }
+  ` : ''}
+  ` : ''}
   let cloudPoint = normalize(in.bodyPoint) * 12.0;
   let cloudFootprint = max(length(dpdx(cloudPoint)),length(dpdy(cloudPoint)));
   let cloudTime = select(0.0,gqMaterial.anchor.w,gqMaterial.origin.w == 1);
   let cloud = gqCloudCoverage(gqCloudNoise(cloudPoint,cloudTime,gqMaterial.scale.x,cloudFootprint),u.atmosphere.w)
-    * u.eye.w * (1.0 - u.animation.w);
+    * ${authoredAppearance ? '1.0' : 'u.eye.w'} * (1.0 - u.animation.w);
   let canonicalLight = inverse * u.light.xyz;
   surface = gqLivingSurface(surface,in.bodyPoint,canonicalNormal,canonicalLight,material,in.region.a);
-  var color = surface.albedo * 0.3 + surface.emission + gqDirect(surface,view,canonicalLight,vec3<f32>(2.8));
-  color = mix(color,vec3<f32>(0.8),cloud * 0.17);
+  ${authoredAppearance ? `
+  let shellRadius = appearanceOptions.cloud.x;
+  let sun = normalize(canonicalLight);
+  let along = dot(in.bodyPoint,sun);
+  let discriminant = along * along + shellRadius * shellRadius - dot(in.bodyPoint,in.bodyPoint);
+  let distanceToCloud = -along + sqrt(max(0.0,discriminant));
+  let projected = in.bodyPoint + sun * max(0.0,distanceToCloud);
+  let shadowPoint = projected / max(length(projected),0.00001) * 12.0;
+  let shadowFootprint = max(length(dpdx(shadowPoint)),length(dpdy(shadowPoint)));
+  let shadowDensity = gqCloudCoverage(gqCloudNoise(shadowPoint,cloudTime,gqMaterial.scale.x,shadowFootprint),u.atmosphere.w);
+  let belowCloud = select(0.0,1.0,dot(in.bodyPoint,in.bodyPoint) < shellRadius * shellRadius);
+  let day = smoothstep(0.0,0.12,dot(normalize(in.bodyPoint),sun));
+  let projectedShadow = shadowDensity * belowCloud * day * appearanceOptions.cloud.y;
+  let shadow = projectedShadow * appearanceOptions.material.w;
+  let transmission = 1.0 - shadow * 0.55;
+  ` : ''}
+  ${authoredAppearance ? `
+  let solarCosine = dot(normalize(in.bodyPoint),normalize(canonicalLight));
+  let ambient = mix(0.003,0.3,smoothstep(-0.12,0.15,solarCosine));
+  let directDay = smoothstep(-0.02,0.06,solarCosine);
+  ` : 'let ambient = 0.3;'}
+  var color = surface.albedo * ambient + surface.emission + ${authoredAppearance
+    ? 'gqDirectF0(surface,view,canonicalLight,vec3<f32>(2.8 * transmission * directDay),vec3<f32>(dielectricF0))'
+    : 'gqDirect(surface,view,canonicalLight,vec3<f32>(2.8))'};
+  ${authoredAppearance ? `
+  color *= 1.0 - cloud * 0.18 * authoredOptions.y * (1.0 - appearanceOptions.material.w);
+  ` : ''}
+  ${authoredSurface ? 'color = mix(surface.albedo + surface.emission,color,authoredOptions.y);' : ''}
+  color = mix(color,vec3<f32>(0.8),cloud * 0.17${authoredAppearance ? ' * (1.0 - appearanceOptions.material.w)' : ''});
   let rim = pow(1.0 - abs(dot(normal,worldView)),3.0);
-  return vec4<f32>(gqFinish(mix(color,gqLinear(u.atmosphere.rgb),rim * 0.3 * (1.0 - u.animation.w))) * u.animation.z,1);
+  ${authoredAppearance ? `
+  let solarAtmosphere = gqOrbitalAtmosphere(normalize(in.bodyPoint),normalize(canonicalLight));
+  let atmosphereTint = mix(u.atmosphere.rgb,solarAtmosphere.rgb,appearanceOptions.cloud.z);
+  let atmosphereWeight = mix(1.0,solarAtmosphere.a,appearanceOptions.cloud.z);
+  ` : 'let atmosphereTint = u.atmosphere.rgb; let atmosphereWeight = 1.0;'}
+  return vec4<f32>(gqFinish(mix(color,gqLinear(atmosphereTint),rim * 0.3 * u.eye.w * (1.0 - u.animation.w) * atmosphereWeight)) * u.animation.z,1);
 }
 @vertex fn vs_mesh(@location(0) point: vec3<f32>, @location(1) region: vec4<f32>,
     @location(2) material: f32, @location(3) boundaries: vec4<f32>) -> Out {
@@ -96,6 +182,8 @@ struct Out {
   return out;
 }
 `;
+}
+const PLANET_APPROACH_WGSL = planetApproachShader();
 
 function planetColor(value, fallback) {
   const hex = /^#?[0-9a-f]{6}$/i.test(String(value || '')) ? String(value).replace('#', '') : fallback;
@@ -523,7 +611,8 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
     this._surfaceModel = typeof require !== 'undefined'
       ? require('../../../rendering/colony-surface-plan.js') : window.GQColonySurfacePlan;
     const module = this._device.createShaderModule({
-      label: 'planet_approach', code: materialModel.shader(this._surfaceModel.WGSL + PLANET_APPROACH_WGSL),
+      label: 'planet_approach', code: materialModel.shader(this._surfaceModel.WGSL
+        + planetApproachShader(!!this._backend?.geographicSurface, !!this._backend?.geographicSurface?.appearance)),
     });
     const format = globalThis.navigator?.gpu?.getPreferredCanvasFormat?.() || 'bgra8unorm';
     this._pipeline = this._device.createRenderPipeline({
@@ -555,12 +644,22 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
       label: 'approach_living_surface', size: this._surfaceModel.UNIFORM_BYTES,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    const authoredEntries = this._backend?.geographicSurface ? [
+      { binding: 4, resource: this._backend.geographicSurface.albedoView },
+      { binding: 5, resource: this._backend.geographicSurface.sampler },
+      { binding: 6, resource: { buffer: this._backend.geographicSurface.optionsBuffer } },
+      ...(this._backend.geographicSurface.appearance ? [
+        { binding: 7, resource: this._backend.geographicSurface.appearance.materialView },
+        { binding: 8, resource: { buffer: this._backend.geographicSurface.appearance.optionsBuffer } },
+      ] : []),
+    ] : [];
     this._bindGroup = this._device.createBindGroup({
       layout: this._pipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this._uniformBuffer } },
         { binding: 2, resource: { buffer: this._materialBuffer } },
         { binding: 3, resource: { buffer: this._surfaceBuffer } },
+        ...authoredEntries,
       ],
     });
     this._solidBindGroup = this._device.createBindGroup({
@@ -569,6 +668,7 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
         { binding: 0, resource: { buffer: this._uniformBuffer } },
         { binding: 2, resource: { buffer: this._materialBuffer } },
         { binding: 3, resource: { buffer: this._surfaceBuffer } },
+        ...authoredEntries,
       ],
     });
   }
@@ -586,11 +686,14 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
     const geometry = typeof require !== 'undefined'
       ? require('./ColonySurfaceLevelWebGPU.js') : window.GQColonySurfaceLevelWebGPU;
     const solid = this._terrainManifest?.solid;
+    const geographicSurface = this._backend?.geographicSurface;
     const hasRegions = !!this._terrainManifest?.regions?.features?.length;
     const hasGeography = Number.isSafeInteger(this._terrainManifest?.seed)
       && Number.isFinite(this._terrainManifest?.amplitude_km) && this._terrainManifest?.radius_km > 0;
-    const meshSurface = !!solid || hasRegions || hasGeography;
-    if (hasGeography && this._surfacePlanManifest !== this._terrainManifest) {
+    const meshSurface = !!geographicSurface || !!solid || hasRegions || hasGeography;
+    if (geographicSurface?.surfacePlan) {
+      this._surfacePlan = geographicSurface.surfacePlan();
+    } else if (hasGeography && this._surfacePlanManifest !== this._terrainManifest) {
       if (this._surfaceSitesManifest !== this._terrainManifest) {
         this._surfaceSites = geometry.livingSurfaceCandidates(this._terrainManifest, this._surfaceModel);
         this._surfaceRoads = geometry.livingSurfaceRoads(this._terrainManifest, this._surfaceModel, this._surfaceSites);
@@ -611,10 +714,15 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
     const waterPolicy = this._livingPolicy.policy(this._sceneData);
     const atmosphere = geometry.resolveBodySurface(this._sceneData, 1, 1).atmosphere;
     this._orientation = this._livingPolicy.bodyOrientation(this._sceneData,this._terrainManifest,
-      Date.now() / 1000,this._sceneData?.presentation_rotation === true ? this._presentationAngle : 0);
+      this._backend?.unixSeconds ? this._backend.unixSeconds() : Date.now() / 1000,
+      this._sceneData?.presentation_rotation === true ? this._presentationAngle : 0);
     this._rotation = this._orientation.angle;
     const uniforms = new Float32Array(52);
-    uniforms.set(planetViewProjection(cameraState, aspect, distance, near, far));
+    const suppliedProjection = this._backend?.externalCameraControls ? cameraState?.viewProjection : null;
+    if (suppliedProjection && (suppliedProjection.length !== 16 || !Array.from(suppliedProjection).every(Number.isFinite))) {
+      throw new TypeError('External planet view projection must contain 16 finite values');
+    }
+    uniforms.set(suppliedProjection || planetViewProjection(cameraState, aspect, distance, near, far));
     uniforms.set([...this._visualPalette.base,1],16);
     uniforms.set([...this._visualPalette.atmo,atmosphere.coverage],20);
     uniforms.set([this._rotation,this._time,opacity,solid ? 1 : 0],24);
@@ -629,7 +737,10 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
       ? require('../../../rendering/body-material.js') : window.GQBodyMaterial;
     const source = this._sceneData?.focusPlanet || this._sceneData?.planet || this._sceneData?.colony || this._sceneData || {};
     this._materialState = materialModel.resolveBodyMaterial(source, this._terrainManifest);
-    this._materialPixels = this._canvas.height * 1.73 / distance;
+    this._materialPixels = this._canvas.height * (suppliedProjection ? cameraState.projectedScale : 1.73) / distance;
+    if (!Number.isFinite(this._materialPixels) || this._materialPixels <= 0) {
+      throw new RangeError('External planet projected scale must be positive and finite');
+    }
     this._device.queue.writeBuffer(this._materialBuffer, 0,
       materialModel.materialUniforms(this._materialState, this._materialPixels, [0, 0, 0],
         { seconds: this._waterTime, enabled: waterPolicy.enabled && waterPolicy.visible && !waterPolicy.reducedFlash }));
@@ -637,7 +748,27 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
       this._backend?.setBodyTerrainManifest?.(this._terrainManifest);
       this._publishedTerrainManifest = this._terrainManifest;
     }
-    if (meshSurface) {
+    if (geographicSurface) {
+      const mesh = geographicSurface.mesh(this._materialPixels);
+      if (!mesh || typeof mesh.key !== 'string' || !mesh.key) {
+        throw new TypeError('Authored planet mesh requires a nonempty stable key');
+      }
+      if (mesh.key !== this._solidMeshKey) {
+        if (!(mesh.vertices instanceof Float32Array) || mesh.vertices.length === 0
+          || mesh.vertices.length % 36 !== 0 || !mesh.vertices.every(Number.isFinite)) {
+          throw new TypeError('Authored planet mesh must contain finite 48-byte triangle vertices');
+        }
+        this._solidBuffer?.destroy();
+        this._solidBuffer = this._device.createBuffer({
+          label: 'approach_authored_geography', size: mesh.vertices.byteLength,
+          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
+        this._device.queue.writeBuffer(this._solidBuffer, 0, mesh.vertices);
+        this._solidVertexCount = mesh.vertices.length / 12;
+        this._solidMeshKey = mesh.key;
+        this._markerVertices = mesh.vertices;
+      }
+    } else if (meshSurface) {
       const manifestKey = JSON.stringify(this._terrainManifest);
       const rows = solid ? null : geometry.terrainSphereResolution(this._materialPixels,
         manifestKey === this._sphereManifestKey ? this._sphereRows : null);
@@ -709,10 +840,13 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
         view: this._depthTexture.createView(), depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store',
       },
     });
+    geographicSurface?.drawBackground?.(pass);
     pass.setPipeline(meshSurface ? this._solidPipeline : this._pipeline);
     pass.setBindGroup(0, meshSurface ? this._solidBindGroup : this._bindGroup);
     if (meshSurface) pass.setVertexBuffer(0, this._solidBuffer);
     pass.draw(meshSurface ? this._solidVertexCount : 32 * 64 * 6,1,0,0);
+    geographicSurface?.drawForeground?.(pass, { uniforms, material: this._materialState,
+      phase: this._waterTime, effectsEnabled: waterPolicy.enabled && waterPolicy.visible && !waterPolicy.reducedFlash });
     pass.end();
     this._device.queue.submit([encoder.finish()]);
     this._updateSettlementMarkers({
@@ -768,7 +902,7 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    PersistentBodyPlanetApproachRenderer, PLANET_APPROACH_WGSL, planetViewProjection,
+    PersistentBodyPlanetApproachRenderer, PLANET_APPROACH_WGSL, planetApproachShader, planetViewProjection,
     settlementOccluded, projectSettlementMarkers,
   };
 } else {

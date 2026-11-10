@@ -41,7 +41,48 @@ describe('Deterministic living colony surface', () => {
       expect(bounded.settlements[0].parcelScale).toBeGreaterThanOrEqual(0.0002);
       expect(bounded.settlements[0].parcelScale).toBeLessThanOrEqual(0.006);
     }
-    expect(smallUniforms.byteLength).toBe(4912);
+    expect(smallUniforms.byteLength).toBe(6640);
+  });
+
+  it('derives urban lighting districts from completed ground trade/science buildings and keeps production capacities separate', () => {
+    const data = scene(120000000, [
+      { type: 'farm', level: 4 }, { type: 'factory', level: 4 },
+      { type: 'trade_center', level: 4 }, { type: 'research_lab', level: 4 },
+      { type: 'research_lab', level: 100, meta: { zone: 'orbital' } },
+      { type: 'trade_center', level: 0 },
+    ]);
+    const plan = model.plan(data, manifest, regionalSites);
+    expect(plan.state.civic).toEqual([0.25, 0.25]);
+    expect(plan.state.weights).toEqual([0.5, 0, 0.5]);
+    expect(plan.state.capacity).toBe(8);
+    const bytes = model.uniforms(plan);
+    expect(Array.from(bytes.slice(24, 26))).toEqual([0.25, 0.25]);
+    expect(model.development(scene(1)).civic).toEqual([0, 0]);
+    expect(model.development(scene(1, [{ type: 'research_lab', level: 8 }])).civic).toEqual([0, 1]);
+    expect(model.development(scene(1, [{ type: 'trade_center', level: 8 }])).civic).toEqual([1, 0]);
+  });
+
+  it('grows nearby centres into conurbations, not remote, uninhabited or ruined sites', () => {
+    const sites = [
+      { id: 'a', direction: [0, 0, 1], height: 1 },
+      { id: 'b', direction: [0.1, 0, Math.sqrt(0.99)], height: 1 },
+      { id: 'remote', direction: [1, 0, 0], height: 1 },
+    ];
+    const early = model.plan(scene(12000000), manifest, sites);
+    const late = model.plan(scene(120000000000), manifest, sites);
+    expect(early.settlements.every(site => site.conurbation.width === 0)).toBe(true);
+    expect(late.settlements[0].conurbation.width).toBeGreaterThan(0);
+    expect(late.settlements[0].conurbation.direction).toEqual(sites[1].direction);
+    expect(late.settlements[2].conurbation.width).toBe(0);
+    const midpoint = model.plan(scene(12000000000), manifest, sites);
+    expect(late.settlements[0].conurbation.width).toBeGreaterThanOrEqual(midpoint.settlements[0].conurbation.width);
+    expect(late.settlements[0].radius).toBeGreaterThan(0.025);
+    expect(model.plan(scene(0), manifest, sites).settlements).toEqual([]);
+    const declined = model.plan({ ...scene(1000), body_development: {
+      body_id: 12, version: 1, founded_count: 12, peak_population: 120000000000,
+    } }, manifest, sites);
+    expect(declined.settlements.every(site => site.conurbation.width === 0)).toBe(true);
+    expect(model.uniforms(late)[8 + 23]).toBeCloseTo(late.settlements[0].conurbation.width);
   });
 
   it('allocates regional sectors by terrain while conserving every completed sector capacity', () => {

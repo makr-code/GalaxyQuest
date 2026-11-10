@@ -106,7 +106,18 @@ fn gqCloudCoverage(density: f32, coverage: f32) -> f32 {
 }
 `;
 
+  const ATMOSPHERE_WGSL = `
+// Illustrative orbital tint/weight, not an optical scattering solution.
+fn gqOrbitalAtmosphere(normal: vec3<f32>, sun: vec3<f32>) -> vec4<f32> {
+  let mu = dot(normal,sun);
+  let daylight = smoothstep(0.0,0.35,mu);
+  let twilight = (1.0 - smoothstep(0.0,0.22,abs(mu))) * smoothstep(-0.18,-0.02,mu);
+  let tint = mix(vec3<f32>(0.08,0.3,0.62),vec3<f32>(0.92,0.24,0.055),twilight * (1.0 - daylight));
+  return vec4<f32>(tint,max(daylight,twilight * 0.65));
+}
+`;
   const WGSL = `${CLOUD_WGSL}
+${ATMOSPHERE_WGSL}
 struct GQMaterialUniforms {
   base: vec4<f32>, accent: vec4<f32>, emission: vec4<f32>,
   scale: vec4<f32>, mean: vec4<f32>, anchor: vec4<f32>, origin: vec4<i32>,
@@ -278,7 +289,7 @@ fn gqSurface(bodyPoint: vec3<f32>, meters: vec3<f32>, normal: vec3<f32>, materia
   }
   return out;
 }
-fn gqDirect(surface: GQSurface, view: vec3<f32>, light: vec3<f32>, radiance: vec3<f32>) -> vec3<f32> {
+fn gqDirectF0(surface: GQSurface, view: vec3<f32>, light: vec3<f32>, radiance: vec3<f32>, dielectricF0: vec3<f32>) -> vec3<f32> {
   let n = surface.normal;
   let v = normalize(view);
   let l = normalize(light);
@@ -294,11 +305,14 @@ fn gqDirect(surface: GQSurface, view: vec3<f32>, light: vec3<f32>, radiance: vec
   let distribution = alpha2 / max(3.14159265 * denominator * denominator,0.00001);
   let k = (surface.roughness + 1.0) * (surface.roughness + 1.0) / 8.0;
   let geometry = nv / (nv * (1.0 - k) + k) * nl / (nl * (1.0 - k) + k);
-  let f0 = mix(vec3<f32>(0.04),surface.albedo,surface.metallic);
+  let f0 = mix(dielectricF0,surface.albedo,surface.metallic);
   let fresnel = f0 + (1.0 - f0) * pow(1.0 - vh,5.0);
   let specular = distribution * geometry * fresnel / max(4.0 * nv * nl,0.0001);
   let diffuse = (1.0 - fresnel) * (1.0 - surface.metallic) * surface.albedo / 3.14159265;
   return (diffuse + specular) * radiance * nl;
+}
+fn gqDirect(surface: GQSurface, view: vec3<f32>, light: vec3<f32>, radiance: vec3<f32>) -> vec3<f32> {
+  return gqDirectF0(surface,view,light,radiance,vec3<f32>(0.04));
 }
 fn gqPointLinear() -> vec3<f32> {
   return gqMaterial.mean.rgb * 0.8;
@@ -313,7 +327,7 @@ fn gqFinish(color: vec3<f32>) -> vec3<f32> {
   }
 
   const api = { resolveBodyMaterial, materialUniforms, materialLod, terrainBoundaries, srgbToLinear, linearToSrgb,
-    CLOUD_WGSL, WGSL, shader };
+    CLOUD_WGSL, ATMOSPHERE_WGSL, WGSL, shader };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else window.GQBodyMaterial = api;
 })();

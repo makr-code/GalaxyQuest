@@ -42,6 +42,88 @@ function trackedBackend() {
 }
 
 describe('Actual in-game planet and colony GPU resource ownership', () => {
+  it.each([false, true])('accepts a borrowed authored surface (appearance=%s) without changing the default shader', async appearance => {
+    document.body.innerHTML = '<div><canvas width="512" height="384"></canvas></div>';
+    const canvas = document.querySelector('canvas');
+    const { backend, resources, pass } = trackedBackend();
+    const vertices = new Float32Array([
+      1, 0, 0, 0, 0, 0, 0, 0, 1, -1, 0, 0,
+      0, 1, 0, 0, 0, 0, 0, 0, 1, -1, 0, 0,
+      0, 0, 1, 0, 0, 0, 0, 0, 1, -1, 0, 0,
+    ]);
+    let mesh = { key: 'authored:0', vertices };
+    backend.geographicSurface = { albedoView: {}, sampler: {}, optionsBuffer: {},
+      mesh: vi.fn(() => mesh) };
+    if (appearance) {
+      backend.geographicSurface.appearance = { materialView: {}, optionsBuffer: {} };
+      backend.geographicSurface.drawBackground = vi.fn();
+      backend.geographicSurface.drawForeground = vi.fn();
+    }
+    let seconds = 946728000;
+    backend.unixSeconds = () => seconds;
+    const level = new PersistentBodyPlanetApproachRenderer();
+    const matrix = Array.from({ length: 16 }, (_, i) => i % 5 === 0 ? 1 : 0);
+    const camera = { position: { x: 0, y: 0, z: 3 }, viewProjection: matrix, projectedScale: 2 };
+    try {
+      await level.initialize(canvas, backend);
+      await level.enter(1, { reduced_motion: true, colony: { rotation_period_hours: 24,
+        axial_tilt_deg: 0, rotation_phase_deg: 0, rotation_axis_node_deg: 0 } });
+      level._drawFrame(camera);
+      expect(level._solidVertexCount).toBe(3);
+      expect(level._rotation).toBe(0);
+      const buffer = level._solidBuffer;
+      seconds += 21600;
+      level._drawFrame(camera);
+      expect(level._rotation).toBeCloseTo(Math.PI / 2);
+      expect(level._solidBuffer).toBe(buffer);
+      const uniforms = backend.device.queue.writeBuffer.mock.calls.filter(call => call[0] === level._uniformBuffer).at(-1)[2];
+      expect(Array.from(uniforms.slice(0, 16))).toEqual(matrix);
+      const code = backend.device.createShaderModule.mock.calls[0][0].code;
+      expect(code).toContain('@binding(4) var authoredColor');
+      expect(code).toContain('gqWaterSurface');
+      expect(code).toContain('gqCloudNoise');
+      expect(code.includes('@binding(7) var authoredMaterial')).toBe(appearance);
+      expect(backend.device.createBindGroup.mock.calls[0][0].entries.map(entry => entry.binding))
+        .toEqual(appearance ? [0, 2, 3, 4, 5, 6, 7, 8] : [0, 2, 3, 4, 5, 6]);
+      const authoredPlan = level._surfaceModel.plan({ population: 1000 },
+        { seed: 1, radius_km: 6371, biome: 'terran' },
+        [{ id: 'authored', direction: [1, 0, 0], height: 1 }]);
+      backend.geographicSurface.surfacePlan = vi.fn(() => authoredPlan);
+      level._drawFrame(camera);
+      expect(level._surfacePlan).toBe(authoredPlan);
+      const living = backend.device.queue.writeBuffer.mock.calls.filter(call => call[0] === level._surfaceBuffer).at(-1)[2];
+      expect(Array.from(living.slice(0, 2))).toEqual([1, 1]);
+      backend.geographicSurface.surfacePlan.mockReturnValue(null);
+      level._drawFrame(camera);
+      expect(level._surfacePlan).toBeNull();
+      expect(backend.device.queue.writeBuffer.mock.calls.filter(call => call[0] === level._surfaceBuffer).at(-1)[2]
+        .every(value => value === 0)).toBe(true);
+      if (appearance) {
+        expect(backend.geographicSurface.drawBackground).toHaveBeenCalledWith(pass);
+        expect(backend.geographicSurface.drawBackground.mock.invocationCallOrder[0])
+          .toBeLessThan(pass.draw.mock.invocationCallOrder[0]);
+        expect(backend.geographicSurface.drawForeground.mock.invocationCallOrder[0])
+          .toBeGreaterThan(pass.draw.mock.invocationCallOrder[0]);
+        expect(backend.geographicSurface.drawForeground).toHaveBeenCalledWith(pass,
+          expect.objectContaining({ uniforms: expect.any(Float32Array), phase: expect.any(Number),
+            material: expect.objectContaining({ biome: 'terran' }), effectsEnabled: true }));
+      }
+      mesh = { key: 'authored:1', vertices };
+      level._drawFrame(camera);
+      expect(buffer.destroy).toHaveBeenCalledOnce();
+      expect(() => level._drawFrame({ ...camera, viewProjection: [NaN] })).toThrow(/view projection/);
+      expect(() => level._drawFrame({ ...camera, projectedScale: 0 })).toThrow(/projected scale/);
+      mesh = { key: 'invalid', vertices: new Float32Array([NaN]) };
+      expect(() => level._drawFrame(camera)).toThrow(/48-byte triangle/);
+    } finally { level.dispose(); }
+    resources.forEach(resource => expect(resource.destroy).toHaveBeenCalledOnce());
+    expect(backend.device.destroy).not.toHaveBeenCalled();
+    const { PLANET_APPROACH_WGSL } = require('../../js/engine/zoom/levels/PersistentBodyPlanetApproachRenderer.js');
+    expect(PLANET_APPROACH_WGSL).not.toContain('authoredColor');
+    expect(PLANET_APPROACH_WGSL).toContain('let ambient = 0.3;');
+    expect(PLANET_APPROACH_WGSL).not.toContain('directDay');
+  });
+
   it('refines the real orbital mesh only when a hysteresis boundary is crossed and releases the previous buffer', async () => {
     document.body.innerHTML = '<div><canvas width="1024" height="768"></canvas></div>';
     const canvas = document.querySelector('canvas');
