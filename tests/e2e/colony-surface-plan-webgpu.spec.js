@@ -29,7 +29,12 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
   return out;
 }
 @fragment fn fs_main(in: Out) -> @location(0) vec4<f32> {
-  let point = vec3<f32>(in.uv * 8.0,0.7) + parameters.shift.xyz;
+  var point = vec3<f32>(in.uv * 8.0,0.7) + parameters.shift.xyz;
+  if (parameters.shift.w != 0.0) {
+    let latitude = in.uv.y * 1.57079632679;
+    let longitude = parameters.shift.w * (3.14159265359 - 0.00001);
+    point = vec3<f32>(cos(latitude) * cos(longitude),sin(latitude),cos(latitude) * sin(longitude)) * 12.0;
+  }
   let density = gqCloudNoise(point,parameters.state.x,parameters.state.y,parameters.state.z);
   return vec4<f32>(density,gqCloudCoverage(density,parameters.state.w),0,1);
 }`;
@@ -54,8 +59,8 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
       size: [64,16], format: 'rgba32float', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
     });
     const readback = device.createBuffer({ size: 16384, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-    async function render(seconds, seed = 35, footprint = 0.01, coverage = 0.65, shift = [0,0,0]) {
-      device.queue.writeBuffer(parameters, 0, new Float32Array([seconds % 120,seed,footprint,coverage,...shift,0]));
+    async function render(seconds, seed = 35, footprint = 0.01, coverage = 0.65, shift = [0,0,0], seam = 0) {
+      device.queue.writeBuffer(parameters, 0, new Float32Array([seconds % 120,seed,footprint,coverage,...shift,seam]));
       const encoder = device.createCommandEncoder();
       const pass = encoder.beginRenderPass({ colorAttachments: [{
         view: target.createView(), loadOp: 'clear', storeOp: 'store',
@@ -77,20 +82,20 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
       reseeded: await render(5,36), coarse: await render(5,35,2), coarseLater: await render(25,35,2),
       clear: await render(5,35,0.01,0),
       beforeLoop: await render(119.999), afterLoop: await render(0.001),
-      leftSeam: await render(5,35,0.01,0.65,[-12,0,-0.00001]),
-      rightSeam: await render(5,35,0.01,0.65,[-12,0,0.00001]),
+      leftSeam: await render(5,35,0.01,0.65,[0,0,0],-1),
+      rightSeam: await render(5,35,0.01,0.65,[0,0,0],1),
     };
     const veilModule = device.createShaderModule({ code: sky });
     const veilPipeline = device.createRenderPipeline({
       layout: 'auto', vertex: { module: veilModule, entryPoint: 'vs_main' },
       fragment: { module: veilModule, entryPoint: 'fs_veil', targets: [{ format: 'rgba32float' }] },
     });
-    const camera = device.createBuffer({ size: 544, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const camera = device.createBuffer({ size: 560, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     const veilBindings = device.createBindGroup({ layout: veilPipeline.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: camera } },
     ] });
     async function renderVeil(seconds, opacity = 0.8) {
-      const state = new Float32Array(136);
+      const state = new Float32Array(140);
       state[16] = 1;
       state[19] = seconds % 120;
       state[27] = opacity;
@@ -862,15 +867,19 @@ test('orbital city markers rotate, occlude, resize and visit the picked satellit
     const site = orbit._surfacePlan.settlements.find((site, index) => index > 0 && Math.abs(site.direction[1]) < 0.75);
     if (!site) throw new Error('The fixture has no low-latitude satellite');
     const rotation = Math.atan2(site.direction[0], site.direction[2]);
-    orbit._rotation = rotation;
+    const orient = angle => {
+      orbit._sceneData = { ...orbit._sceneData, colony: { ...orbit._sceneData.colony, rotation_period_hours: 0,
+        rotation_phase_deg: angle * 180 / Math.PI, axial_tilt_deg: 0, rotation_axis_node_deg: 0 } };
+    };
+    orient(rotation);
     tick();
     const button = orbit._settlementMarkers.get(site.id);
     const name = button?.getAttribute('aria-label');
     const visible = button && !button.hidden && !button.disabled;
-    orbit._rotation += Math.PI;
+    orient(rotation + Math.PI);
     tick();
     const rearHidden = button.hidden && !orbit._projectedSettlements.some(marker => marker.id === site.id);
-    orbit._rotation = rotation;
+    orient(rotation);
     canvas.width = 1280;
     canvas.height = 960;
     canvas.style.width = '640px';

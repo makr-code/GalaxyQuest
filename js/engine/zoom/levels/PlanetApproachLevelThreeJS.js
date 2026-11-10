@@ -16,6 +16,7 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
     this._terrainUniforms = null;
     this._textures = [];
     this._rotation = this._cloudRotation = 0;
+    this._cloudDrift = this._presentationAngle = 0;
     this._unloaded = false;
     this._resourceEpoch = 0;
     this._visualPalette = {
@@ -69,17 +70,37 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
     this._applySceneDataVisuals(data);
   }
 
+  setPresentationRotation(enabled) {
+    if (typeof enabled !== 'boolean') throw new TypeError('Presentation rotation must be a boolean');
+    this._sceneData = { ...this._sceneData, presentation_rotation: enabled };
+    if (!enabled) this._presentationAngle = 0;
+  }
+
   render(dt, cameraState) {
     if (this._unloaded || !this._renderer) return;
     const policy = this._world.policy(this._sceneData);
     if (!policy.visible) return;
     if (policy.motion) {
       const seconds = this._world.delta(dt);
-      this._rotation = (this._rotation + seconds * 0.05) % (Math.PI * 2);
-      this._cloudRotation = (this._cloudRotation + seconds * 0.073) % (Math.PI * 2);
+      if (this._sceneData?.presentation_rotation === true) {
+        this._presentationAngle = (this._presentationAngle + seconds * 0.05) % (Math.PI * 2);
+      }
+      this._cloudDrift = (this._cloudDrift + seconds * 0.023) % (Math.PI * 2);
     }
-    this._planetMesh.rotation.y = this._rotation;
-    this._cloudMesh.rotation.y = this._cloudRotation;
+    const show = this._sceneData?.presentation_rotation === true ? this._presentationAngle : 0;
+    this._orientation = this._world.bodyOrientation(this._sceneData,null,Date.now() / 1000,show);
+    this._rotation = this._orientation.angle;
+    this._cloudRotation = this._rotation + this._cloudDrift;
+    const T = window.THREE;
+    const apply = (mesh,basis) => {
+      const matrix = new T.Matrix4().makeBasis(...basis.map(column => new T.Vector3(...column)));
+      mesh.quaternion.setFromRotationMatrix(matrix);
+    };
+    apply(this._planetMesh,this._orientation.basis);
+    apply(this._cloudMesh,this._world.rotationBasis(this._rotation + show + this._cloudDrift,
+      this._orientation.descriptor.tilt,this._orientation.descriptor.node));
+    this._sun.position.set(...this._orientation.sun.map(n => n * 100));
+    this._sunUniform.value.set(...this._orientation.sun);
     this._refreshMaps();
     this._updateEffects(policy);
     const width = this._canvas.clientWidth || this._canvas.width || 800;
@@ -157,6 +178,7 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
     });
     // Preserve the standard lighting/material path, only gate emission at night.
     this._nightUniform = { value: this._descriptor.variant === 'lava' ? 1 : 0 };
+    this._sunUniform = { value: new T.Vector3(-0.7,0.8,1).normalize() };
     this._terrainUniforms = {
       gqGeography: { value: null },
       gqOcean: { value: new T.Color() },
@@ -165,12 +187,14 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
     };
     planetMat.onBeforeCompile = shader => {
       shader.uniforms.gqLava = this._nightUniform;
+      shader.uniforms.gqSun = this._sunUniform;
       Object.assign(shader.uniforms, this._terrainUniforms);
       shader.vertexShader = `varying vec3 vGQWorldNormal;\n${shader.vertexShader}`
         .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
           vGQWorldNormal = normalize(mat3(modelMatrix) * objectNormal);`);
       shader.fragmentShader = `varying vec3 vGQWorldNormal;
         uniform float gqLava;
+        uniform vec3 gqSun;
         uniform sampler2D gqGeography;
         uniform vec3 gqOcean;
         uniform vec3 gqIce;
@@ -190,7 +214,7 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
           roughnessFactor = mix(roughnessFactor,0.16,gqWater);`)
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
           float gqNight = 1.0 - smoothstep(-0.15, 0.2,
-            dot(normalize(vGQWorldNormal), normalize(vec3(-0.75, 0.4, 0.38))));
+            dot(normalize(vGQWorldNormal), gqSun));
           totalEmissiveRadiance *= mix(gqNight * (1.0 - gqWater) * (1.0 - gqFrozen), 1.0, gqLava);`);
     };
     planetMat.customProgramCacheKey = () => 'gq-planet-coast-3';
@@ -224,6 +248,7 @@ class PlanetApproachLevelThreeJS extends ZoomLevelRendererBase {
     this._scene.add(this._planetMesh, this._cloudMesh, this._atmoMesh, this._ownershipRing);
     this._scene.add(new T.AmbientLight(0xffffff, 0.06));
     const sun = new T.DirectionalLight(0xfff0dd, 2.2);
+    this._sun = sun;
     sun.position.set(-75, 40, 38);
     this._scene.add(sun);
   }

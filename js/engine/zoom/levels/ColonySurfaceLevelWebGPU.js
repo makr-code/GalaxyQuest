@@ -50,6 +50,7 @@ struct Camera {
   east: vec4<f32>, pole: vec4<f32>, north: vec4<f32>, shelter: vec4<f32>,
   lobeCenters: array<vec4<f32>,4>, lobeAxes: array<vec4<f32>,4>,
   cuts: array<vec4<f32>,8>, solid: vec4<f32>,
+  light: vec4<f32>,
 };
 struct Instance { color: vec4<f32>, position: vec4<f32>, scale: vec4<f32>, extra: vec4<f32> };
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -140,7 +141,9 @@ fn surfacePoint(local: vec3<f32>) -> vec3<f32> {
   let world = surfacePoint(local);
   var out: Out;
   out.position = camera.viewProjection * vec4<f32>(world,1);
-  out.color = vec4<f32>(instance.color.rgb * shade[vertex / 6u], instance.color.a * camera.transition.x);
+  let daylight = max(0.0,dot(normalize(world + vec3<f32>(0,camera.surface.w,0)),camera.light.xyz));
+  out.color = vec4<f32>(instance.color.rgb * shade[vertex / 6u] * (0.15 + daylight * 0.85),
+    instance.color.a * camera.transition.x);
   return out;
 }
 @fragment fn fs_main(in: Out) -> @location(0) vec4<f32> { return in.color; }
@@ -185,6 +188,7 @@ struct Camera {
   eye: vec4<f32>, padding: array<vec4<f32>,5>, shape: vec4<f32>,
   east: vec4<f32>, pole: vec4<f32>, north: vec4<f32>,
   solidPadding: array<vec4<f32>,17>, solidParams: vec4<f32>,
+  light: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> camera: Camera;
 struct Out {
@@ -220,7 +224,7 @@ struct Out {
   surface = gqWaterSurface(surface,masks.x * (1.0 - in.color.a),meters,canonicalNormal);
   surface = gqLavaSurface(surface,masks.z * (1.0 - in.color.a),meters,canonicalNormal);
   surface.albedo = mix(surface.albedo,gqLinear(in.color.rgb),in.color.a);
-  let lightDirection = normalize(vec3<f32>(-0.7,0.8,1.0));
+  let lightDirection = camera.light.xyz;
   surface = gqLivingSurface(surface,bodyPoint,canonicalNormal,frame * lightDirection,material,in.color.a);
   let color = surface.albedo * 0.3 + surface.emission
     + gqDirect(surface,frame * (camera.eye.xyz - in.world),frame * lightDirection,vec3<f32>(2.8));
@@ -249,6 +253,7 @@ struct Camera {
   sky: vec4<f32>, clouds: vec4<f32>,
   shape: vec4<f32>,
   frame0: vec4<f32>,
+  reserved: array<vec4<f32>,20>, light: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> camera: Camera;
 struct Out { @builtin(position) position: vec4<f32>, @location(0) screen: vec2<f32> };
@@ -289,7 +294,7 @@ struct SkyOut { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32 }
   let normal = normalize(point - center);
   let cloud = gqCloudCoverage(gqCloudNoise(noisePoint,camera.transition.w,camera.frame0.w,footprint),camera.clouds.z);
   let inside = c < 0.0;
-  let light = 0.65 + 0.35 * max(0.0,dot(normal,normalize(vec3<f32>(-0.7,0.8,1))));
+  let light = 0.65 + 0.35 * max(0.0,dot(normal,camera.light.xyz));
   let haze = pow(1.0 - abs(dot(direction,normal)),2.0);
   let color = mix(camera.sky.rgb,vec3<f32>(0.95,0.97,1.0) * light,cloud);
   let opacity = select(cloud * 0.82 + haze * 0.12, 0.12 + cloud * 0.28 + haze * 0.25, inside);
@@ -1951,7 +1956,9 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       this._terrainStream?.manifest || this._terrainManifest
     );
     const cloudsEnabled = waterPolicy.enabled && waterPolicy.visible;
-    const uniforms = new Float32Array(136);
+    this._orientation = this._livingPolicy.bodyOrientation(this._sceneData,
+      this._terrainStream?.manifest || this._terrainManifest);
+    const uniforms = new Float32Array(140);
     uniforms.set(this._viewProjection);
     uniforms[16] = this._backdropRendered ? this._camera.progress : 1;
     uniforms[17] = this._bodySurface.radius;
@@ -1970,6 +1977,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     const frame = shape?.frame || [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
     frame.forEach((axis, index) => uniforms.set([...axis, 0], 52 + index * 4));
     uniforms[55] = material.seed;
+    uniforms.set([...this._livingPolicy.unrotateVector(frame,this._orientation.canonicalSun),0],136);
     const shelter = this._bodySurface.terrain.shelter;
     if (shelter) uniforms.set([shelter.radius, colonyDomeHeight(shelter, this._city.parts), 0, 0], 64);
     if (shape?.solid) {
@@ -2232,7 +2240,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
       depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     });
     this._cameraBuffer = this._device.createBuffer({
-      size: 544, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      size: 560, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     this._domePipeline = this._device.createRenderPipeline({
       label: 'colony_pressure_dome', layout: 'auto',

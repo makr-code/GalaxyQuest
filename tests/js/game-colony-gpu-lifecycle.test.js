@@ -82,6 +82,66 @@ describe('Actual in-game planet and colony GPU resource ownership', () => {
     ['colony', ColonySurfaceLevelWebGPU],
   ];
 
+  it.each(levels)('uses absolute physical time and a separate optional presentation phase in %s', async (name,Renderer) => {
+    vi.spyOn(document,'hidden','get').mockReturnValue(false);
+    const world = require('../../js/engine/zoom/levels/PlanetLivingWorld.js');
+    let seconds = world.ROTATION_EPOCH;
+    vi.spyOn(Date,'now').mockImplementation(() => seconds * 1000);
+    let reducedMotion = false;
+    vi.stubGlobal('matchMedia', () => ({ matches: reducedMotion }));
+    document.body.innerHTML = '<div><canvas width="512" height="384"></canvas></div>';
+    const canvas = document.querySelector('canvas');
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 512, height: 384, right: 512, bottom: 384 });
+    const { backend, resources } = trackedBackend();
+    const level = new Renderer();
+    const data = { colony: { body_id: 12, population: 4000, diameter_km: 12742,
+      rotation_period_hours: 24, rotation_phase_deg: 0, axial_tilt_deg: 23.44, rotation_axis_node_deg: 0,
+      star_direction: [1,0,0] }, slots: [] };
+    try {
+      await level.initialize(canvas,backend);
+      await level.enter(1,data);
+      level.render(0);
+      const start = level._orientation;
+      expect(start.angle).toBeCloseTo(0);
+      const allocations = resources.length;
+      seconds += 21600;
+      level.render(0);
+      expect(level._orientation.angle).toBeCloseTo(Math.PI / 2);
+      expect(level._orientation.basis).not.toEqual(start.basis);
+      expect(resources.length).toBe(allocations);
+      const buffer = name === 'planet' ? level._uniformBuffer : level._cameraBuffer;
+      const uploaded = backend.device.queue.writeBuffer.mock.calls.filter(call => call[0] === buffer).at(-1)[2];
+      if (name === 'planet') {
+        level._orientation.basis.forEach((column,i) =>
+          column.forEach((value,k) => expect(uploaded[36 + i * 4 + k]).toBeCloseTo(value,6)));
+        level.setPresentationRotation(true);
+        level.render(0.1);
+        expect(level._presentationAngle).toBeCloseTo(0.005);
+      } else {
+        const frame = level._bodySurface.terrain.shape?.frame || [[1,0,0],[0,1,0],[0,0,1]];
+        const light = world.unrotateVector(frame,level._orientation.canonicalSun);
+        light.forEach((value,i) => expect(uploaded[136 + i]).toBeCloseTo(value,6));
+      }
+      reducedMotion = true;
+      const show = level._presentationAngle;
+      seconds += 21600;
+      level.render(0.1);
+      expect(level._orientation.angle).toBeCloseTo(Math.PI);
+      if (name === 'planet') {
+        expect(level._presentationAngle).toBe(show);
+        level.setPresentationRotation(false);
+        level.render(0);
+      }
+      const basis = level._orientation.basis;
+      await level.exit();
+      await level.enter(1,data);
+      level.render(0);
+      expect(level._orientation.basis).toEqual(basis);
+    } finally { level.dispose(); }
+    resources.forEach(resource => expect(resource.destroy).toHaveBeenCalledOnce());
+    expect(backend.device.destroy).not.toHaveBeenCalled();
+  });
+
   it.each(levels)('updates decorative regional transport in the existing %s frame without new GPU resources', async (_name, Renderer) => {
     vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
     let reducedMotion = false;

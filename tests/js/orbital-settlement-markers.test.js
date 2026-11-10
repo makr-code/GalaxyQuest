@@ -45,6 +45,18 @@ describe('Orbital settlement marker projection', () => {
     expect(quarter[0].x).toBeLessThan(400);
   });
 
+  it('projects and occludes with the full tilted body orientation rather than only a Y angle', () => {
+    const world = require('../../js/engine/zoom/levels/PlanetLivingWorld.js');
+    const basis = world.rotationBasis(1.7,0.9,0.4);
+    const eye = world.rotateVector(basis,[0,0,3]);
+    const camera = { position: { x: eye[0], y: eye[1], z: eye[2] } };
+    const markers = project({ basis, eye, matrix: planetViewProjection(camera,2,3) });
+    expect(markers.map(marker => marker.id)).toEqual(['front','right']);
+    expect(markers[0].x).toBeCloseTo(400,4);
+    expect(markers[0].y).toBeCloseTo(200,4);
+    expect(markers.every(marker => Number.isFinite(marker.x) && Number.isFinite(marker.y))).toBe(true);
+  });
+
   it('uses the real target/pan and rejects behind-camera and clipped positions', () => {
     const camera = { position: { x: 0, y: 0, z: 3 }, target: { x: 0.3, y: 0, z: 0 } };
     expect(project({ matrix: planetViewProjection(camera, 2, 3) })[0].x).toBeLessThan(400);

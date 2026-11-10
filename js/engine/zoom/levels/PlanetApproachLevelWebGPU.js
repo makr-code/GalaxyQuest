@@ -16,6 +16,7 @@ class PlanetLivingWorldApproachRenderer extends ZoomLevelRendererBase {
     this._uniformBuffer = this._bindGroup = null;
     this._textures = [];
     this._rotation = this._cloudRotation = 0;
+    this._cloudDrift = this._presentationAngle = 0;
     this._unloaded = false;
     this._resourceEpoch = 0;
     this._visualPalette = { base: [0.2, 0.45, 0.8], atmo: [0.33, 0.67, 1], clear: [0.016, 0.031, 0.078] };
@@ -58,15 +59,27 @@ class PlanetLivingWorldApproachRenderer extends ZoomLevelRendererBase {
     this._applySceneDataVisuals(data);
   }
 
+  setPresentationRotation(enabled) {
+    if (typeof enabled !== 'boolean') throw new TypeError('Presentation rotation must be a boolean');
+    this._sceneData = { ...this._sceneData, presentation_rotation: enabled };
+    if (!enabled) this._presentationAngle = 0;
+  }
+
   render(dt, cameraState) {
     if (this._unloaded || !this._pipeline) return;
     const policy = this._world.policy(this._sceneData);
     if (!policy.visible) return;
     if (policy.motion) {
       const seconds = this._world.delta(dt);
-      this._rotation = (this._rotation + seconds * 0.05) % (Math.PI * 2);
-      this._cloudRotation = (this._cloudRotation + seconds * 0.073) % (Math.PI * 2);
+      if (this._sceneData?.presentation_rotation === true) {
+        this._presentationAngle = (this._presentationAngle + seconds * 0.05) % (Math.PI * 2);
+      }
+      this._cloudDrift = (this._cloudDrift + seconds * 0.023) % (Math.PI * 2);
     }
+    this._orientation = this._world.bodyOrientation(this._sceneData,null,Date.now() / 1000,
+      this._sceneData?.presentation_rotation === true ? this._presentationAngle : 0);
+    this._rotation = this._orientation.angle;
+    this._cloudRotation = this._rotation + this._cloudDrift;
     this._refreshMaps(policy);
     this._drawFrame(cameraState, policy);
   }
@@ -116,6 +129,7 @@ class PlanetLivingWorldApproachRenderer extends ZoomLevelRendererBase {
       struct Uniforms {
         camera: vec4f, aim: vec4f, motion: vec4f, effects: vec4f, owner: vec4f,
         ocean: vec4f, ice: vec4f, terrain: vec4f,
+        bodyX: vec4f, bodyY: vec4f, bodyZ: vec4f, sun: vec4f,
       };
       @group(0) @binding(0) var<uniform> u: Uniforms;
       @group(0) @binding(1) var mapSampler: sampler;
@@ -164,13 +178,15 @@ class PlanetLivingWorldApproachRenderer extends ZoomLevelRendererBase {
         let right = normalize(cross(forward, upAxis));
         let up = cross(right, forward);
         let ray = normalize(forward + 0.57735027 * (in.screen.x * u.camera.w * right + in.screen.y * up));
-        let sun = normalize(vec3f(-0.75, 0.4, 0.38));
+        let sun = u.sun.xyz;
         var col = srgbToLinear(vec3f(0.016, 0.031, 0.078));
         let hit = intersect(origin, ray, 5.0);
         let normal = normalize(origin + ray * max(hit,0.0));
-        let coords = uv(normal, u.motion.x);
+        let inverse = transpose(mat3x3f(u.bodyX.xyz,u.bodyY.xyz,u.bodyZ.xyz));
+        let canonical = inverse * normal;
+        let coords = uv(canonical, 0.0);
         let relief = dot(textureSampleLevel(geographyMap,mapSampler,coords,0.0).rg,vec2f(256.0 / 257.0,1.0 / 257.0));
-        let ice = terrainCoverage(abs(asin(clamp(normal.y,-1.0,1.0))),u.terrain.y) * u.terrain.w;
+        let ice = terrainCoverage(abs(asin(clamp(canonical.y,-1.0,1.0))),u.terrain.y) * u.terrain.w;
         let water = terrainCoverage(u.terrain.x - relief,0.0) * u.terrain.z * (1.0 - ice);
         if (hit > 0.0) {
           let surface = textureSampleLevel(surfaceMap, mapSampler, coords, 0.0);
@@ -189,7 +205,7 @@ class PlanetLivingWorldApproachRenderer extends ZoomLevelRendererBase {
         let cloudHit = intersect(origin, ray, 5.12);
         if (cloudHit > 0.0 && u.effects.x > 0.0) {
           let normal = normalize(origin + ray * cloudHit);
-          let clouds = textureSampleLevel(cloudMap, mapSampler, uv(normal, u.motion.y), 0.0).a;
+          let clouds = textureSampleLevel(cloudMap, mapSampler, uv(inverse * normal, u.motion.y), 0.0).a;
           let light = 0.08 + max(0.0, dot(normal, sun)) * 1.1;
           col = mix(col, vec3f(light), clouds * 0.8);
         }
@@ -234,7 +250,7 @@ class PlanetLivingWorldApproachRenderer extends ZoomLevelRendererBase {
     if (!this._isCurrent(epoch, device)) return;
     this._pipeline = pipeline;
     this._uniformBuffer = device.createBuffer({
-      size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      size: 192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
   }
 
@@ -286,7 +302,7 @@ class PlanetLivingWorldApproachRenderer extends ZoomLevelRendererBase {
     const owner = this._world.rgb(this._visualPalette.ringColor);
     this._device.queue.writeBuffer(this._uniformBuffer, 0, new Float32Array([
       ...camera, Math.max(1, this._canvas.width) / Math.max(1, this._canvas.height),
-      ...aim, 0, this._rotation, this._cloudRotation, 0, 0,
+      ...aim, 0, this._rotation, -this._cloudDrift, 0, 0,
       policy.enabled ? 1 : 0, policy.enabled ? this._descriptor.atmosphere : 0,
       policy.enabled ? this._world.state(this._sceneData) : 0,
       policy.enabled && this._descriptor.variant === 'lava' ? 0.6 : 0,
@@ -297,6 +313,7 @@ class PlanetLivingWorldApproachRenderer extends ZoomLevelRendererBase {
         ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4), 0,
       this._descriptor.ocean * 0.85, (1 - this._descriptor.ice) * 1.08,
       this._descriptor.ocean > 0 ? 1 : 0, this._descriptor.ice > 0 ? 1 : 0,
+      ...this._orientation.basis.flatMap(column => [...column,0]), ...this._orientation.sun, 0,
     ]));
     const encoder = this._device.createCommandEncoder();
     const pass = encoder.beginRenderPass({ colorAttachments: [{
@@ -339,6 +356,11 @@ class PlanetApproachLevelWebGPU extends PlanetLivingWorldApproachRenderer {
   setNavigationHandlers(handlers) {
     this._navigation = handlers;
     this._persistentRenderer?.setNavigationHandlers(handlers);
+  }
+
+  setPresentationRotation(enabled) {
+    super.setPresentationRotation(enabled);
+    this._persistentRenderer?.setPresentationRotation(enabled);
   }
 
   setSceneData(data) {

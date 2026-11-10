@@ -278,6 +278,7 @@ describe('seeded public planet maps', () => {
 
 describe('native planet living world', () => {
   it('binds maps/uniforms, updates locally without pipeline rebuild, freezes flags, frees only owned resources', async () => {
+    vi.spyOn(Date,'now').mockReturnValue(world.ROTATION_EPOCH * 1000);
     const mock = gpu();
     const level = new PlanetApproachLevelWebGPU();
     level.setSceneData({ seed: 22, owner_color: '#ff0000', night_lights: 1 });
@@ -349,8 +350,8 @@ describe('native planet living world', () => {
         expect(Math.abs(difference - Math.round(difference))).toBeLessThan(1e-6);
       }
     }
-    expect(shader).toContain('uv(normal, u.motion.x)');
-    expect(shader).toContain('uv(normal, u.motion.y)');
+    expect(shader).toContain('uv(canonical, 0.0)');
+    expect(shader).toContain('uv(inverse * normal, u.motion.y)');
     geometry.dispose(); level.dispose();
   });
 
@@ -470,6 +471,7 @@ describe.each([PlanetApproachLevelWebGPU, PlanetApproachLevelThreeJS])('%s lazy-
 
 describe('Three planet living world', () => {
   it('uses standard materials with seeded maps, state-only emission and complete exit/re-entry disposal', async () => {
+    vi.spyOn(Date,'now').mockReturnValue(world.ROTATION_EPOCH * 1000);
     const render = vi.fn(), dispose = vi.fn();
     window.THREE = { ...THREE, WebGLRenderer: class {
       setPixelRatio() {}

@@ -17,6 +17,7 @@ struct Uniforms {
   animation: vec4<f32>,
   shape: vec4<f32>,
   eye: vec4<f32>,
+  bodyX: vec4<f32>, bodyY: vec4<f32>, bodyZ: vec4<f32>, light: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
 struct Out {
@@ -36,16 +37,17 @@ struct Out {
     vec2<f32>(0,1), vec2<f32>(1,0), vec2<f32>(1,1));
   let uv = (vec2<f32>(f32(cell / 64u), f32(cell % 64u)) + corner[vertex % 6u]) / vec2<f32>(32,64);
   let latitude = uv.x * 3.14159265 - 1.57079633;
-  let longitude = uv.y * 6.2831853 + u.animation.x;
+  let longitude = uv.y * 6.2831853;
   let normal = vec3<f32>(cos(latitude) * cos(longitude), sin(latitude), cos(latitude) * sin(longitude));
   var out: Out;
   let canonical = vec3<f32>(cos(latitude) * cos(uv.y * 6.2831853),sin(latitude),cos(latitude) * sin(uv.y * 6.2831853));
   let wave = 0.6 * (canonical.x * canonical.x - canonical.y * canonical.y) + 0.4 * canonical.x * canonical.z;
   let factor = (1.0 + u.shape.w * wave) / length(canonical / max(u.shape.xyz,vec3<f32>(0.5)));
-  out.world = normal * factor;
+  let orientation = mat3x3<f32>(u.bodyX.xyz,u.bodyY.xyz,u.bodyZ.xyz);
+  out.world = orientation * (normal * factor);
   out.bodyPoint = canonical * factor;
   out.position = u.viewProjection * vec4<f32>(out.world,1);
-  out.normal = normal;
+  out.normal = orientation * normal;
   out.uv = uv;
   out.region = vec4<f32>(0);
   out.material = -1.0;
@@ -57,11 +59,10 @@ struct Out {
   let geometric = face / max(length(face),0.00001);
   let radialNormal = select(-geometric,geometric,dot(geometric,in.normal) >= 0.0);
   let normal = select(radialNormal,select(geometric,-geometric,front),u.animation.w > 0.5);
-  let c = cos(u.animation.x);
-  let s = sin(u.animation.x);
-  let canonicalNormal = vec3<f32>(normal.x * c + normal.z * s,normal.y,-normal.x * s + normal.z * c);
+  let inverse = transpose(mat3x3<f32>(u.bodyX.xyz,u.bodyY.xyz,u.bodyZ.xyz));
+  let canonicalNormal = inverse * normal;
   let worldView = normalize(u.eye.xyz - in.world);
-  let view = vec3<f32>(worldView.x * c + worldView.z * s,worldView.y,-worldView.x * s + worldView.z * c);
+  let view = inverse * worldView;
   let masks = gqTerrainMasks(in.boundaries);
   let material = gqTerrainMaterial(masks);
   var surface = gqTerrainSurface(gqSurface(in.bodyPoint,in.bodyPoint * gqMaterial.scale.y,canonicalNormal,0.0),masks,canonicalNormal);
@@ -73,19 +74,16 @@ struct Out {
   let cloudTime = select(0.0,gqMaterial.anchor.w,gqMaterial.origin.w == 1);
   let cloud = gqCloudCoverage(gqCloudNoise(cloudPoint,cloudTime,gqMaterial.scale.x,cloudFootprint),u.atmosphere.w)
     * u.eye.w * (1.0 - u.animation.w);
-  let light = normalize(vec3<f32>(-0.7,0.8,1));
-  let canonicalLight = vec3<f32>(light.x * c + light.z * s,light.y,-light.x * s + light.z * c);
+  let canonicalLight = inverse * u.light.xyz;
   surface = gqLivingSurface(surface,in.bodyPoint,canonicalNormal,canonicalLight,material,in.region.a);
   var color = surface.albedo * 0.3 + surface.emission + gqDirect(surface,view,canonicalLight,vec3<f32>(2.8));
   color = mix(color,vec3<f32>(0.8),cloud * 0.17);
-  let rim = pow(1.0 - abs(normal.z),3.0);
+  let rim = pow(1.0 - abs(dot(normal,worldView)),3.0);
   return vec4<f32>(gqFinish(mix(color,gqLinear(u.atmosphere.rgb),rim * 0.3 * (1.0 - u.animation.w))) * u.animation.z,1);
 }
 @vertex fn vs_mesh(@location(0) point: vec3<f32>, @location(1) region: vec4<f32>,
     @location(2) material: f32, @location(3) boundaries: vec4<f32>) -> Out {
-  let c = cos(u.animation.x);
-  let s = sin(u.animation.x);
-  let world = vec3<f32>(point.x * c - point.z * s,point.y,point.x * s + point.z * c);
+  let world = mat3x3<f32>(u.bodyX.xyz,u.bodyY.xyz,u.bodyZ.xyz) * point;
   var out: Out;
   out.world = world;
   out.bodyPoint = point;
@@ -184,13 +182,14 @@ function settlementOccluded(eye, point, vertices) {
 function projectSettlementMarkers(plan, manifest, frame, geometry) {
   if (!plan?.settlements.length || !frame.vertices?.length || frame.width <= 0 || frame.height <= 0) return [];
   const c = Math.cos(frame.rotation), s = Math.sin(frame.rotation);
-  const eye = [frame.eye[0] * c + frame.eye[2] * s, frame.eye[1], -frame.eye[0] * s + frame.eye[2] * c];
+  const basis = frame.basis || [[c,0,s],[0,1,0],[-s,0,c]];
+  const eye = basis.map(column => column.reduce((sum,n,i) => sum + n * frame.eye[i],0));
   const markers = [];
   for (const [index, site] of plan.settlements.entries()) {
     const radius = (manifest.solid ? geometry.bodySolidRadius(site.direction, manifest.solid)
       : geometry.bodyShapeFactor(site.direction, manifest.shape)) + site.height / manifest.radius_km;
     const point = site.direction.map(n => n * radius);
-    const world = [point[0] * c - point[2] * s, point[1], point[0] * s + point[2] * c];
+    const world = [0,1,2].map(axis => basis.reduce((sum,column,i) => sum + column[axis] * point[i],0));
     const clip = [0, 1, 2, 3].map(row => frame.matrix[row] * world[0] + frame.matrix[4 + row] * world[1]
       + frame.matrix[8 + row] * world[2] + frame.matrix[12 + row]);
     if (clip[3] <= 0 || clip[2] < 0 || clip[2] > clip[3]
@@ -215,6 +214,7 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
     this._uniformBuffer = null;
     this._sceneData = null;
     this._rotation = 0;
+    this._presentationAngle = 0;
     this._time = 0;
     this._waterTime = 0;
     this._active = false;
@@ -260,6 +260,13 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
   setNavigationHandlers(handlers) {
     if (this._disposed) throw new Error('Cannot bind navigation on a disposed planet approach renderer');
     this._navigation = handlers;
+  }
+
+  setPresentationRotation(enabled) {
+    if (typeof enabled !== 'boolean') throw new TypeError('Presentation rotation must be a boolean');
+    this._sceneData = { ...this._sceneData, presentation_rotation: enabled };
+    if (!enabled) this._presentationAngle = 0;
+    this._presentationButton?.setAttribute('aria-pressed', String(enabled));
   }
 
   async enter(prevLevel, payload) {
@@ -367,19 +374,23 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
       }
     }
     const seconds = Math.max(0, Math.min(0.1, dt > 1 ? dt / 1000 : Number(dt) || 0.016));
-    this._rotation += seconds * 0.05;
-    this._time += seconds;
     const waterPolicy = this._livingPolicy.policy(this._sceneData);
+    if (this._sceneData?.presentation_rotation === true && waterPolicy.motion && waterPolicy.visible) {
+      this._presentationAngle = (this._presentationAngle + seconds * 0.05) % (Math.PI * 2);
+    }
+    this._time += seconds;
     if (waterPolicy.motion && waterPolicy.visible) this._waterTime = (this._waterTime + seconds) % 120;
     this._drawFrame(cameraState);
   }
 
   renderBackdrop(dt, cameraState, opacity) {
     if (!this._pipeline) return false;
-    this._rotation += dt * 0.05;
     this._time += dt;
     const waterPolicy = this._livingPolicy.policy(this._sceneData);
     const seconds = Math.max(0, Math.min(0.1, dt > 1 ? dt / 1000 : Number(dt) || 0.016));
+    if (this._sceneData?.presentation_rotation === true && waterPolicy.motion && waterPolicy.visible) {
+      this._presentationAngle = (this._presentationAngle + seconds * 0.05) % (Math.PI * 2);
+    }
     if (waterPolicy.motion && waterPolicy.visible) this._waterTime = (this._waterTime + seconds) % 120;
     this._drawFrame(cameraState, opacity);
     return true;
@@ -403,10 +414,23 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
       position: 'absolute', inset: '0', pointerEvents: 'none', zIndex: '19', overflow: 'hidden',
     });
     this._canvas.parentElement.appendChild(this._markerOverlay);
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'btn btn-secondary btn-sm';
+    toggle.textContent = this._backend?.externalCameraControls ? 'Schaurotation' : 'Presentation rotation';
+    toggle.setAttribute('aria-pressed', String(this._sceneData?.presentation_rotation === true));
+    Object.assign(toggle.style, { position: 'absolute', right: '12px', bottom: '12px', pointerEvents: 'auto' });
+    toggle.addEventListener('click', event => {
+      event.stopPropagation();
+      this.setPresentationRotation(this._sceneData?.presentation_rotation !== true);
+    });
+    this._presentationButton = toggle;
+    this._markerOverlay.appendChild(toggle);
   }
 
   _updateSettlementMarkers(frame) {
     if (!this._markerOverlay) return;
+    this._presentationButton?.setAttribute('aria-pressed', String(this._sceneData?.presentation_rotation === true));
     const sites = this._surfacePlan?.settlements || [];
     for (const [id, marker] of this._settlementMarkers) {
       if (!sites.some(site => site.id === id)) {
@@ -523,7 +547,7 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
       primitive: { topology: 'triangle-list', cullMode: 'none' },
       depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     });
-    this._uniformBuffer = this._device.createBuffer({ size: 144, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this._uniformBuffer = this._device.createBuffer({ size: 208, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this._materialBuffer = this._device.createBuffer({
       label: 'approach_body_material', size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
@@ -586,7 +610,10 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
     const far = Math.max(20, distance + extent * 2);
     const waterPolicy = this._livingPolicy.policy(this._sceneData);
     const atmosphere = geometry.resolveBodySurface(this._sceneData, 1, 1).atmosphere;
-    const uniforms = new Float32Array(36);
+    this._orientation = this._livingPolicy.bodyOrientation(this._sceneData,this._terrainManifest,
+      Date.now() / 1000,this._sceneData?.presentation_rotation === true ? this._presentationAngle : 0);
+    this._rotation = this._orientation.angle;
+    const uniforms = new Float32Array(52);
     uniforms.set(planetViewProjection(cameraState, aspect, distance, near, far));
     uniforms.set([...this._visualPalette.base,1],16);
     uniforms.set([...this._visualPalette.atmo,atmosphere.coverage],20);
@@ -595,6 +622,8 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
     const back = normalizeVector([position.x - target.x, position.y - target.y, position.z - target.z], [0, 0, 1]);
     uniforms.set([back[0] * distance + target.x, back[1] * distance + target.y, back[2] * distance + target.z,
       waterPolicy.enabled && waterPolicy.visible ? atmosphere.strength : 0],32);
+    this._orientation.basis.forEach((column,i) => uniforms.set([...column,0],36 + i * 4));
+    uniforms.set([...this._orientation.sun,0],48);
     this._device.queue.writeBuffer(this._uniformBuffer,0,uniforms);
     const materialModel = typeof require !== 'undefined'
       ? require('../../../rendering/body-material.js') : window.GQBodyMaterial;
@@ -687,7 +716,8 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
     pass.end();
     this._device.queue.submit([encoder.finish()]);
     this._updateSettlementMarkers({
-      rotation: this._rotation, matrix: uniforms.subarray(0, 16), eye: Array.from(uniforms.subarray(32, 35)), opacity,
+      rotation: this._rotation, basis: this._orientation.basis,
+      matrix: uniforms.subarray(0, 16), eye: Array.from(uniforms.subarray(32, 35)), opacity,
     });
   }
 

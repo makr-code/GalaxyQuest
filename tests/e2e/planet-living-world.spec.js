@@ -58,6 +58,8 @@ for (const backend of ['WebGPU', 'ThreeJS']) {
       // Actual backend slot/body + public manifest shape, not bespoke terrain.
       const terrain = { seed: 'earth-23', variant: 'terran', clouds: 0.8 };
       const initial = { position: 3, seed: 'earth-23',
+        rotation_period_hours: 0, axial_tilt_deg: 0, rotation_axis_node_deg: 0, rotation_phase_deg: 0,
+        star_direction: [-0.75,0.4,0.38],
         generated_planet: { id: 23, position: 3, planet_class: 'terran' },
         planet_texture_manifest: { planets: { 3: terrain } },
         night_lights: 1, vfx_quality: 'high' };
@@ -112,14 +114,16 @@ for (const backend of ['WebGPU', 'ThreeJS']) {
       const atmosphereDifference = difference(noClouds, noAtmosphere);
       level.setSceneData(initial);
       // Cloud-shell movement alone must change pixels without moving the surface.
-      level._cloudRotation = 0.35;
+      level._cloudDrift = 0.35;
       const movedClouds = await capture();
       const cloudMotionDifference = difference(original, movedClouds);
-      level._cloudRotation = 0;
+      level._cloudDrift = 0;
+      level.setPresentationRotation(true);
       for (let frame = 0; frame < 20; frame++) level.render(0.05);
       const moving = await capture();
       const motionDifference = difference(original, moving);
-      level._rotation = level._cloudRotation = 0;
+      level.setPresentationRotation(false);
+      level._cloudDrift = 0;
       const originalMapKey = level._mapKey;
       level.setSceneData({ ...initial, owner_color: '#ff3300', reduced_motion: true, reduced_flash: true });
       const ownerMapUnchanged = originalMapKey === level._mapKey;
@@ -242,7 +246,9 @@ test(`${backend}: map coast thresholds retain pixel-wide boundaries and sub-8-bi
     for (const scenario of cases) {
       const { sea } = scenario;
       ramp = scenario;
-      await level.enter(1, { reduced_motion: true, terrain: { seed: 35, ocean: sea / 0.85, ice_caps: 0, clouds: 0, atmosphere: 0 } });
+      await level.enter(1, { reduced_motion: true, rotation_period_hours: 0,
+        axial_tilt_deg: 0, rotation_axis_node_deg: 0, rotation_phase_deg: 0,
+        terrain: { seed: 35, ocean: sea / 0.85, ice_caps: 0, clouds: 0, atmosphere: 0 } });
       if (!native) {
         level._scene.background = new window.THREE.Color(0x000000);
         const material = level._planetMesh.material;

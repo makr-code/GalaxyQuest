@@ -28,6 +28,128 @@
     for (const character of String(value).slice(0, 128)) result = Math.imul(result ^ character.charCodeAt(0), 16777619) >>> 0;
     return result;
   };
+  const TAU = Math.PI * 2;
+  const ROTATION_EPOCH = 946728000; // J2000, Unix seconds.
+  const wrap = angle => ((angle % TAU) + TAU) % TAU;
+  const radians = degrees => degrees * Math.PI / 180;
+  function rotationNumber(body, key, fallback, min, max) {
+    if (body[key] == null) return fallback;
+    const value = typeof body[key] === 'string' && body[key].trim() ? Number(body[key]) : body[key];
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) {
+      throw new RangeError(`Invalid body rotation field: ${key}`);
+    }
+    return value;
+  }
+
+  function rotationDescriptor(data, manifest = null) {
+    const body = { ...data?.colony, ...source(data) };
+    const terrain = manifest || data?.bodyTerrainManifest || data?.body_terrain_manifest || {};
+    const seed = terrain.seed ?? body.terrain_seed ?? body.seed ?? body.body_id ?? body.planet_id ?? body.id ?? 'planet';
+    const random = key => hash(`${seed}:rotation-v1:${key}`) / 4294967296;
+    const kind = `${body.body_type || ''} ${terrain.biome || body.planet_class || body.planet_type || ''}`;
+    const giant = /gas|jovian|giant/i.test(kind);
+    let period = giant ? 8 + random('period') * 12 : 12 + random('period') * 48;
+    const mass = rotationNumber(body, 'mass_earth', null, 0.000000001, 1e9);
+    const radius = terrain.radius_km ?? (body.diameter_km == null ? null
+      : rotationNumber(body, 'diameter_km', null, 0.000001, 1e9) / 2);
+    let breakup = 0;
+    if (mass !== null && radius !== null) {
+      if (!Number.isFinite(radius) || radius <= 0) throw new RangeError('Invalid rotation body radius');
+      breakup = TAU * Math.sqrt((radius * 1000) ** 3 / (3.986004418e14 * mass)) / 3600;
+      period = Math.max(period,breakup * 1.25);
+    }
+    period = rotationNumber(body, 'rotation_period_hours', period, -1e9, 1e9);
+    if (period !== 0 && Math.abs(period) < Math.max(0.000001,breakup)) {
+      throw new RangeError('Body rotation period is below centrifugal breakup limit');
+    }
+    const descriptor = {
+      version: 1, periodHours: period,
+      tilt: radians(rotationNumber(body, 'axial_tilt_deg', random('tilt') * (giant ? 30 : 45), 0, 180)),
+      node: radians(rotationNumber(body, 'rotation_axis_node_deg', random('node') * 360, -1e9, 1e9)),
+      phase: radians(rotationNumber(body, 'rotation_phase_deg', random('phase') * 360, -1e9, 1e9)),
+      epoch: rotationNumber(body, 'rotation_epoch_unix_seconds', ROTATION_EPOCH, -1e12, 1e12),
+      explicit: body.rotation_period_hours != null, tidalLocked: false,
+    };
+    if (body.tidal_locked != null && typeof body.tidal_locked !== 'boolean') {
+      throw new TypeError('tidal_locked must be a boolean');
+    }
+    if (body.tidal_locked === true) {
+      const orbit = rotationOrbit(body);
+      if (!orbit || body.orbital_epoch_unix_seconds == null || orbit.eccentricity !== 0) {
+        throw new RangeError('Tidal locking requires an explicit epoch and a circular orbital ephemeris');
+      }
+      if (['rotation_period_hours','axial_tilt_deg','rotation_axis_node_deg','rotation_epoch_unix_seconds']
+        .some(key => body[key] != null)) throw new RangeError('Tidal lock conflicts with explicit free-spin parameters');
+      descriptor.periodHours = orbit.period / 3600;
+      descriptor.tilt = orbit.inclination;
+      descriptor.node = orbit.node;
+      descriptor.phase = orbit.phase + Math.PI + radians(rotationNumber(body,'rotation_phase_deg',0,-1e9,1e9));
+      descriptor.epoch = orbit.epoch;
+      descriptor.tidalLocked = true;
+    }
+    return Object.freeze(descriptor);
+  }
+
+  function rotationOrbit(body) {
+    if (body.orbital_period_days == null || body.polar_theta_rad == null) return null;
+    return {
+      period: rotationNumber(body,'orbital_period_days',null,0.000001,1e9) * 86400,
+      phase: rotationNumber(body,'polar_theta_rad',null,-1e9,1e9),
+      eccentricity: rotationNumber(body,'orbital_eccentricity',0,0,0.99),
+      inclination: radians(rotationNumber(body,'orbital_inclination_deg',0,0,180)),
+      node: radians(rotationNumber(body,'orbital_ascending_node_deg',0,-1e9,1e9)),
+      epoch: rotationNumber(body,'orbital_epoch_unix_seconds',ROTATION_EPOCH,-1e12,1e12),
+    };
+  }
+
+  function rotationBasis(angle, tilt = 0, node = 0) {
+    const c = Math.cos(angle), s = Math.sin(angle), t = Math.cos(tilt), u = Math.sin(tilt);
+    const n = Math.cos(node), m = Math.sin(node);
+    // Columns map body X/Y/Z into the renderer's XZ orbital plane (Y up).
+    return [[c * t * n - s * m,c * u,c * t * m + s * n],
+      [-u * n,t,-u * m],[-s * t * n - c * m,-s * u,-s * t * m + c * n]];
+  }
+  const rotateVector = (basis, vector) => [0,1,2].map(axis =>
+    basis[0][axis] * vector[0] + basis[1][axis] * vector[1] + basis[2][axis] * vector[2]);
+  const unrotateVector = (basis, vector) => basis.map(column => column.reduce((sum,n,i) => sum + n * vector[i],0));
+
+  function bodyOrientation(data, manifest = null, unixSeconds = Date.now() / 1000, presentationAngle = 0) {
+    if (!Number.isFinite(unixSeconds) || !Number.isFinite(presentationAngle)) throw new RangeError('Invalid rotation time or presentation angle');
+    const descriptor = rotationDescriptor(data,manifest);
+    const period = descriptor.periodHours * 3600;
+    const turns = period === 0 ? 0 : ((unixSeconds - descriptor.epoch) % period) / period;
+    const angle = wrap(descriptor.phase + turns * TAU);
+    const basis = rotationBasis(angle + presentationAngle,descriptor.tilt,descriptor.node);
+    const body = { ...data?.colony, ...source(data) };
+    let sun = [-0.7,0.8,1];
+    let sunSource = 'reference';
+    if (body.star_direction != null) {
+      if (!Array.isArray(body.star_direction) || body.star_direction.length !== 3
+          || !body.star_direction.every(Number.isFinite) || Math.hypot(...body.star_direction) < 1e-12) {
+        throw new TypeError('Invalid body star_direction');
+      }
+      sun = body.star_direction;
+      sunSource = 'explicit';
+    } else {
+      const orbit = rotationOrbit(body);
+      if (orbit) {
+        let anomaly = orbit.phase;
+        if (body.orbital_epoch_unix_seconds != null) {
+          const e = orbit.eccentricity;
+          const initialE = 2 * Math.atan2(Math.sqrt(1 - e) * Math.sin(anomaly / 2),Math.sqrt(1 + e) * Math.cos(anomaly / 2));
+          const mean = wrap(initialE - e * Math.sin(initialE) + ((unixSeconds - orbit.epoch) % orbit.period) / orbit.period * TAU);
+          let eccentric = e < 0.8 ? mean : Math.PI;
+          for (let i = 0; i < 16; i++) eccentric -= (eccentric - e * Math.sin(eccentric) - mean) / (1 - e * Math.cos(eccentric));
+          anomaly = 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(eccentric / 2),Math.sqrt(1 - e) * Math.cos(eccentric / 2));
+          sunSource = 'ephemeris';
+        } else sunSource = 'catalogue-phase';
+        sun = rotateVector(rotationBasis(anomaly,orbit.inclination,orbit.node),[-1,0,0]);
+      }
+    }
+    const length = Math.hypot(...sun);
+    sun = sun.map(n => n / length);
+    return { descriptor, angle, basis, sun, canonicalSun: unrotateVector(basis,sun), sunSource };
+  }
 
   function describe(data) {
     const planet = source(data);
@@ -167,7 +289,8 @@
   }
 
   const delta = dt => typeof dt === 'number' && Number.isFinite(dt) ? Math.max(0, Math.min(0.05, dt)) : 0;
-  const api = { describe, maps, policy, state, palette, source, rgb, delta, cache };
+  const api = { describe, maps, policy, state, palette, source, rgb, delta, cache,
+    ROTATION_EPOCH, rotationDescriptor, rotationBasis, rotateVector, unrotateVector, bodyOrientation };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.GQPlanetLivingWorld = api;
 })(typeof window !== 'undefined' ? window : globalThis);
