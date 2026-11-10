@@ -12,7 +12,6 @@
       root = null,
       api = null,
       wm = null,
-      esc = (value) => String(value || ''),
       fmt = (value) => String(value || ''),
       showToast = () => {},
       windowRef = (typeof window !== 'undefined' ? window : null),
@@ -51,7 +50,10 @@
           const res = await api.setFtlDrive(drive);
           if (res?.success) {
             if (ftlResultEl) {
-              ftlResultEl.innerHTML = `<span style="color:#88ff88">OK ${esc(res.message || 'Drive gesetzt.')}</span>`;
+              const status = ftlResultEl.ownerDocument.createElement('span');
+              status.style.color = '#88ff88';
+              status.textContent = `OK ${String(res.message || 'Drive gesetzt.')}`;
+              ftlResultEl.replaceChildren(status);
             }
             if (ftlCurrentEl) ftlCurrentEl.textContent = `Aktueller Antrieb: ${drive}`;
             ftlButtons.forEach((entry) => {
@@ -67,12 +69,20 @@
             wm?.refresh?.('fleet');
           } else {
             if (ftlResultEl) {
-              ftlResultEl.innerHTML = `<span style="color:#ff6666">Fehler: ${esc(res?.error || 'Unbekannt')}</span>`;
+              const status = ftlResultEl.ownerDocument.createElement('span');
+              status.style.color = '#ff6666';
+              status.textContent = `Fehler: ${String(res?.error || 'Unbekannt')}`;
+              ftlResultEl.replaceChildren(status);
             }
             showToast(res?.error || 'Drive-Wechsel fehlgeschlagen.', 'error');
           }
         } catch (_) {
-          if (ftlResultEl) ftlResultEl.innerHTML = '<span style="color:#ff6666">Netzwerkfehler</span>';
+          if (ftlResultEl) {
+            const status = ftlResultEl.ownerDocument.createElement('span');
+            status.style.color = '#ff6666';
+            status.textContent = 'Netzwerkfehler';
+            ftlResultEl.replaceChildren(status);
+          }
           showToast('Drive-Wechsel fehlgeschlagen.', 'error');
         }
         ftlButtons.forEach((entry) => {

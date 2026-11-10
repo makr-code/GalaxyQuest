@@ -11,7 +11,6 @@
     const {
       root = null,
       api = null,
-      esc = (value) => String(value || ''),
       showToast = () => {},
     } = opts;
 
@@ -104,18 +103,36 @@
 
     const loadLlmProfiles = async () => {
       if (!llmProfileSelect) return;
-      llmProfileSelect.innerHTML = '<option value="">Lade...</option>';
+      const loadingOption = llmProfileSelect.ownerDocument.createElement('option');
+      loadingOption.value = '';
+      loadingOption.textContent = 'Lade...';
+      llmProfileSelect.replaceChildren(loadingOption);
       const res = await api.llmProfiles();
       if (!res.success) {
-        llmProfileSelect.innerHTML = '<option value="">Fehler beim Laden</option>';
+        const errorOption = llmProfileSelect.ownerDocument.createElement('option');
+        errorOption.value = '';
+        errorOption.textContent = 'Fehler beim Laden';
+        llmProfileSelect.replaceChildren(errorOption);
         writeLlmOutput(res.error || 'LLM profile load failed.');
         return;
       }
 
       const profiles = Array.isArray(res.profiles) ? res.profiles : [];
-      llmProfileSelect.innerHTML = profiles.length
-        ? profiles.map((profile) => `<option value="${esc(profile.profile_key)}">${esc(profile.name)} (${esc(profile.profile_key)})</option>`).join('')
-        : '<option value="">Keine Profile gefunden</option>';
+      if (profiles.length) {
+        const options = profiles.map((profile) => {
+          const option = llmProfileSelect.ownerDocument.createElement('option');
+          const profileKey = String(profile.profile_key || '');
+          option.value = profileKey;
+          option.textContent = `${String(profile.name || '')} (${profileKey})`;
+          return option;
+        });
+        llmProfileSelect.replaceChildren(...options);
+      } else {
+        const emptyOption = llmProfileSelect.ownerDocument.createElement('option');
+        emptyOption.value = '';
+        emptyOption.textContent = 'Keine Profile gefunden';
+        llmProfileSelect.replaceChildren(emptyOption);
+      }
 
       if (profiles.length && llmInputVars && !String(llmInputVars.value || '').trim()) {
         const first = profiles[0];

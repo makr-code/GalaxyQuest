@@ -24,11 +24,6 @@
       "count": 2
     }
   },
-  "js/engine/runtime/RuntimeAiSettingsPanel.js": {
-    "no-unsanitized/property": {
-      "count": 1
-    }
-  },
   "js/engine/runtime/RuntimeAlliancesController.js": {
     "no-unsanitized/property": {
       "count": 8
@@ -120,11 +115,6 @@
     },
     "no-unsanitized/property": {
       "count": 1
-    }
-  },
-  "js/engine/runtime/RuntimeFtlSettingsPanel.js": {
-    "no-unsanitized/property": {
-      "count": 2
     }
   },
   "js/engine/runtime/RuntimeGalaxyControllerNavigation.js": {
@@ -390,16 +380,6 @@
   "js/engine/runtime/layers/ui/galaxy/SystemDetailsFacade.js": {
     "no-unsanitized/property": {
       "count": 3
-    }
-  },
-  "js/engine/runtime/layers/ui/settings/ai/SettingsPanel.js": {
-    "no-unsanitized/property": {
-      "count": 1
-    }
-  },
-  "js/engine/runtime/layers/ui/settings/ftl/SettingsPanel.js": {
-    "no-unsanitized/property": {
-      "count": 2
     }
   },
   "js/engine/runtime/layers/ui/settings/render/RenderBindings.js": {

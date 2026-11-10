@@ -10,6 +10,9 @@ vendor/
 /.phpstan-cache/
 composer.phar
 
+# Local WordPress installation (not part of GalaxyQuest)
+/wordpress/
+
 # Environment / secrets
 .env
 .env.*
