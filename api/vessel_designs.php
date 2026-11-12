@@ -37,8 +37,8 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         // Handle CREATE wireframe design: POST /api/wireframe_designs
         if ($isWireframe && $method === 'POST' && !$designId && !$action) {
             only_method('POST');
+            $uid = require_auth();
             verify_csrf();
-            $uid = current_user_id() ?? 'demo_' . bin2hex(random_bytes(4));
             
             $db = get_db();
             $body = json_decode(file_get_contents('php://input'), true);
@@ -76,8 +76,8 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         // Handle CREATE new design: POST /api/vessel_designs
         if (!$isWireframe && $method === 'POST' && !$designId && !$action) {
             only_method('POST');
+            $uid = require_auth();
             verify_csrf();
-            $uid = current_user_id() ?? 'demo_' . bin2hex(random_bytes(4));
             
             $db = get_db();
             $body = json_decode(file_get_contents('php://input'), true);
@@ -108,8 +108,8 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         // Handle QUEUE generation: POST /api/vessel_designs/{id}/generate
         if ($method === 'POST' && $designId && $action === 'generate') {
             only_method('POST');
+            $uid = require_auth();
             verify_csrf();
-            $uid = current_user_id() ?? 'demo_' . bin2hex(random_bytes(4));
             
             $db = get_db();
             $body = json_decode(file_get_contents('php://input'), true);
@@ -122,9 +122,13 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             
             $stmt = $db->prepare(<<<'SQL'
                 INSERT INTO generation_queue (queue_id, design_id, user_id, prompt_text, status, priority)
-                VALUES (?, ?, ?, ?, 'pending', ?)
+                SELECT ?, design_id, user_id, ?, 'pending', ?
+                FROM vessel_designs WHERE design_id = ? AND user_id = ?
             SQL);
-            $stmt->execute([$queueId, $designId, $uid, $promptText, $priority]);
+            $stmt->execute([$queueId, $promptText, $priority, $designId, $uid]);
+            if ($stmt->rowCount() !== 1) {
+                json_error('Design not found', 404);
+            }
             
             // For demo: immediately assign generation ID
             $generationId = bin2hex(random_bytes(8));
@@ -142,7 +146,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         // Handle GET design: GET /api/vessel_designs/{id}
         if ($method === 'GET' && $designId && !$action) {
             only_method('GET');
-            $uid = current_user_id() ?? 'demo_' . bin2hex(random_bytes(4));
+            $uid = require_auth();
             
             $db = get_db();
             $stmt = $db->prepare(<<<'SQL'

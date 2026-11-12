@@ -29,7 +29,7 @@ describe.skipIf(process.env.GQ_DOCKER_CONTEXT_TESTS !== '1')('real Docker contex
   it('excludes private fixtures and preserves exact runtime input bytes', () => {
     const result = run(policy);
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain('56 excluded and 26 retained fixtures');
+    expect(result.stdout).toContain('68 excluded and 26 retained fixtures');
   }, 180000);
 
   it('rejects a weakened environment exclusion using actual Docker COPY', () => {

@@ -92,15 +92,6 @@
             "lineHash": "560d5ccb3ee4f122ee8a29b40bbd48372a54e8d11f38252835ab4bdb5e71dc70",
             "count": 1
         },
-        "00f3a7ab396e3fd84366e62be44b5a6449109bc3ca674a485446a6df10e4a9ca": {
-            "path": "api/wireframe_designs.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 69,
-            "lineHash": "24890302ac510be2a323a150856f54fd15af551c5f58b39669387940134f184b",
-            "count": 1
-        },
         "00fa4127ade69bf64ae27e0d6b768f15855dc5ce12aed64adbf833ed3e0b2f1e": {
             "path": "api/vessel_designs.php",
             "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
@@ -4609,15 +4600,6 @@
             "column": 74,
             "lineHash": "6647677c0f7f670c49812849bd0a15a741fd18351ef26c24e7dfee807f768224",
             "count": 1
-        },
-        "1dc42071825b108e4c97ef51fa74c758fd667e94884f9485123dd4d3b3e404d1": {
-            "path": "api/wireframe_designs.php",
-            "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
-            "type": "ERROR",
-            "message": "Whitespace found at end of line",
-            "column": 1,
-            "lineHash": "05a8475feebbfea685ece06045be63722edc61bb2ade8060a9f03aed6d49f454",
-            "count": 2
         },
         "1dd8bf161b7545853bbc00a0ca16b2a34ed1f987218e396f727aae74d3114c4b": {
             "path": "api/vessel_designs.php",
@@ -11880,6 +11862,15 @@
             "message": "Expected at least 1 space before \"=>\"; 0 found",
             "column": 27,
             "lineHash": "0794fd0a8c3af1a31b8488b81d230fcdfffc60ab592e4f8f021e0a41318474a9",
+            "count": 1
+        },
+        "4e7dd107585cf7ed45047f5509b2a420814ee73818d9bfa51933406647406a33": {
+            "path": "api/wireframe_designs.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 93 and the first side effect is on line 14.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "4e845cca618e40fb33b023b115ead41589d1d496669fa4ff7a91ad6d5deacd4a": {
@@ -25902,7 +25893,7 @@
             "message": "Whitespace found at end of line",
             "column": 1,
             "lineHash": "8b6fa01313ce51afc09e610f819250da501778ad363cba4f9e312a6ec823d42a",
-            "count": 16
+            "count": 10
         },
         "ad4f00055af4bb00e314fd956902b4594a4915fb5b0be5e806bb424eac7c515c": {
             "path": "api/llm.php",
@@ -32186,15 +32177,6 @@
             "lineHash": "1fc5e830760b8e8b53f17b44aa88211b63913a06758465116529b94762a1c1cb",
             "count": 1
         },
-        "d9fe0757d1e7c24ff678320749cb1ac42df64a5c5036957dba98d9660f6125f0": {
-            "path": "api/wireframe_designs.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 105 and the first side effect is on line 14.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
-            "count": 1
-        },
         "d9ff283984e995deed98bcd8c0276f59ed539ea477da999d05a0e510e545dd20": {
             "path": "api/colonization.php",
             "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
@@ -34164,15 +34146,6 @@
             "message": "Inline control structures are not allowed",
             "column": 5,
             "lineHash": "03c7d3a687d591f1c9822f4a0cdc58314d7dcda5ea33b614077e90ae41fde38d",
-            "count": 1
-        },
-        "e47eb99234592aaa77fb686ce72bd5f4e30ebb5a6cceea138a92a608c2bf3669": {
-            "path": "api/wireframe_designs.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 90,
-            "lineHash": "4da039a3458474cd6a85d9cec69e0e8eac4293bbf6f876cfa3f92dc983130a97",
             "count": 1
         },
         "e48d9087b65891153f38f988a7c1449b32391242be17ee66b2f34183c44f1c3c": {
@@ -36414,15 +36387,6 @@
             "message": "Line indented incorrectly; expected 12 spaces, found 8",
             "column": 9,
             "lineHash": "f1893d046854020642cc0f18ec74ca69ed688a0eeaaf1d21af9027484d354780",
-            "count": 1
-        },
-        "f2561f80dbe192510c2c055dda387bb947a141058449cc3beb473448b380dcff": {
-            "path": "api/wireframe_designs.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 88,
-            "lineHash": "59299e9e4390566cdeef53a8f4b791816e8c49b30326d5da198d0a40d1ed6fa4",
             "count": 1
         },
         "f264e8d7f887ed8dd36bc3d998ca585afb2f63e4e40553a561a9cfac261716a8": {

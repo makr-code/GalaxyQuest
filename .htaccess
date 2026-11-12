@@ -45,7 +45,7 @@ RewriteRule ^config/ - [F,L]
 
 # Keep application source, operational data, and development tools out of the web root.
 RewriteRule ^(?:sql|scripts|tests|docs|monitoring|docker|deploy|lib|src|tts_service|tools)/ - [F,L,NC]
-RewriteRule ^(?:gen_hash|debug_error|check_faction_species|test_wireframe_api|bootstrap_25k)\.php$ - [F,L,NC]
+RewriteRule ^(?:setup|gen_hash|debug_error|check_faction_species|test_wireframe_api|bootstrap_25k)\.php$ - [F,L,NC]
 RewriteRule ^api/(?:_debug_db|_init_tables|test_[^/]+|[^/]*_test)\.php$ - [F,L,NC]
 RewriteRule ^(?:admin-dashboard|monitoring-dashboard|benchmark|game_guide_test|npc_dialogue_test|npc_integration_test|ollama_test|ship-designer)\.html$ - [F,L,NC]
 RewriteRule \.(?:md|sql|log|txt|env|ini|ya?ml|lock)$ - [F,L,NC]

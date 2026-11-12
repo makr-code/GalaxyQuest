@@ -287,9 +287,9 @@ Die Importtests benoetigen `pwsh`; ohne dieses werden sie uebersprungen.
 Die Produktionsplanung in `js/rendering/colony-surface-plan.js` kennt
 16 eigenstaendige oberflaechengebundene Facility-Archetypen. Das Habitat
 ist eine separate Wohn-/Siedlungsdarstellung und wird nicht in diese
-16 Typen hineingerechnet. Die aktuelle TRELLIS-Ausgabe in
-`generated/trellis2/imported/building/` enthaelt bislang nur den
-Habitat-Piloten; die vorhandenen Habitat-Konzeptbilder sind keine
+16 Typen hineingerechnet. Die TRELLIS-Ausgabe enthaelt DEV_ONLY-Piloten fuer
+`warehouse`, `drilling` und `hydroponics`; sie sind noch nicht in den
+Produktionsrenderer oder den Facility-Planer eingebunden. Habitat-Konzeptbilder sind keine
 Farm-, Minen- oder Fabrikreferenzen.
 
 | Gruppe | Facility-Klassen | Bild-/Formziel fuer einen Einzelasset-Piloten |
@@ -319,11 +319,30 @@ Forschung, Reinraumtechnik, zivile Dienste und Rohstoffbohrung ab. Das
 Habitat bleibt separat und wird nicht als Facility-Klasse gezaehlt.
 
 Die Referenzen sind Designvorlagen, generisch und nicht massstabkalibriert.
-Es ist noch keine TRELLIS-Inferenz oder GLB-Ausgabe fuer sie erfolgt.
+Fuer `warehouse`, `drilling` und `hydroponics` wurden einzelne Bild-zu-3D-
+Piloten auf derselben isolierten RTX-3060-Umgebung erzeugt. Die ausgewaehlten, mit
+Normalen vervollstaendigten Varianten und ihre hashgebundenen
+Inspection-Sidecars sind:
+
+| Facility | DEV-Asset | Pruefergebnis |
+|---|---|---|
+| `warehouse` | `building_generic_warehouse_pilot_v2_normals_lod0_trellis2_dev.glb` | 15.000 Dreiecke, gueltige UVs, farbige 1024²-Basisfarbe und Metallic/Roughness; kein Normalenbefund. Ein separates 8-Dreiecke-Fragment bleibt zur manuellen Beurteilung erhalten. |
+| `drilling` | `building_generic_drilling_pilot_v2_normals_lod0_trellis2_dev.glb` | 15.000 Dreiecke, gueltige UVs, farbige 1024²-PBR-Texturen; kein Normalenbefund. Zehn Face-Komponenten, davon eine mit 14.696 Dreiecken; kleine getrennte Komponenten bleiben ohne eindeutigen Artefaktnachweis erhalten. |
+| `hydroponics` | `building_generic_hydroponics_pilot_v2_normals_lod0_trellis2_dev.glb` | 15.000 Dreiecke, 11.246 Vertices, gueltige UVs und farbige 1024²-PBR-Texturen; kein Normalenbefund. Drei Face-Komponenten (14.966, 28 und 6 Dreiecke); kleine Komponenten bleiben ohne eindeutigen Artefaktnachweis erhalten. |
+
+Die `v2_normals`-Exporte ergaenzen aus der Mesh-Geometrie berechnete
+Normalen. Dabei wurden Face-/Vertex-Geometrie, UV-Koordinaten und beide
+PBR-Texturen pixelgenau gegen den jeweiligen `v1`-Export verifiziert; dies
+gilt auch fuer den Hydroponik-Export.
+Die Dateien bleiben **DEV_ONLY**: physikalischer Massstab,
+Bodenkontakt, LOD/Renderbudget und Integration in beide Kolonieansichten
+sind weiterhin offen. Die uebrigen 13 Facility-Referenzen haben noch keine
+TRELLIS-Inferenz oder GLB-Ausgabe.
+
 Manifest-Schema, eindeutige Klassen, PNG-Aufloesung und Bildhashes sind
-lokal pruefbar. Sobald in einer isolierten Umgebung TRELLIS-Gewichte
-verfuegbar sind, jeden Bildlauf getrennt ausfuehren, den resultierenden GLB
-mit `--facility-kind` klassifizieren und die Sichtpruefung vor dem DEV-Import
+lokal pruefbar. Weitere Bildlaeufe in einer isolierten Umgebung getrennt
+ausfuehren, resultierende GLBs mit `--facility-kind` klassifizieren und
+Sichtpruefung sowie offene Inspector-Befunde vor jedem DEV-Import
 dokumentieren.
 Das terrassierte Tagebaubecken bleibt ein separates, massstaeblich aus dem
 realen Gelaende generiertes Feature; `drilling` ist lediglich eine Bohr-

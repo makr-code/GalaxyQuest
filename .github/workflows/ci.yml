@@ -112,7 +112,7 @@ jobs:
       - name: Verify Docker context and native Plesk service contracts
         env:
           GQ_DOCKER_CONTEXT_TESTS: '1'
-        run: npx vitest run tests/js/docker-context.test.js tests/js/ci-stack.test.js tests/js/native-plesk-services.test.js tests/js/native-release-package.test.js --testTimeout=30000 --hookTimeout=150000
+        run: npx vitest run tests/js/docker-context.test.js tests/js/ci-stack.test.js tests/js/native-plesk-services.test.js tests/js/native-release-package.test.js tests/js/plesk-git-inspect.test.js tests/js/github-ci-inspect.test.js --maxWorkers=1 --testTimeout=30000 --hookTimeout=150000
 
   phpunit-unit:
     name: PHPUnit Unit Tests (SQLite)

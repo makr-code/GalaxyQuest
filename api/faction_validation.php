@@ -39,10 +39,12 @@ function verify_faction_relations() {
     // Validate standing ranges
     preg_match_all('/standing["\']?\s*:?\s*(-?\d+)/', $content, $standings);
     $standing_values = array_map('intval', $standings[1]);
-    $min_standing = min($standing_values);
-    $max_standing = max($standing_values);
+    $min_standing = $standing_values ? min($standing_values) : null;
+    $max_standing = $standing_values ? max($standing_values) : null;
     
-    if ($min_standing < -10 || $max_standing > 10) {
+    if (!$standing_values) {
+        $issues[] = 'No standing values found';
+    } elseif ($min_standing < -10 || $max_standing > 10) {
         $issues[] = "Standing values out of range [-10, 10]. Found: [$min_standing, $max_standing]";
     }
     
@@ -79,9 +81,9 @@ function dump_standing_matrix() {
 
 if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
     only_method('GET');
+    require_admin();
     $action = strtolower($_GET['action'] ?? 'verify');
     
-    // Allow unauthenticated debug access (remove in production)
     header('Content-Type: application/json');
     
     switch ($action) {
@@ -95,7 +97,7 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
         
         case 'endgame_check':
             $yaml_path = dirname(__DIR__) . '/FACTION_RELATIONS.yaml';
-            $scenarios = [];
+            $scenarios = '';
             if (file_exists($yaml_path)) {
                 $content = file_get_contents($yaml_path);
                 if (preg_match('/endgame_scenarios:(.*?)(?=\n[a-z]|$)/s', $content, $m)) {

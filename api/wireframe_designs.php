@@ -36,21 +36,9 @@ set_exception_handler(function (Throwable $e) {
 $root_dir = dirname(__DIR__);
 require_once $root_dir . '/api/helpers.php';
 
-// Get current user (from session)
-$user_id = current_user_id();
-
-// For development/testing: use demo user if no session
-if (!$user_id && isset($_SERVER['HTTP_X_DEMO_USER'])) {
-    $user_id = $_SERVER['HTTP_X_DEMO_USER'];
-} elseif (!$user_id) {
-    // Allow unauthenticated in development mode
-    $user_id = 'anonymous_' . bin2hex(random_bytes(4));
-}
-
-if (!$user_id) {
-    http_response_code(401);
-    echo json_encode(['error' => 'Unauthorized']);
-    exit(1);
+$user_id = require_auth();
+if (in_array($_SERVER['REQUEST_METHOD'], ['POST', 'DELETE'], true)) {
+    verify_csrf();
 }
 
 // Database connection
@@ -102,7 +90,8 @@ if ($method === 'POST' && !$id) {
  * POST /api/wireframe_designs
  * Save or create a wireframe design with geometry data
  */
-function handleSaveWireframeDesign(\PDO $db, string $user_id): void {
+function handleSaveWireframeDesign(\PDO $db, int $user_id): void
+{
     // Try to get JSON body - fallback to $_REQUEST if php://input is empty
     $input = file_get_contents('php://input');
     $body = json_decode($input, true);
@@ -120,9 +109,6 @@ function handleSaveWireframeDesign(\PDO $db, string $user_id): void {
     }
 
     try {
-        // Generate unique design ID
-        $design_id = 'wd_' . bin2hex(random_bytes(8));
-        
         // Prepare geometry data
         $geometry_data = json_encode([
             'vertices' => $body['vertices'] ?? [],
@@ -131,44 +117,32 @@ function handleSaveWireframeDesign(\PDO $db, string $user_id): void {
             'components' => $body['components'] ?? []
         ]);
         
-        // If updating existing design, use provided ID
         if (!empty($body['design_id'])) {
             $design_id = $body['design_id'];
-            
-            // Check ownership
-            $stmt = $db->prepare('SELECT user_id FROM vessel_designs WHERE design_id = ?');
-            $stmt->execute([$design_id]);
-            $existing = $stmt->fetch();
-            
-            if ($existing && $existing['user_id'] !== $user_id) {
-                http_response_code(403);
-                echo json_encode(['error' => 'Forbidden: Design not owned by user']);
-                exit(1);
+            $stmt = $db->prepare(<<<'SQL'
+                UPDATE vessel_designs
+                SET design_name = ?, description = ?, geometry_data = ?, updated_at = NOW()
+                WHERE design_id = ? AND user_id = ?
+            SQL);
+            $stmt->execute([$body['name'], $body['description'] ?? '', $geometry_data, $design_id, $user_id]);
+            if ($stmt->rowCount() === 0) {
+                $check = $db->prepare('SELECT 1 FROM vessel_designs WHERE design_id = ? AND user_id = ?');
+                $check->execute([$design_id, $user_id]);
+                if (!$check->fetchColumn()) {
+                    http_response_code(404);
+                    echo json_encode(['error' => 'Design not found']);
+                    return;
+                }
             }
+        } else {
+            $design_id = 'wd_' . bin2hex(random_bytes(6));
+            $stmt = $db->prepare(<<<'SQL'
+                INSERT INTO vessel_designs
+                (design_id, user_id, design_name, description, geometry_data, wireframe_source, customizations)
+                VALUES (?, ?, ?, ?, ?, 'manual', '{}')
+            SQL);
+            $stmt->execute([$design_id, $user_id, $body['name'], $body['description'] ?? '', $geometry_data]);
         }
-        
-        // Save to vessel_designs table
-        $stmt = $db->prepare(<<<'SQL'
-            INSERT INTO vessel_designs 
-            (design_id, user_id, design_name, description, geometry_data, wireframe_source, customizations)
-            VALUES (?, ?, ?, ?, ?, 'manual', '{}')
-            ON DUPLICATE KEY UPDATE
-                design_name = ?,
-                description = ?,
-                geometry_data = ?,
-                updated_at = NOW()
-        SQL);
-        
-        $stmt->execute([
-            $design_id,
-            $user_id,
-            $body['name'],
-            $body['description'] ?? '',
-            $geometry_data,
-            $body['name'],
-            $body['description'] ?? '',
-            $geometry_data
-        ]);
         
         http_response_code(201);
         echo json_encode([
@@ -191,7 +165,8 @@ function handleSaveWireframeDesign(\PDO $db, string $user_id): void {
  * GET /api/wireframe_designs/{id}
  * Load wireframe design geometry
  */
-function handleLoadWireframeDesign(\PDO $db, string $user_id, string $design_id): void {
+function handleLoadWireframeDesign(\PDO $db, int $user_id, string $design_id): void
+{
     try {
         $stmt = $db->prepare(<<<'SQL'
             SELECT design_id, user_id, design_name, description, geometry_data, created_at, updated_at
@@ -205,7 +180,7 @@ function handleLoadWireframeDesign(\PDO $db, string $user_id, string $design_id)
         if (!$design) {
             http_response_code(404);
             echo json_encode(['error' => 'Design not found']);
-            exit(1);
+            return;
         }
         
         // Parse geometry data
@@ -237,28 +212,16 @@ function handleLoadWireframeDesign(\PDO $db, string $user_id, string $design_id)
  * DELETE /api/wireframe_designs/{id}
  * Delete a wireframe design
  */
-function handleDeleteWireframeDesign(\PDO $db, string $user_id, string $design_id): void {
+function handleDeleteWireframeDesign(\PDO $db, int $user_id, string $design_id): void
+{
     try {
-        // Check ownership
-        $stmt = $db->prepare('SELECT user_id FROM vessel_designs WHERE design_id = ?');
-        $stmt->execute([$design_id]);
-        $design = $stmt->fetch();
-        
-        if (!$design) {
+        $stmt = $db->prepare('DELETE FROM vessel_designs WHERE design_id = ? AND user_id = ?');
+        $stmt->execute([$design_id, $user_id]);
+        if ($stmt->rowCount() === 0) {
             http_response_code(404);
             echo json_encode(['error' => 'Design not found']);
-            exit(1);
+            return;
         }
-        
-        if ($design['user_id'] !== $user_id) {
-            http_response_code(403);
-            echo json_encode(['error' => 'Forbidden']);
-            exit(1);
-        }
-        
-        // Delete design
-        $stmt = $db->prepare('DELETE FROM vessel_designs WHERE design_id = ?');
-        $stmt->execute([$design_id]);
         
         http_response_code(200);
         echo json_encode(['success' => true, 'message' => 'Design deleted']);

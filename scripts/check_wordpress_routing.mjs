@@ -17,6 +17,7 @@ try {
   copyFileSync('.htaccess', path.join(root, '.htaccess'));
   writeFileSync(path.join(root, 'index.php'), '<?php echo "GAME";\n');
   writeFileSync(path.join(root, 'health.php'), '<?php echo "HEALTH";\n');
+  writeFileSync(path.join(root, 'setup.php'), '<?php echo "SETUP MUST NOT RUN";\n');
   writeFileSync(path.join(root, 'settings.env'), 'sensitive game fixture\n');
   writeFileSync(path.join(root, 'api', 'status.php'), '<?php echo "API";\n');
   writeFileSync(path.join(root, 'wordpress', 'index.php'), '<?php echo "WORDPRESS:" . $_SERVER["REQUEST_URI"];\n');
@@ -61,7 +62,7 @@ RewriteRule . /wordpress/index.php [L]
     assert.equal(result.status, 200, url);
     assert.equal(await result.text(), expected, url);
   }
-  for (const url of ['/config/config.php', '/sql/schema.sql', '/settings.env',
+  for (const url of ['/setup.php', '/SETUP.php', '/config/config.php', '/sql/schema.sql', '/settings.env',
     '/wordpress/settings.env', '/wordpress/settings.ENV']) {
     const result = await fetch(base + url, { redirect: 'manual', signal: AbortSignal.timeout(5000) });
     assert.equal(result.status, 403, url);

@@ -1,0 +1,134 @@
+{
+  "schema": "gq.trellis-inspection.v2",
+  "status": "DEV_ONLY",
+  "source_sha256": "253d80664d16a76c1c9867af9901327731b9be3cb53844b1dd4136d90a5ed639",
+  "size_bytes": 3328076,
+  "asset_type": "building",
+  "facility_kind": "hydroponics",
+  "instances": 1,
+  "world_bounds": [
+    [
+      -0.49999499320983887,
+      -0.1549409031867981,
+      -0.2253735065460205
+    ],
+    [
+      0.49999499320983887,
+      0.1549409031867981,
+      0.2253735065460205
+    ]
+  ],
+  "missing_normal_primitives": 1,
+  "meshes": [
+    {
+      "name": "geometry_0",
+      "triangles": 15000,
+      "vertices": 11246,
+      "zero_area_faces": 0,
+      "uv_valid": true,
+      "components": [
+        {
+          "triangles": 14966,
+          "area_fraction": 0.999816237301524,
+          "local_bounds": [
+            [
+              -0.49999499320983887,
+              -0.1549409031867981,
+              -0.2253735065460205
+            ],
+            [
+              0.49999499320983887,
+              0.1549409031867981,
+              0.2253735065460205
+            ]
+          ]
+        },
+        {
+          "triangles": 28,
+          "area_fraction": 0.00017565724103881336,
+          "local_bounds": [
+            [
+              -0.48765403032302856,
+              -0.13815787434577942,
+              0.21321061253547668
+            ],
+            [
+              -0.468892365694046,
+              -0.1318027228116989,
+              0.22231359779834747
+            ]
+          ]
+        },
+        {
+          "triangles": 6,
+          "area_fraction": 8.105457437161144e-06,
+          "local_bounds": [
+            [
+              -0.022923925891518593,
+              -0.145175039768219,
+              0.22145400941371918
+            ],
+            [
+              -0.016836345195770264,
+              -0.14002275466918945,
+              0.22310133278369904
+            ]
+          ]
+        }
+      ],
+      "base_color": {
+        "size": [
+          1024,
+          1024
+        ],
+        "channel_min": [
+          0,
+          0,
+          0
+        ],
+        "channel_max": [
+          255,
+          254,
+          253
+        ],
+        "nonblack_rgb_fraction": 0.9974546432495117
+      },
+      "metallic_roughness": {
+        "size": [
+          1024,
+          1024
+        ],
+        "channel_min": [
+          0,
+          0,
+          0
+        ],
+        "channel_max": [
+          0,
+          255,
+          255
+        ],
+        "nonblack_rgb_fraction": 0.9999980926513672
+      },
+      "base_color_factor": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "findings": [
+        "multiple_face_components_review_required"
+      ]
+    }
+  ],
+  "findings": [
+    "missing_normal_attributes"
+  ],
+  "required_manual_checks": [
+    "visual_quality_and_materials",
+    "physical_scale",
+    "orientation_and_ground_contact",
+    "lod_and_render_budget",
+    "both_colony_views"
+  ]
+}

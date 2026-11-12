@@ -119,7 +119,7 @@
   ],
   "limitations": [
     "References are generic, not faction-specific or scale-calibrated.",
-    "No TRELLIS.2 inference or GLB export has been run for these images.",
+    "These PNGs remain concept references, not 3D assets; separate DEV_ONLY pilot GLBs exist for warehouse, drilling, and hydroponics, while the other 13 facility references have no TRELLIS.2 exports yet.",
     "Open-pit mining remains procedural terrain, not a drilling-facility model."
   ]
 }

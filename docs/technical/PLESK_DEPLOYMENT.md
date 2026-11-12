@@ -5,9 +5,10 @@
 **Blocked and obsolete:** the instructions below describe the previous
 containerized Apache/MySQL architecture, not the requested native Plesk
 Apache/PHP and database architecture. Do not follow them for a new installation.
-GitHub deployment and all legacy stack commands, including `preflight`,
-`bootstrap`, `deploy`, `backup`, `verify` and `rollback`, are disabled locally
-until a native deployment has been implemented and verified.
+The superseded `develop` deployment workflow and all legacy stack commands,
+including `preflight`, `bootstrap`, `deploy`, `backup`, `verify` and
+`rollback`, are blocked in the current `develop` source until a native
+deployment has been implemented and verified.
 Already transferred bundles and previously published workflows are not affected
 by these local changes and must not be used. No application installation has
 been performed. A verified SSH host key and valid Plesk API TLS certificate are
@@ -25,6 +26,14 @@ health and recovery before enabling any scheduled updates. The current Actions
 artifact is a non-deployable candidate with limited retention, not a release
 distribution or approval mechanism. Retrieval credentials, artifact discovery
 and authenticity, scheduling and the pull/activation agent are not implemented.
+
+The local candidate exports `setup.php` for CLI use, not as a web installer.
+The source rejects non-CLI requests before loading dependencies, and the
+repository Apache rules deny direct HTTP access. A standalone PHP web-server
+test without Apache rewrites and an isolated Apache/WordPress routing fixture
+cover both defenses; neither verifies the target Plesk configuration. Keep
+database initialization and canonical migrations behind their separate
+identity, backup and approval gates.
 
 On 2026-11-12 the operator-provided Plesk Git extension was configured with
 two separate public-HTTPS repositories under the production domain's Plesk Git
@@ -47,8 +56,8 @@ subscription, with a separate document root named for that hostname and PHP
 therefore is not an OS-user security boundary. At inspection the hostname did
 not resolve externally, HTTPS was enabled but no certificate was selected,
 and only `/plesk-stat` was password-protected. Do not deploy application data
-until authoritative DNS, a valid certificate, staging-wide access control and
-separate database credentials have been configured and tested. An opaque
+until authoritative DNS, a valid certificate, an approved and tested staging
+access model and separate database credentials are in place. An opaque
 hostname is not access control and is not guaranteed to remain secret.
 On 2026-11-12, direct A-record queries to two IONOS authoritative nameservers
 and a public resolver initially returned NXDOMAIN. A later check on the same
@@ -74,8 +83,46 @@ Let's Encrypt certificate. A TLS-verified request pinned to `82.165.41.60`
 succeeded for the staging hostname; Plesk reports expiry on 2027-02-10 and
 automatic renewal enabled, not a proven future renewal. The root returned HTTP
 200 without authentication. The last inspected protected directories list
-contained only `/plesk-stat`; staging-wide access control is still required
-and must be tested before publishing application or test data.
+contained only `/plesk-stat`. This was Plesk's default page, not an installed
+GalaxyQuest instance, so it does not test GalaxyQuest's user management.
+GalaxyQuest authentication may be used for staging without a second Plesk
+password prompt, provided the actual deployed release is verified before
+publishing test data: check unauthenticated and authenticated access to
+intended public routes, private APIs, static/generated files and administrative
+and operational endpoints; separately validate registration/account
+provisioning and that staging credentials and data cannot reach production.
+An application login does not itself protect every file or service. If these
+checks do not establish the required access boundaries, use a separately
+verified outer access control or keep staging offline. Do not assume a UUID
+hostname or Plesk administrator login protects the website.
+
+The application-only staging access model is not yet approved. A source
+inspection on 2026-11-12 found that `api/faction_validation.php` permitted
+anonymous diagnostic reads; a local anonymous request returned HTTP 200.
+The local source now requires an administrator session: all three diagnostic
+actions returned HTTP 401 without a session and POST returned 405 on the
+local Apache stack. Unit tests exercise all three actions with simulated
+anonymous, ordinary-user and administrator authorization; the change is not
+yet published, and real-session acceptance testing remains outstanding.
+The verification action also reports a warning instead of failing when no
+standing values can be extracted from the YAML.
+The local design endpoints now require a session instead of accepting
+`X-Demo-User` or manufacturing demo identities. Writes require CSRF; the
+legacy wireframe update/delete and vessel generation insert are scoped to
+the owner's design in the database statement. Tests use actual auth/CSRF
+guards with simulated sessions and an isolated SQLite schema; local anonymous
+HTTP requests returned 401, including one with a forged demo header. These
+changes are not published and do not establish end-to-end staging access.
+The SQLite fixture models the legacy endpoint columns; it does not demonstrate
+compatibility with the canonical schema. In particular, the separate
+`migrate_trellis2_integration_v1.sql` defines different design and queue
+columns and is not in the canonical migration manifest. Treat the design and
+generation APIs as unverified, not operational, until the intended schema,
+routing, worker lifecycle and real-session ownership behavior are reconciled
+and tested on isolated MariaDB. These checks are not a complete access audit.
+Before application-only staging access, verify all relevant endpoints and
+files with anonymous, ordinary-user and administrator sessions. Otherwise keep
+staging offline or use an independently verified outer access control.
 
 Both Plesk repositories were verified as separate bare Git repositories, and
 their configured origin was the expected public HTTPS GitHub URL. A manual
@@ -97,10 +144,33 @@ GitHub provenance or CI acceptance, pin a ref against concurrent pulls, inspect
 the other repository, approve a release or install anything. Run only from a
 trusted copy and account with Git access; the Plesk chroot currently lacks Git.
 
-The local CI definition no longer invokes Plesk deployment jobs; the legacy
-reusable workflow only fails and contains no SSH or SCP step. These changes
-have not been published and do not disable existing GitHub workflows. Until
-the replacement is fully verified, keep the old deployment gate disabled.
+`node deploy/inspect-github-ci.mjs staging|production FULL_COMMIT_SHA RUN_ID`
+is a separate read-only CI diagnostic. It requires Node.js and the authenticated
+GitHub CLI with access to the repository. It checks the exact GitHub repository,
+push branch, commit and CI workflow, requires a successful completed run and all
+eight currently required jobs (including image publication), checks the
+attempt-specific complete job list and rereads the run to detect a retry. Its
+output is `ci-evidence-only`: it does not fetch or compare the current branch
+tip, authenticate artifacts or image digests, prove that the historical
+workflow definition had the intended protections, approve or install a release,
+or prevent the run being retried after inspection. Use a trusted diagnostic
+copy and fail closed on missing tools, network errors or mismatched evidence.
+On 2026-11-12 the published failed run `43242313532` was rejected by the
+live diagnostic. No successful current run was available for a live positive
+test; positive and retry/error cases were tested with isolated fixtures.
+The combined Docker/native contract run failed once locally with two workers
+during package creation and left a test container. That identified test
+container and its image were removed; the package tests and all 69 combined
+contract tests then passed with one worker. The CI contract step now uses one
+worker. The original failure's root cause was not established, so this is not
+proof that concurrent packaging is reliable.
+
+As verified on 2026-11-12, GitHub `develop` at
+`fedb22cf752ef420ac406b519af5c2cd23f477b6` contains the CI definition without
+Plesk deployment jobs and the fail-closed reusable workflow without SSH or SCP.
+This only describes that published branch: it does not revoke already
+transferred bundles, cancel earlier jobs, or prove that other published refs
+and callers are safe. Keep the old deployment gate disabled.
 
 Read-only server inspection on 2026-11-12 established the following baseline:
 
@@ -132,21 +202,39 @@ Read-only server inspection on 2026-11-12 established the following baseline:
   choosing an SSH deployment mechanism; do not grant Docker or root
   privileges to compensate.
 
-On the same date, the published GitHub reusable deployment workflow was still
-active and the `develop` CI workflow still referenced it behind
+Earlier on the same date, the published GitHub reusable deployment workflow was
+still active and the `develop` CI workflow still referenced it behind
 `vars.PLESK_DEPLOY_ENABLED`. After confirming the repository variable was
 absent, it was explicitly created as `false` and read back. This blocks the
 published `develop` CI caller's variable-gated jobs; it does not disable the
-reusable workflow, prevent other callers, cancel in-flight jobs, or publish the
-local fail-closed change. Do not enable the legacy gate or assume the local
-block protects GitHub.
+reusable workflow on other refs, prevent other callers or cancel in-flight
+jobs. The variable was rechecked as `false` after the updated `develop` source
+was published. Do not enable the legacy gate or assume the updated branch
+alone protects other refs and callers.
 
-The published `develop` CI run 43167160243 failed multiple gates, including a
+The earlier published `develop` CI run 43167160243 failed multiple gates, including a
 duplicate `X-Content-Type-Options` header in the container health smoke test.
 The local Apache configuration now removes the application's copy from Apache's
 normal response-header table before setting the baseline in its always table;
-this is locally tested but not published or evidence that the other failed
-gates have passed.
+this was locally tested. The newer published `develop` CI run 43242313532 for
+`fedb22cf752ef420ac406b519af5c2cd23f477b6` failed: the Docker context test
+expected an outdated fixture count, and the total JavaScript gzip bundle
+exceeded its 800 KiB limit. It is not an accepted deployment candidate.
+The fixture-count expectation was corrected locally and all three context
+tests passed against a real Docker daemon; this correction is not yet
+published. On 2026-11-12, a fresh local production build still measured
+830,853 gzip bytes against the unchanged 819,200-byte total limit. An
+experimental broad chunk regrouping was discarded: although it reduced the
+measured total to 819,159 bytes, it combined independently loaded modules
+with global side effects and left only 41 bytes of headroom. It is not an
+accepted fix. A Vite preview alone does not reproduce the native package's
+complete runtime file layout, so browser tests against it cannot establish
+native deployment acceptance. Four selected start/login, logger and resume
+browser tests passed against the existing local Apache stack with the original
+build; this is not a native Plesk or complete staging access test. A further
+experiment using strict module execution order still exceeded the total budget
+and was discarded. A Terser build also exceeded the budget (836,055 bytes)
+and was discarded without retaining its dependency or configuration changes.
 Subsequent local checks passed JavaScript and PHP lint, PHPStan, the four
 previously failing renderer cases, and three runs of the 44-test MySQL
 concurrency group. The PHP test fixture now waits for all configured server

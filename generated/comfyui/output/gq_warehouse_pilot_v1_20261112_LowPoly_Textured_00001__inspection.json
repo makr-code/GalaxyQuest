@@ -1,0 +1,118 @@
+{
+  "schema": "gq.trellis-inspection.v2",
+  "status": "DEV_ONLY",
+  "source_sha256": "40099c142c1c2aad4cdf6ecdc1b7e5165c96a48064fb7ae8230180c1ea6a2ea3",
+  "size_bytes": 2856848,
+  "asset_type": "building",
+  "facility_kind": "warehouse",
+  "instances": 1,
+  "world_bounds": [
+    [
+      -0.49999499320983887,
+      -0.15930147469043732,
+      -0.41655758023262024
+    ],
+    [
+      0.49999499320983887,
+      0.15930147469043732,
+      0.41655758023262024
+    ]
+  ],
+  "missing_normal_primitives": 1,
+  "meshes": [
+    {
+      "name": "geometry_0",
+      "triangles": 15000,
+      "vertices": 12341,
+      "zero_area_faces": 0,
+      "uv_valid": true,
+      "components": [
+        {
+          "triangles": 14992,
+          "area_fraction": 0.9999982829372444,
+          "local_bounds": [
+            [
+              -0.49999499320983887,
+              -0.15930147469043732,
+              -0.41655758023262024
+            ],
+            [
+              0.49999499320983887,
+              0.15930147469043732,
+              0.41655758023262024
+            ]
+          ]
+        },
+        {
+          "triangles": 8,
+          "area_fraction": 1.717062755687816e-06,
+          "local_bounds": [
+            [
+              0.49898654222488403,
+              -0.13048763573169708,
+              0.10847385227680206
+            ],
+            [
+              0.49943751096725464,
+              -0.1298147588968277,
+              0.11663394421339035
+            ]
+          ]
+        }
+      ],
+      "base_color": {
+        "size": [
+          1024,
+          1024
+        ],
+        "channel_min": [
+          0,
+          0,
+          0
+        ],
+        "channel_max": [
+          255,
+          255,
+          255
+        ],
+        "nonblack_rgb_fraction": 0.9953689575195312
+      },
+      "metallic_roughness": {
+        "size": [
+          1024,
+          1024
+        ],
+        "channel_min": [
+          0,
+          80,
+          0
+        ],
+        "channel_max": [
+          0,
+          189,
+          255
+        ],
+        "nonblack_rgb_fraction": 1.0
+      },
+      "base_color_factor": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "findings": [
+        "multiple_face_components_review_required"
+      ]
+    }
+  ],
+  "findings": [
+    "missing_normal_attributes"
+  ],
+  "required_manual_checks": [
+    "visual_quality_and_materials",
+    "physical_scale",
+    "orientation_and_ground_contact",
+    "lod_and_render_budget",
+    "both_colony_views"
+  ]
+}

@@ -2,16 +2,17 @@
 
 declare(strict_types=1);
 
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('setup.php must be run from CLI.');
+}
+
 require_once __DIR__ . '/api/helpers.php';
 require_once __DIR__ . '/api/galaxy_seed.php';
 require_once __DIR__ . '/api/game_engine.php';
 require_once __DIR__ . '/api/character_profile_generator.php';
 require_once __DIR__ . '/lib/FactionHomeworldSeeder.php';
 
-if (PHP_SAPI !== 'cli') {
-    fwrite(STDERR, "setup.php must be run from CLI.\n");
-    exit(1);
-}
 $opts = parse_setup_options($argv);
 if ($opts['help']) {
     print_help();
