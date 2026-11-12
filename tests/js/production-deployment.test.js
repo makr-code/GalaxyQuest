@@ -18,6 +18,15 @@ describe('protected Plesk delivery', () => {
     expect(ci).toMatch(/needs:\s*\[lint-php, lint-js, phpunit-unit, phpunit, vitest, playwright-smoke, native-db\]/);
   });
 
+  it('accepts the exact native candidate on PHP 8.4 Apache before preserving it', () => {
+    const packageStep = ci.indexOf('bash deploy/package-native-release.sh');
+    const acceptanceStep = ci.indexOf('node scripts/check_native_candidate_http.mjs');
+    const artifactStep = ci.indexOf('name: native-plesk-candidate-attempt-');
+    expect(packageStep).toBeGreaterThanOrEqual(0);
+    expect(acceptanceStep).toBeGreaterThan(packageStep);
+    expect(artifactStep).toBeGreaterThan(acceptanceStep);
+  });
+
   it('blocks the superseded reusable workflow without remote access', () => {
     const block = workflow.indexOf('name: Block superseded container deployment');
     expect(block).toBeGreaterThan(-1);

@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { inspectGitHubCi, validateJobs, validateRun } from '../../deploy/inspect-github-ci.mjs';
+import {
+  inspectGitHubCi, validateArtifacts, validateJobs, validateRun,
+} from '../../deploy/inspect-github-ci.mjs';
 
 const commit = 'a'.repeat(40);
 const runId = '12345';
@@ -26,31 +28,88 @@ const names = [
   'Playwright E2E Smoke Test',
   'Build & Publish Docker Image',
 ];
+const candidateSteps = () => [
+  {
+    name: 'Prepare native Plesk candidate from the accepted image',
+    status: 'completed',
+    conclusion: 'success',
+  },
+  {
+    name: 'Accept native candidate on PHP 8.4 FPM behind Apache with WordPress routing',
+    status: 'completed',
+    conclusion: 'success',
+  },
+  {
+    name: 'Preserve non-deployable native candidate',
+    status: 'completed',
+    conclusion: 'success',
+  },
+];
 const jobs = () => ({
   total_count: names.length,
-  jobs: names.map((name) => ({ name, status: 'completed', conclusion: 'success' })),
+  jobs: names.map((name) => ({
+    name,
+    status: 'completed',
+    conclusion: 'success',
+    ...(name === 'Build & Publish Docker Image' ? { steps: candidateSteps() } : {}),
+  })),
+});
+const artifacts = () => ({
+  total_count: 1,
+  artifacts: [{
+    id: 67890,
+    name: 'native-plesk-candidate-attempt-2',
+    size_in_bytes: 4096,
+    digest: `sha256:${'c'.repeat(64)}`,
+    expired: false,
+    workflow_run: {
+      id: 12345,
+      repository_id: 1,
+      head_repository_id: 1,
+      head_branch: 'develop',
+      head_sha: commit,
+    },
+  }],
 });
 
 describe('read-only GitHub CI evidence validation', () => {
-  it('pins the attempt-specific jobs and rechecks the run before returning evidence', () => {
+  it('pins the attempt-specific jobs and candidate artifact, then rechecks the run', () => {
     const calls = [];
     const result = inspectGitHubCi(['staging', commit, runId], (endpoint) => {
       calls.push(endpoint);
-      return calls.length === 2 ? jobs() : run();
+      if (calls.length === 2) return jobs();
+      if (calls.length === 3) return artifacts();
+      return run();
     });
     expect(calls).toEqual([
       `repos/makr-code/GalaxyQuest/actions/runs/${runId}`,
       `repos/makr-code/GalaxyQuest/actions/runs/${runId}/attempts/2/jobs?per_page=100`,
+      `repos/makr-code/GalaxyQuest/actions/runs/${runId}/artifacts?per_page=100`,
       `repos/makr-code/GalaxyQuest/actions/runs/${runId}`,
     ]);
-    expect(result).toEqual({ environment: 'staging', commit, run_id: runId, attempt: 2, status: 'ci-evidence-only' });
+    expect(result).toEqual({
+      environment: 'staging',
+      commit,
+      run_id: runId,
+      attempt: 2,
+      artifact: {
+        id: 67890,
+        name: 'native-plesk-candidate-attempt-2',
+        size_in_bytes: 4096,
+        digest: `sha256:${'c'.repeat(64)}`,
+      },
+      status: 'ci-candidate-evidence-only',
+    });
   });
 
   it('rejects a retry during inspection', () => {
-    let count = 0;
+    let runCount = 0;
     expect(() => inspectGitHubCi(['staging', commit, runId], () => {
-      count++;
-      return count === 2 ? jobs() : { ...run(), run_attempt: count === 3 ? 3 : 2 };
+      runCount++;
+      if (runCount === 1) return run();
+      if (runCount === 2) return jobs();
+      if (runCount === 3) return artifacts();
+      return { ...run(), run_attempt: 3 };
     })).toThrow(/retried/);
   });
 
@@ -64,6 +123,19 @@ describe('read-only GitHub CI evidence validation', () => {
     expect(validateRun(run(), 'staging', commit, runId)).toBe(2);
     expect(validateRun({ ...run(), head_branch: 'main' }, 'production', commit, runId)).toBe(2);
     expect(() => validateJobs(jobs())).not.toThrow();
+  });
+
+  it('rejects candidates that do not match the current run attempt, source, or digest', () => {
+    expect(validateArtifacts(artifacts(), 'staging', commit, runId, 2).digest).toBe(`sha256:${'c'.repeat(64)}`);
+    expect(() => validateArtifacts(artifacts(), 'staging', commit, runId, 3)).toThrow(/exactly one artifact/);
+    expect(() => validateArtifacts({
+      ...artifacts(),
+      artifacts: [{ ...artifacts().artifacts[0], workflow_run: { ...artifacts().artifacts[0].workflow_run, head_sha: 'b'.repeat(40) } }],
+    }, 'staging', commit, runId, 2)).toThrow(/does not match/);
+    expect(() => validateArtifacts({
+      ...artifacts(),
+      artifacts: [{ ...artifacts().artifacts[0], digest: 'sha1:invalid' }],
+    }, 'staging', commit, runId, 2)).toThrow(/does not match/);
   });
 
   it.each([
@@ -102,6 +174,17 @@ describe('read-only GitHub CI evidence validation', () => {
   ])('rejects %s', (_label, change) => {
     const value = jobs();
     change(value);
+    expect(() => validateJobs(value)).toThrow();
+  });
+
+  it.each([
+    ['missing PHP 8.4 Apache acceptance', (steps) => { steps.splice(1, 1); }],
+    ['skipped PHP 8.4 Apache acceptance', (steps) => { steps[1].conclusion = 'skipped'; }],
+    ['failed candidate artifact upload', (steps) => { steps[2].conclusion = 'failure'; }],
+    ['acceptance after candidate artifact upload', (steps) => { [steps[1], steps[2]] = [steps[2], steps[1]]; }],
+  ])('rejects %s', (_label, change) => {
+    const value = jobs();
+    change(value.jobs.find((job) => job.name === 'Build & Publish Docker Image').steps);
     expect(() => validateJobs(value)).toThrow();
   });
 });

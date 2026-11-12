@@ -164,6 +164,24 @@
       Derselbe Anlagenplan erzeugt Oberflaechenmaterial und 3D-Geometrie.
       Synthetischer Bestand, keine echten Berliner Anlagen; maximal drei Module je Familie.
       Orbitale Gebaeude werden nicht auf die Oberflaeche gesetzt.</small>
+    <label><input type="checkbox" name="trellisBuilding"> TRELLIS2-GLB (DEV_ONLY) im Basisvergleich anzeigen</label>
+    <label>TRELLIS2-Gebaeude
+      <select name="trellisBuildingAsset">
+        <option value="warehouse">Lagerhalle</option>
+        <option value="drilling">Bohrfeld</option>
+        <option value="hydroponics">Hydroponik</option>
+      </select>
+    </label>
+    <label>Darstellungsbreite (angenommene Meter)
+      <input type="range" name="trellisBuildingWidth" min="25" max="250" step="5" value="100">
+      <output data-trellis-building-width>100 m</output>
+    </label>
+    <button type="button" name="visitTrellisBuilding">TRELLIS2-Modell aus 2 km Hoehe ansehen</button>
+    <output data-trellis-building-status aria-live="polite"></output>
+    <small>Laedt vorhandene DEV_ONLY-GLBs nur bei Aktivierung und zeigt sie am Referenzstandort
+      Berlin auf der glatten Erdkugel im Three.js-WebGPU-Basisvergleich. Die angenommene Breite
+      ist frei einstellbar und keine Massstabsfreigabe. Kein Relief-Bodenkontaktnachweis;
+      der Produktionsrenderer und seine prozeduralen Anlagen bleiben unveraendert.</small>
     <label><input type="checkbox" name="orbitalGeometry"> Massstaebliche geostationaere Referenzobjekte</label>
     <label>Orbitalobjekt
       <select name="orbitalClass">

@@ -112,7 +112,7 @@ jobs:
       - name: Verify Docker context and native Plesk service contracts
         env:
           GQ_DOCKER_CONTEXT_TESTS: '1'
-        run: npx vitest run tests/js/docker-context.test.js tests/js/ci-stack.test.js tests/js/native-plesk-services.test.js tests/js/native-release-package.test.js tests/js/plesk-git-inspect.test.js tests/js/github-ci-inspect.test.js --maxWorkers=1 --testTimeout=30000 --hookTimeout=150000
+        run: npx vitest run tests/js/docker-context.test.js tests/js/ci-stack.test.js tests/js/native-plesk-services.test.js tests/js/native-release-package.test.js tests/js/plesk-git-inspect.test.js tests/js/github-ci-inspect.test.js tests/js/native-candidate-pull.test.js --maxWorkers=1 --testTimeout=30000 --hookTimeout=150000
 
   phpunit-unit:
     name: PHPUnit Unit Tests (SQLite)
@@ -477,10 +477,13 @@ jobs:
         run: |
           bash deploy/package-native-release.sh "$CANDIDATE_ID" "$GITHUB_SHA" "$RUNNER_TEMP/native-plesk-candidate.tar.gz"
 
+      - name: Accept native candidate on PHP 8.4 FPM behind Apache with WordPress routing
+        run: node scripts/check_native_candidate_http.mjs "$RUNNER_TEMP/native-plesk-candidate.tar.gz" "$GITHUB_SHA"
+
       - name: Preserve non-deployable native candidate
         uses: actions/upload-artifact@v4
         with:
-          name: native-plesk-candidate
+          name: native-plesk-candidate-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/native-plesk-candidate.tar.gz
           if-no-files-found: error
           retention-days: 90

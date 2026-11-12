@@ -19,8 +19,9 @@ RUN apt-get update \
         libjpeg62-turbo-dev \
         libfreetype6-dev \
         libcurl4-openssl-dev \
+        libonig-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install gd pdo_mysql curl opcache \
+    && docker-php-ext-install gd mbstring mysqli pdo_mysql curl opcache \
     && if [ "$INSTALL_XDEBUG" = "1" ]; then pecl install xdebug && docker-php-ext-enable xdebug; fi \
     && a2enmod rewrite headers \
     && sed -i 's/^Listen 80$/Listen 8080/' /etc/apache2/ports.conf \

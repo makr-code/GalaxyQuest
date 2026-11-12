@@ -55,9 +55,21 @@ define(
     rtrim((string)env_value('REGISTRATION_PUBLIC_URL', APP_ENV === 'dev' ? 'http://localhost:8081' : ''), '/')
 );
 define('ENABLE_DEV_AUTH_TOOLS', (int) env_value('ENABLE_DEV_AUTH_TOOLS', APP_ENV === 'dev' ? 1 : 0));
-define('BLOG_SOURCE', (string)env_value('BLOG_SOURCE', APP_ENV === 'dev' ? 'wordpress-simulation' : 'local'));
-define('BLOG_WORDPRESS_REST_URL', rtrim((string)env_value('BLOG_WORDPRESS_REST_URL', ''), '/'));
-define('BLOG_WORDPRESS_SITE_URL', rtrim((string)env_value('BLOG_WORDPRESS_SITE_URL', ''), '/'));
+define('BLOG_SOURCE', (string)env_value('BLOG_SOURCE', APP_ENV === 'dev' ? 'wordpress' : 'local'));
+define(
+    'BLOG_WORDPRESS_REST_URL',
+    rtrim((string)env_value(
+        'BLOG_WORDPRESS_REST_URL',
+        APP_ENV === 'dev' ? 'http://127.0.0.1:8080/wordpress/index.php' : ''
+    ), '/')
+);
+define(
+    'BLOG_WORDPRESS_SITE_URL',
+    rtrim((string)env_value(
+        'BLOG_WORDPRESS_SITE_URL',
+        APP_ENV === 'dev' ? REGISTRATION_PUBLIC_URL . '/wordpress' : ''
+    ), '/')
+);
 
 // Local LLM (Ollama) configuration
 define('OLLAMA_ENABLED', (int) env_value('OLLAMA_ENABLED', APP_ENV === 'dev' ? 1 : 0));

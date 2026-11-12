@@ -3,6 +3,7 @@
 .vscode
 node_modules
 vendor
+/wordpress
 
 # Local environment material is injected at runtime, never baked into layers.
 **/.env

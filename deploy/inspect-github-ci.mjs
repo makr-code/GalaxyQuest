@@ -48,6 +48,59 @@ export function validateJobs(response) {
   for (const name of requiredJobs) {
     if (!jobs.has(name)) throw new Error(`Required workflow job is missing: ${name}`);
   }
+  const imageJob = jobs.get('Build & Publish Docker Image');
+  const requiredStepIndex = (name) => {
+    if (!Array.isArray(imageJob.steps)) {
+      throw new Error('Image job does not include step evidence.');
+    }
+    const matches = imageJob.steps
+      .map((step, index) => ({ step, index }))
+      .filter(({ step }) => step?.name === name);
+    if (matches.length !== 1 || matches[0].step.status !== 'completed'
+      || matches[0].step.conclusion !== 'success') {
+      throw new Error(`Required image-job step is missing or unsuccessful: ${name}`);
+    }
+    return matches[0].index;
+  };
+  const acceptanceIndex = requiredStepIndex(
+    'Accept native candidate on PHP 8.4 FPM behind Apache with WordPress routing',
+  );
+  const artifactIndex = requiredStepIndex('Preserve non-deployable native candidate');
+  if (acceptanceIndex >= artifactIndex) {
+    throw new Error('Native candidate acceptance must succeed before artifact preservation.');
+  }
+}
+
+export function validateArtifacts(response, environment, commit, runId, attempt) {
+  const branch = { staging: 'develop', production: 'main' }[environment];
+  if (!response || !Array.isArray(response.artifacts)
+    || !Number.isSafeInteger(response.total_count) || response.total_count !== response.artifacts.length
+    || response.total_count > 100) {
+    throw new Error('Workflow artifact list is incomplete or invalid.');
+  }
+  const expectedName = `native-plesk-candidate-attempt-${attempt}`;
+  const candidates = response.artifacts.filter((artifact) => artifact?.name === expectedName);
+  if (candidates.length !== 1) {
+    throw new Error(`Expected exactly one artifact named ${expectedName}.`);
+  }
+  const [artifact] = candidates;
+  const workflowRun = artifact.workflow_run;
+  if (!Number.isSafeInteger(artifact.id) || artifact.id < 1
+    || !Number.isSafeInteger(artifact.size_in_bytes) || artifact.size_in_bytes < 1
+    || artifact.expired !== false
+    || typeof artifact.digest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(artifact.digest)
+    || String(workflowRun?.id) !== runId
+    || workflowRun?.head_branch !== branch || workflowRun?.head_sha !== commit
+    || !Number.isSafeInteger(workflowRun?.repository_id) || workflowRun.repository_id < 1
+    || workflowRun.head_repository_id !== workflowRun.repository_id) {
+    throw new Error('Native candidate artifact is expired or does not match the successful workflow run.');
+  }
+  return {
+    id: artifact.id,
+    name: artifact.name,
+    size_in_bytes: artifact.size_in_bytes,
+    digest: artifact.digest,
+  };
 }
 
 function request(endpoint) {
@@ -81,11 +134,18 @@ export function inspectGitHubCi(args, apiRequest = request) {
   const first = apiRequest(runEndpoint);
   const attempt = validateRun(first, environment, commit, runId);
   validateJobs(apiRequest(`${runEndpoint}/attempts/${attempt}/jobs?per_page=100`));
+  const artifact = validateArtifacts(
+    apiRequest(`${runEndpoint}/artifacts?per_page=100`),
+    environment,
+    commit,
+    runId,
+    attempt,
+  );
   const latest = apiRequest(runEndpoint);
   if (validateRun(latest, environment, commit, runId) !== attempt) {
     throw new Error('Workflow run was retried during inspection.');
   }
-  return { environment, commit, run_id: runId, attempt, status: 'ci-evidence-only' };
+  return { environment, commit, run_id: runId, attempt, artifact, status: 'ci-candidate-evidence-only' };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

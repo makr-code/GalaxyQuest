@@ -324,6 +324,14 @@ Piloten auf derselben isolierten RTX-3060-Umgebung erzeugt. Die ausgewaehlten, m
 Normalen vervollstaendigten Varianten und ihre hashgebundenen
 Inspection-Sidecars sind:
 
+Ein lokaler `industry`-Erzeugungsversuch vom 2026-11-12 lief nach Wechsel
+von `flex_gemm` auf `spconv` erfolgreich durch und erzeugte ein GLB-2 mit
+8.848.412 Bytes. Die Offline-Inspektion fand 490.202 Dreiecke, 35.181
+Nullflaechen, 39.535 Face-Komponenten, keine gueltigen UVs, keine
+Normalenattribute und kein PBR-Material. Dieses unverarbeitete Ergebnis
+bleibt ausserhalb des DEV-Imports und erweitert nicht die Zahl der
+sichtgeprueften Pilot-Assets.
+
 | Facility | DEV-Asset | Pruefergebnis |
 |---|---|---|
 | `warehouse` | `building_generic_warehouse_pilot_v2_normals_lod0_trellis2_dev.glb` | 15.000 Dreiecke, gueltige UVs, farbige 1024²-Basisfarbe und Metallic/Roughness; kein Normalenbefund. Ein separates 8-Dreiecke-Fragment bleibt zur manuellen Beurteilung erhalten. |
@@ -347,3 +355,51 @@ dokumentieren.
 Das terrassierte Tagebaubecken bleibt ein separates, massstaeblich aus dem
 realen Gelaende generiertes Feature; `drilling` ist lediglich eine Bohr-
 und Extraktionsanlage, kein Ersatz dafuer.
+
+### Browser-Vorschau der vorhandenen Gebaeude-Piloten
+
+`tools/earth-reference.html` kann die drei vorhandenen `warehouse`-,
+`drilling`- und `hydroponics`-DEV_ONLY-GLBs im Three.js-WebGPU-
+Basisvergleich laden. Die Modelle werden nur bei Aktivierung nachgeladen,
+auf eine frei gewaehlte Darstellungsbreite normiert und am synthetischen
+Berlin-Referenzstandort auf der glatten Kugel gezeigt. Die Breite ist kein
+Nachweis des realen Modellmassstabs; die Ansicht prueft weder Kontakt mit
+ETOPO-Relief noch LOD, Produktionsbudget oder beide Kolonieansichten.
+
+Die Vorschau ist absichtlich nicht mit `PersistentBodyPlanetApproachRenderer`
+verbunden. Dieser bleibt beim bestehenden deterministischen, prozeduralen
+Facility-Plan. Erst nach dokumentierter manueller Pruefung von Optik,
+physikalischem Massstab, Orientierung/Bodenkontakt, LOD und beiden
+Kolonieansichten kann ein einzelnes Asset separat fuer eine Produktions-
+integration bewertet werden.
+
+### Einzelne Facility aus einer Referenz generieren
+
+`scripts/trellis2_generate_facility.mjs` verwendet den verifizierten
+Referenzmanifest-Eintrag und den aktiven ComfyUI-TRELLIS.2-Image-to-GLB-
+Graphen aus `tools/comfyui-trellis2/example_workflows/MeshOnly.json`. Fuer
+den RTX-3060-Container setzt der API-Graph `spconv` statt des Beispiel-
+Workflows-Backends `flex_gemm`: dessen 1024-Cascade-Kernel endete mit
+`no kernel image is available for execution on the device`; der installierte
+`spconv`-CUDA-Pfad besteht einen lokalen SparseConv-Smoke-Test.
+Der Standardaufruf ist ein Dry-Run:
+
+```powershell
+node scripts/trellis2_generate_facility.mjs --kind industry
+node scripts/trellis2_generate_facility.mjs --kind industry --preflight
+```
+
+Eine GPU-Inferenz wird nur mit `--submit` gestartet. Das Skript prueft
+Manifest- und Bildhash, die vorhandenen ComfyUI-Nodes und eine leere Queue,
+laedt die Referenz mit einem hashgebundenen Dateinamen hoch und reiht genau
+einen Job ein. Ergebnisse bleiben in `generated/comfyui/output/` und werden
+nicht automatisch importiert:
+
+```powershell
+node scripts/trellis2_generate_facility.mjs --kind industry --submit
+python scripts/trellis2_inspect.py generated/comfyui/output/<relative-glb>.glb --facility-kind industry
+```
+
+Nur nach manueller Sichtpruefung und Bearbeitung offener Inspector-Befunde
+den DEV-Import ausfuehren. Ein generierter oder erfolgreich inspizierter
+GLB ist keine Produktionsfreigabe.

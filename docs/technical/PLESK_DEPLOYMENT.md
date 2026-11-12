@@ -24,8 +24,11 @@ Use separate staging and production state, make production approval explicit,
 and verify artifact provenance and checksums, backups, migrations, activation,
 health and recovery before enabling any scheduled updates. The current Actions
 artifact is a non-deployable candidate with limited retention, not a release
-distribution or approval mechanism. Retrieval credentials, artifact discovery
-and authenticity, scheduling and the pull/activation agent are not implemented.
+distribution or approval mechanism. Local CI/artifact inspection, authenticated
+candidate download and private quarantine extraction are implemented as
+operator-run helpers, but have not been run on Plesk. CI also smoke-tests the
+exact candidate through a disposable PHP 8.4 FPM/Apache fixture. Release approval,
+permanent distribution, scheduling and live activation are not implemented.
 
 The local candidate exports `setup.php` for CLI use, not as a web installer.
 The source rejects non-CLI requests before loading dependencies, and the
@@ -148,13 +151,64 @@ trusted copy and account with Git access; the Plesk chroot currently lacks Git.
 is a separate read-only CI diagnostic. It requires Node.js and the authenticated
 GitHub CLI with access to the repository. It checks the exact GitHub repository,
 push branch, commit and CI workflow, requires a successful completed run and all
-eight currently required jobs (including image publication), checks the
-attempt-specific complete job list and rereads the run to detect a retry. Its
-output is `ci-evidence-only`: it does not fetch or compare the current branch
-tip, authenticate artifacts or image digests, prove that the historical
-workflow definition had the intended protections, approve or install a release,
-or prevent the run being retried after inspection. Use a trusted diagnostic
-copy and fail closed on missing tools, network errors or mismatched evidence.
+eight currently required jobs (including image publication), requires the
+named PHP 8.4 FPM/Apache candidate-acceptance and artifact-preservation steps to
+have succeeded in that order, checks the attempt-specific complete job list,
+requires the unique non-expired
+`native-plesk-candidate-attempt-N` artifact for that run attempt, returns its
+GitHub artifact ID and SHA-256 digest, and rereads the run to detect a retry.
+This identifies the candidate and provides a digest to compare after a future
+download; it does not download the archive or verify its contents. Its output
+is `ci-candidate-evidence-only`: it does not fetch or compare the current branch
+tip, prove that the historical workflow definition had the intended
+protections, approve or install a release, or prevent the run being retried
+after inspection. Use a trusted diagnostic copy and fail closed on missing
+tools, network errors or mismatched evidence.
+
+After a successful check, the operator can pass its artifact ID, SHA-256 and
+commit to `bash deploy/pull-native-candidate.sh ARTIFACT_ID sha256:DIGEST
+FULL_COMMIT_SHA ABSOLUTE_PRIVATE_SPOOL` on the Plesk account. Supply `GH_TOKEN`
+through the account's protected secret environment, using a fine-grained
+credential scoped to Actions read; never put it in command arguments or shell
+history. Keep the helper in an owner-only operations directory outside every
+document root and transfer it through a separately trusted administrative
+channel, not inside the application candidate. The helper requires `curl`,
+`unzip`, `sha256sum`, `tar` and standard Bash/coreutils. It downloads only over
+verified HTTPS, compares the ZIP digest, requires the single expected archive
+entry, then reads only the inner manifest to confirm its commit, image-ID
+shape and non-deployable status. The original ZIP is stored with mode 0600 in
+an owner-only spool; application files are not extracted or activated. No live
+or staging deployment is enabled by this step. `curl` and `tar` were present
+in a prior limited Plesk chroot probe, but `unzip`, `sha256sum`, `stat` and
+spool permissions are not yet verified; this helper has not been run on Plesk.
+
+Before any transfer, run the read-only
+`bash deploy/preflight-native-candidate-host.sh ABSOLUTE_PRIVATE_SPOOL
+ABSOLUTE_PRIVATE_CANDIDATE_ROOT STAGING_DOCUMENT_ROOT PRODUCTION_DOCUMENT_ROOT`
+from the trusted operations directory as the non-root Plesk subscription
+account. Supply the actual existing document roots for every affected Plesk
+domain. The preflight checks required commands and GNU tool options, account
+ownership, write access, private modes, and canonical-path overlap with each
+supplied document root; it creates no directories, downloads nothing, and
+does not activate a release. Create the two private roots separately with
+owner-only permissions before running it, and use only paths outside all
+document roots. A passing result is host-tooling and path evidence only: it
+does not verify that all document roots were supplied, PHP-FPM, Apache/nginx,
+WordPress, TLS, databases or backup/recovery. The Plesk chroot's missing-tool
+and path-permission checks remain pending until this diagnostic is run there.
+
+To unpack a verified ZIP into quarantine, run
+`bash deploy/stage-native-candidate.sh ABSOLUTE_CANDIDATE_ZIP sha256:DIGEST
+FULL_COMMIT_SHA ABSOLUTE_PRIVATE_CANDIDATE_ROOT`. The destination must already
+be an account-owned directory with no group/other permissions and outside all
+document roots. The helper rechecks the digest and manifest, rejects paths
+outside the archive root and every non-regular/non-directory member, extracts
+with ownership and archived permissions disabled, and leaves directories mode
+0700 and files mode 0600. It does not activate or make the files web-accessible;
+the candidate remains non-deployable until native Apache/PHP-FPM routing,
+WordPress coexistence, asset permissions, database and recovery gates pass.
+This extraction helper also has not been run on Plesk.
+
 On 2026-11-12 the published failed run `43242313532` was rejected by the
 live diagnostic. No successful current run was available for a live positive
 test; positive and retry/error cases were tested with isolated fixtures.
@@ -344,14 +398,23 @@ CI prepares a **non-deployable candidate** after the web image passes its
 existing acceptance checks, using `package-native-release.sh`. It combines
 explicitly selected tracked files from the exact commit with the Vite `dist`
 from the accepted image ID; the image revision label must match the commit.
-The archive records both IDs and excludes the WordPress installation, mutable `generated` and
-`cache` contents, and untracked local files. Its deterministic tar metadata
-applies only to identical inputs and the same archiving tools; it does not
-establish that separately rebuilt image contents are identical. Candidate
-acceptance currently uses PHP 8.2 and MySQL, not the Plesk PHP/MariaDB versions.
-Do not extract it into a live document root: secure static-file serving,
-WordPress coexistence, persistent generated assets, required seed assets and
-the native release activation process have not been verified.
+The archive records both IDs and excludes the WordPress installation, mutable
+`generated` and `cache` contents, and untracked local files. GitHub stores a
+separate candidate artifact for each workflow attempt and exposes its digest
+through the Actions API. Its deterministic tar metadata applies only to
+identical inputs and the same archiving tools; it does not establish that
+separately rebuilt image contents are identical. The existing container
+acceptance uses PHP 8.2 and MySQL; the exact candidate additionally runs behind
+Apache `mod_proxy_fcgi` on a disposable PHP 8.4 FPM worker with a read-only
+document root, checking its home page, built assets, health routes, protected
+files and simulated WordPress rewrites. Readiness is expected to return 503
+because no database is attached. A separate native database fixture uses PHP
+8.4 CLI and MariaDB 11.8. These checks do not cover Plesk's actual PHP-FPM
+pool, nginx, the actual WordPress installation, Plesk routing, or the real
+database. Do not extract the
+candidate into a live document root: persistent generated assets, required
+seed assets, secure static-file serving and native release activation remain
+unverified.
 
 ## Legacy container architecture (obsolete; do not execute)
 
@@ -721,7 +784,7 @@ Local regression commands:
 
 ```powershell
 $env:GQ_DOCKER_CONTEXT_TESTS = '1'
-npx vitest run tests/js/production-deployment.test.js tests/js/ci-stack.test.js tests/js/image-publication-workflow.test.js
+npx vitest run tests/js/production-deployment.test.js tests/js/ci-stack.test.js tests/js/image-publication-workflow.test.js tests/js/github-ci-inspect.test.js tests/js/native-candidate-pull.test.js
 docker compose exec -T -e XDEBUG_MODE=off web php vendor/bin/phpunit --do-not-cache-result tests/Unit/RegistrationSmtpTest.php
 docker build --tag galaxyquest:deployment-validation .
 node scripts/check_production_stack.mjs

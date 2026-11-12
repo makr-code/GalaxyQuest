@@ -1,10 +1,12 @@
 import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { EARTH_REFERENCE, ZONE_COLORS, createEarthGeography, geographicVector,
   earthReferenceBasis, triangulateGeography, paintEarthTexture } from './earth-reference-geography.js';
 import { createProductionEarth } from './earth-reference-production.js';
 import { createEarthRelief, inspectReliefMesh, RELIEF_GRID } from './earth-reference-relief.js';
 import { MINE_REFERENCE } from './earth-reference-mine.js';
+import { TRELLIS_BUILDING_ASSETS, disposeTrellisBuilding, placeTrellisBuilding } from './earth-reference-trellis.js';
 
 function polygonGeometry(polygons, radius) {
   const triangles = triangulateGeography(polygons);
@@ -138,7 +140,92 @@ export async function createEarthReference(viewport, controls) {
   });
   const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
   body.add(ocean, land, lakes, textureSphere, wire, coasts, grid, atmosphere);
+  const trellisBuildingRoot = new THREE.Group();
+  trellisBuildingRoot.visible = false;
+  body.add(trellisBuildingRoot);
+  let trellisBuildingScene = null, trellisBuildingPlacement = null, trellisBuildingKind = null;
+  let trellisBuildingWidthMeters = null, trellisLoadToken = 0, trellisLoadingKind = null;
+  let trellisLoadPromise = null;
+  const clearTrellisBuilding = () => {
+    if (trellisBuildingPlacement) disposeTrellisBuilding(trellisBuildingPlacement);
+    else if (trellisBuildingScene) disposeTrellisBuilding(trellisBuildingScene);
+    trellisBuildingScene = null;
+    trellisBuildingPlacement = null;
+    trellisBuildingKind = null;
+    trellisBuildingWidthMeters = null;
+  };
+  const trellisStatus = controls.querySelector('[data-trellis-building-status]');
+  const trellisWidth = controls.querySelector('[name="trellisBuildingWidth"]');
+  const trellisWidthOutput = controls.querySelector('[data-trellis-building-width]');
+  const applyTrellisBuildingWidth = () => {
+    const widthMeters = Number(trellisWidth.value);
+    trellisWidthOutput.textContent = `${widthMeters} m`;
+    if (!trellisBuildingScene || trellisBuildingWidthMeters === widthMeters) return;
+    trellisBuildingPlacement?.removeFromParent();
+    trellisBuildingPlacement = placeTrellisBuilding(trellisBuildingScene, widthMeters);
+    trellisBuildingRoot.add(trellisBuildingPlacement);
+    trellisBuildingWidthMeters = widthMeters;
+    trellisStatus.textContent = `${trellisBuildingKind}: DEV_ONLY; angenommene Breite ${widthMeters} m (nicht massstabsvalidiert).`;
+  };
+  const syncTrellisBuilding = async () => {
+    const enabled = activeBackend === 'reference' && controls.querySelector('[name="trellisBuilding"]').checked;
+    trellisBuildingRoot.visible = enabled && Boolean(trellisBuildingPlacement);
+    if (!enabled) {
+      if (trellisLoadingKind) {
+        trellisLoadToken++;
+        trellisLoadingKind = null;
+        trellisLoadPromise = null;
+      }
+      return false;
+    }
+    const kind = controls.querySelector('[name="trellisBuildingAsset"]').value;
+    if (trellisBuildingKind === kind && trellisBuildingScene) {
+      applyTrellisBuildingWidth();
+      trellisBuildingRoot.visible = true;
+      return true;
+    }
+    if (trellisLoadingKind === kind && trellisLoadPromise) return trellisLoadPromise;
+    const url = TRELLIS_BUILDING_ASSETS[kind];
+    if (!url) throw new RangeError(`Unknown TRELLIS2 building asset: ${kind}`);
+    const token = ++trellisLoadToken;
+    trellisLoadingKind = kind;
+    trellisBuildingRoot.visible = false;
+    trellisStatus.textContent = `Lade TRELLIS2-DEV_ONLY-Modell: ${kind} ...`;
+    const pending = (async () => {
+      try {
+        const gltf = await new GLTFLoader().loadAsync(url);
+        if (disposed || token !== trellisLoadToken) {
+          disposeTrellisBuilding(gltf.scene);
+          return false;
+        }
+        clearTrellisBuilding();
+        trellisBuildingScene = gltf.scene;
+        trellisBuildingKind = kind;
+        applyTrellisBuildingWidth();
+        trellisBuildingRoot.visible = true;
+        render();
+        return true;
+      } catch (error) {
+        if (token !== trellisLoadToken) return false;
+        clearTrellisBuilding();
+        trellisBuildingRoot.visible = false;
+        trellisStatus.textContent = `TRELLIS2-DEV_ONLY-Modell nicht verfuegbar (${kind}): ${error.message}`;
+        return false;
+      } finally {
+        if (token === trellisLoadToken) {
+          trellisLoadingKind = null;
+          trellisLoadPromise = null;
+        }
+      }
+    })();
+    trellisLoadPromise = pending;
+    return pending;
+  };
   const releaseReference = () => {
+    trellisLoadToken++;
+    trellisLoadingKind = null;
+    trellisLoadPromise = null;
+    clearTrellisBuilding();
     navigation.dispose();
     for (const geometry of new Set([waterSphere, land.geometry, lakes.geometry, coasts.geometry, grid.geometry, atmosphereGeometry])) geometry.dispose();
     for (const material of [landMaterial, flatMaterial, geometryMaterial, waterMaterial, waterFlat, wireMaterial, coasts.material, grid.material, atmosphereMaterial]) material.dispose();
@@ -235,6 +322,11 @@ export async function createEarthReference(viewport, controls) {
     const checked = name => controls.querySelector(`[name="${name}"]`).checked;
     activeBackend = controls.querySelector('[name="backend"]').value;
     const native = activeBackend === 'production';
+    const trellisEnabled = controls.querySelector('[name="trellisBuilding"]');
+    const trellisAsset = controls.querySelector('[name="trellisBuildingAsset"]');
+    trellisEnabled.disabled = native;
+    trellisAsset.disabled = native;
+    trellisWidth.disabled = native;
     renderer.domElement.style.display = native ? 'none' : 'block';
     production.canvas.style.display = native ? 'block' : 'none';
     for (const name of ['coasts', 'wireframe', 'grid']) controls.querySelector(`[name="${name}"]`).disabled = native;
@@ -303,6 +395,7 @@ export async function createEarthReference(viewport, controls) {
       sunElevation: controls.querySelector('[name="sunElevation"]').value,
       seaLevel: controls.querySelector('[name="seaLevel"]').value, ocean: checked('ocean'),
     });
+    void syncTrellisBuilding();
   };
   const onChange = event => {
     update();
@@ -310,6 +403,14 @@ export async function createEarthReference(viewport, controls) {
   };
   const onInput = event => {
     if (event.target.name === 'developmentYear') update();
+    if (event.target.name === 'trellisBuildingWidth') {
+      try {
+        applyTrellisBuildingWidth();
+        render();
+      } catch (error) {
+        trellisStatus.textContent = `TRELLIS2-DEV_ONLY-Modell kann nicht skaliert werden: ${error.message}`;
+      }
+    }
   };
   const reset = () => {
     clearInspection();
@@ -414,6 +515,24 @@ export async function createEarthReference(viewport, controls) {
       ? 'Anlagenansicht vorbereitet. Die Darstellung wird bei sichtbarem Fenster fortgesetzt.'
       : `WebGPU bereit. ${facilities.length} synthetische Anlagenfamilien; massstaebliche Geometrie und gemeinsame Flaechenmaterialien.`;
   };
+  const visitTrellisBuilding = async () => {
+    controls.querySelector('[name="backend"]').value = 'reference';
+    controls.querySelector('[name="trellisBuilding"]').checked = true;
+    update();
+    if (!await syncTrellisBuilding() || !trellisBuildingPlacement) return;
+    applyOrientation();
+    const r = EARTH_REFERENCE.radiusKm * 1000;
+    const up = new THREE.Vector3(...geographicVector(13.405, 52.52));
+    navigation.target.copy(body.localToWorld(up.clone().multiplyScalar(1.004)));
+    camera.position.copy(body.localToWorld(up.clone().multiplyScalar(1.004 + 2000 / r)));
+    navigation.minDistance = 100 / r;
+    camera.near = 1 / r;
+    camera.updateProjectionMatrix();
+    navigation.update();
+    render();
+    trellisStatus.textContent = `${trellisBuildingKind}: DEV_ONLY-GLB auf der glatten Referenzkugel; `
+      + `angenommene Breite ${trellisBuildingWidthMeters} m, kein Bodenkontakt- oder Produktionsnachweis.`;
+  };
   const visitOrbital = () => {
     controls.querySelector('[name="orbitalGeometry"]').checked = true;
     for (const name of ['rotation', 'clouds', 'atmosphere', 'sky']) controls.querySelector(`[name="${name}"]`).checked = false;
@@ -494,6 +613,7 @@ export async function createEarthReference(viewport, controls) {
   const visitCityButton = controls.querySelector('[name="visitCity"]');
   const visitMineButton = controls.querySelector('[name="visitMine"]');
   const visitFacilitiesButton = controls.querySelector('[name="visitFacilities"]');
+  const visitTrellisBuildingButton = controls.querySelector('[name="visitTrellisBuilding"]');
   const visitOrbitalButton = controls.querySelector('[name="visitOrbital"]');
   const dispose = () => {
     if (disposed) return;
@@ -505,6 +625,7 @@ export async function createEarthReference(viewport, controls) {
     visitCityButton.removeEventListener('click', visitCity);
     visitMineButton.removeEventListener('click', visitMine);
     visitFacilitiesButton.removeEventListener('click', visitFacilities);
+    visitTrellisBuildingButton.removeEventListener('click', visitTrellisBuilding);
     visitOrbitalButton.removeEventListener('click', visitOrbital);
     viewport.removeEventListener('pointerdown', pointerDown);
     viewport.removeEventListener('pointermove', pointerMove);
@@ -521,6 +642,7 @@ export async function createEarthReference(viewport, controls) {
   visitCityButton.addEventListener('click', visitCity);
   visitMineButton.addEventListener('click', visitMine);
   visitFacilitiesButton.addEventListener('click', visitFacilities);
+  visitTrellisBuildingButton.addEventListener('click', visitTrellisBuilding);
   visitOrbitalButton.addEventListener('click', visitOrbital);
   viewport.addEventListener('pointerdown', pointerDown);
   viewport.addEventListener('pointermove', pointerMove);

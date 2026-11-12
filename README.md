@@ -848,24 +848,43 @@ after verification; no account privileges were changed.
 This test exposed and fixed empty prosody serialization (`{}`, not `[]`) and
 structured TTS validation-error decoding in the shared PHP client.
 
-#### Headless WordPress simulation and integration
+#### WordPress news integration
 
-In `APP_ENV=dev`, the default blog source is now `wordpress-simulation`.
-Outside development the default remains `local`. Set `BLOG_SOURCE=local` to
-restore the existing editor; no database posts are overwritten or imported.
-The development simulation is deliberately a small, read-only REST contract,
-not a WordPress installation, account system or second production CMS.
+In `APP_ENV=dev`, the default source for “News and transmissions” is the local
+WordPress installation at `/wordpress`; other environments still default to
+the existing local editor. GalaxyQuest reads WordPress through its server-side
+REST adapter, so the browser does not need WordPress credentials or cross-origin
+access. Compose defaults to the internal REST base
+`http://127.0.0.1:8080/wordpress/index.php` and public site URL
+`http://localhost:8081/wordpress`; override these with
+`BLOG_WORDPRESS_REST_URL` and `BLOG_WORDPRESS_SITE_URL` when needed. No posts
+are imported into the game database. WordPress must be installed/configured and
+its REST API available; source errors are shown in the news panel, never hidden
+by switching to the simulation or stale local posts.
 
-Open [the simulated blog](api/wordpress_sim.php) or the game's News menu at
-`http://localhost:8081/`. The versioned
-[fixture](config/wordpress_simulation.json) contains six released game articles,
-a newer blog-only `hero` article, a draft, a private post and a password-protected
-post. Only the five latest eligible game articles appear in GalaxyQuest.
-Edit this fixture to simulate publication, withdrawal, summary or taxonomy
-changes; the next refresh/narration request reads the current data. No
-administrator account or database seed is needed. The endpoint returns 404
-outside development. The simulation uses the existing Docker web service
-(internal HTTP port 8080); no additional container, package or daemon is needed.
+The local WordPress installation is not source-controlled or included in
+Docker build contexts. To expose the GalaxyQuest fields, install the tracked
+must-use plugin from `wordpress-integration/gq-game-news.php`:
+
+```powershell
+New-Item -ItemType Directory -Force .\wordpress\wp-content\mu-plugins | Out-Null
+Copy-Item .\wordpress-integration\gq-game-news.php .\wordpress\wp-content\mu-plugins\gq-game-news.php -Force
+```
+
+The local WordPress site must be configured for the Compose web/database
+services, with its public `home` and `siteurl` set to
+`http://localhost:8081/wordpress`. The plugin exposes typed REST metadata and
+an editorial box for `gq_summary` and `gq_target_faction_code`; it prevents
+publishing `game-start` posts without a valid plain-text summary. Create the
+`game-start` tag in WordPress and assign it to every post intended for the game.
+The optional faction code must exist in the game's public homeworld catalog.
+`hero` only highlights a post and does not grant feed access.
+
+Set `BLOG_SOURCE=wordpress-simulation` in `.env` to use the development-only
+simulation instead. Its versioned
+[fixture](config/wordpress_simulation.json) includes published, draft, private
+and password-protected examples; the simulation endpoint returns 404 outside
+development.
 
 Supported WordPress-compatible requests use the native `rest_route` form:
 
@@ -955,8 +974,9 @@ and original-article actions remain compact, labeled icons.
   Existing shared TTS, music ducking, keyboard controls and manual homeworld
   flights are reused unchanged.
 
-For a real WordPress site, set these server environment values (Compose forwards
-them; recreate the web container after changing environment values):
+For a different or external WordPress site, set these server environment
+values (Compose forwards them; recreate the web container after changing
+environment values):
 
 ```dotenv
 BLOG_SOURCE=wordpress
@@ -973,12 +993,13 @@ Both URL forms preserve tag filters, partial fields and embedding, use the same
 publication/revision checks, and retain timeouts, response limits and redirect
 refusal. The local simulation continues to use its existing query-form endpoint.
 
-The same HTTP adapter is used in both modes. The real WordPress side must expose
-the two typed custom meta fields on public post REST responses (`show_in_rest`)
-and validate the summary/target in its editorial plugin. Public links must use
-the configured site's exact HTTP(S) origin. No WordPress credentials or shared
-login are required. The actual WordPress plugin, editorial UI, webhook/cache
-invalidation and production deployment are separate follow-up work.
+The same HTTP adapter is used for local and external WordPress. The tracked
+`wordpress-integration/gq-game-news.php` plugin exposes both typed metadata
+fields, validates game-news publication and provides the editorial fields.
+External installations must install an equivalent plugin and use their exact
+public HTTP(S) origin for `BLOG_WORDPRESS_SITE_URL`. No WordPress credentials
+or shared login are required. Feed caching and automatic cache invalidation
+remain out of scope.
 
 The simulation was verified through real HTTP requests and the running browser:
 five eligible cards, hero/homeworld mapping, original article, 320–1280px layouts,
