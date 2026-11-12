@@ -36,7 +36,8 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
     point = vec3<f32>(cos(latitude) * cos(longitude),sin(latitude),cos(latitude) * sin(longitude)) * 12.0;
   }
   let density = gqCloudNoise(point,parameters.state.x,parameters.state.y,parameters.state.z);
-  return vec4<f32>(density,gqCloudCoverage(density,parameters.state.w),0,1);
+  return vec4<f32>(density,gqCloudCoverage(density,parameters.state.w),
+    gqCloudRelief(density,1.0 - density,0.2),gqCloudRelief(density,1.0 - density,1.0));
 }`;
   const result = await page.evaluate(async ({ code, sky }) => {
     const adapter = await navigator.gpu?.requestAdapter({ forceFallbackAdapter: true })
@@ -80,6 +81,7 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
       first: await render(5), later: await render(25), repeat: await render(5), loop: await render(125),
       translatedOnly: await render(0,35,0.01,0.65,translation),
       reseeded: await render(5,36), coarse: await render(5,35,2), coarseLater: await render(25,35,2),
+      regional: await render(5,35,0.6), noErosion: await render(5,35,0.2),
       clear: await render(5,35,0.01,0),
       beforeLoop: await render(119.999), afterLoop: await render(0.001),
       leftSeam: await render(5,35,0.01,0.65,[0,0,0],-1),
@@ -141,6 +143,30 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> 
   }
   expect(f.coarse.filter((_v,i) => i % 4 === 0).every(v => v === 0.5)).toBe(true);
   expect(f.clear.filter((_v,i) => i % 4 === 1).every(v => v === 0)).toBe(true);
+  const coverage = f.first.filter((_v,i) => i % 4 === 1);
+  expect(coverage.filter(value => value < 0.01).length).toBeGreaterThan(30);
+  expect(coverage.filter(value => value > 0.3).length).toBeGreaterThan(30);
+  expect(changed(f.first,f.noErosion)).toBeGreaterThan(100);
+  expect(changed(f.noErosion,f.regional)).toBeGreaterThan(100);
+  // Dense fields include neighbouring cloudy samples, not isolated white speckles.
+  let cloudyNeighbours = 0;
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 63; x++) {
+    const i = (y * 64 + x) * 4 + 1;
+    if (f.first[i] > 0.3 && f.first[i + 4] > 0.3) cloudyNeighbours++;
+  }
+  expect(cloudyNeighbours).toBeGreaterThan(20);
+  let minimumRelief = 1;
+  for (let i = 0; i < f.first.length; i += 4) {
+    const density = f.first[i];
+    const t = Math.max(0, Math.min(1, (density - 0.02) / 0.28));
+    const expected = 1 - 0.45 * (1 - Math.exp(-Math.max(0, 1 - density * 1.35) * 2))
+      * 0.8 * t * t * (3 - 2 * t);
+    expect(Math.abs(f.first[i + 2] - expected)).toBeLessThan(1e-6);
+    expect(f.first[i + 3]).toBe(1);
+    minimumRelief = Math.min(minimumRelief, f.first[i + 2]);
+  }
+  expect(minimumRelief).toBeGreaterThanOrEqual(0.55);
+  expect(minimumRelief).toBeLessThan(0.8);
   expect(Math.max(...f.beforeLoop.map((value,i) => Math.abs(value - f.afterLoop[i])))).toBeLessThan(0.002);
   expect(Math.max(...f.leftSeam.map((value,i) => Math.abs(value - f.rightSeam[i])))).toBeLessThan(0.001);
   const v = result.veil;

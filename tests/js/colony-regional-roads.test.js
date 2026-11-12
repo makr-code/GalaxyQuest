@@ -107,11 +107,11 @@ describe('Seeded visual regional roads', () => {
     const buffer = model.uniforms(plan);
     const count = plan.roads.reduce((sum, route) => sum + route.points.length - 1, 0);
     expect(buffer[model.ROAD_OFFSET]).toBe(count);
-    expect(buffer.byteLength).toBe(6640);
+    expect(buffer.byteLength).toBe(26112);
     expect([...buffer].every(Number.isFinite)).toBe(true);
     expect(buffer.slice(model.ROAD_OFFSET + 4, model.ROAD_OFFSET + 7)).toEqual(new Float32Array(plan.roads[0].points[0]));
     expect(Math.hypot(...buffer.slice(model.ROAD_OFFSET + 12, model.ROAD_OFFSET + 15))).toBeCloseTo(1, 6);
-    expect([...buffer.slice(model.ROAD_OFFSET + 4 + count * model.ROAD_FLOATS)].every(n => n === 0)).toBe(true);
+    expect([...buffer.slice(model.ROAD_OFFSET + 4 + count * model.ROAD_FLOATS, model.FACILITY_OFFSET)].every(n => n === 0)).toBe(true);
     expect(model.uniforms(null)).toEqual(new Float32Array(model.UNIFORM_BYTES / 4));
     expect({ data, manifest, sites }).toEqual(original);
     expect(plan).not.toHaveProperty('buildings');

@@ -1415,6 +1415,15 @@ The shared GGX helper accepts supplied F0; default `gqDirect` retains 0.04.
 Ordinary planets and adapters without appearance resources keep their
 existing shader bindings. Unlit albedo, canonical normal, roughness and F0
 diagnostics isolate maps from lighting/clouds.
+An opt-in city-material diagnostic scope keeps those terrain-only defaults.
+It returns after `gqLivingSurface` to expose composed albedo, canonical shading
+normals and roughness, without emission, lighting, clouds or rim tint.
+F0 still reports the authored dielectric value. The adapter packs this flag
+in the previously unused `appearanceOptions.cloud.w`; buffer sizes and normal
+shaded output are unchanged. The control is disabled outside ETOPO material
+diagnostics and geometry-only views never receive a colony plan. Switching
+back restores terrain-only diagnostics exactly. Diagnostic playback remains
+paused, so the selected snapshot can be inspected reproducibly.
 
 An adapter-owned WebGPU fullscreen sky draws before the body, on the same
 device/pass without depth writes. Inverse camera projection anchors seeded
@@ -1422,10 +1431,50 @@ stars and a light-aligned solar glow; an illustrative spherical limb halo
 follows the atmosphere toggle. Neither a real star catalogue nor physical
 atmospheric scattering is claimed. Shared cloud turbulence supplies shell-mode
 projected shade and legacy-mode local surface shade in the authored variant.
+The Earth adapter also offers an opt-in metre-scale Berlin quarter through
+`earth-reference-city.js`. It builds at most 576 fixed 60 m parcels from a
+conservative core-population snapshot, with physical footprint/height values
+converted by the Earth radius in metres. Five radial mesh intersections per
+building anchor a foundation to the actual drawn triangles, excluding water.
+This is a bounded cosmetic geometry sample, not the existing managed-colony
+layout rescaled or a full demographic city simulation. A lazy instanced
+pipeline uses the existing depth pass before clouds and skips subpixel
+buildings in orbit; no extra canvas, scheduler or server persistence is added.
+The inspection button targets the local surface from 2 km height; region
+navigation restores the original orbit camera. Externally supplied projection
+matrices now retain their actual eye distance for consistent close shading,
+while automatically framed cameras preserve their previous bounds.
 A phase control exposes the existing 120-second loop; pause/reduced-motion
 policy and orbital water-normal distance filtering remain effective.
 The adapter owns the additional texture/uniform/sky resources and disposes
 them without destroying the borrowed device.
+
+The optional `earth-reference-mine.js` reference excavates an approximately
+4 by 3 km synthetic Lausitz basin directly into the Earth mesh: eight 30 m
+terraced stages reach a 240 m floor, independently of relief exaggeration.
+A fixed seed varies the rim. Local adaptive subdivision retains original
+triangle planes outside the pit; the existing 32 MiB mesh/cache limits still
+apply. Flooded reference anchors are excluded. Excavation uses existing
+terrain buffers/pass, with strata vertex colours, geometric normals and
+rough materials overriding authored DEM detail. Default map diagnostics
+remain unchanged; composed diagnostics include the excavation material.
+The inspection camera targets the actual floor from 5 km with an adaptive near
+plane, restoring globe navigation on region/reset. The reference adjusts
+clipping every frame to one percent of navigation-target distance, bounded
+between 1 m and 0.01 Earth radii. Keeping the original 1 m close-inspection
+near plane during free zoom back into orbit otherwise collapses 24-bit
+front/back depth and produces black triangle artifacts. GPU regression
+coverage reproduces that failed depth configuration and checks automatic
+recovery against the normal orbital clip range.
+The shared planet-approach fragment shader also rescales each world-position
+derivative before its cross product, then normalizes the result. A fixed
+absolute area floor previously collapsed small-face normals towards zero,
+changing lighting and eligibility as the camera approached. Degenerate
+derivatives use the interpolated unit normal instead. A scalar GPU probe
+checks unit length and direction over four derivative scales and zero area.
+This is a fixed cosmetic
+sample, not actual mine survey data, geology, groundwater, machinery, ramps
+or an economy-driven extraction lifecycle. No server persistence is added.
 
 Authored Earth clouds default to a separate analytic spherical sheet.
 The renderer's backend-only foreground hook draws it after terrain, with
@@ -1438,6 +1487,33 @@ exaggeration; 80/200 km are inspection-only offsets. Exaggerated terrain may
 pierce the layer and is correctly depth-tested. A legacy surface-only
 comparison remains selectable without drawing both white-cloud layers.
 Diagnostics suppress clouds; this is not volumetric weather.
+Cloud morphology now combines continuous seeded 3D lattice fields at three
+scales: large weather envelopes, rounded billows and fine edge erosion.
+A smoothly weighted warped ribbon field introduces elongated frontal bands
+within those envelopes instead of the previous two periodic sine products.
+The existing looped domain warp deforms all scales together. Each scale fades
+before aliasing; unresolved density still converges to 0.5. Cartesian sampling
+avoids longitude seams and polar singularities. The shared field is used by
+orbital/cloud-shell shading, projected shadows and the managed-colony sky.
+The Earth sheet converts coverage to opacity with `1-exp(-2*coverage)` and
+varies daylight brightness with thickness, keeping premultiplied blending.
+No new GPU resources or persisted weather state are required.
+This improves cloud-field morphology, not physical geometry: the cloud sheet
+still has one altitude, without volumetric towers, multilayer cirrus,
+meteorological circulation or geographically calibrated precipitation.
+The Earth cloud sheet also samples coverage a short distance toward the sun
+in the spherical tangent direction. Denser sunward neighbours attenuate the
+daylight tone through a bounded optical-relief helper (factor 0.55 to 1),
+strongest for oblique light and zero directly overhead. The extra sample is
+skipped for clear/deep-night pixels, unlit mode and unresolved detail.
+Both sample footprints are computed before intersection discard; the displaced
+sample is transformed into the same canonical frame as the visible density.
+Relief changes RGB only, never alpha, depth, silhouettes or projected terrain
+shadows, and cannot brighten clouds beyond their unoccluded tone. Distant
+relief fades smoothly to flat shading. This is illustrative local occlusion
+on a single sheet, not volumetric self-shadowing or measured cloud thickness.
+GPU checks compare against an otherwise identical flat cloud shader, require
+daylight darkening without brightened pixels, and exact unlit equivalence.
 The adapter owns the additional uniform buffer.
 Manual world-space sun azimuth/elevation feed a single normalized direction
 to terrain/specular shading, cloud day/night brightness and sky sun/halo.
@@ -1748,8 +1824,9 @@ coverage rather than enlarging unresolved city cores to solid light disks;
 these regional proxies are not a physical building-area or resource-deposit
 measurement.
 
-Both views use the same bounded 6,640-byte view-owned uniform buffer
-(12 sites, a road header and at most 64 road segments).
+Both views use the same bounded 26,112-byte view-owned uniform buffer
+(12 sites, a road header and at most 64 road segments, followed by
+16 facility districts and at most 384 facility components).
 Each region packs six aligned vec4s (centre/radius, landscape, tangent/seed,
 regional production economy, urban specialization, nearby infill target),
 followed by seven cosmetic urban nuclei (direction and signed radius).
@@ -1762,6 +1839,82 @@ warm lighting, trade-lit arterials, cooler science districts. Power/activity,
 damage and ruin gating still control actual emission. No shader-side economy
 or population simulation is introduced.
 
+`FACILITY_VERSION = 1` adds a fixed primary-site district from completed
+authorized building rows, without changing the existing city/road offsets.
+Sixteen distinct families cover fields, hydroponics, halls, warehouses,
+tanks, silos, solar, fusion, research, nanotechnology, health, education,
+administration, security, terraforming and drilling. Orbital/star-orbit rows
+are excluded; habitats and open pits keep their existing representations.
+Processing recipe types map to appropriate families. Each family has one
+seed-stable plot; completed levels activate up to three fixed modules rather
+than scaling buildings or implying a real facility count. No new history,
+timer, server field or client-authoritative economy is introduced.
+
+The shared material shader uses these components' actual metre footprints,
+class-specific rows and perimeter lighting. Night/power gating affects
+emission, not land use, and unresolved components fade. The production
+planet-approach path lazily draws matching instanced boxes, gabled roofs,
+cylinders and tilted panels through `colony-facility-geometry.js` in the
+existing depth pass before clouds. Five intersections with the actual mesh
+anchor each solid and reject water, lava, authored regions and steep ground.
+Flat fields/roads stay terrain-conforming material patches. Instance storage
+is bounded to 36 KiB, cached by mesh and component plan and released on exit.
+The Earth inspector exposes synthetic per-family stock and 1/8 km views;
+default-off controls preserve previous fixtures. Diagnostics omit solids.
+This district layer does not replace interactive colony slots or satellite
+architecture: colony surface views share the footprint shader but retain
+their existing local building models. This ground layer adds no orbital model,
+transparent greenhouse optics, building self-shadowing or physical
+terraforming/environment simulation.
+
+#### Physical cosmetic orbital objects
+
+The shared production planet-approach renderer additionally uses
+`colony-orbitals.js` for orbital shipyards, defence stations (`missile_silo`)
+and solar satellites. It consumes the existing authorized `orbital_facilities`
+summary (an explicit empty summary clears stale embedded stock); completed
+building rows are a fallback for shipyards/defence only. Queues and
+`star_orbit` installations never become planet-orbit objects. The native
+game's existing authorized planet loader already supplies this summary;
+surface snapshot refreshes now retain it for the return to planet view.
+There is no new station gameplay type, API, persistence or client authority.
+
+The equatorial synchronous radius is `cbrt(GM * (period / (2*pi))^2)`,
+using catalogue `mass_earth` and the same signed sidereal rotation descriptor
+as the planet. An object fixed in body coordinates therefore follows actual
+planet rotation, including retrograde spin and axial tilt. In this context
+“geostationary” specifically refers to Earth; other bodies are synchronous.
+Absent mass/radius yields an explicit unavailable reason, never an invented
+physical orbit. Zero rotation, tidal locking, an intersecting/overly distant
+synchronous orbit or an optional Hill bound instead select a genuinely
+Keplerian low orbit with the correct relative-to-body angular motion.
+The low orbit clears the conservative solid/shape bound plus at least 200 km
+or 8% body radius. The visualization limits synchronous radius to 32 body
+radii, or one third of an explicitly supplied Hill radius, whichever is less;
+if no clear orbit remains, it is unavailable. These are isolated two-body
+visual ephemerides, not an N-body stability or collision simulation.
+
+Each class has four fixed seed/identity slots (12 representatives total).
+Growth activates slots without relocating or enlarging earlier models;
+this cap is a cosmetic stock sample, not the actual installation count.
+Distinct metre-scale geometry includes satellite buses/panels/antennas,
+station hubs/habitats/launchers, and open shipyard rails/gantries/service
+spines. Active shipyards have a bounded 120-second local service-shuttle
+loop, explicitly unrelated to authoritative fleets, cargo or surface flights.
+Reduced motion freezes that service pose and low-orbit ephemeris; body
+rotation retains its existing independent physical clock policy.
+
+Solids use the existing depth pass, physical body orientation and sunlight,
+with a simple spherical planet-umbra test (no penumbra, moon or self shadows).
+Subpixel meshes disappear instead of silently growing. A native orbital
+selector provides tracked close inspection and return to planet overview,
+labelled with orbit mode/altitude; unavailable physics is visible there.
+The same instance renderer as facilities owns at most 256 records (24 KiB)
+plus a 128-byte frame, reuses storage for moving traffic, allocates only when
+resolved, and releases owned resources on exit/disposal, never the device.
+The Earth reference has default-off synthetic orbital stock and per-class
+1.4 km inspection cameras; it executes this exact production path.
+
 The shared `gqUrbanStructure` uses a fixed seed/site tangent grid, low-frequency
 irregular district occupancy, dense centres, radial arterials, district roads,
 fine block streets and window clusters. Fine structure converges to an area
@@ -1770,6 +1923,49 @@ Day albedo and night emission use the same built footprint. Overlapping city
 lights form a component-wise maximum union, not additive overlapping halos.
 All shading is still clipped by existing water/ice/region/slope masks.
 Seed/parcel coordinates do not change with ownership or population.
+`URBAN_STRUCTURE_VERSION = 5` also increases occupancy and lit windows inside
+existing cores as their radius grows relative to fixed parcel size. This is
+a continuous, snapshot-derived development proxy, not elapsed age or a history
+of individual buildings. Trade/science strengthen central infill, agriculture
+reduces it, and fixed seeded open spaces retain dark gaps. Streets and parcel
+identities never reroll. The filtered lighting average includes densification
+at distant views. The version is exposed by the CPU plan without changing
+foundation identities, population allocation, uniforms or persistence.
+Fixed smooth district preference fields now modulate trade, science and
+industry within each city. Economic weights determine their strength; absent
+sectors remain absent. Science and industry favour complementary quarters,
+with local window/hall lighting and warm/cool lamp mixtures. Trade modulates
+arterials and central density. The fields depend on city seed and fixed
+parcel coordinates, not radius, population, ownership or render time.
+Child cities evaluate their own seeds and contribute their own coloured
+emission to the existing maximum union; ruins never contribute emission.
+Unresolved preferences converge to the supplied economic mix before aliasing.
+This is cosmetic specialization, not district employment or sector allocation;
+the authoritative resource and population budgets remain unchanged.
+The same sample supplies linear daytime roof albedo and roughness: industrial
+hall lots have smoother roofs, science quarters use lighter surfaces and
+trade quarters a cooler commercial palette. Dark, rough streets remain on
+the same parcel grid. Lot and street detail converge to fixed averages before
+aliasing; district preferences use the same distance filter as night lighting.
+At overlaps, the strongest built coverage selects the entire material sample,
+including child cities, rather than combining unrelated colour and roughness.
+Ruined footprints are darker and rougher but keep the same parcels.
+Power and solar direction do not change these material values or built masks.
+Dielectric F0 remains unchanged: this is a roof-material
+proxy, not extruded buildings or a metallic city. No texture, uniform field,
+render pass or server record is added.
+Analytic roof slopes now perturb only the final shading normal inside built
+coverage. Smooth low-pitch profiles use the same rotated parcel coordinates;
+industrial halls favour a stronger, mostly single-axis pitch, while science
+quarters reduce it. Roof interiors exclude streets and slopes fade out before
+their parcel frequency aliases. The slope is rotated back to canonical body
+space, projected onto the input normal's tangent plane and normalized.
+Overlaps select the slope with the winning roof material, including children;
+ruins retain only one quarter of their slope. Eligibility, night-light gating,
+terrain geometry, picking and population footprints still use the original
+terrain normal, so roof detail cannot alter coast/slope masks or light the
+night hemisphere. This is bounded cosmetic normal detail, not roof geometry,
+height displacement, self-shadowing or measured building heights.
 
 At theoretical populations above one billion inhabitants per centre, the
 previous 0.025-radian radius cap relaxes continuously toward 0.35 radians;
@@ -1777,6 +1973,22 @@ ordinary small-population radii retain their old bounds. Nearby active
 centres (chord separation below 0.35) receive deterministic nearest-neighbour
 urban infill when their combined radii approach the gap. Infill widens
 smoothly with growth; ruined or remote centres never receive a link.
+`gqUrbanInfill` projects each link into a fixed tangent strip with
+seeded lateral bends and three-parcel-wide districts. District identities
+and activation thresholds stay fixed as width/pressure increases; thresholds
+favor the existing centres before the middle of the gap. Smooth occupancy
+and width transitions produce an expanding patchwork rather than turning
+the whole inter-city capsule on at once. Parcel-edge gaps fade to an area
+average when unresolved. The same helper connects an active child nucleus
+to its parent using their existing radii, with no additional uniform fields.
+Zero-width, coincident, remote and back-hemisphere strips contribute nothing;
+geometry rejection precedes noise evaluation. Ruined children cannot generate
+new infill. Existing water/region/slope masks still clip all built area and
+lighting, and the same mask contributes to day albedo and night emission.
+This only models local development potential: it is not barrier-aware routing,
+does not guarantee a connected land route and does not add road infrastructure.
+`URBAN_INFILL_VERSION` separately versions this reconstructible visual pattern
+without changing `URBAN_VERSION`, city seeds or founding identities.
 This is a clipped visual land-use proxy, not a navigable terrain-validated
 road, persisted municipality merger, or globe-wide ecumenopolis simulation.
 Existing routed regional roads and freight remain separate and suppressed
@@ -1827,8 +2039,9 @@ can change rural allocation/district appearance; it does not reroll geography.
 Identical inputs and algorithm version give identical CPU plans and uniforms
 regardless of camera, ownership, frame rate or intermediate observations.
 GPU pixels remain hardware-dependent; same-device replay is tested exactly.
-Future visual-algorithm changes must explicitly update `URBAN_VERSION` rather
-than silently changing persistent geography/history semantics.
+Future candidate/foundation-algorithm changes must explicitly update
+`URBAN_VERSION`; inter-city patch appearance uses `URBAN_INFILL_VERSION`.
+Neither may silently change persistent geography/history semantics.
 
 Both shared terrain shaders render the old core and the new local nuclei with
 the same filtered urban structure, matching daytime footprints and night
@@ -1841,6 +2054,11 @@ foundation continuity, dry-land placement, reconstruction and history recovery;
 GPU tests measure newly illuminated areas outside the original core, dark
 ruins, byte-identical reconstructed uniforms/pixels and equal elapsed playback
 at different frame subdivisions.
+The urban GPU test also reads the shared infill helper at four increasing
+pressures: per-pixel coverage is nondecreasing, intermediate bands retain
+both gaps and occupied parcels, small pressure changes remain continuous,
+and seed replay is exact. Degenerate, remote and back-side strips are dark;
+coarse footprints remain finite and bounded.
 Orbit meshes classify water/ice using the canonical geological height sampler;
 the approach no longer uses a terrain-independent smooth shell when a complete
 manifest is available. The managed city accepts the same complete manifest and

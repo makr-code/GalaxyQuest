@@ -3,6 +3,8 @@
 
   const VERSION = 1;
   const URBAN_VERSION = 1;
+  const URBAN_INFILL_VERSION = 1;
+  const URBAN_STRUCTURE_VERSION = 5;
   const MAX_SETTLEMENTS = 12;
   const MAX_URBAN_CHILDREN = 7;
   const MAX_ROAD_SEGMENTS = 64;
@@ -10,7 +12,31 @@
   const ROAD_FLOATS = 16;
   const TRAFFIC_PERIOD = 120;
   const ROAD_OFFSET = 8 + MAX_SETTLEMENTS * SITE_FLOATS;
-  const UNIFORM_BYTES = (ROAD_OFFSET + 4 + MAX_ROAD_SEGMENTS * ROAD_FLOATS) * 4;
+  const FACILITY_OFFSET = ROAD_OFFSET + 4 + MAX_ROAD_SEGMENTS * ROAD_FLOATS;
+  const MAX_FACILITIES = 16;
+  const MAX_FACILITY_PARTS = 384;
+  const FACILITY_PART_OFFSET = FACILITY_OFFSET + 4 + MAX_FACILITIES * 16;
+  const UNIFORM_BYTES = (FACILITY_PART_OFFSET + MAX_FACILITY_PARTS * 12) * 4;
+  const FACILITY_VERSION = 1;
+  const FACILITY_KINDS = Object.freeze([
+    'agriculture', 'hydroponics', 'industry', 'warehouse', 'tank', 'silo', 'solar', 'fusion',
+    'research', 'nanotech', 'hospital', 'school', 'command', 'security', 'terraforming', 'drilling',
+  ]);
+  const FACILITY_TYPES = Object.freeze({
+    farm: 'agriculture', hydroponic_farm: 'hydroponics', food_silo: 'silo',
+    robotics_factory: 'industry', factory: 'industry',
+    metal_storage: 'warehouse', crystal_storage: 'warehouse', deuterium_tank: 'tank',
+    deuterium_synth: 'tank', solar_plant: 'solar', fusion_reactor: 'fusion',
+    research_lab: 'research', research_lab_adv: 'research', quantum_lab: 'research',
+    consciousness_institute: 'research', nanite_factory: 'nanotech',
+    hospital: 'hospital', bio_pharma: 'hospital', school: 'school', cultural_center: 'school',
+    colony_hq: 'command', trade_center: 'warehouse', security_post: 'security',
+    terraformer: 'terraforming', rare_earth_drill: 'drilling',
+    metallurgy: 'industry', crystal_grinder: 'industry', refinery: 'industry', bioreactor: 'industry',
+    electronics_fab: 'nanotech', consumer_factory: 'industry', luxury_workshop: 'industry',
+    arms_factory: 'industry', colony_supplies: 'warehouse', neural_fabricator: 'nanotech',
+    propulsion_works: 'industry', void_refinery: 'industry', temporal_atelier: 'nanotech',
+  });
   const dot = (a, b) => a.reduce((sum, n, axis) => sum + n * b[axis], 0);
   const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
   const count = (value) => Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0;
@@ -18,6 +44,122 @@
     let result = 2166136261;
     for (const character of String(value)) result = Math.imul(result ^ character.charCodeAt(0), 16777619) >>> 0;
     return result;
+  }
+
+  function facilityLevels(buildings) {
+    if (!Array.isArray(buildings)) throw new TypeError('Facility snapshot requires a building array');
+    const levels = Object.fromEntries(FACILITY_KINDS.map(kind => [kind, 0]));
+    for (const building of buildings) {
+      if (!building || !Number.isFinite(Number(building.level)) || Number(building.level) < 0) {
+        throw new TypeError('Invalid completed facility level');
+      }
+      if (['orbital', 'star_orbit'].includes(building.meta?.zone || building.zone)) continue;
+      const type = building.type || building.building_type;
+      const kind = FACILITY_TYPES[type] || (building.meta?.category === 'industry' ? 'industry' : null);
+      if (kind) levels[kind] += Number(building.level);
+    }
+    return levels;
+  }
+
+  function facilityPlan(buildings, seed, site, radiusKm, outdoor = true, activity = 1) {
+    if (!Number.isSafeInteger(seed) || !Number.isFinite(radiusKm) || radiusKm <= 0
+      || !site?.direction?.every(Number.isFinite) || site.direction.length !== 3
+      || Math.abs(Math.hypot(...site.direction) - 1) > 1e-6
+      || !Number.isFinite(activity) || activity < 0 || activity > 1) {
+      throw new TypeError('Invalid cosmetic facility geography or activity');
+    }
+    const levels = facilityLevels(buildings);
+    const radiusMeters = radiusKm * 1000;
+    const n = Math.hypot(site.direction[0], site.direction[2]);
+    const east = n > 1e-8 ? [-site.direction[2] / n, 0, site.direction[0] / n] : [1, 0, 0];
+    const north = [site.direction[1] * east[2] - site.direction[2] * east[1],
+      site.direction[2] * east[0] - site.direction[0] * east[2],
+      site.direction[0] * east[1] - site.direction[1] * east[0]];
+    const facilities = [];
+    for (const [ordinal, kind] of FACILITY_KINDS.entries()) {
+      if (levels[kind] <= 0) continue;
+      const id = `${site.id}:facility-v${FACILITY_VERSION}:${kind}`;
+      const random = key => hash(`${seed}:${id}:${key}`) / 4294967296;
+      // A fixed district beside the primary centre: growth fills modules, never moves a plot.
+      const e = 4500 + (ordinal % 4) * 750 + random('east') * 60;
+      const z = (Math.floor(ordinal / 4) - 1.5) * 650 + random('north') * 60;
+      const direction = site.direction.map((v, i) => v + (east[i] * e + north[i] * z) / radiusMeters);
+      const length = Math.hypot(...direction);
+      const parts = [];
+      const add = (module, key, x, z, width, depth, height, color, shape = 0, lamp = 0, bottom = 0) => {
+        parts.push({ id: `${id}:${module}:${key}`, eastMeters: x, northMeters: z, bottomMeters: bottom,
+          widthMeters: width, depthMeters: depth, heightMeters: height,
+          color, shape, lamp, roughness: shape === 3 ? 0.3 : shape === 4 ? 0.95 : 0.72 });
+      };
+      const modules = Math.min(3, Math.ceil(Math.log2(1 + levels[kind])));
+      const grey = [0.46, 0.50, 0.52], white = [0.73, 0.76, 0.73], glass = [0.35, 0.61, 0.63];
+      for (let m = 0; m < modules; m++) {
+        const x = (m - 1) * 160;
+        const put = (key, dx, z, w, d, h, color = grey, shape = 0, lamp = 0, bottom = 0) =>
+          add(m, key, x + dx, z, w, d, h, color, shape, lamp, bottom);
+        put('access', 0, -100, 145, 12, 0.4, [0.22, 0.24, 0.25], 5, 0.45);
+        if (kind === 'agriculture' && outdoor) {
+          for (let row = 0; row < 4; row++) {
+            put(`field-${row}`, 0, -65 + row * 42, 138, 36, 0.3,
+              [0.29 + random(`crop-${m}-${row}`) * 0.12, 0.42, 0.16], 4);
+          }
+          put('barn', 0, 120, 45, 28, 12, [0.52, 0.42, 0.31], 2, 0.2);
+        } else if (kind === 'hydroponics' || kind === 'agriculture') {
+          for (let row = 0; row < 4; row++) put(`greenhouse-${row}`, -54 + row * 36, 10, 28, 160, 9, glass, 2, 0.35);
+          put('service', 0, 115, 70, 24, 8);
+        } else if (kind === 'solar') {
+          for (let row = 0; row < 6; row++) put(`panels-${row}`, 0, -65 + row * 29, 140, 21, 4, [0.10, 0.17, 0.25], 3);
+          put('inverter', 0, 120, 25, 16, 5);
+        } else if (kind === 'tank' || kind === 'silo') {
+          for (let row = 0; row < 2; row++) for (let column = 0; column < 3; column++) {
+            put(`vessel-${row}-${column}`, (column - 1) * 45, -35 + row * 80,
+              kind === 'tank' ? 36 : 24, kind === 'tank' ? 36 : 24, kind === 'tank' ? 18 : 34, white, 1, 0.12);
+          }
+          put('manifold', 0, 100, 110, 8, 3);
+        } else if (kind === 'drilling') {
+          put('pad', 0, 0, 135, 140, 0.6, [0.42, 0.38, 0.31], 5, 0.3);
+          for (let leg = 0; leg < 4; leg++) put(`derrick-leg-${leg}`, leg % 2 ? 10 : -10,
+            leg < 2 ? -10 : 10, 2.5, 2.5, 42);
+          put('derrick-head', 0, 0, 24, 24, 3, grey, 0, 0, 40);
+          put('pump', 35, 30, 26, 18, 8);
+          put('service', -35, -40, 35, 24, 7, white, 0, 0.4);
+        } else if (kind === 'fusion' || kind === 'terraforming') {
+          put('core', 0, 0, 65, 65, kind === 'fusion' ? 32 : 48, white, 1, 0.3);
+          for (const side of [-1, 1]) {
+            put(`cooling-${side}`, side * 52, 65, 36, 36, 38, grey, 1, 0.12);
+            put(`conduit-${side}`, side * 45, 0, 50, 6, 5);
+          }
+          put('treatment', 0, -55, 100, 32, 12, [0.42, 0.55, 0.57], 0, 0.25);
+        } else if (kind === 'security') {
+          put('yard', 0, 0, 135, 150, 0.6, [0.28, 0.31, 0.28], 5, 0.3);
+          for (const side of [-1, 1]) {
+            put(`fence-x-${side}`, side * 69, 0, 0.8, 160, 3);
+            put(`fence-z-${side}`, 0, side * 80, 138, 0.8, 3);
+            put(`guard-${side}`, side * 56, -65, 10, 10, 12, white, 0, 0.4);
+          }
+          put('station', 0, 25, 80, 45, 12, grey, 0, 0.5);
+        } else if (['research', 'hospital', 'school', 'command'].includes(kind)) {
+          const height = kind === 'command' ? 36 : kind === 'hospital' ? 24 : 12;
+          put('main', 0, 0, 100, 38, height, white, 0, 0.6);
+          for (const side of [-1, 1]) put(`wing-${side}`, side * 42, 40, 24, 75, height * 0.75, white, 0, 0.5);
+          put('court', 0, 55, 52, 50, 0.3, kind === 'school' ? [0.32, 0.45, 0.27] : [0.57, 0.57, 0.53], 5, 0.1);
+          if (kind === 'research') put('instrument', 0, 110, 20, 20, 18, glass, 1, 0.2);
+          if (kind === 'hospital') put('roof-marker', 0, 0, 12, 12, 0.4, [0.65, 0.23, 0.20], 0, 0, height);
+        } else {
+          put('hall', 0, 0, 125, 150, kind === 'nanotech' ? 16 : 12,
+            kind === 'nanotech' ? white : grey, kind === 'warehouse' ? 2 : 0, 0.4);
+          for (let bay = 0; bay < 4; bay++) put(`loading-${bay}`, -48 + bay * 32, -82, 20, 10, 3, [0.52, 0.43, 0.27], 0, 0.4);
+          if (kind === 'industry') put('stack', 60, 100, 9, 9, 45, [0.43, 0.42, 0.39], 1, 0.1);
+          if (kind === 'nanotech') put('air-handling', 0, 0, 80, 25, 3, glass, 0, 0, 16);
+        }
+      }
+      facilities.push({ id, kind, level: levels[kind], modules, direction: direction.map(v => v / length),
+        east, north, radiusMeters, activity, widthMeters: 500, depthMeters: 300, parts });
+    }
+    if (facilities.reduce((sum, facility) => sum + facility.parts.length, 0) > MAX_FACILITY_PARTS) {
+      throw new RangeError('Cosmetic facility component budget exceeded');
+    }
+    return facilities;
   }
 
   function source(data) {
@@ -346,7 +488,12 @@
       } : { direction: site.direction, width: 0 };
     }
     return {
-      version: VERSION, urbanVersion: URBAN_VERSION, seed: manifest?.seed ?? 0, settlements, state,
+      version: VERSION, urbanVersion: URBAN_VERSION, urbanInfillVersion: URBAN_INFILL_VERSION,
+      urbanStructureVersion: URBAN_STRUCTURE_VERSION, facilityVersion: FACILITY_VERSION,
+      facilities: settlements.length && !settlements[0].ruined
+        ? facilityPlan(data?.buildings || [], manifest.seed, settlements[0], manifest.radius_km,
+          outdoorAgriculture, state.lights) : [],
+      seed: manifest?.seed ?? 0, settlements, state,
       urbanSettlements: settlements.flatMap(site => [
         { id: site.id, direction: site.direction, population: site.population, radius: site.radius,
           ruined: site.ruined, foundingPopulation: 0 },
@@ -477,6 +624,24 @@
       }
     }
     data[ROAD_OFFSET] = segment;
+    const facilities = surfacePlan.facilities || [];
+    if (facilities.length > MAX_FACILITIES) throw new RangeError('Cosmetic facility district budget exceeded');
+    data[FACILITY_OFFSET] = facilities.length;
+    let partIndex = 0;
+    facilities.forEach((facility, index) => {
+      const offset = FACILITY_OFFSET + 4 + index * 16, r = facility.radiusMeters;
+      data.set([...facility.direction, Math.hypot(facility.widthMeters, facility.depthMeters) / r], offset);
+      data.set([...facility.east, partIndex], offset + 4);
+      data.set([...facility.north, facility.parts.length], offset + 8);
+      data.set([1 / r, facility.activity, facility.widthMeters / r, facility.depthMeters / r], offset + 12);
+      for (const part of facility.parts) {
+        if (partIndex >= MAX_FACILITY_PARTS) throw new RangeError('Cosmetic facility component budget exceeded');
+        const p = FACILITY_PART_OFFSET + partIndex++ * 12;
+        data.set([part.eastMeters / r, part.northMeters / r, part.bottomMeters / r, part.shape], p);
+        data.set([part.widthMeters / r, part.depthMeters / r, part.heightMeters / r, part.roughness], p + 4);
+        data.set([...part.color, part.lamp], p + 8);
+      }
+    });
     return data;
   }
 
@@ -550,17 +715,73 @@
     return { parts: visibleParts, width, depth, decorative: true, occupiedLots: occupied, ruined: !!site.ruined };
   }
 
+  const FACILITY_PATTERN_WGSL = `
+fn gqFacilityDistance(p: vec2<f32>, size: vec2<f32>, shape: f32) -> f32 {
+  let box = max(abs(p.x) - size.x * 0.5,abs(p.y) - size.y * 0.5);
+  if (shape != 1.0) { return box; }
+  let q = abs(p / max(size * 0.5,vec2<f32>(0.01)));
+  let diagonal = (q.x + q.y) * 0.707106781187;
+  let planes = max(dot(q,vec2<f32>(0.965925826289,0.258819045103)),
+    dot(q,vec2<f32>(0.258819045103,0.965925826289)));
+  return (max(diagonal,planes) - 0.965925826289) * min(size.x,size.y) * 0.5;
+}
+fn gqFacilityLamp(p: vec2<f32>, size: vec2<f32>, shape: f32, footprint: f32) -> f32 {
+  let edge = abs(gqFacilityDistance(p,size,shape) + 2.0);
+  let aa = max(0.3,footprint);
+  return (1.0 - smoothstep(1.0,1.0 + aa,edge)) * (1.0 - smoothstep(2.0,8.0,footprint));
+}
+fn gqFacilityCoverage(p: vec2<f32>, size: vec2<f32>, shape: f32, footprint: f32) -> f32 {
+  let aa = max(0.1,footprint);
+  let area = min(vec2<f32>(1.0),size / (2.0 * aa));
+  return (1.0 - smoothstep(-aa,aa,gqFacilityDistance(p,size,shape))) * area.x * area.y
+    * (1.0 - smoothstep(max(size.x,size.y),max(size.x,size.y) * 4.0,footprint));
+}
+fn gqFacilityColor(color: vec3<f32>, p: vec2<f32>, shape: f32, footprint: f32) -> vec3<f32> {
+  let period = select(6.0,4.0,shape == 4.0);
+  let detail = 1.0 - smoothstep(period * 0.2,period * 0.8,footprint);
+  let row = 0.85 + 0.15 * cos(p.y * 6.28318530718 / period);
+  return color * mix(1.0,row,detail * select(0.0,1.0,shape == 3.0 || shape == 4.0));
+}
+`;
   const WGSL = `
 struct GQLivingSite {
   center: vec4<f32>, land: vec4<f32>, east: vec4<f32>, economy: vec4<f32>,
   civic: vec4<f32>, connection: vec4<f32>, nuclei: array<vec4<f32>,7>,
 };
 struct GQLivingRoad { start: vec4<f32>, end: vec4<f32>, plane: vec4<f32>, traffic: vec4<f32> };
+struct GQFacility { center: vec4<f32>, east: vec4<f32>, north: vec4<f32>, metric: vec4<f32> };
+struct GQFacilityPart { pose: vec4<f32>, size: vec4<f32>, color: vec4<f32> };
 struct GQLivingSurface {
   state: vec4<f32>, economy: vec4<f32>, sites: array<GQLivingSite,12>,
   roadState: vec4<f32>, roads: array<GQLivingRoad,64>,
+  facilityState: vec4<f32>, facilities: array<GQFacility,16>, parts: array<GQFacilityPart,384>,
 };
 @group(0) @binding(3) var<uniform> gqLiving: GQLivingSurface;
+${FACILITY_PATTERN_WGSL}
+fn gqFacilitySurface(input: GQSurface, direction: vec3<f32>, footprint: f32,
+    eligible: f32, night: f32) -> GQSurface {
+  var out = input;
+  for (var index = 0u; index < u32(gqLiving.facilityState.x); index++) {
+    let facility = gqLiving.facilities[index];
+    if (length(direction - facility.center.xyz) > facility.center.w + footprint * 2.0) { continue; }
+    let inverseRadius = facility.metric.x;
+    let local = vec2<f32>(dot(direction - facility.center.xyz,facility.east.xyz),
+      dot(direction - facility.center.xyz,facility.north.xyz)) / inverseRadius;
+    let pixel = footprint / inverseRadius;
+    for (var partIndex = u32(facility.east.w); partIndex < u32(facility.east.w + facility.north.w); partIndex++) {
+      let part = gqLiving.parts[partIndex];
+      let p = local - part.pose.xy / inverseRadius;
+      let size = part.size.xy / inverseRadius;
+      let coverage = gqFacilityCoverage(p,size,part.pose.w,pixel) * eligible;
+      let color = gqFacilityColor(part.color.rgb,p,part.pose.w,pixel);
+      out.albedo = mix(out.albedo,gqLinear(color),coverage);
+      out.roughness = mix(out.roughness,part.size.w,coverage);
+      let lamps = gqFacilityLamp(p,size,part.pose.w,pixel) * part.color.w * facility.metric.y * night;
+      out.emission = mix(out.emission,vec3<f32>(1.0,0.70,0.36) * lamps,coverage);
+    }
+  }
+  return out;
+}
 struct GQEconomicLandscape {
   farm: vec3<f32>, quarry: vec3<f32>, industry: vec3<f32>, roughness: vec3<f32>,
 };
@@ -625,23 +846,70 @@ fn gqUrbanNoise(point: vec2<f32>, seed: u32) -> f32 {
   return mix(mix(gqHash(cell,seed),gqHash(cell + vec2<i32>(1,0),seed),blend.x),
     mix(gqHash(cell + vec2<i32>(0,1),seed),gqHash(cell + vec2<i32>(1,1),seed),blend.x),blend.y) * 0.5 + 0.5;
 }
+fn gqUrbanInfill(direction: vec3<f32>, start: vec3<f32>, finish: vec3<f32>,
+    width: f32, scale: f32, footprint: f32, seed: u32) -> f32 {
+  let segment = finish - start;
+  let segmentLength = length(segment);
+  if (width <= 0.0 || segmentLength < 0.00001 || segmentLength >= 0.35) { return 0.0; }
+  let axis = segment / segmentLength;
+  let side = normalize(cross(start,finish));
+  let midpoint = normalize(start + finish);
+  let along = dot(direction - midpoint,axis);
+  let across = dot(direction,side);
+  let patchScale = scale * 3.0;
+  if (abs(along) > segmentLength * 0.5 + footprint
+      || abs(across) > width + patchScale * 0.5 + footprint
+      || dot(direction,midpoint) <= 0.8) { return 0.0; }
+  let patchSeed = seed + ${URBAN_INFILL_VERSION}u * 7919u;
+  let bend = (gqUrbanNoise(vec2<f32>(along / (patchScale * 2.0),0),patchSeed) - 0.5) * patchScale;
+  let coordinates = vec2<f32>(along,across - bend) / patchScale;
+  let cell = vec2<i32>(floor(coordinates));
+  let identity = gqHash(cell,patchSeed) * 0.5 + 0.5;
+  let pressure = clamp(width / (scale * 4.0),0.0,1.0);
+  // Fixed parcel thresholds let development advance from the two older centres.
+  let centreGap = 1.0 - clamp(abs(along) / max(segmentLength * 0.5,0.00001),0.0,1.0);
+  let threshold = identity * 0.45 + centreGap * 0.3;
+  let occupied = smoothstep(threshold,threshold + 0.2,pressure);
+  let edge = min(fract(coordinates),1.0 - fract(coordinates));
+  let parcel = smoothstep(0.025,0.12,min(edge.x,edge.y));
+  let detail = 1.0 - smoothstep(0.3,1.0,footprint / patchScale);
+  let band = 1.0 - smoothstep(width * 0.5,width + max(footprint,0.000001),abs(across - bend));
+  let ends = 1.0 - smoothstep(segmentLength * 0.48,
+    segmentLength * 0.5 + max(footprint,0.000001),abs(along));
+  let hemisphere = select(0.0,1.0,dot(direction,midpoint) > 0.8);
+  return occupied * mix(0.75,parcel,detail) * band * ends * hemisphere;
+}
+struct GQUrbanSample {
+  structure: vec3<f32>, emission: vec3<f32>, material: vec4<f32>,
+  slope: vec2<f32>,
+};
 // Stable world-sized districts survive growth; only occupancy and the envelope change.
 fn gqUrbanStructure(local: vec2<f32>, radius: f32, scale: f32,
-    footprint: f32, seed: u32, civic: vec4<f32>, infill: f32) -> vec3<f32> {
+    footprint: f32, seed: u32, civic: vec4<f32>, infill: f32) -> GQUrbanSample {
   let angle = gqHash(vec2<i32>(0),seed) * 3.14159265;
   let p = vec2<f32>(dot(local,vec2<f32>(cos(angle),sin(angle))),
     dot(local,vec2<f32>(-sin(angle),cos(angle))));
   let districtScale = scale * 5.0;
   let noise = gqUrbanNoise(p / districtScale,seed);
   let broad = gqUrbanNoise(p / (districtScale * 3.0),seed + 17u);
+  let districtDetail = 1.0 - smoothstep(0.3,1.0,footprint / districtScale);
+  let specialization = (gqUrbanNoise(p / districtScale,seed + 83u) - 0.5) * districtDetail;
+  let commerce = (gqUrbanNoise(p / districtScale,seed + 131u) - 0.5) * districtDetail;
+  let district = clamp(civic * vec4<f32>(1.0 + commerce,1.0 + specialization,
+    1.0,1.0 - specialization),vec4<f32>(0.0),vec4<f32>(1.0));
   let axes = min(abs(p.x),min(abs(p.y),abs(p.x * 0.65 + p.y * 0.76)));
   let arms = 1.0 - smoothstep(radius * 0.08,radius * 0.26,axes);
   let reach = radius * (0.62 + broad * 0.48 + arms * 0.32);
   let envelope = 1.0 - smoothstep(reach * 0.72,reach,length(p));
   let core = 1.0 - smoothstep(0.0,max(radius * 0.6,0.00001),length(p));
-  let density = clamp(0.23 + core * 0.5 + arms * 0.22 + civic.x * 0.2
-    - civic.z * 0.18 + civic.w * 0.08,0.05,0.95);
-  let occupancy = smoothstep(0.48,0.65,noise + density * 0.5);
+  // Extent in fixed parcel units is a development proxy, not a stored city age.
+  let maturity = smoothstep(2.0,24.0,radius / scale);
+  let infillDensity = maturity * core * (0.18 + district.x * 0.12 + district.y * 0.06)
+    * (1.0 - district.z * 0.6);
+  let density = clamp(0.23 + core * 0.5 + arms * 0.22 + district.x * 0.2
+    - district.z * 0.18 + district.w * 0.08 + infillDensity,0.05,0.95);
+  let developable = smoothstep(0.18,0.32,noise);
+  let occupancy = smoothstep(0.48,0.65,noise + density * 0.5) * developable;
   let blockScale = scale * mix(1.0,1.8,civic.w);
   let cells = p / blockScale;
   let cellEdge = min(fract(cells),1.0 - fract(cells));
@@ -650,19 +918,50 @@ fn gqUrbanStructure(local: vec2<f32>, radius: f32, scale: f32,
   let streets = 1.0 - smoothstep(blockScale * 0.025,blockScale * 0.025 + aa,lineDistance);
   let resolved = 1.0 - smoothstep(0.3,1.2,footprint / blockScale);
   let lots = gqHash(vec2<i32>(floor(cells)),seed + 39u) * 0.5 + 0.5;
-  let windows = smoothstep(0.24,0.65,lots) * (1.0 - streets);
+  let windows = smoothstep(0.24 - infillDensity * 0.7,0.65 - infillDensity * 0.7,lots)
+    * (1.0 - streets);
   let districtEdge = min(fract(p / districtScale),1.0 - fract(p / districtScale));
   let arterialDistance = min(axes,min(districtEdge.x,districtEdge.y) * districtScale);
-  let arterialWidth = scale * (0.06 + civic.x * 0.12);
+  let arterialWidth = scale * (0.06 + district.x * 0.12);
   let arterialAA = max(footprint * 0.65,scale * 0.015);
   let arterial = (1.0 - smoothstep(arterialWidth,arterialWidth + arterialAA,arterialDistance))
     * min(1.0,arterialWidth / arterialAA);
-  let detailedLight = streets * 0.32 + windows * (0.09 + core * 0.15);
-  let filteredLight = mix(0.04 + density * 0.07,detailedLight,resolved);
+  let halls = smoothstep(0.55,0.8,lots) * (1.0 - streets);
+  let litWindows = mix(windows,halls,district.w * 0.65);
+  let detailedLight = streets * 0.32 + litWindows * (0.09 + core * 0.15 + infillDensity * 0.5);
+  let filteredLight = mix(0.04 + density * 0.07 + infillDensity * 0.08,detailedLight,resolved);
   let extent = max(envelope,infill);
   let built = extent * max(occupancy,arterial * 0.8);
-  let lamps = max(occupancy * filteredLight,arterial * (0.6 + civic.x * 0.4));
-  return vec3<f32>(built,extent * lamps,built * core);
+  let lamps = max(occupancy * filteredLight,arterial * (0.6 + district.x * 0.4));
+  let lamp = mix(mix(vec3<f32>(1.0,0.60,0.24),vec3<f32>(1.0,0.38,0.12),district.w),
+    vec3<f32>(0.48,0.74,1.0),district.y);
+  var out: GQUrbanSample;
+  out.structure = vec3<f32>(built,extent * lamps,built * core);
+  out.emission = lamp * out.structure.y;
+  let roofVariation = mix(1.0,mix(0.88,1.12,lots),resolved);
+  let hallRoof = mix(0.2,halls,resolved);
+  let streetCover = mix(0.08,streets,resolved) * 0.65;
+  var roof = mix(vec3<f32>(0.34,0.36,0.37),vec3<f32>(0.38,0.41,0.43),district.w);
+  roof = mix(roof,vec3<f32>(0.64,0.67,0.67),district.y * 0.8);
+  roof = mix(roof,vec3<f32>(0.40,0.43,0.48),district.x * 0.5);
+  let albedo = mix(gqLinear(roof) * roofVariation,gqLinear(vec3<f32>(0.14,0.16,0.17)),streetCover);
+  var roughness = mix(0.84,0.5,district.w * hallRoof);
+  roughness = mix(roughness,0.58,district.y);
+  roughness = mix(roughness,0.64,district.x * 0.6);
+  out.material = vec4<f32>(albedo,mix(roughness,0.94,streetCover));
+  let roofDetail = 1.0 - smoothstep(0.15,0.55,footprint / blockScale);
+  let roofInterior = smoothstep(0.06,0.18,min(cellEdge.x,cellEdge.y));
+  let pitch = mix(0.035,0.12,district.w) * (1.0 - district.y * 0.5);
+  let roofSlope = vec2<f32>(sin(cells.x * 6.28318530718),
+    sin(cells.y * 6.28318530718) * (1.0 - district.w * 0.8))
+    * pitch * roofDetail * roofInterior;
+  out.slope = vec2<f32>(roofSlope.x * cos(angle) - roofSlope.y * sin(angle),
+    roofSlope.x * sin(angle) + roofSlope.y * cos(angle));
+  return out;
+}
+fn gqUrbanNormal(normal: vec3<f32>, offset: vec3<f32>, coverage: f32) -> vec3<f32> {
+  let tangent = offset - normal * dot(offset,normal);
+  return normalize(normal - tangent * coverage);
 }
 fn gqLivingSurface(input: GQSurface, bodyPoint: vec3<f32>, normal: vec3<f32>,
     light: vec3<f32>, material: f32, regionWeight: f32) -> GQSurface {
@@ -678,6 +977,8 @@ fn gqLivingSurface(input: GQSurface, bodyPoint: vec3<f32>, normal: vec3<f32>,
   var roadUrbanMask = 0.0;
   var urbanLight = vec3<f32>(0.0);
   var urbanColor = vec3<f32>(0.0);
+  var urbanRoughness = 0.72;
+  var urbanSlope = vec3<f32>(0.0);
   for (var i = 0u; i < u32(gqLiving.state.x); i++) {
     let site = gqLiving.sites[i];
     let siteActivity = 1.0 - site.land.z;
@@ -686,40 +987,53 @@ fn gqLivingSurface(input: GQSurface, bodyPoint: vec3<f32>, normal: vec3<f32>,
     let north = cross(site.center.xyz,site.east.xyz);
     let local = vec2<f32>(dot(direction,site.east.xyz),dot(direction,north));
     let fieldScale = max(site.land.w,0.000001);
-    let segment = site.connection.xyz - site.center.xyz;
-    let t = clamp(dot(direction - site.center.xyz,segment) / max(dot(segment,segment),0.000001),0.0,1.0);
-    let connectionPoint = normalize(mix(site.center.xyz,site.connection.xyz,t));
-    let corridorDistance = length(direction - connectionPoint);
-    let infill = (1.0 - smoothstep(site.connection.w * 0.5,
-      site.connection.w + max(footprint,0.000001),corridorDistance))
-      * select(0.0,1.0,site.connection.w > 0.0);
+    let infill = gqUrbanInfill(direction,site.center.xyz,site.connection.xyz,
+      site.connection.w,fieldScale,footprint,u32(site.east.w));
     var structure = vec3<f32>(0.0);
+    var emission = vec3<f32>(0.0);
+    var urbanMaterial = vec4<f32>(0.0,0.0,0.0,0.72);
+    var roofSlope = vec2<f32>(0.0);
     if (site.center.w > 0.0) {
-      structure = gqUrbanStructure(local,site.center.w,
+      let sample = gqUrbanStructure(local,site.center.w,
         fieldScale,footprint,u32(site.east.w),site.civic,infill);
+      structure = sample.structure;
+      emission = sample.emission;
+      urbanMaterial = sample.material;
+      roofSlope = sample.slope;
     }
     for (var childIndex = 0u; childIndex < 7u; childIndex++) {
       let child = site.nuclei[childIndex];
       let radius = abs(child.w);
+      let separation = length(child.xyz - site.center.xyz);
+      let childWidth = min(site.center.w,radius) * 0.22
+        * clamp(((site.center.w + radius) / max(separation,0.00001) - 0.65) / 0.55,0.0,1.0)
+        * select(0.0,1.0,child.w > 0.0 && siteActivity > 0.0);
+      let childInfill = gqUrbanInfill(direction,site.center.xyz,child.xyz,
+        childWidth,fieldScale,footprint,u32(site.east.w) + (childIndex + 1u) * 101u);
       // Uniform footprint is computed above; no derivatives in this spatial cull.
-      if (radius > 0.0 && length(direction - child.xyz) < radius * 1.6) {
+      if (radius > 0.0 && (length(direction - child.xyz) < radius * 1.6 || childInfill > 0.0)) {
         let childLocal = vec2<f32>(dot(direction - child.xyz,site.east.xyz),
           dot(direction - child.xyz,north));
         var childStructure = gqUrbanStructure(childLocal,radius,fieldScale,footprint,
-          u32(site.east.w) + (childIndex + 1u) * 101u,site.civic,0.0);
-        childStructure.y *= select(0.0,1.0,child.w > 0.0);
-        structure = max(structure,childStructure);
+          u32(site.east.w) + (childIndex + 1u) * 101u,site.civic,childInfill);
+        let inhabited = select(0.0,1.0,child.w > 0.0);
+        childStructure.structure.y *= inhabited;
+        if (childStructure.structure.x > structure.x) {
+          urbanMaterial = vec4<f32>(childStructure.material.xyz * mix(0.55,1.0,inhabited),
+            mix(0.94,childStructure.material.w,inhabited));
+          roofSlope = childStructure.slope * mix(0.25,1.0,inhabited);
+        }
+        structure = max(structure,childStructure.structure);
+        emission = max(emission,childStructure.emission * inhabited);
       }
     }
     let sameHemisphere = select(0.0,1.0,dot(direction,site.center.xyz) > 0.8);
     let urban = structure.x * eligible * sameHemisphere;
-    let activeLight = structure.y * eligible * siteActivity * sameHemisphere;
-    let lamp = mix(mix(vec3<f32>(1.0,0.60,0.24),vec3<f32>(1.0,0.38,0.12),site.civic.w),
-      vec3<f32>(0.48,0.74,1.0),site.civic.y);
-    urbanLight = max(urbanLight,lamp * activeLight);
+    urbanLight = max(urbanLight,emission * eligible * siteActivity * sameHemisphere);
     if (urban > urbanMask) {
-      urbanColor = gqLinear(mix(vec3<f32>(0.27,0.30,0.31),vec3<f32>(0.39,0.42,0.44),structure.z))
-        * mix(0.55,1.0,siteActivity);
+      urbanColor = urbanMaterial.xyz * mix(0.55,1.0,siteActivity);
+      urbanRoughness = mix(0.94,urbanMaterial.w,siteActivity);
+      urbanSlope = (site.east.xyz * roofSlope.x + north * roofSlope.y) * mix(0.25,1.0,siteActivity);
     }
     urbanMask = max(urbanMask,urban);
     roadUrbanMask = max(roadUrbanMask,max(urban,
@@ -751,7 +1065,8 @@ fn gqLivingSurface(input: GQSurface, bodyPoint: vec3<f32>, normal: vec3<f32>,
     }
   }
   out.albedo = mix(out.albedo,urbanColor,urbanMask * 0.95);
-  out.roughness = mix(out.roughness,0.72,urbanMask);
+  out.roughness = mix(out.roughness,urbanRoughness,urbanMask);
+  out.normal = gqUrbanNormal(input.normal,urbanSlope,urbanMask);
   out.emission = input.emission + urbanLight * night * gqLiving.state.y * 0.9;
   var roadMask = 0.0;
   var activeRoadMask = 0.0;
@@ -789,13 +1104,17 @@ fn gqLivingSurface(input: GQSurface, bodyPoint: vec3<f32>, normal: vec3<f32>,
   out.emission += vec3<f32>(1.0,0.62,0.25) * activeRoadMask * night * gqLiving.state.y * 0.12;
   out.albedo = mix(out.albedo,gqLinear(trafficColor),trafficMask * 0.85);
   out.emission += trafficColor * trafficMask * night * 0.8;
+  out = gqFacilitySurface(out,direction,footprint,eligible,night);
   return out;
 }
 `;
 
   const api = {
-    VERSION, URBAN_VERSION, MAX_SETTLEMENTS, MAX_URBAN_CHILDREN, MAX_ROAD_SEGMENTS, SITE_FLOATS, ROAD_FLOATS, ROAD_OFFSET, TRAFFIC_PERIOD,
-    UNIFORM_BYTES, source, development, candidates, roadNetwork, plan, uniforms, trafficPosition,
+    VERSION, URBAN_VERSION, URBAN_INFILL_VERSION, URBAN_STRUCTURE_VERSION,
+    MAX_SETTLEMENTS, MAX_URBAN_CHILDREN, MAX_ROAD_SEGMENTS, SITE_FLOATS, ROAD_FLOATS, ROAD_OFFSET, TRAFFIC_PERIOD,
+    UNIFORM_BYTES, FACILITY_VERSION, FACILITY_OFFSET, FACILITY_PART_OFFSET, MAX_FACILITIES, MAX_FACILITY_PARTS,
+    FACILITY_KINDS, FACILITY_TYPES, facilityLevels, facilityPlan, FACILITY_PATTERN_WGSL,
+    source, development, candidates, roadNetwork, plan, uniforms, trafficPosition,
     satelliteGeometry, specializationLabel, inspectSettlement, urbanCandidates, WGSL,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

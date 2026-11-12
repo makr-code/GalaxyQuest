@@ -75,6 +75,11 @@ describe('Reconstructible cosmetic urban foundations', () => {
     expect(model.plan({ ...data, colony: { population: data.colony.population, owner_id: 999 },
       camera: { x: 2 }, time: 999999, reduced_motion: true }, manifest, sites)).toEqual(direct);
     expect(direct).not.toHaveProperty('last_update');
+    expect(direct.urbanInfillVersion).toBe(model.URBAN_INFILL_VERSION);
+    expect(model.URBAN_INFILL_VERSION).toBe(1);
+    expect(direct.urbanStructureVersion).toBe(model.URBAN_STRUCTURE_VERSION);
+    expect(model.URBAN_STRUCTURE_VERSION).toBe(5);
+    expect(model.UNIFORM_BYTES).toBe(26112);
   });
 
   it('conserves population across regional founding thresholds instead of redistributing equal-sized cities', () => {

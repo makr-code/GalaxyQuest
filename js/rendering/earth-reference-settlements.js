@@ -27,6 +27,12 @@ export const EARTH_ECONOMY_PROFILES = Object.freeze({
   science: ['research_lab'],
 });
 
+export const EARTH_FACILITY_BUILDINGS = Object.freeze([
+  'farm', 'hydroponic_farm', 'robotics_factory', 'metal_storage', 'deuterium_tank', 'food_silo',
+  'solar_plant', 'fusion_reactor', 'research_lab', 'nanite_factory', 'hospital', 'school',
+  'colony_hq', 'security_post', 'terraformer', 'rare_earth_drill',
+]);
+
 export function earthSettlementSites(model, relief, seaLevel) {
   const manifest = { seed: 2026, radius_km: EARTH_REFERENCE.radiusKm, biome: 'terran', sea_level_km: seaLevel / 1000 };
   const sample = direction => {

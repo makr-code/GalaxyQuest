@@ -88,7 +88,8 @@ export function earthAppearanceSettings(settings) {
     || typeof settings.sky !== 'boolean' || !Number.isFinite(phase) || phase < 0 || phase > 120
     || ![12, 80, 200].includes(altitude) || !['shell', 'surface'].includes(settings.cloudMode)
     || typeof settings.cloudShadows !== 'boolean' || typeof settings.solarAtmosphere !== 'boolean'
-    || typeof settings.cityLights !== 'boolean') {
+    || typeof settings.cityLights !== 'boolean'
+    || (settings.cityMaterials !== undefined && typeof settings.cityMaterials !== 'boolean')) {
     throw new RangeError('Invalid Earth appearance settings');
   }
   return { bump, mode: modes.indexOf(settings.materialView), gloss: settings.gloss,
@@ -96,6 +97,7 @@ export function earthAppearanceSettings(settings) {
     cloudShadows: settings.cloudShadows,
     solarAtmosphere: settings.solarAtmosphere,
     cityLights: settings.cityLights,
+    cityMaterials: settings.cityMaterials ?? false,
     sun: earthSunDirection(settings.sunAzimuth, settings.sunElevation) };
 }
 

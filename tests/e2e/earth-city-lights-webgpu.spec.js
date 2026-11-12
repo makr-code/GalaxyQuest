@@ -1,6 +1,7 @@
 const { test, expect } = require('@playwright/test');
 
 test('colony renderer lights reference cities at night while daylight and dark terrain remain distinct', async ({ page }) => {
+  test.setTimeout(180000);
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -78,7 +79,42 @@ test('colony renderer lights reference cities at night while daylight and dark t
     const diagnostic = await capture();
     change('cityLights', false);
     const diagnosticOff = await capture();
+    const cityDiagnostics = {};
+    change('developmentYear', '100');
+    change('economyProfile', 'science');
+    change('detail', '64');
+    const diagnosticCameraPosition = ref.camera.position.clone();
+    const diagnosticCameraQuaternion = ref.camera.quaternion.clone();
+    ref.camera.position.copy(ref.body.localToWorld(new Vector3(...geographicVector(13.405, 52.52, 3.8))));
+    ref.camera.lookAt(0, 0, 0);
+    ref.camera.zoom = 20;
+    ref.camera.updateProjectionMatrix();
+    const diagnosticMesh = production.orbit._solidBuffer;
+    for (const mode of ['albedo', 'normal', 'roughness', 'specular']) {
+      change('materialView', mode);
+      change('cityMaterials', false);
+      const terrainOnly = await capture();
+      change('cityMaterials', true);
+      const withCities = await capture();
+      change('cityLights', true);
+      change('sunAzimuth', '0');
+      const poweredDay = await capture();
+      change('cityLights', false);
+      change('sunAzimuth', '180');
+      change('cityMaterials', false);
+      const terrainRestored = await capture();
+      cityDiagnostics[mode] = { changed: difference(terrainOnly, withCities),
+        lighting: difference(withCities, poweredDay), restored: difference(terrainOnly, terrainRestored) };
+    }
+    const diagnosticMeshUnchanged = diagnosticMesh === production.orbit._solidBuffer;
+    ref.camera.position.copy(diagnosticCameraPosition);
+    ref.camera.quaternion.copy(diagnosticCameraQuaternion);
+    ref.camera.zoom = 1;
+    ref.camera.updateProjectionMatrix();
+    change('developmentYear', '50');
+    change('economyProfile', 'residential');
     change('materialView', 'shaded');
+    const cityDiagnosticsDisabledInShaded = document.querySelector('[name="cityMaterials"]').disabled;
     change('lighting', false);
     const unlit = await capture();
     change('cityLights', true);
@@ -100,6 +136,7 @@ test('colony renderer lights reference cities at night while daylight and dark t
       diagnostic: difference(diagnostic, diagnosticOff), meshUnchanged, vectorDisabled, baselineDisabled, noVectorPlan,
       unlit: difference(unlit, unlitOn), noGeometryPlan,
       count: colonyPlan.settlements.length, powered: colonyPlan.state.lights,
+      cityDiagnostics, diagnosticMeshUnchanged, cityDiagnosticsDisabledInShaded,
       validation: validation?.message || null };
   });
 
@@ -111,6 +148,15 @@ test('colony renderer lights reference cities at night while daylight and dark t
   expect(result.restoration).toBe(0);
   expect(result.berlinDayOn).toEqual(result.berlinDay);
   expect(result.diagnostic).toBe(0);
+  for (const mode of ['albedo', 'normal', 'roughness']) {
+    expect(result.cityDiagnostics[mode].changed, mode).toBeGreaterThan(10);
+  }
+  expect(result.cityDiagnostics.specular.changed).toBe(0);
+  for (const diagnostic of Object.values(result.cityDiagnostics)) {
+    expect(diagnostic.lighting).toBe(0);
+    expect(diagnostic.restored).toBe(0);
+  }
+  expect(result.diagnosticMeshUnchanged && result.cityDiagnosticsDisabledInShaded).toBe(true);
   expect(result.unlit).toBe(0);
   expect(result.meshUnchanged && result.vectorDisabled && result.baselineDisabled && result.noVectorPlan && result.noGeometryPlan).toBe(true);
   expect(result.validation).toBeNull();

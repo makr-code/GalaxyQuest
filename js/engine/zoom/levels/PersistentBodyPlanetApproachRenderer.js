@@ -66,8 +66,14 @@ struct Out {
   return out;
 }
 @fragment fn fs_main(in: Out, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
-  let face = cross(dpdx(in.world),dpdy(in.world));
-  let geometric = face / max(length(face),0.00001);
+  let dx = dpdx(in.world);
+  let dy = dpdy(in.world);
+  // Normalize derivative scale before crossing: metre-sized faces use Earth-radius coordinates.
+  let dxScale = max(max(abs(dx.x),abs(dx.y)),abs(dx.z));
+  let dyScale = max(max(abs(dy.x),abs(dy.y)),abs(dy.z));
+  let face = cross(dx / max(dxScale,1e-20),dy / max(dyScale,1e-20));
+  let faceLength = length(face);
+  let geometric = select(normalize(in.normal),face / max(faceLength,1e-20),faceLength > 1e-8);
   let radialNormal = select(-geometric,geometric,dot(geometric,in.normal) >= 0.0);
   let normal = select(radialNormal,select(geometric,-geometric,front),u.animation.w > 0.5);
   let inverse = transpose(mat3x3<f32>(u.bodyX.xyz,u.bodyY.xyz,u.bodyZ.xyz));
@@ -98,7 +104,7 @@ struct Out {
   let north = vec3<f32>(-sin(latitude)*cos(longitude),cos(latitude),sin(latitude)*sin(longitude));
   let mapNormal = normalize(direction - (detail.r * east + detail.g * north) * appearanceOptions.material.x);
   let bumpWeight = select(0.0,1.0,appearanceOptions.material.x > 0.0) * authoredOptions.w
-    * (1.0 - masks.x) * (1.0 - authoredOptions.z);
+    * (1.0 - masks.x) * (1.0 - authoredOptions.z) * (1.0 - in.region.a);
   canonicalNormal = normalize(mix(canonicalNormal,mapNormal,bumpWeight));
   ` : ''}
   ` : 'let masks = gqTerrainMasks(in.boundaries);'}
@@ -111,10 +117,13 @@ struct Out {
   let geometricAlbedo = mix(gqLinear(vec3<f32>(0.717647,0.764706,0.674510)),
     gqLinear(vec3<f32>(0.086275,0.247059,0.407843)),masks.x);
   surface.albedo = mix(gqLinear(authored.rgb),geometricAlbedo,authoredOptions.z);
+  surface.albedo = mix(surface.albedo,gqLinear(in.region.rgb),in.region.a);
   ${authoredAppearance ? `
   surface.roughness = mix(1.0,detail.b,appearanceOptions.material.y);
+  surface.normal = normalize(mix(surface.normal,canonicalNormal,in.region.a));
+  surface.roughness = mix(surface.roughness,0.95,in.region.a);
   let dielectricF0 = mix(0.04,detail.a,appearanceOptions.material.y);
-  if (appearanceOptions.material.z > 0.5) {
+  if (appearanceOptions.material.z > 0.5 && appearanceOptions.cloud.w < 0.5) {
     var mapColor = authored.rgb;
     if (appearanceOptions.material.z > 1.5) { mapColor = canonicalNormal * 0.5 + 0.5; }
     if (appearanceOptions.material.z > 2.5) { mapColor = vec3<f32>(detail.b); }
@@ -130,6 +139,15 @@ struct Out {
     * ${authoredAppearance ? '1.0' : 'u.eye.w'} * (1.0 - u.animation.w);
   let canonicalLight = inverse * u.light.xyz;
   surface = gqLivingSurface(surface,in.bodyPoint,canonicalNormal,canonicalLight,material,in.region.a);
+  ${authoredAppearance ? `
+  if (appearanceOptions.material.z > 0.5 && appearanceOptions.cloud.w > 0.5) {
+    var mapColor = gqSrgb(surface.albedo);
+    if (appearanceOptions.material.z > 1.5) { mapColor = surface.normal * 0.5 + 0.5; }
+    if (appearanceOptions.material.z > 2.5) { mapColor = vec3<f32>(surface.roughness); }
+    if (appearanceOptions.material.z > 3.5) { mapColor = vec3<f32>(dielectricF0); }
+    return vec4<f32>(mapColor,1.0);
+  }
+  ` : ''}
   ${authoredAppearance ? `
   let shellRadius = appearanceOptions.cloud.x;
   let sun = normalize(canonicalLight);
@@ -330,6 +348,8 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
     this._terrainStream?.dispose();
     this._terrainStream = null;
     this._sceneData = data || null;
+    this._orbitalPlan = null;
+    this._orbitalGeometry = null;
     this._surfacePlanManifest = null;
     this._clearSettlementMarkers();
     const source = data?.focusPlanet || data?.planet || data?.colony || data?.target || data || {};
@@ -428,6 +448,16 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
     this._sphereManifestKey = null;
     this._sphereRows = null;
     this._markerVertices = null;
+    attempt(() => this._facilities?.dispose());
+    this._facilities = null;
+    this._facilityGeometry = null;
+    this._facilityKey = '';
+    attempt(() => this._orbitals?.dispose());
+    this._orbitals = null;
+    this._orbitalPlan = null;
+    this._orbitalGeometry = null;
+    this._orbitalFocus = null;
+    this._orbitalSelect = null;
     attempt(() => this._depthTexture?.destroy());
     this._depthTexture = null;
     return errors;
@@ -514,6 +544,18 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
     });
     this._presentationButton = toggle;
     this._markerOverlay.appendChild(toggle);
+    if (!this._backend?.geographicSurface) {
+      const select = document.createElement('select');
+      select.setAttribute('aria-label', 'Orbitalobjekt ansehen');
+      Object.assign(select.style, { position: 'absolute', right: '12px', top: '12px', pointerEvents: 'auto',
+        maxWidth: '320px', background: '#07141e', color: '#d9f3ff' });
+      select.addEventListener('change', event => {
+        event.stopPropagation();
+        this._orbitalFocus = select.value || null;
+      });
+      this._orbitalSelect = select;
+      this._markerOverlay.appendChild(select);
+    }
   }
 
   _updateSettlementMarkers(frame) {
@@ -605,6 +647,14 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
     if (!materialModel) throw new Error('Shared body material module is required');
     if (typeof require === 'undefined' && !window.GQColonySurfacePlan) await import('../../../rendering/colony-surface-plan.js');
     if (this._disposed) return;
+    if (typeof require === 'undefined' && !window.GQColonyFacilityGeometry) await import('../../../rendering/colony-facility-geometry.js');
+    if (this._disposed) return;
+    this._facilityModel = typeof require !== 'undefined'
+      ? require('../../../rendering/colony-facility-geometry.js') : window.GQColonyFacilityGeometry;
+    if (typeof require === 'undefined' && !window.GQColonyOrbitals) await import('../../../rendering/colony-orbitals.js');
+    if (this._disposed) return;
+    this._orbitalModel = typeof require !== 'undefined'
+      ? require('../../../rendering/colony-orbitals.js') : window.GQColonyOrbitals;
     if (typeof require === 'undefined' && !window.GQPlanetLivingWorld) await import('./PlanetLivingWorld.js');
     if (this._disposed) return;
     this._livingPolicy = typeof require !== 'undefined' ? require('./PlanetLivingWorld.js') : window.GQPlanetLivingWorld;
@@ -675,8 +725,8 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
 
   _drawFrame(cameraState, opacity = 1) {
     const aspect = this._canvas.width / Math.max(1, this._canvas.height);
-    const target = cameraState?.target || { x: 0, y: 0, z: 0 };
-    const position = cameraState?.position || { x: 0, y: 0, z: 15 };
+    let target = cameraState?.target || { x: 0, y: 0, z: 0 };
+    let position = cameraState?.position || { x: 0, y: 0, z: 15 };
     const cameraDistance = Math.hypot(
       (Number(position.x) || 0) - (Number(target.x) || 0),
       (Number(position.y) || 0) - (Number(target.y) || 0),
@@ -706,16 +756,59 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
       this._surfaceModel.uniforms(this._surfacePlan, this._time, this._livingPolicy.policy(this._sceneData)));
     const extent = solid ? geometry.bodySolidBound(solid)
       : Math.max(...(shape?.axes || [1, 1, 1])) * (1 + (shape?.deformation || 0));
-    const distance = this._backend?.externalCameraControls
-      ? Math.max(extent * 1.04, cameraDistance)
-      : (2.8 + Math.min(2, cameraDistance / 50)) * extent;
-    const near = 0.1;
-    const far = Math.max(20, distance + extent * 2);
+    const unixSeconds = this._backend?.unixSeconds ? this._backend.unixSeconds() : Date.now() / 1000;
     const waterPolicy = this._livingPolicy.policy(this._sceneData);
-    const atmosphere = geometry.resolveBodySurface(this._sceneData, 1, 1).atmosphere;
     this._orientation = this._livingPolicy.bodyOrientation(this._sceneData,this._terrainManifest,
-      this._backend?.unixSeconds ? this._backend.unixSeconds() : Date.now() / 1000,
-      this._sceneData?.presentation_rotation === true ? this._presentationAngle : 0);
+      unixSeconds, this._sceneData?.presentation_rotation === true ? this._presentationAngle : 0);
+    if (!this._orbitalPlan || this._orbitalManifest !== this._terrainManifest) {
+      this._orbitalPlan = this._orbitalModel.plan(this._sceneData, this._terrainManifest,
+        this._livingPolicy.rotationDescriptor(this._sceneData, this._terrainManifest), extent);
+      this._orbitalManifest = this._terrainManifest;
+      if (this._orbitalSelect) {
+        this._orbitalSelect.replaceChildren();
+        const overview = document.createElement('option');
+        overview.value = '';
+        overview.textContent = 'Planetansicht';
+        this._orbitalSelect.appendChild(overview);
+        for (const object of this._orbitalPlan.objects) {
+          const option = document.createElement('option');
+          option.value = object.id;
+          option.textContent = `${object.label} ${object.id.split(':')[1] * 1 + 1} · `
+            + `${this._orbitalPlan.orbit.mode === 'synchronous' ? 'synchron' : 'Keplerbahn'} · `
+            + `${Math.round(this._orbitalPlan.orbit.altitudeMeters / 1000)} km`;
+          this._orbitalSelect.appendChild(option);
+        }
+        if (!this._orbitalPlan.objects.length && Object.values(this._orbitalPlan.levels).some(n => n > 0)) {
+          const unavailable = document.createElement('option');
+          unavailable.disabled = true;
+          unavailable.textContent = `Orbit nicht darstellbar: ${this._orbitalPlan.orbit.reason}`;
+          this._orbitalSelect.appendChild(unavailable);
+        }
+        this._orbitalSelect.hidden = !Object.values(this._orbitalPlan.levels).some(n => n > 0);
+        this._orbitalSelect.value = this._orbitalFocus || '';
+      }
+    }
+    if (this._orbitalSeconds == null || (waterPolicy.motion && waterPolicy.visible)) this._orbitalSeconds = unixSeconds;
+    const focus = this._orbitalPlan.objects.find(object => object.id === this._orbitalFocus);
+    if (this._orbitalFocus && !focus) this._orbitalFocus = null;
+    const focused = focus && !cameraState?.viewProjection;
+    if (focused) {
+      const local = this._orbitalModel.position(this._orbitalPlan, focus, this._orbitalSeconds);
+      const rotate = p => [0, 1, 2].map(i => this._orientation.basis.reduce((sum, axis, j) => sum + axis[i] * p[j], 0));
+      const center = rotate(local.center);
+      const eye = rotate(local.center.map((v, i) => v + (local.up[i] * 1200
+        + local.north[i] * 700) / this._orbitalPlan.radiusMeters));
+      target = { x: center[0], y: center[1], z: center[2] };
+      position = { x: eye[0], y: eye[1], z: eye[2] };
+      cameraState = { ...cameraState, target, position };
+    }
+    const distance = focused ? Math.hypot(position.x - target.x, position.y - target.y, position.z - target.z)
+      : this._backend?.externalCameraControls
+      ? Math.max(cameraState?.viewProjection ? 0.000001 : extent * 1.04, cameraDistance)
+      : (2.8 + Math.min(2, cameraDistance / 50)) * extent;
+    const near = focused ? Math.max(1 / this._orbitalPlan.radiusMeters, distance * 0.01) : 0.1;
+    const far = Math.max(20, distance + extent * 2);
+    const atmosphere = geometry.resolveBodySurface(this._sceneData, 1, 1).atmosphere;
     this._rotation = this._orientation.angle;
     const uniforms = new Float32Array(52);
     const suppliedProjection = this._backend?.externalCameraControls ? cameraState?.viewProjection : null;
@@ -845,6 +938,33 @@ class PersistentBodyPlanetApproachRenderer extends ZoomLevelRendererBase {
     pass.setBindGroup(0, meshSurface ? this._solidBindGroup : this._bindGroup);
     if (meshSurface) pass.setVertexBuffer(0, this._solidBuffer);
     pass.draw(meshSurface ? this._solidVertexCount : 32 * 64 * 6,1,0,0);
+    const facilities = this._surfacePlan?.facilities || [];
+    if (meshSurface && facilities.length && geographicSurface?.facilityGeometryEnabled?.() !== false
+      && this._facilityModel.resolved(facilities, uniforms, this._canvas.height)) {
+      const key = `${this._solidMeshKey}:${JSON.stringify(facilities)}`;
+      if (key !== this._facilityKey) {
+        this._facilityGeometry = this._facilityModel.facilityGeometry(facilities, this._markerVertices,
+          geographicSurface?.facilitySurfaceAvailable);
+        const format = globalThis.navigator?.gpu?.getPreferredCanvasFormat?.() || 'bgra8unorm';
+        this._facilities ??= this._facilityModel.createFacilityRenderer(this._device, format, this._surfaceModel.FACILITY_PATTERN_WGSL);
+        this._facilities.update(this._facilityGeometry);
+        this._facilityKey = key;
+      }
+      this._facilities.draw(pass, uniforms, this._backend?.geographicSurface
+        ? this._backend.geographicSurface.facilityLightingEnabled?.() !== false : true);
+    }
+    this._orbitalGeometry = this._orbitalModel.geometry(this._orbitalPlan, this._orbitalSeconds,
+      this._orientation.basis, this._orientation.sun, Array.from(uniforms.subarray(32, 35)),
+      this._canvas.height * Math.hypot(uniforms[1], uniforms[5], uniforms[9]) / 2,
+      waterPolicy.motion && waterPolicy.visible,
+      geographicSurface ? (this._orbitalPlan.orbit.epoch || 0) + this._waterTime : unixSeconds);
+    if (this._orbitalGeometry.parts.length) {
+      const format = globalThis.navigator?.gpu?.getPreferredCanvasFormat?.() || 'bgra8unorm';
+      this._orbitals ??= this._facilityModel.createFacilityRenderer(this._device, format,
+        this._surfaceModel.FACILITY_PATTERN_WGSL, 'colony_orbitals');
+      this._orbitals.update(this._orbitalGeometry);
+      this._orbitals.draw(pass, uniforms, true);
+    }
     geographicSurface?.drawForeground?.(pass, { uniforms, material: this._materialState,
       phase: this._waterTime, effectsEnabled: waterPolicy.enabled && waterPolicy.visible && !waterPolicy.reducedFlash });
     pass.end();

@@ -111,6 +111,11 @@ describe('Earth authored material maps', () => {
 
   it('rejects invalid appearance controls rather than silently defaulting', () => {
     expect(earthAppearanceSettings(appearance)).toMatchObject({ bump: 10, mode: 0, phase: 0 });
+    expect(earthAppearanceSettings(appearance).cityMaterials).toBe(false);
+    expect(earthAppearanceSettings({ ...appearance, cityMaterials: true }).cityMaterials).toBe(true);
+    for (const cityMaterials of [null, 0, 'true']) {
+      expect(() => earthAppearanceSettings({ ...appearance, cityMaterials })).toThrow(/appearance/);
+    }
     expect(earthAppearanceSettings({ ...appearance, materialView: 'specular', phase: '120' }).mode).toBe(4);
     for (const invalid of [{ bump: null }, { bump: true }, { bump: '100' }, { phase: '' },
       { phase: -1 }, { sky: null }, { gloss: 'true' }, { palette: 'satellite' }, { materialView: 'unknown' },

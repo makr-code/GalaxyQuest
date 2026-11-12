@@ -41,7 +41,7 @@ describe('Deterministic living colony surface', () => {
       expect(bounded.settlements[0].parcelScale).toBeGreaterThanOrEqual(0.0002);
       expect(bounded.settlements[0].parcelScale).toBeLessThanOrEqual(0.006);
     }
-    expect(smallUniforms.byteLength).toBe(6640);
+    expect(smallUniforms.byteLength).toBe(26112);
   });
 
   it('derives urban lighting districts from completed ground trade/science buildings and keeps production capacities separate', () => {

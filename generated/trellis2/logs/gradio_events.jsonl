@@ -59,3 +59,5 @@
 {"timestamp": "2026-11-08T06:15:35.347936", "event_type": "app_start", "device": "cuda", "cuda_available": true, "mode": "both"}
 {"timestamp": "2026-11-09T14:50:19.764491", "event_type": "app_start", "device": "cuda", "cuda_available": true, "mode": "both"}
 {"timestamp": "2026-11-10T05:22:43.051101", "event_type": "app_start", "device": "cuda", "cuda_available": true, "mode": "both"}
+{"timestamp": "2026-11-11T15:06:51.558475", "event_type": "app_start", "device": "cuda", "cuda_available": true, "mode": "both"}
+{"timestamp": "2026-11-12T05:30:01.658661", "event_type": "app_start", "device": "cuda", "cuda_available": true, "mode": "both"}

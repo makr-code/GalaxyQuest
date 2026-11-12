@@ -42,6 +42,47 @@ function trackedBackend() {
 }
 
 describe('Actual in-game planet and colony GPU resource ownership', () => {
+  it('navigates authorized orbital stock without huge meshes in overview and releases borrowed-device resources', async () => {
+    document.body.innerHTML = '<div><canvas width="1024" height="768"></canvas></div>';
+    const canvas = document.querySelector('canvas'), { backend, resources } = trackedBackend();
+    backend.unixSeconds = () => 946728000;
+    const scene = { colony: { mass_earth: 1, diameter_km: 12742.0176, seed: 2026,
+      rotation_period_hours: 23.9344696 }, orbital_facilities: [{ type: 'shipyard', level: 1 }],
+    bodyTerrainManifest: { radius_km: 6371.0088, biome: 'terran' } };
+    const level = new PersistentBodyPlanetApproachRenderer();
+    try {
+      await level.initialize(canvas, backend);
+      await level.enter(1, scene);
+      const camera = { position: { x: 0, y: 0, z: 3 } };
+      level._drawFrame(camera);
+      expect(level._orbitalPlan.objects).toHaveLength(1);
+      expect(level._orbitalGeometry.parts).toEqual([]);
+      expect(resources.some(resource => resource.label === 'colony_orbitals_parts')).toBe(false);
+      const select = document.querySelector('[aria-label="Orbitalobjekt ansehen"]');
+      expect(select.options.length).toBe(2);
+      select.value = 'shipyard:0';
+      select.dispatchEvent(new Event('change'));
+      level._drawFrame(camera);
+      expect(level._orbitalGeometry.parts.length).toBeGreaterThan(10);
+      const allocated = resources.length;
+      level._drawFrame(camera);
+      expect(resources.length).toBe(allocated);
+      level.setSceneData({ ...scene, orbital_facilities: [] });
+      level._drawFrame(camera);
+      expect(level._orbitalFocus).toBeNull();
+      expect(select.hidden).toBe(true);
+      level.setSceneData({ ...scene, colony: { ...scene.colony, mass_earth: null } });
+      level._drawFrame(camera);
+      expect(select.textContent).toContain('missing-mass');
+      expect(select.hidden).toBe(false);
+      await level.exit();
+      await level.exit();
+    } finally { level.dispose(); }
+    resources.forEach(resource => expect(resource.destroy).toHaveBeenCalledOnce());
+    expect(backend.device.destroy).not.toHaveBeenCalled();
+    expect(document.querySelector('[aria-label="Orbitalobjekt ansehen"]')).toBeNull();
+  });
+
   it.each([false, true])('accepts a borrowed authored surface (appearance=%s) without changing the default shader', async appearance => {
     document.body.innerHTML = '<div><canvas width="512" height="384"></canvas></div>';
     const canvas = document.querySelector('canvas');
@@ -78,6 +119,10 @@ describe('Actual in-game planet and colony GPU resource ownership', () => {
       expect(level._solidBuffer).toBe(buffer);
       const uniforms = backend.device.queue.writeBuffer.mock.calls.filter(call => call[0] === level._uniformBuffer).at(-1)[2];
       expect(Array.from(uniforms.slice(0, 16))).toEqual(matrix);
+      level._drawFrame({ ...camera, position: { x: 0, y: 0, z: 1.0003 } });
+      const closeUniforms = backend.device.queue.writeBuffer.mock.calls
+        .filter(call => call[0] === level._uniformBuffer).at(-1)[2];
+      expect(closeUniforms[34]).toBeCloseTo(1.0003, 6);
       const code = backend.device.createShaderModule.mock.calls[0][0].code;
       expect(code).toContain('@binding(4) var authoredColor');
       expect(code).toContain('gqWaterSurface');

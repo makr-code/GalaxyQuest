@@ -663,6 +663,7 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
                 throw new Error('Ungültige Gebäudedaten für die Kolonieoberfläche.');
               }
               return { ...snapshot, buildings: updated.buildings, layout: updated.layout,
+                orbital_facilities: updated.orbital_facilities,
                 body_development: updated.body_development ?? snapshot.body_development };
             },
             onError: (error) => {

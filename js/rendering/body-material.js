@@ -86,6 +86,23 @@
   }
 
   const CLOUD_WGSL = `
+fn gqCloudHash(cell: vec3<i32>, seed: u32) -> f32 {
+  let c = bitcast<vec3<u32>>(cell);
+  var h = (c.x * 1597334677u) ^ (c.y * 3812015801u) ^ (c.z * 2798796415u) ^ seed;
+  h = (h ^ (h >> 16u)) * 2246822519u;
+  h = (h ^ (h >> 13u)) * 3266489917u;
+  return f32((h ^ (h >> 16u)) & 16777215u) / 16777215.0;
+}
+fn gqCloudField(point: vec3<f32>, seed: u32) -> f32 {
+  let cell = vec3<i32>(floor(point));
+  let f = fract(point);
+  let t = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(mix(gqCloudHash(cell,seed),gqCloudHash(cell + vec3<i32>(1,0,0),seed),t.x),
+      mix(gqCloudHash(cell + vec3<i32>(0,1,0),seed),gqCloudHash(cell + vec3<i32>(1,1,0),seed),t.x),t.y),
+    mix(mix(gqCloudHash(cell + vec3<i32>(0,0,1),seed),gqCloudHash(cell + vec3<i32>(1,0,1),seed),t.x),
+      mix(gqCloudHash(cell + vec3<i32>(0,1,1),seed),gqCloudHash(cell + vec3<i32>(1,1,1),seed),t.x),t.y),t.z);
+}
 fn gqCloudNoise(point: vec3<f32>, seconds: f32, seed: f32, footprint: f32) -> f32 {
   let phase = seconds * (6.28318530718 / 120.0);
   let drift = vec3<f32>(cos(phase),sin(phase),sin(phase + 0.7)) * 0.8;
@@ -95,14 +112,30 @@ fn gqCloudNoise(point: vec3<f32>, seconds: f32, seed: f32, footprint: f32) -> f3
     sin(p.z * 0.8 - phase * 2.0 + 1.3),
     cos(p.x * 0.6 + phase * 3.0)) * 0.45;
   let q = p + warp;
-  let broad = sin(q.x + sin(q.z * 1.3)) * cos(q.z * 0.8 + sin(q.y));
-  let detail = sin(q.x * 3.1 + q.z * 1.7) * cos(q.z * 2.9 - q.y);
+  let identity = u32(seed);
+  let weather = gqCloudField(q * 0.45,identity);
+  let billows = gqCloudField(q * 1.8,identity + 101u);
+  let erosion = gqCloudField(q * 5.4,identity + 239u);
+  // Warped frontal ribbons coexist with rounded, broken convective fields.
+  let front = 1.0 - abs(sin(q.x * 0.65 + q.z * 0.3 + weather * 5.0));
+  let frontal = smoothstep(0.45,0.75,weather);
+  let broad = (weather - 0.5) * 0.95 + (front - 0.5) * frontal * 0.35;
+  let detail = (billows - 0.5) * 0.55;
   let broadWeight = 1.0 - smoothstep(0.5,1.5,footprint);
   let detailWeight = 1.0 - smoothstep(0.15,0.6,footprint);
-  return clamp(0.5 + broad * 0.34 * broadWeight + detail * 0.16 * detailWeight,0.0,1.0);
+  let erosionWeight = 1.0 - smoothstep(0.04,0.2,footprint);
+  return clamp(0.5 + broad * broadWeight + detail * detailWeight
+    + (erosion - 0.5) * 0.22 * erosionWeight,0.0,1.0);
 }
 fn gqCloudCoverage(density: f32, coverage: f32) -> f32 {
   return smoothstep(1.0 - coverage,1.02,density) * min(1.0,coverage * 4.0);
+}
+// Single-sheet optical relief, not a volumetric light integral.
+fn gqCloudRelief(cloud: f32, sunward: f32, solarCosine: f32) -> f32 {
+  let grazing = 1.0 - clamp(solarCosine,0.0,1.0);
+  let occluder = max(0.0,sunward - cloud * 0.35);
+  return 1.0 - 0.45 * (1.0 - exp(-occluder * 2.0)) * grazing
+    * smoothstep(0.02,0.3,cloud);
 }
 `;
 

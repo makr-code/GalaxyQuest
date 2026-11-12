@@ -1,10 +1,12 @@
 import { EARTH_REFERENCE, geographicVector, triangulateGeography, paintEarthTexture } from './earth-reference-geography.js';
-import { reliefSettings, reliefMeshRows, paintReliefTexture, buildReliefMesh } from './earth-reference-relief.js';
+import { reliefSettings, reliefMeshRows, paintReliefTexture, buildReliefMesh, reliefPoint } from './earth-reference-relief.js';
 import { buildEarthMaterialMap, earthMaterialMipChain, earthSurfaceColor, earthAppearanceSettings } from './earth-reference-materials.js';
 import { createEarthSky } from './earth-reference-sky.js';
 import { createEarthClouds, cloudShellRadius } from './earth-reference-clouds.js';
 import { DataUtils } from 'three';
-import { EARTH_ECONOMY_PROFILES, earthDevelopment, earthSettlementSites, earthSettlementPlan } from './earth-reference-settlements.js';
+import { EARTH_ECONOMY_PROFILES, EARTH_FACILITY_BUILDINGS, earthDevelopment, earthSettlementSites, earthSettlementPlan } from './earth-reference-settlements.js';
+import { createMetricCity, metricCityLots, metricCityGeometry } from './earth-reference-city.js';
+import { buildMineMesh } from './earth-reference-mine.js';
 
 function packMesh(geography, rows, textureOnly) {
   const values = [];
@@ -72,6 +74,9 @@ export async function createProductionEarth(viewport, device, geography, colorCa
   let settlementPlan = null;
   let settlementSites = null, settlementSeaLevel = null;
   let developmentYear = 50, developmentPlaying = false, economyProfile = 'residential';
+  let metricCity = null, cityGeometry = null, cityMesh = null, cityKey = '', cityEnabled = false;
+  let mineEnabled = false, mineGeometry = null;
+  let facilityEnabled = false, facilityClass = 'all', facilityLevel = 1;
   const updateSettlements = () => {
     if (settlementSeaLevel !== reliefOptions.seaLevel) {
       settlementSites = earthSettlementSites(window.GQColonySurfacePlan, relief, reliefOptions.seaLevel);
@@ -79,6 +84,12 @@ export async function createProductionEarth(viewport, device, geography, colorCa
     }
     settlementPlan = earthSettlementPlan(window.GQColonySurfacePlan, relief, reliefOptions.seaLevel,
       appearance.cityLights && lightingEnabled, developmentYear, economyProfile, settlementSites);
+    // The inspector's stock is explicit synthetic data, independent of the city profile.
+    settlementPlan.facilities = facilityEnabled && settlementSites.some(site => site.id === 'earth-inspection:Berlin')
+      ? window.GQColonySurfacePlan.facilityPlan(EARTH_FACILITY_BUILDINGS.map(type => ({ type, level: facilityLevel })),
+        2026, settlementSites.find(site => site.id === 'earth-inspection:Berlin'), EARTH_REFERENCE.radiusKm, true,
+        appearance.cityLights && lightingEnabled ? 1 : 0).filter(facility => facilityClass === 'all' || facility.kind === facilityClass)
+      : [];
   };
   const reliefCanvas = document.createElement('canvas');
   reliefCanvas.width = colorCanvas.width;
@@ -87,8 +98,27 @@ export async function createProductionEarth(viewport, device, geography, colorCa
     albedoView: albedo.createView(), optionsBuffer,
     appearance: { materialView: materialTexture.createView(), optionsBuffer: appearanceBuffer },
     surfacePlan() { return source === 'relief' && representation !== 'geometry' ? settlementPlan : null; },
+    facilityGeometryEnabled() { return source === 'relief' && representation === 'combined' && appearance?.mode === 0; },
+    facilityLightingEnabled() { return lightingEnabled; },
+    facilitySurfaceAvailable(direction) {
+      const longitude = Math.atan2(-direction[2], direction[0]) * 180 / Math.PI;
+      const latitude = Math.asin(Math.max(-1, Math.min(1, direction[1]))) * 180 / Math.PI;
+      return !reliefPoint(relief, longitude, latitude, reliefOptions).water;
+    },
     drawBackground(pass) { sky.draw(pass); },
     drawForeground(pass, frame) {
+      if (cityEnabled && source === 'relief' && representation === 'combined' && appearance?.mode === 0) {
+        metricCity ??= createMetricCity(device, format);
+        const key = `${cityMesh.key}:${settlementPlan.state.population}:${economyProfile}`;
+        if (key !== cityKey) {
+          const population = settlementPlan.urbanSettlements.find(city => city.id === 'earth-inspection:Berlin')?.population ?? 0;
+          cityGeometry = metricCityGeometry(metricCityLots(2026, population, economyProfile),
+            13.405, 52.52, cityMesh.vertices, relief, reliefOptions);
+          metricCity.update(cityGeometry);
+          cityKey = key;
+        }
+        metricCity.draw(pass, frame, canvas.height, lightingEnabled);
+      }
       if (cloudsEnabled && appearance?.mode === 0 && appearance.cloudMode === 'shell') {
         clouds.draw(pass, frame, appearance.cloudAltitude, lightingEnabled);
       }
@@ -102,11 +132,15 @@ export async function createProductionEarth(viewport, device, geography, colorCa
         rows = autoRows;
       }
       const key = `earth:${source}:${rows}:${representation === 'texture' ? 'sphere' : 'relief'}`
-        + (source === 'relief' ? `:${JSON.stringify(reliefOptions)}` : '');
+        + (source === 'relief' ? `:${JSON.stringify(reliefOptions)}:mine:${mineEnabled && representation !== 'texture'}` : '');
       if (!cache.has(key)) {
         const mesh = { key, rows, vertices: source === 'relief'
           ? buildReliefMesh(relief, rows, reliefOptions, representation === 'texture')
           : packMesh(geography, rows, representation === 'texture') };
+        if (mineEnabled && source === 'relief' && representation !== 'texture') {
+          mesh.mine = buildMineMesh(mesh.vertices, relief, reliefOptions);
+          mesh.vertices = mesh.mine.vertices;
+        }
         if (mesh.vertices.byteLength > 32 * 1024 * 1024) throw new RangeError('Earth mesh exceeds the 32 MiB reference budget');
         cache.set(key, mesh);
         while ([...cache.values()].reduce((sum, entry) => sum + entry.vertices.byteLength, 0) > 32 * 1024 * 1024) {
@@ -114,6 +148,8 @@ export async function createProductionEarth(viewport, device, geography, colorCa
         }
       }
       const mesh = cache.get(key);
+      cityMesh = mesh;
+      mineGeometry = mesh.mine || null;
       cache.delete(key);
       cache.set(key, mesh);
       return mesh;
@@ -140,6 +176,7 @@ export async function createProductionEarth(viewport, device, geography, colorCa
     appearanceBuffer.destroy();
     sky?.dispose();
     clouds?.dispose();
+    metricCity?.dispose();
     context.unconfigure();
     canvas.remove();
     throw error;
@@ -147,6 +184,12 @@ export async function createProductionEarth(viewport, device, geography, colorCa
   viewport.appendChild(canvas);
   return {
     canvas, context, orbit, surface,
+    get cityGeometry() { return cityGeometry; },
+    get mineGeometry() { return mineGeometry; },
+    get facilityPlan() { return settlementPlan?.facilities || []; },
+    get facilityGeometry() { return orbit._facilityGeometry; },
+    get orbitalPlan() { return orbit._orbitalPlan; },
+    get orbitalGeometry() { return orbit._orbitalGeometry; },
     get rows() { return rows; },
     get source() { return source; },
     get detail() { return source === 'relief' ? detail : 'auto'; },
@@ -162,6 +205,29 @@ export async function createProductionEarth(viewport, device, geography, colorCa
       if (!['coasts', 'relief'].includes(settings.source)) throw new TypeError('Unknown Earth geographic source');
       const validatedRelief = reliefSettings(settings);
       const validatedAppearance = earthAppearanceSettings(settings);
+      if (settings.cityGeometry !== undefined && typeof settings.cityGeometry !== 'boolean') {
+        throw new TypeError('Invalid Earth city geometry setting');
+      }
+      cityEnabled = settings.cityGeometry ?? false;
+      if (settings.mineGeometry !== undefined && typeof settings.mineGeometry !== 'boolean') {
+        throw new TypeError('Invalid Earth mine geometry setting');
+      }
+      mineEnabled = settings.mineGeometry ?? false;
+      if (settings.facilityGeometry !== undefined && typeof settings.facilityGeometry !== 'boolean') {
+        throw new TypeError('Invalid Earth facility geometry setting');
+      }
+      facilityEnabled = settings.facilityGeometry ?? false;
+      if (settings.orbitalGeometry !== undefined && typeof settings.orbitalGeometry !== 'boolean') {
+        throw new TypeError('Invalid Earth orbital geometry setting');
+      }
+      facilityClass = settings.facilityClass ?? 'all';
+      if (facilityClass !== 'all' && !window.GQColonySurfacePlan.FACILITY_KINDS.includes(facilityClass)) {
+        throw new RangeError('Invalid Earth facility class');
+      }
+      facilityLevel = Number(settings.facilityLevel ?? 1);
+      if (!Number.isInteger(facilityLevel) || facilityLevel < 0 || facilityLevel > 16) {
+        throw new RangeError('Invalid Earth synthetic facility level');
+      }
       const development = earthDevelopment(settings.developmentYear);
       if (!Object.hasOwn(EARTH_ECONOMY_PROFILES, settings.economyProfile)) throw new RangeError('Invalid Earth economy profile');
       if (typeof settings.developmentPlaying !== 'boolean') throw new TypeError('Invalid Earth development playback');
@@ -215,7 +281,8 @@ export async function createProductionEarth(viewport, device, geography, colorCa
       }
       device.queue.writeBuffer(appearanceBuffer, 0, new Float32Array([
         appearance.bump, appearance.gloss ? 1 : 0, appearance.mode, appearance.cloudMode === 'shell' ? 1 : 0,
-        cloudShellRadius(appearance.cloudAltitude), appearance.cloudShadows ? 1 : 0, appearance.solarAtmosphere ? 1 : 0, 0,
+        cloudShellRadius(appearance.cloudAltitude), appearance.cloudShadows ? 1 : 0,
+        appearance.solarAtmosphere ? 1 : 0, appearance.cityMaterials ? 1 : 0,
       ]));
       device.queue.writeBuffer(optionsBuffer, 0, new Float32Array([
         settings.water ? 1 : 0, settings.lighting ? 1 : 0, representation === 'geometry' ? 1 : 0,
@@ -223,8 +290,11 @@ export async function createProductionEarth(viewport, device, geography, colorCa
       ]));
       orbit.setSceneData({
         reduced_motion: !settings.motion, vfx_quality: 'high',
+        orbital_facilities: settings.orbitalGeometry && representation !== 'geometry' && appearance.mode === 0
+          ? [{ type: 'shipyard', level: 1 }, { type: 'missile_silo', level: 1 }, { type: 'solar_satellite', level: 3 }] : [],
         colony: {
           ...EARTH_REFERENCE,
+          mass_earth: 1,
           // Authored Earth geometry uses -Z east; free spin and node signs follow
           // that frame (S * basis * S), not a physical retrograde Earth.
           rotation_period_hours: -EARTH_REFERENCE.rotation_period_hours,
@@ -267,6 +337,7 @@ export async function createProductionEarth(viewport, device, geography, colorCa
       appearanceBuffer.destroy();
       sky.dispose();
       clouds.dispose();
+      metricCity?.dispose();
       context.unconfigure();
       canvas.remove();
       cache.clear();

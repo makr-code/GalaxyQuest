@@ -81,15 +81,38 @@ test('projected cloud shadows attenuate only direct daylight and follow altitude
     };
     // Independent scalar oracle for shared zero-phase noise, compared to the
     // direct-light transmission recovered from real shaded and unlit pixels.
-    const density = point => {
+    const hash = (cell, seed) => {
+      let h = Math.imul(cell[0], 1597334677) ^ Math.imul(cell[1], 3812015801)
+        ^ Math.imul(cell[2], 2798796415) ^ seed;
+      h = Math.imul(h ^ (h >>> 16), 2246822519);
+      h = Math.imul(h ^ (h >>> 13), 3266489917);
+      return ((h ^ (h >>> 16)) & 16777215) / 16777215;
+    };
+    const field = (point, seed) => {
+      const cell = point.map(Math.floor);
+      const t = point.map((n, i) => { const f = n - cell[i]; return f * f * (3 - 2 * f); });
+      let result = 0;
+      for (let z = 0; z < 2; z++) for (let y = 0; y < 2; y++) for (let x = 0; x < 2; x++) {
+        result += hash([cell[0] + x, cell[1] + y, cell[2] + z], seed)
+          * (x ? t[0] : 1 - t[0]) * (y ? t[1] : 1 - t[1]) * (z ? t[2] : 1 - t[2]);
+      }
+      return result;
+    };
+    const density = (point, footprint) => {
       const seed = production.orbit._materialState.seed;
       const p = [point[0] + seed * 0.17 + 0.8, point[1] + seed * 0.31,
         point[2] + seed * 0.23 + Math.sin(0.7) * 0.8];
       const q = [p[0] + Math.sin(p[1] * 0.7) * 0.45,
         p[1] + Math.sin(p[2] * 0.8 + 1.3) * 0.45, p[2] + Math.cos(p[0] * 0.6) * 0.45];
+      const weather = field(q.map(n => n * 0.45), seed >>> 0);
+      const billows = field(q.map(n => n * 1.8), (seed + 101) >>> 0);
+      const erosion = field(q.map(n => n * 5.4), (seed + 239) >>> 0);
+      const front = 1 - Math.abs(Math.sin(q[0] * 0.65 + q[2] * 0.3 + weather * 5));
       const noise = Math.max(0, Math.min(1, 0.5
-        + Math.sin(q[0] + Math.sin(q[2] * 1.3)) * Math.cos(q[2] * 0.8 + Math.sin(q[1])) * 0.34
-        + Math.sin(q[0] * 3.1 + q[2] * 1.7) * Math.cos(q[2] * 2.9 - q[1]) * 0.16));
+        + ((weather - 0.5) * 0.95 + (front - 0.5) * smooth(0.45, 0.75, weather) * 0.35)
+          * (1 - smooth(0.5, 1.5, footprint))
+        + (billows - 0.5) * 0.55 * (1 - smooth(0.15, 0.6, footprint))
+        + (erosion - 0.5) * 0.22 * (1 - smooth(0.04, 0.2, footprint))));
       return smooth(0.35, 1.02, noise);
     };
     const sun = production.orbit._orientation.basis.map(column =>
@@ -107,14 +130,35 @@ test('projected cloud shadows attenuate only direct daylight and follow altitude
       const cloudRadius = 1 + 200 / 6371.0088;
       const distance = -along + Math.sqrt(along * along + cloudRadius ** 2 - radius ** 2);
       const projected = p.map((n, i) => n + sun[i] * distance);
-      const expected = density(projected.map(n => n / Math.hypot(...projected) * 12))
+      const cloudPoint = projected.map(n => n / Math.hypot(...projected) * 12);
+      const neighbourCloudPoint = (px, py) => {
+        const neighbour = ref.inspectPoint(rect.left + (px + 0.5) * rect.width / canvas.width,
+          rect.top + (py + 0.5) * rect.height / canvas.height);
+        const r = 1 + neighbour.meshElevation / 6371008.8;
+        const position = geographicVector(neighbour.longitude, neighbour.latitude, r);
+        const a = position.reduce((sum, n, i) => sum + n * sun[i], 0);
+        const d = -a + Math.sqrt(a * a + cloudRadius ** 2 - r ** 2);
+        const projectedNeighbour = position.map((n, i) => n + sun[i] * d);
+        return projectedNeighbour.map(n => n / Math.hypot(...projectedNeighbour) * 12);
+      };
+      const footprint = Math.max(...[neighbourCloudPoint(x ^ 1, y), neighbourCloudPoint(x, y ^ 1)]
+        .map(point => Math.hypot(...point.map((n, i) => n - cloudPoint[i]))));
+      const expected = density(cloudPoint, footprint)
         * smooth(0, 0.12, along / radius);
       const i = y * bytesPerRow + x * 4;
       for (let channel = 0; channel < 3; channel++) {
         const clear = linear(high.off[i + channel]), shaded = linear(high.on[i + channel]);
         const ambient = linear(unlit.off[i + channel]) * 0.3;
         if (high.off[i + channel] > 220 || clear - ambient < 0.03) continue;
-        oracle.push({ expected, measured: (clear - shaded) / ((clear - ambient) * 0.55) });
+        const halfStep = byte => Math.max(linear(Math.min(255, byte + 0.5)) - linear(byte),
+          linear(byte) - linear(Math.max(0, byte - 0.5)));
+        const attenuation = expected * 0.55;
+        const predicted = clear * (1 - attenuation) + ambient * attenuation;
+        const quantization = halfStep(high.off[i + channel]) * (1 - attenuation)
+          + halfStep(high.on[i + channel])
+          + halfStep(unlit.off[i + channel]) * 0.3 * attenuation;
+        oracle.push({ expected, error: Math.abs(predicted - shaded),
+          tolerance: quantization + (clear - ambient) * 0.55 * 0.01 });
       }
     }
     change('lighting', true);
@@ -169,7 +213,7 @@ test('projected cloud shadows attenuate only direct daylight and follow altitude
   expect(result.meshUnchanged && result.disabledInSurface && result.disabledInBaseline).toBe(true);
   expect(result.oracle.length).toBeGreaterThan(5);
   expect(result.oracle.some(sample => sample.expected > 0.05)).toBe(true);
-  for (const sample of result.oracle) expect(Math.abs(sample.measured - sample.expected)).toBeLessThan(0.04);
+  for (const sample of result.oracle) expect(sample.error).toBeLessThan(sample.tolerance);
   expect(result.validation).toBeNull();
   expect(errors).toEqual([]);
 });
@@ -218,11 +262,28 @@ test('cloud shell has visible altitude, terrain occlusion, directional sunlight 
       }
       return changed;
     };
+    const { createEarthClouds } = await import('/js/rendering/earth-reference-clouds.js');
+    const flatClouds = createEarthClouds(device, production.context.getConfiguration().format,
+      window.GQBodyMaterial.CLOUD_WGSL.replace('0.45 * (1.0 - exp(-occluder * 2.0))',
+        '0.0 * (1.0 - exp(-occluder * 2.0))'));
+    const foreground = production.surface.drawForeground;
+    const flatForeground = (pass, frame) => flatClouds.draw(pass, frame, production.appearance.cloudAltitude,
+      document.querySelector('[name="lighting"]').checked);
     const clear = await capture();
     const buffer = production.orbit._solidBuffer;
     change('clouds', true);
     change('cloudAltitude', '200');
     const high = await capture();
+    production.surface.drawForeground = flatForeground;
+    const flatHigh = await capture();
+    production.surface.drawForeground = foreground;
+    let reliefDarkened = 0, reliefBrightened = 0;
+    for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+      const i = y * bytesPerRow + x * 4;
+      const delta = high[i] + high[i + 1] + high[i + 2] - flatHigh[i] - flatHigh[i + 1] - flatHigh[i + 2];
+      if (delta < -6) reliefDarkened++;
+      if (delta > 2) reliefBrightened++;
+    }
     let beyondLimb = 0;
     for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
       const i = y * bytesPerRow + x * 4;
@@ -287,6 +348,10 @@ test('cloud shell has visible altitude, terrain occlusion, directional sunlight 
       pointCloud = pointDifference(exposed, overlay);
       if (pointCloud > 20) break;
     }
+    production.surface.drawForeground = flatForeground;
+    const flatUnlit = await capture();
+    production.surface.drawForeground = foreground;
+    const unlitRelief = difference(overlay, flatUnlit);
     // The same cloud is hidden once 40x terrain protrudes through the sheet.
     // Unlit mode disables the approximate surface shadow, isolating depth.
     change('exaggeration', '40');
@@ -299,18 +364,22 @@ test('cloud shell has visible altitude, terrain occlusion, directional sunlight 
       .every(name => document.querySelector(`[name="${name}"]`).disabled);
     const validation = await device.popErrorScope();
     pixels.destroy();
+    flatClouds.dispose();
     ref.dispose();
     return { beyondLimb, altitude: difference(low, high), modes: difference(low, surface),
       restoration: difference(low, restoredLow), sunlight: difference(high, dark),
       restoredSun: difference(high, restoredSun), diagnostic: difference(diagnostic, diagnosticClear),
       occlusionError, pointCloud, litCloud, darkCloud, cloudSamples, normalClouds: difference(exposed, overlay),
-      consistentSun, meshUnchanged, altitudeDisabled, disabled,
+      consistentSun, meshUnchanged, altitudeDisabled, disabled, reliefDarkened, reliefBrightened, unlitRelief,
       validation: validation?.message || null };
   });
   expect(result.beyondLimb).toBeGreaterThan(30);
   expect(result.cloudSamples).toBeGreaterThan(20);
   expect(result.litCloud).toBeGreaterThan(result.darkCloud * 5);
   expect(result.pointCloud).toBeGreaterThan(20);
+  expect(result.reliefDarkened).toBeGreaterThan(100);
+  expect(result.reliefBrightened).toBe(0);
+  expect(result.unlitRelief).toBe(0);
   for (const key of ['altitude', 'modes', 'sunlight', 'normalClouds']) expect(result[key], key).toBeGreaterThan(100);
   for (const key of ['restoration', 'restoredSun', 'diagnostic', 'occlusionError']) expect(result[key], key).toBe(0);
   expect(result.consistentSun && result.meshUnchanged && result.altitudeDisabled && result.disabled).toBe(true);

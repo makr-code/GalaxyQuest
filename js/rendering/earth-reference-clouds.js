@@ -47,14 +47,28 @@ struct CloudPixel {
   let point = inverse * normal * 12.0;
   let footprint = max(length(dpdx(point)),length(dpdy(point)));
   let cloud = gqCloudCoverage(gqCloudNoise(point,c.options.y,c.options.z,footprint),0.65);
+  let sun = normalize(c.light.xyz);
+  let solarCosine = dot(normal,sun);
+  let tangentSun = sun - normal * solarCosine;
+  let sunwardPoint = normalize(normal + tangentSun * 0.018) * 12.0;
+  let sunwardFootprint = max(length(dpdx(sunwardPoint)),length(dpdy(sunwardPoint)));
+  let reliefDetail = 1.0 - smoothstep(0.15,0.6,max(footprint,sunwardFootprint));
   let clip = c.projection * vec4<f32>(hit,1);
   if (discriminant <= 0.0 || distance <= 0.0 || clip.w <= 0.0) { discard; }
   let depth = clip.z / clip.w;
   if (depth < 0.0 || depth > 1.0) { discard; }
-  let daylight = mix(1.0,smoothstep(-0.08,0.22,dot(normal,normalize(c.light.xyz))),c.options.w);
-  let opacity = cloud * 0.82;
+  var relief = 1.0;
+  if (c.options.w > 0.5 && solarCosine > -0.08 && cloud > 0.02 && reliefDetail > 0.0) {
+    let sunward = gqCloudCoverage(gqCloudNoise(inverse * sunwardPoint,
+      c.options.y,c.options.z,sunwardFootprint),0.65);
+    relief = mix(1.0,gqCloudRelief(cloud,sunward,solarCosine),reliefDetail);
+  }
+  let daylight = mix(1.0,smoothstep(-0.08,0.22,solarCosine),c.options.w);
+  let opacity = 1.0 - exp(-cloud * 2.0);
   // Premultiplied display-space blend matches the existing unorm planet target.
-  let rgb = mix(vec3<f32>(0.025,0.035,0.055),vec3<f32>(0.9,0.93,0.98),daylight);
+  let thickness = mix(0.82,1.0,smoothstep(0.05,0.65,cloud));
+  let rgb = mix(vec3<f32>(0.025,0.035,0.055),
+    vec3<f32>(0.9,0.93,0.98) * thickness * relief,daylight);
   var out: CloudPixel;
   out.color = vec4<f32>(rgb * opacity,opacity);
   out.depth = depth;

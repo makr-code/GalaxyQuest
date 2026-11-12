@@ -114,11 +114,69 @@
       </select>
     </label>
     <label><input type="checkbox" name="gloss" checked> Materialglanz: Roughness / Specular</label>
+    <label><input type="checkbox" name="cityMaterials"> Stadtmaterialien in Pruefansichten einbeziehen</label>
     <label><input type="checkbox" name="sky" checked> Prozeduraler Weltraumhimmel</label>
     <label><input type="checkbox" name="atmosphere" checked> Atmosphaerensaum</label>
     <label><input type="checkbox" name="solarAtmosphere" checked> Sonnenabhaengige Atmosphaere / Daemmerung</label>
     <label><input type="checkbox" name="lighting" checked> Tag-/Nachtbeleuchtung</label>
     <label><input type="checkbox" name="cityLights" checked> Kolonie-Stadtlichter (Referenzsiedlungen)</label>
+    <label><input type="checkbox" name="cityGeometry"> Massstaebliches 3D-Referenzquartier bei Berlin</label>
+    <button type="button" name="visitCity">3D-Quartier aus 2 km Hoehe ansehen</button>
+    <small>1,44 km breiter Ausschnitt, 60 m Parzellenabstand, Gebaeude in Metern.
+      Kosmetische Stichprobe, keine Rekonstruktion Berlins. Regionsauswahl stellt die Orbitkamera wieder her.</small>
+    <label><input type="checkbox" name="mineGeometry"> Terrassierter 3D-Referenztagebau</label>
+    <button type="button" name="visitMine">Tagebau aus 5 km Hoehe ansehen</button>
+    <small>Synthetisches Becken in der Lausitz: ca. 4 x 3 km, 240 m tief,
+      acht 30-m-Abbaustufen. Keine Rekonstruktion eines realen Tagebaus.</small>
+    <label><input type="checkbox" name="facilityGeometry"> Weitere Gebaeudeklassen: Referenzanlagen</label>
+    <label>Anlagenklasse
+      <select name="facilityClass">
+        <option value="all">Alle 16 Anlagenfamilien</option>
+        <option value="agriculture">Agrarfelder / Scheunen</option>
+        <option value="hydroponics">Hydroponik / Gewaechshaeuser</option>
+        <option value="industry">Industrie / Robotik</option>
+        <option value="warehouse">Lager / Logistik</option>
+        <option value="tank">Tanks / Deuterium-Aufbereitung</option>
+        <option value="silo">Nahrungssilos</option>
+        <option value="solar">Solarkraftwerk</option>
+        <option value="fusion">Fusionskraftwerk</option>
+        <option value="research">Forschungscampus</option>
+        <option value="nanotech">Nanotechnik / Reinraumhallen</option>
+        <option value="hospital">Krankenhaus</option>
+        <option value="school">Schule / Kultur</option>
+        <option value="command">Kolonieverwaltung</option>
+        <option value="security">Sicherheitsstation</option>
+        <option value="terraforming">Terraforming-Anlagen</option>
+        <option value="drilling">Bohrfeld</option>
+      </select>
+    </label>
+    <label>Anlagen-Ausbaustufe (synthetisch)
+      <select name="facilityLevel">
+        <option value="0">0 - kein Bestand</option>
+        <option value="1" selected>1 - Basismodul</option>
+        <option value="3">3 - zwei Module</option>
+        <option value="7">7 - drei Module</option>
+        <option value="16">16 - Darstellungsgrenze</option>
+      </select>
+    </label>
+    <button type="button" name="visitFacilities">Anlagen ansehen (1 / 8 km Hoehe)</button>
+    <small>Feste, seed-stabile Parzellen neben dem Referenzquartier, Abmessungen in Metern.
+      Derselbe Anlagenplan erzeugt Oberflaechenmaterial und 3D-Geometrie.
+      Synthetischer Bestand, keine echten Berliner Anlagen; maximal drei Module je Familie.
+      Orbitale Gebaeude werden nicht auf die Oberflaeche gesetzt.</small>
+    <label><input type="checkbox" name="orbitalGeometry"> Massstaebliche geostationaere Referenzobjekte</label>
+    <label>Orbitalobjekt
+      <select name="orbitalClass">
+        <option value="shipyard">Orbitalwerft mit Service-Shuttle</option>
+        <option value="missile_silo">Verteidigungsraumstation</option>
+        <option value="solar_satellite">Solarsatellit</option>
+      </select>
+    </label>
+    <button type="button" name="visitOrbital">Orbitalobjekt aus 1,4 km ansehen</button>
+    <small>Synthetischer Bestand: eine Werft, eine Verteidigungsstation, drei Satelliten.
+      Erdmasse und siderische Rotation ergeben ca. 35.793 km Hoehe ueber dem mittleren Erdradius.
+      Keine vergroesserten Modelle in der Globusansicht. Mit Bewegung: lokaler kosmetischer
+      Shuttleverkehr, keine simulierten Flottenmissionen oder Transporte zur Oberflaeche.</small>
     <label>Entwicklungsjahr (synthetisch, 0-200)
       <input type="range" name="developmentYear" min="0" max="200" step="0.01" value="50">
     </label>
@@ -149,6 +207,9 @@
       </select>
     </label>
     <label><input type="checkbox" name="clouds" checked> Produktionswolken</label>
+    <small>Mehrskalige Wolkenfelder mit Ballungen, Frontbaendern und aufgeloesten Raendern;
+      lokale Abschattung zur Sonne erzeugt scheinbares Relief.
+      Weiterhin eine kosmetische Kugelschicht, keine volumetrische Wettersimulation.</small>
     <label>Wolkendarstellung
       <select name="cloudMode">
         <option value="shell">Eigene tiefengepruefte Schicht</option>
@@ -215,9 +276,14 @@
       Die Entwicklungszeit skaliert die Referenzbevoelkerung von 12 Mio. bis
       120 Mrd. (Jahr 200, Ueberbevoelkerungs-Szenario); Stadtflaechen wachsen auf Tag- und Nachtseite identisch.
       Benachbarte Zentren koennen durch Quartiere zusammenwachsen.
+      Zwischenraeume werden schrittweise in festen, unregelmaessigen
+      Quartieren bebaut, nicht als durchgehendes Lichtband.
       Neue kosmetische Satellitenstaedte entstehen an seed-stabilen, geeigneten
       Standorten und wachsen aus einem gemeinsamen Bevoelkerungsbudget.
       Keine zusaetzliche serverseitige Speicherung einzelner Staedte.
+      Tagseitige Dachfarben und Rauheit folgen denselben Quartieren wie die Nachtbeleuchtung.
+      Industriehallen, Wissenschaft und Handel erhalten unterschiedliche kosmetische Materialien.
+      Dezente, distanzgefilterte Dachnormalen ergaenzen das Relief ohne neue Gebaeudegeometrie.
       Strassen, Lichtfarben und Dichte stammen aus dem gemeinsamen Kolonieshader,
       keine echten Stadtkarten. Das Profil speist nur synthetische Gebaeudedaten ein.
       Kein taeglicher Bevoelkerungswechsel. Wiedergabe pausiert bei deaktivierter
