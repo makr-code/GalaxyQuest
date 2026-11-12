@@ -500,7 +500,7 @@ function fc_auto_scout(PDO $db, array $leader, array $colony, int $uid): ?string
     // No active spy mission in flight from this colony.
     $activeStmt = $db->prepare(
         'SELECT COUNT(*) FROM fleets
-         WHERE user_id=? AND origin_colony_id=? AND mission="spy" AND returning=0'
+         WHERE user_id=? AND origin_colony_id=? AND mission="spy" AND `returning`=0'
     );
     $activeStmt->execute([$uid, $cid]);
     if ((int)$activeStmt->fetchColumn() > 0) return null;
@@ -566,7 +566,7 @@ function fc_auto_recall_empty(PDO $db, array $leader, int $uid): ?string {
     // Find a returning, empty fleet originating from our home colony.
     $stmt = $db->prepare(
         'SELECT id, arrival_time FROM fleets
-         WHERE user_id = ? AND origin_colony_id = ? AND returning = 1
+         WHERE user_id = ? AND origin_colony_id = ? AND `returning` = 1
            AND cargo_metal = 0 AND cargo_crystal = 0 AND cargo_deuterium = 0
            AND arrival_time > NOW()
          ORDER BY arrival_time DESC
@@ -597,7 +597,7 @@ function fc_auto_recall_under_attack(PDO $db, array $leader, array $colony, int 
         'SELECT id
          FROM fleets
          WHERE user_id <> ?
-           AND returning = 0
+           AND `returning` = 0
            AND mission = "attack"
            AND target_galaxy = ?
            AND target_system = ?
@@ -618,7 +618,7 @@ function fc_auto_recall_under_attack(PDO $db, array $leader, array $colony, int 
          FROM fleets
          WHERE user_id = ?
            AND origin_colony_id = ?
-           AND returning = 0
+           AND `returning` = 0
            AND mission IN ("attack", "transport", "harvest", "spy")
            AND arrival_time > NOW()
          ORDER BY arrival_time DESC
@@ -632,7 +632,7 @@ function fc_auto_recall_under_attack(PDO $db, array $leader, array $colony, int 
 
     $elapsed = max(1, time() - strtotime((string)$fleet['departure_time']));
     $returnTime = date('Y-m-d H:i:s', time() + $elapsed);
-    $db->prepare('UPDATE fleets SET returning = 1, arrival_time = ?, return_time = ? WHERE id = ?')
+    $db->prepare('UPDATE fleets SET `returning` = 1, arrival_time = ?, return_time = ? WHERE id = ?')
        ->execute([$returnTime, $returnTime, (int)$fleet['id']]);
 
     return "[{$leader['name']}] Hostile incoming detected. Recalled fleet #{$fleet['id']} to defend home colony.";
@@ -654,7 +654,7 @@ function fc_auto_intercept_launch(PDO $db, array $leader, array $colony, int $ui
          JOIN colonies oc ON oc.id = f.origin_colony_id
           JOIN celestial_bodies ob ON ob.id = oc.body_id
          WHERE f.user_id <> ?
-           AND f.returning = 0
+           AND f.`returning` = 0
            AND f.mission = "attack"
            AND f.target_galaxy = ?
            AND f.target_system = ?
@@ -1584,7 +1584,7 @@ function adv_check_incoming_fleet(PDO $db, int $uid, int $lid): void {
         'SELECT COUNT(*) FROM fleets f
                  JOIN celestial_bodies cb ON cb.galaxy_index=f.target_galaxy AND cb.system_index=f.target_system AND cb.position=f.target_position
                  JOIN colonies c ON c.body_id=cb.id
-         WHERE c.user_id=? AND f.user_id != ? AND f.returning=0 AND f.mission IN ("attack","destroy")
+         WHERE c.user_id=? AND f.user_id != ? AND f.`returning`=0 AND f.mission IN ("attack","destroy")
            AND f.arrival_time > NOW()'
     );
     $incoming->execute([$uid, $uid]);

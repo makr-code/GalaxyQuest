@@ -1,6 +1,7 @@
 # Plesk: domain > Apache & nginx Settings > disable "Proxy mode".
 # Paste into "Additional nginx directives". Do not modify generated vhost files.
-# Change 8081 to 8082 for the separate staging domain.
+# Replace 8081 with this domain's verified, available WEB_PORT from .env.
+# Apply only to the dedicated GalaxyQuest domain; do not alter global Plesk services.
 location / {
     proxy_pass http://127.0.0.1:8081;
     proxy_http_version 1.1;

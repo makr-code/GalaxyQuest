@@ -501,7 +501,7 @@ function build_live_overview_payload(PDO $db, int $uid): array
                 f.origin_x_ly, f.origin_y_ly, f.origin_z_ly,
                 f.target_x_ly, f.target_y_ly, f.target_z_ly,
                 f.speed_ly_h, f.distance_ly,
-                f.departure_time, f.arrival_time, f.return_time, f.returning,
+                f.departure_time, f.arrival_time, f.return_time, f.`returning`,
                   cb.galaxy_index AS origin_galaxy, cb.system_index AS origin_system, cb.position AS origin_position
          FROM fleets f
          JOIN colonies c ON c.id = f.origin_colony_id
@@ -536,7 +536,7 @@ function build_live_overview_payload(PDO $db, int $uid): array
                     f.origin_x_ly, f.origin_y_ly, f.origin_z_ly,
                     f.target_x_ly, f.target_y_ly, f.target_z_ly,
                     f.speed_ly_h, f.distance_ly,
-                    f.departure_time, f.arrival_time, f.return_time, f.returning,
+                    f.departure_time, f.arrival_time, f.return_time, f.`returning`,
                     u.username AS owner,
                     cb.galaxy_index AS origin_galaxy,
                     cb.system_index AS origin_system,

@@ -147,7 +147,7 @@ final class RegistrationPlayTest extends TestCase {
         self::assertSame(1, (int)$db->query("SELECT COUNT(*) FROM building_upgrade_queue WHERE colony_id = $cid AND status = 'running'")->fetchColumn());
         self::assertSame(1, (int)$db->query("SELECT COUNT(*) FROM ship_build_queue WHERE colony_id = $cid AND quantity = 2")->fetchColumn());
         self::assertSame(1, (int)$db->query("SELECT COUNT(*) FROM research WHERE user_id = $uid AND research_end IS NOT NULL")->fetchColumn());
-        self::assertSame(1, (int)$db->query("SELECT COUNT(*) FROM fleets WHERE user_id = $uid AND returning = 1")->fetchColumn());
+        self::assertSame(1, (int)$db->query("SELECT COUNT(*) FROM fleets WHERE user_id = $uid AND `returning` = 1")->fetchColumn());
         self::assertSame(1, (int)$db->query("SELECT count FROM ships WHERE colony_id = $cid AND type = 'espionage_probe'")->fetchColumn(), 'The travelling probe must not be duplicated.');
         $archive = json_decode($db->query("SELECT state_json FROM user_draft_progress WHERE user_id = $uid")->fetchColumn(), true, 512, JSON_THROW_ON_ERROR);
         self::assertSame('Private frontier explorer', $archive['world']['character']['background']);

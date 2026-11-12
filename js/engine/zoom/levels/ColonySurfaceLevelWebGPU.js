@@ -1732,6 +1732,10 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._canvas         = null;
     this._backend        = null;
     this._sceneData      = null;
+    this._livingPolicy = typeof require !== 'undefined'
+      ? require('./PlanetLivingWorld.js') : window.GQPlanetLivingWorld;
+    this._surfaceModel = typeof require !== 'undefined'
+      ? require('../../../rendering/colony-surface-plan.js') : window.GQColonySurfacePlan;
     this._device         = null;
     this._context        = null;
     this._meshPipeline   = null;
@@ -3213,7 +3217,7 @@ class ColonySurfaceLevelWebGPU extends ZoomLevelRendererBase {
     this._smokeVertexCount = 0;
     const scene = this._sceneData || {};
     const policy = this._livingPolicy.policy(scene);
-    const enabled = policy.enabled && policy.visible;
+    const enabled = policy.motion && policy.visible;
     const emitters = enabled ? source.filter((slot) => {
       const state = slot?.appearance?.effects?.state || slot?.effects?.state || {};
       const activity = state.activity ?? slot?.activity;

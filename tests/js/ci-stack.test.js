@@ -151,6 +151,7 @@ describe('CI smoke workflow ordering and cleanup', () => {
     expect(apacheSecurity).toMatch(/^\s*ServerTokens\s+Prod\s*$/mi);
     expect(apacheSecurity).toMatch(/^\s*ServerSignature\s+Off\s*$/mi);
     expect(apacheSecurity).toMatch(/^\s*Header always set X-Frame-Options "DENY"\s*$/mi);
+    expect(apacheSecurity).toMatch(/^\s*Header onsuccess unset X-Content-Type-Options\s*$/mi);
     expect(apacheSecurity).toMatch(/^\s*Header always set X-Content-Type-Options "nosniff"\s*$/mi);
     expect(apacheSecurity).toMatch(/^\s*Header always set Referrer-Policy "strict-origin-when-cross-origin"\s*$/mi);
     expect(apacheSecurity).toMatch(

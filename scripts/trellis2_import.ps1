@@ -31,11 +31,21 @@ param(
     [string]$Faction = "generic",
     [string]$Variant = "v1",
     [string]$Slot = "lod0",
+    [ValidateSet(
+        "habitat", "agriculture", "hydroponics", "industry", "warehouse", "tank", "silo",
+        "solar", "fusion", "research", "nanotech", "hospital", "school", "command",
+        "security", "terraforming", "drilling"
+    )]
+    [string]$FacilityKind,
     [switch]$Force
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+if ($FacilityKind -and $AssetType -ne "building") {
+    throw "FacilityKind ist nur fuer AssetType building zulaessig."
+}
 
 $workspace = Resolve-Path (Join-Path $PSScriptRoot "..")
 
@@ -66,7 +76,39 @@ if ((Test-Path $targetPath) -and -not $Force) {
     throw "Zieldatei existiert bereits: $targetPath`nVerwende -Force zum Ueberschreiben."
 }
 
+$inspectionSource = [System.IO.Path]::ChangeExtension($sourceGlbPath, $null).TrimEnd('.') `
+    + "_inspection.json"
+$inspectionTarget = [System.IO.Path]::ChangeExtension($targetPath, $null).TrimEnd('.') `
+    + "_inspection.json"
+$importedFacilityKind = $null
+if (Test-Path -LiteralPath $inspectionSource) {
+    $inspection = Get-Content -LiteralPath $inspectionSource -Raw | ConvertFrom-Json
+    $sourceHash = (Get-FileHash -LiteralPath $sourceGlbPath -Algorithm SHA256).Hash
+    $inspectionAssetType = $inspection.PSObject.Properties["asset_type"]
+    $inspectionFacilityKind = $inspection.PSObject.Properties["facility_kind"]
+    $expectedFacilityKind = if ([string]::IsNullOrWhiteSpace($FacilityKind)) { $null } else { $FacilityKind }
+    if ($inspection.schema -ne "gq.trellis-inspection.v2" -or `
+        $inspection.status -ne "DEV_ONLY" -or `
+        $inspection.source_sha256 -ne $sourceHash -or `
+        -not $inspectionAssetType -or $inspectionAssetType.Value -ne $AssetType -or `
+        -not $inspectionFacilityKind -or $inspectionFacilityKind.Value -ne $expectedFacilityKind -or `
+        ($FacilityKind -and $AssetType -ne "building")) {
+        throw "Inspection-Sidecar ist ungueltig oder gehoert nicht zu diesem GLB: $inspectionSource"
+    }
+    $importedFacilityKind = $inspectionFacilityKind.Value
+}
+
 Copy-Item -Path $sourceGlbPath -Destination $targetPath -Force
+
+if (Test-Path -LiteralPath $inspectionSource) {
+    Copy-Item -LiteralPath $inspectionSource -Destination $inspectionTarget -Force
+    Write-Host "[TRELLIS2] Inspection-Sidecar kopiert (DEV_ONLY): $inspectionTarget"
+} else {
+    if (Test-Path -LiteralPath $inspectionTarget) {
+        Remove-Item -LiteralPath $inspectionTarget
+    }
+    Write-Warning "[TRELLIS2] Kein Inspection-Sidecar vorhanden; Asset bleibt ungeprueft."
+}
 
 Write-Host "[TRELLIS2] Asset importiert: $targetPath"
 
@@ -94,6 +136,7 @@ $logEntry = [ordered]@{
     faction      = $Faction
     variant      = $Variant
     slot         = $Slot
+    facility_kind = $importedFacilityKind
     file_size_kb = $fileSizeKb
     status       = "DEV_ONLY"
 }

@@ -99,3 +99,232 @@ Empfohlen fuer Team-Nutzung:
 - Keine Produktions-SLA auf Topologie/LOD/UV erwarten
 
 So bleibt TRELLIS ein schnelles Entwickler-Werkzeug fuer Ideation, Prototyping und interne Tests.
+
+## 7) ComfyUI-TRELLIS.2: CUDA-Architektur des Exports
+
+Der ComfyUI-Image-to-3D-Workflow ist von den oben beschriebenen
+TRELLIS-CLI-/WebApp-Skripten getrennt. TRELLIS.2 benoetigt ein Eingabebild;
+ein Textprompt allein ist dort kein eigener Text-to-3D-Workflow. Generierte
+Kolonie-Assets bleiben bis zur Geometrie-, Massstab-, Material- und
+Sichtpruefung Entwicklungsartefakte.
+
+Bei `no kernel image is available for execution on the device` oder
+`Cuda error: 209` koennen einzelne CUDA-Erweiterungen fuer eine andere GPU
+gebaut worden sein. Das kann erst beim Export auftreten, obwohl die
+Modellinferenz funktioniert. Die Compute Capability laesst sich mit
+`torch.cuda.get_device_capability()` pruefen; `cuobjdump --list-elf` und
+`--list-ptx` zeigen die tatsaechlich enthaltenen GPU-Architekturen einer
+Erweiterung. Ein Wheel muss zudem zu Python, PyTorch, CUDA und der
+C++-Laufzeit passen; die richtige GPU-Architektur allein genuegt nicht.
+
+Auf einer RTX 3060 (`sm_86`) mit Python 3.12 und PyTorch 2.9.1+cu128
+enthielten die verwendeten Torch291-Wheels fuer `flex_gemm` und
+`nvdiffrast` nur `sm_120`. Neu gebaute Erweiterungen fuer `sm_86` wurden
+in einem getrennten Testprozess geprueft: ein Sparse-Grid-Sample und ein
+Rasterisierungsdreieck waren erfolgreich. Auch ein TRELLIS.2-Lauf mit
+Vertexfarben- und UV-/PBR-Export beendete sich ohne CUDA-Fehler, aber die
+Dateien bestanden die Inhaltspruefung nicht: alle Vertexfarben waren
+schwarz und beide PBR-Texturen enthielten ausschliesslich Nullwerte.
+Vertexfarben sind ohnehin keine PBR-Texturen. Dies ist kein
+Kompatibilitaetsnachweis fuer andere GPU-Modelle, Torch-Versionen oder
+alle Nodes; die Testdateien sind keine freigegebenen Koloniegebaeude.
+
+Im verwendeten lokalen CPU-Mesh-Fallback war zusaetzlich der Ursprung
+verschoben: Die rekonstruierten Vertices werden als `coords / resolution`
+ausgegeben, der Textur-Sampler erwartet dagegen den Mesh-Ursprung
+`[-0.5, -0.5, -0.5]`. Mit einer Korrektur allein erhielten im vollstaendigen
+Stations-Test nur 3,2 % der vereinfachten Vertices Nicht-Schwarz. Der
+Fallback ist damit nicht als texturierter Produktionsweg validiert.
+
+Auch die installierte `o_voxel`-CUDA-Erweiterung enthielt nur `sm_120`.
+Mit einem ebenfalls fuer `sm_86` gebauten nativen Modul konnte in einem
+isolierten Testprozess die native, nicht gekachelte Dual-Grid-Rekonstruktion
+anstelle des lokalen CPU-Fallbacks ausgefuehrt werden. Im Stations-Test
+waren danach alle vereinfachten Vertexfarben ungleich Schwarz; Basisfarben-
+und Metallic/Roughness-Textur enthielten ebenfalls Daten. Der Test verwendete
+die vorhandenen Python-Wrapper mit dem neu gebauten nativen Modul, nicht
+eine ungepruefte Installation des gesamten upstream-Wheels. Insbesondere
+muss die API-Kompatibilitaet der Wrapper beim Umstieg gesondert geprueft
+werden. Der lokale Fallback im veraenderten Submodul wurde nicht umgestellt.
+
+Ein anschliessend erzeugtes Habitat-Testmodell aus einer schematischen
+Einzelgebaeude-Vorlage zeigte im Three.js-Preview Fenster und Dach, aber
+auch ein frei schwebendes dunkles Teil. Es ist kein freigegebenes Asset:
+Vor dem Einsatz sind visuelle Kontrolle, Bereinigung von Artefakten,
+Massstab, Orientierung, LOD und Tests beider Kolonieansichten erforderlich.
+Diese Offline-Tests aendern weder die Produktionsrenderer noch deren
+deterministische Platzierung.
+
+Fuer diesen Habitat-Prototyp wurde das sichtbare schwebende Fragment in
+einer separaten Kopie gezielt entfernt: 234 von 19.020 Dreiecken, rund
+1,49 % der Oberflaeche. Fuer die Komponentenanalyse wurden Positionen
+auf einer Analysekopie ueber UV- und Normalen-Naehten zusammengefuehrt;
+die exportierte Geometrie wurde nicht verschmolzen. Die Auswahl wurde
+anhand der konkreten Komponenten-Bounds und Flaechenzahl abgesichert.
+Die verbleibenden Vertices und UVs entsprechen nach Reimport dem Original;
+die Originalnormalen wurden explizit mitexportiert und bis auf
+Float-Rundung verifiziert. Die Pixel der beiden 512 x 512 Basisfarben-
+und Metallic/Roughness-Texturen blieben unveraendert. Die Bounds schrumpften
+von etwa `1,001 x 0,628 x 0,503` auf `0,410 x 0,628 x 0,503`:
+Vorher haette das Fragment also eine massstabsbezogene Ausrichtung
+verfaelschen koennen.
+
+Der bereinigte Export hat noch 18.786 Dreiecke und 16 nach obiger Methode
+analysierte Face-Komponenten, darunter zwei grosse. Kleinere Komponenten
+koennen legitime Gebaeudeteile sein; sie duerfen nicht pauschal entfernt
+werden. Die Three.js-Pruefung von zwei Seiten zeigte weiterhin einen
+dunklen Dachfleck und verzerrte Fassadendetails. Die Bereinigung ist
+ein einmaliger Versuch, keine allgemeine automatische Freigabe. Ein
+nichtschwarzes PBR-Ergebnis oder eine bestandene Fragmentkontrolle ersetzt
+weder Material- und Topologiepruefung noch Bodenkontakt, Orientierung,
+physikalischen Massstab, LOD und Tests beider Ansichten.
+
+Fuer den reproduzierbaren Neubau muessen CUDA-12.8-Compiler und Header,
+der zur Zielinstallation passende PyTorch-Build, `ninja`, `setuptools`
+und `wheel` in einer **separaten Buildumgebung** vorhanden sein. Fuer
+den genannten Test wurden folgende upstream-Quellstaende verwendet:
+
+| Erweiterung | Repository | Commit |
+|---|---|---|
+| FlexGEMM | `https://github.com/JeffreyXiang/FlexGEMM.git` | `74c3f686260f648cbd054c0b143b783838884bbe` |
+| nvdiffrast | `https://github.com/NVlabs/nvdiffrast.git` | `253ac4fcea7de5f396371124af597e6cc957bfae` |
+| o-voxel | `https://github.com/microsoft/TRELLIS.2.git` | `75fbf0183001ed9876c8dbb35de6b68552ee08bd` |
+
+Der FlexGEMM-Stand wurde anhand der vier im Test-Wheel enthaltenen
+CUDA-/C++-Quelldateien abgeglichen; fuer o-voxel wurde der upstream-Stand
+inklusive seines gepinnten Eigen-Submoduls verwendet. In der Buildumgebung setzt
+`TORCH_CUDA_ARCH_LIST=8.6` das Testziel; `CUDA_HOME` muss auf das passende
+Toolkit zeigen. Anschliessend lassen sich die jeweiligen ausgecheckten
+Quellbaeume jeweils mit
+`python -m pip wheel --no-build-isolation --no-deps --wheel-dir <ziel> .`
+bauen. Bei fehlenden CUDA-Bibliotheks-
+Headern muss der Include-Pfad zu den passenden CUDA-12-PyTorch-Abhaengigkeiten
+gesetzt werden; CUDA-13-Header duerfen nicht versehentlich bevorzugt werden.
+
+Wheels nicht ungeprueft in einen laufenden, gemeinsam genutzten Dienst
+installieren. Erst in einer isolierten Umgebung gegen die konkrete
+Zielversion und GPU testen und danach gegebenenfalls das Image gezielt
+aktualisieren. Auch ein zweiter Testserver benoetigt eine eigene Datenbank
+und kann erhebliche RAM- und GPU-Ressourcen belegen.
+
+## 8) Wiederholbare Offline-Inspektion und DEV-Import
+
+`scripts/trellis2_inspect.py` untersucht vorhandene GLBs ohne GPU oder
+TRELLIS-Inferenz. Es aendert keine Geometrie, UVs, Normalen oder Materialien
+und entfernt keine Komponenten. Eine separate Python-Umgebung vermeidet
+Aenderungen am gemeinsam genutzten ComfyUI-Dienst:
+
+```powershell
+python -m venv .venv-trellis-inspect
+.\.venv-trellis-inspect\Scripts\python.exe -m pip install -r scripts\requirements-trellis-inspect.txt
+.\.venv-trellis-inspect\Scripts\python.exe scripts\trellis2_inspect.py generated\trellis2\hydroponics.glb --facility-kind hydroponics
+pwsh -NoProfile -File scripts\trellis2_import.ps1 -SourceGlb generated\trellis2\hydroponics.glb -AssetType building -FacilityKind hydroponics -Variant hydroponics_pilot
+```
+
+Unterstuetzt werden GLB-2-Dreiecksszenen mit eingebetteten Puffern und
+Bildern ohne erforderliche glTF-Erweiterungen. Externe Ressourcen, etwa
+Textur-URLs, werden abgewiesen. Nicht unterstuetzte oder unlesbare Eingaben
+beenden den CLI-Aufruf mit Exitcode 1 und einem strukturierten Fehler.
+Exitcode 0 bedeutet nur, dass der Bericht geschrieben wurde, **nicht**,
+dass das Asset die Sichtpruefung bestanden hat.
+
+Der Bericht `<name>_inspection.json` enthaelt:
+
+- Schema `gq.trellis-inspection.v2`, Asset-Typ, optionale Facility-Klasse,
+  SHA-256 der untersuchten GLB-Bytes und unveraenderlich `status: DEV_ONLY`.
+- Eine gesetzte Facility-Klasse muss beim Import uebereinstimmen. Berichte
+  ohne oder mit einer anderen Klasse koennen nicht unter dem falschen Typ
+  importiert werden. V1-Berichte ohne die Typfelder werden abgelehnt und
+  muessen mit dem Inspektor neu erzeugt werden.
+- Dateigroesse, Instanzzahl und Szenen-Bounds inklusive Node-Transformationen;
+  Mesh-Dreiecke und Komponenten werden pro eindeutiger Geometrie gezaehlt,
+  nicht pro Instanz.
+- Komponenten mit Dreieckszahl, Flaechenanteil und lokalen Bounds.
+  Nur exakt gleiche Positionen werden fuer die Analyse zusammengefuehrt;
+  UV-Naehtenduplikate werden damit nicht als abgesetzte Teile fehlgedeutet,
+  kleine echte Luecken bleiben erhalten. Auch getrennte legitime Bauteile
+  erzeugen einen Pruefhinweis, keine automatische Loeschentscheidung.
+- Nullflaechen, fehlende/ungueltige UVs, fehlende `NORMAL`-Attribute sowie
+  fehlende PBR-Texturen, schwarze Basisfarbtexturen und schwarze Farbfaktoren.
+  Das Vorhandensein eines Normalen-Attributs belegt noch keine korrekte
+  Normalenrichtung.
+- Texturdimensionen, RGB-Minima/Maxima und Nicht-Schwarz-Anteil der gesamten
+  Textur. Letzterer ist **keine UV-Farbdeckungspruefung**; ungenutzte Texel
+  sind enthalten. Fehlende Texturen koennen bei absichtlich untexturierten
+  Materialien legitim sein.
+- Weiterhin erforderliche manuelle Pruefungen: Optik/Material, physikalischer
+  Massstab, Orientierung/Bodenkontakt, LOD/Renderbudget und beide
+  Kolonieansichten.
+
+Der PowerShell-DEV-Import kopiert einen vorhandenen Inspection-Sidecar nur
+bei passendem Schema, DEV_ONLY-Status und Quellhash. Ein veralteter Bericht
+bricht den Import vor dem Ueberschreiben des Zielmodells ab. Beim
+Ueberschreiben ohne neuen Inspection-Bericht wird der alte Zielbericht
+entfernt. Ein Import ohne Inspection bleibt aus Kompatibilitaetsgruenden
+moeglich, gibt aber eine ausdrueckliche Warnung aus. Der bisherige
+`_quality.json`-Bericht der TRELLIS-CLI bleibt davon getrennt und ist
+ebenfalls keine Produktionsfreigabe. Die Facility-Klasse wird ausserdem
+im JSONL-Importlog festgehalten; eine Klasse mit einem Nicht-Gebaeude-
+Assettyp wird bereits vor dem Kopieren abgewiesen.
+
+Am Habitat-Piloten wurden 17 Komponenten vor und 16 nach der gezielten
+Fragmententfernung gemessen. Der bereinigte Export hat gueltige UVs,
+vorhandene Normalen-Attribute und farbige PBR-Texturen, aber weiterhin eine
+Nullflaeche sowie den manuellen Mehrkomponenten-Pruefhinweis. Dach- und
+Fassadenartefakte bleiben eine Aufgabe der Sichtpruefung.
+
+Regressionstests ohne GPU:
+
+```powershell
+.\.venv-trellis-inspect\Scripts\python.exe -m unittest discover -s tests\scripts -p test_trellis2_inspect.py
+npx vitest run tests\js\trellis2-import.test.js
+```
+
+Die Importtests benoetigen `pwsh`; ohne dieses werden sie uebersprungen.
+
+## 9) Kolonie-Gebaeudefamilien fuer TRELLIS-Prototypen
+
+Die Produktionsplanung in `js/rendering/colony-surface-plan.js` kennt
+16 eigenstaendige oberflaechengebundene Facility-Archetypen. Das Habitat
+ist eine separate Wohn-/Siedlungsdarstellung und wird nicht in diese
+16 Typen hineingerechnet. Die aktuelle TRELLIS-Ausgabe in
+`generated/trellis2/imported/building/` enthaelt bislang nur den
+Habitat-Piloten; die vorhandenen Habitat-Konzeptbilder sind keine
+Farm-, Minen- oder Fabrikreferenzen.
+
+| Gruppe | Facility-Klassen | Bild-/Formziel fuer einen Einzelasset-Piloten |
+|---|---|---|
+| Landwirtschaft | `agriculture`, `hydroponics` | Freiland-Module mit Feldreihen und Scheune; separat ein Glas-Gewachshaus mit klar lesbaren Technikgaengen |
+| Energie und Stoffe | `solar`, `fusion`, `terraforming`, `tank`, `silo` | Flache Solarpanel-Reihen plus Wechselrichter; Reaktorkern mit Kuehlung; Behandlungskern; klar getrennte Tanks bzw. Silos |
+| Industrie und Gewinnung | `industry`, `nanotech`, `drilling`, `warehouse` | Fabrikhalle mit Schornstein; Reinraum-/Lufttechnik; Bohrturm auf Arbeitsplattform; Lagerhalle mit Ladetoren |
+| Zivile Infrastruktur | `research`, `hospital`, `school`, `command`, `security` | Labor mit Instrument, Klinik mit Lande-/Dachmarkierung, Campus, Kommandohaus sowie eingezaeunte Sicherheitsstation |
+| Wohnen | `habitat` | Mehrgeschossiger Wohnblock; bleibt als separater Typ gefuehrt |
+
+Die 16 Oberflaechenklassen entsprechen dem produktiven Planer; insbesondere
+`drilling` ist nicht das terrassierte Tagebaubecken. Der Tagebau bleibt das
+separate, massstaeblich aus dem realen Gelaende generierte Mining-Landschafts-
+Feature und sollte nicht durch ein aufgesetztes TRELLIS-Lochmodell ersetzt
+werden.
+
+Sechzehn getrennte Bildreferenzen liegen unter
+`generated/trellis2/references/`, jeweils als `*_concept_v1.png` und
+im Manifest per SHA-256 einer Facility-Klasse zugeordnet:
+`agriculture`, `hydroponics`, `industry`, `warehouse`, `tank`, `silo`,
+`solar`, `fusion`, `research`, `nanotech`, `hospital`, `school`, `command`,
+`security`, `terraforming` und `drilling`. Damit besitzt jede der 16
+Oberflaechenklassen aus dem Produktionsplaner ein eigenes Bildmotiv. Sie
+decken Freilandkulturen, Glas/Innenstruktur, Fabrik und Lagerlogistik,
+Fluessig- und Schuettgutlager, flache Solartechnik, Reaktorkuehlung,
+Forschung, Reinraumtechnik, zivile Dienste und Rohstoffbohrung ab. Das
+Habitat bleibt separat und wird nicht als Facility-Klasse gezaehlt.
+
+Die Referenzen sind Designvorlagen, generisch und nicht massstabkalibriert.
+Es ist noch keine TRELLIS-Inferenz oder GLB-Ausgabe fuer sie erfolgt.
+Manifest-Schema, eindeutige Klassen, PNG-Aufloesung und Bildhashes sind
+lokal pruefbar. Sobald in einer isolierten Umgebung TRELLIS-Gewichte
+verfuegbar sind, jeden Bildlauf getrennt ausfuehren, den resultierenden GLB
+mit `--facility-kind` klassifizieren und die Sichtpruefung vor dem DEV-Import
+dokumentieren.
+Das terrassierte Tagebaubecken bleibt ein separates, massstaeblich aus dem
+realen Gelaende generiertes Feature; `drilling` ist lediglich eine Bohr-
+und Extraktionsanlage, kein Ersatz dafuer.

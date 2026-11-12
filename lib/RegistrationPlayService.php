@@ -259,7 +259,7 @@ final class RegistrationPlayService
                 $p = $draft['position'];
                 $this->db->prepare("INSERT INTO fleets (
                     user_id, origin_colony_id, target_galaxy, target_system, target_position,
-                    mission, ships_json, departure_time, arrival_time, return_time, returning)
+                    mission, ships_json, departure_time, arrival_time, return_time, `returning`)
                     VALUES (?, ?, ?, ?, ?, 'recall', ?, ?, ?, ?, 1)")
                     ->execute([$uid, $cid, $p['galaxy'], $p['system'], $p['position'],
                         json_encode(['espionage_probe' => 1], JSON_THROW_ON_ERROR), $start, $end, $end]);

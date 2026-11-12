@@ -327,7 +327,7 @@ CREATE TABLE IF NOT EXISTS fleets (
     departure_time DATETIME NOT NULL,
     arrival_time DATETIME NOT NULL,
     return_time DATETIME,
-    returning TINYINT(1) NOT NULL DEFAULT 0,
+    `returning` TINYINT(1) NOT NULL DEFAULT 0,
     stealth_until DATETIME DEFAULT NULL
         COMMENT 'Vel''Ar FTL: fleet hidden from enemies until this timestamp',
     hull_damage_pct TINYINT UNSIGNED NOT NULL DEFAULT 0

@@ -62,7 +62,7 @@ switch ($action) {
                     f.target_galaxy, f.target_system, f.target_position,
                     COALESCE(NULLIF(ss_tgt.catalog_name, \'\'), ss_tgt.name) AS target_system_name,
                     f.ships_json, f.cargo_metal, f.cargo_crystal, f.cargo_deuterium,
-                    f.departure_time, f.arrival_time, f.return_time, f.returning,
+                    f.departure_time, f.arrival_time, f.return_time, f.`returning`,
                     f.stealth_until, f.hull_damage_pct, f.fleet_label,
                     cb.galaxy_index AS origin_galaxy, cb.system_index AS origin_system, cb.position AS origin_position
              FROM fleets f
@@ -397,7 +397,7 @@ function recall_fleet(PDO $db, int $uid, int $fleetId): never {
     $db->beginTransaction();
     try {
         $stmt = $db->prepare(
-            'SELECT * FROM fleets WHERE id = ? AND user_id = ? AND returning = 0 FOR UPDATE'
+            'SELECT * FROM fleets WHERE id = ? AND user_id = ? AND `returning` = 0 FOR UPDATE'
         );
         $stmt->execute([$fleetId, $uid]);
         $fleet = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -409,7 +409,7 @@ function recall_fleet(PDO $db, int $uid, int $fleetId): never {
         $elapsed = time() - strtotime((string)$fleet['departure_time']);
         $returnTime = date('Y-m-d H:i:s', time() + max(1, $elapsed));
         $update = $db->prepare(
-            'UPDATE fleets SET returning = 1, arrival_time = ?, return_time = ? WHERE id = ? AND returning = 0'
+            'UPDATE fleets SET `returning` = 1, arrival_time = ?, return_time = ? WHERE id = ? AND `returning` = 0'
         );
         $update->execute([$returnTime, $returnTime, $fleetId]);
         if ($update->rowCount() !== 1) {
@@ -557,7 +557,8 @@ function deliver_resources(PDO $db, array $fleet, array $ships): void {
     }
     $travel  = max(1, (int)(strtotime($fleet['arrival_time']) - strtotime($fleet['departure_time'])));
     $retTime = date('Y-m-d H:i:s', time() + $travel);
-    $db->prepare('UPDATE fleets SET returning=1, arrival_time=?, return_time=?, cargo_metal=0, cargo_crystal=0, cargo_deuterium=0, cargo_payload = ? WHERE id=?')
+    $db->prepare('UPDATE fleets SET `returning`=1, arrival_time=?, return_time=?, cargo_metal=0, '
+        . 'cargo_crystal=0, cargo_deuterium=0, cargo_payload = ? WHERE id=?')
        ->execute([$retTime, $retTime, '{}', $fleet['id']]);
     enqueue_dirty_user($db, (int)$fleet['user_id'], 'fleet_delivered');
 }
@@ -667,7 +668,7 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
     if (!$target || (int)$target['user_id'] === (int)$fleet['user_id']) {
         $travel  = max(1,(int)(strtotime($fleet['arrival_time'])-strtotime($fleet['departure_time'])));
         $retTime = date('Y-m-d H:i:s', time() + $travel);
-        $db->prepare('UPDATE fleets SET returning=1, arrival_time=?, return_time=? WHERE id=?')
+        $db->prepare('UPDATE fleets SET `returning`=1, arrival_time=?, return_time=? WHERE id=?')
            ->execute([$retTime, $retTime, $fleet['id']]);
         return;
     }
@@ -1029,7 +1030,7 @@ function resolve_battle(PDO $db, array $fleet, array $ships): void {
     $travel  = max(1,(int)(strtotime($fleet['arrival_time'])-strtotime($fleet['departure_time'])));
     $retTime = date('Y-m-d H:i:s', time() + $travel);
     $db->prepare(
-        'UPDATE fleets SET returning=1, arrival_time=?, return_time=?,
+        'UPDATE fleets SET `returning`=1, arrival_time=?, return_time=?,
                            cargo_metal=?, cargo_crystal=?, cargo_deuterium=?, ships_json=?
          WHERE id=?'
     )->execute([$retTime, $retTime, $lootM, $lootC, $lootD, json_encode($atkSurvivors), $fleet['id']]);
@@ -1936,7 +1937,7 @@ function colonize_planet_rows(PDO $db, array $fleet, array $ships): void {
     unset($ships['colony_ship']);
     $travel  = max(1,(int)(strtotime($fleet['arrival_time'])-strtotime($fleet['departure_time'])));
     $retTime = date('Y-m-d H:i:s', time() + $travel);
-    $db->prepare('UPDATE fleets SET returning=1, arrival_time=?, return_time=?, ships_json=? WHERE id=?')
+    $db->prepare('UPDATE fleets SET `returning`=1, arrival_time=?, return_time=?, ships_json=? WHERE id=?')
        ->execute([$retTime, $retTime, json_encode($ships), $fleet['id']]);
 }
 
@@ -2063,7 +2064,7 @@ function create_spy_report(PDO $db, array $fleet, array $ships): void {
 
     $travel  = max(1,(int)(strtotime($fleet['arrival_time'])-strtotime($fleet['departure_time'])));
     $retTime = date('Y-m-d H:i:s', time() + $travel);
-    $db->prepare('UPDATE fleets SET returning=1, arrival_time=?, return_time=? WHERE id=?')
+    $db->prepare('UPDATE fleets SET `returning`=1, arrival_time=?, return_time=? WHERE id=?')
        ->execute([$retTime, $retTime, $fleet['id']]);
 }
 
@@ -2093,7 +2094,7 @@ function harvest_resources(PDO $db, array $fleet, array $ships): void {
     if (!$planet) {
         $travel  = max(1,(int)(strtotime($fleet['arrival_time'])-strtotime($fleet['departure_time'])));
         $retTime = date('Y-m-d H:i:s', time() + $travel);
-        $db->prepare('UPDATE fleets SET returning=1,arrival_time=?,return_time=? WHERE id=?')
+        $db->prepare('UPDATE fleets SET `returning`=1,arrival_time=?,return_time=? WHERE id=?')
            ->execute([$retTime, $retTime, $fleet['id']]);
         return;
     }
@@ -2110,7 +2111,7 @@ function harvest_resources(PDO $db, array $fleet, array $ships): void {
            ->execute([$fleet['user_id'], 'Harvest Failed', 'Target planet is already colonised — use transport instead.']);
         $travel  = max(1,(int)(strtotime($fleet['arrival_time'])-strtotime($fleet['departure_time'])));
         $retTime = date('Y-m-d H:i:s', time() + $travel);
-        $db->prepare('UPDATE fleets SET returning=1,arrival_time=?,return_time=? WHERE id=?')
+        $db->prepare('UPDATE fleets SET `returning`=1,arrival_time=?,return_time=? WHERE id=?')
            ->execute([$retTime, $retTime, $fleet['id']]);
         return;
     }
@@ -2120,7 +2121,7 @@ function harvest_resources(PDO $db, array $fleet, array $ships): void {
     if ($cap <= 0) {
         $travel  = max(1,(int)(strtotime($fleet['arrival_time'])-strtotime($fleet['departure_time'])));
         $retTime = date('Y-m-d H:i:s', time() + $travel);
-        $db->prepare('UPDATE fleets SET returning=1,arrival_time=?,return_time=? WHERE id=?')
+        $db->prepare('UPDATE fleets SET `returning`=1,arrival_time=?,return_time=? WHERE id=?')
            ->execute([$retTime, $retTime, $fleet['id']]);
         return;
     }
@@ -2164,7 +2165,7 @@ function harvest_resources(PDO $db, array $fleet, array $ships): void {
     $travel  = max(1,(int)(strtotime($fleet['arrival_time'])-strtotime($fleet['departure_time'])));
     $retTime = date('Y-m-d H:i:s', time() + $travel);
     $db->prepare(
-        'UPDATE fleets SET returning=1, arrival_time=?, return_time=?,
+        'UPDATE fleets SET `returning`=1, arrival_time=?, return_time=?,
                            cargo_metal=?, cargo_crystal=?, cargo_deuterium=?
          WHERE id=?'
     )->execute([$retTime, $retTime, $harvested['metal'], $harvested['crystal'],
@@ -2237,6 +2238,6 @@ function complete_survey_mission(PDO $db, array $fleet, array $ships): void {
 
     $travel  = max(1, (int)(strtotime($fleet['arrival_time']) - strtotime($fleet['departure_time'])));
     $retTime = date('Y-m-d H:i:s', time() + $travel);
-    $db->prepare('UPDATE fleets SET returning=1, arrival_time=?, return_time=? WHERE id=?')
+    $db->prepare('UPDATE fleets SET `returning`=1, arrival_time=?, return_time=? WHERE id=?')
        ->execute([$retTime, $retTime, $fleet['id']]);
 }

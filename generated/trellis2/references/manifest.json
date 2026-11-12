@@ -1,0 +1,125 @@
+{
+  "schema": "gq.trellis-reference.v1",
+  "status": "CONCEPT_REFERENCE_ONLY",
+  "workflow": "TRELLIS.2 image-to-3D; these PNGs are not 3D assets",
+  "coverage": "All 16 surface facility kinds from js/rendering/colony-surface-plan.js",
+  "assets": [
+    {
+      "asset_type": "building",
+      "facility_kind": "agriculture",
+      "file": "agriculture_concept_v1.png",
+      "sha256": "bdfdb20885d98e8ed88266c3ec1478c191d7e69e0f1d8c6c1d88a3df7e005ebb",
+      "brief": "Single outdoor farm plot with crop beds, barn, irrigation and utility pad."
+    },
+    {
+      "asset_type": "building",
+      "facility_kind": "hydroponics",
+      "file": "hydroponics_concept_v1.png",
+      "sha256": "d309a6467dac0dd0c005cc766f5a0141c1202224d818593e08c476d424b8bd62",
+      "brief": "Single freestanding glass greenhouse with visible growing racks, service block and pipework."
+    },
+    {
+      "asset_type": "building",
+      "facility_kind": "industry",
+      "file": "industry_concept_v1.png",
+      "sha256": "8753077909a89880fc58392443114f9350cc9a5956ad1d0e82f82e4d870d9dcc",
+      "brief": "Single manufacturing hall with loading doors, exterior pipes, utility module and exhaust stack."
+    },
+    {
+      "asset_type": "building",
+      "facility_kind": "solar",
+      "file": "solar_concept_v1.png",
+      "sha256": "dc6de8851944adc8abe8be31b25024a185fdeb6566a02147064c95e26f49923a",
+      "brief": "Single foundation-mounted solar array with inverter, support frames and cable conduits."
+    },
+    {
+      "asset_type": "building",
+      "facility_kind": "tank",
+      "file": "tank_concept_v1.png",
+      "sha256": "7cb792f98d1f0b22864841e90cd1637d68ec652157e609cbf29c282938fe8d83",
+      "brief": "Three upright liquid storage tanks with access ladders, safety rails, pumps and manifold."
+    },
+    {
+      "asset_type": "building",
+      "facility_kind": "silo",
+      "file": "silo_concept_v1.png",
+      "sha256": "6cb405e1b20d5e4e2079d1ec3c01ae6e75b8966b4e6052d989989126d1998c45",
+      "brief": "Two dry-bulk silos with conical hoppers, support legs, conveyor and loading bay."
+    },
+    {
+      "asset_type": "building",
+      "facility_kind": "fusion",
+      "file": "fusion_concept_v1.png",
+      "sha256": "4ca30c29dd0cfceec5220192e56af9f08e03bea1000c52d2661f5a3e947a6ae7",
+      "brief": "Central compact reactor with paired cooling assemblies, conduits and control building."
+    },
+    {
+      "asset_type": "building",
+      "facility_kind": "research",
+      "file": "research_concept_v1.png",
+      "sha256": "78422c3e6a637e9a7093d01612cf6f7f3d7b1205c58380595510276a25f28636",
+      "brief": "Low U-shaped research laboratory with glazed wings and rooftop instrument dome."
+    },
+    {
+      "asset_type": "building",
+      "facility_kind": "drilling",
+      "file": "drilling_concept_v1.png",
+      "sha256": "b412731d5ca60139370b266286b8580cbd6bcbee49a1a82b353e3e1d7ccf1c30",
+      "brief": "Single open-frame drilling derrick with machinery, service cabin and work platform."
+    },
+    {
+      "asset_type": "building",
+      "facility_kind": "warehouse",
+      "file": "warehouse_concept_v1.png",
+      "sha256": "8990855ca67f3a73e777e4fcbfcbcee1d2c836f02d5a980b12465011f50bfe7b",
+      "brief": "Single broad logistics hall with three loading bays, canopy and attached office; no smokestack."
+    },
+    {
+      "asset_type": "building",
+      "facility_kind": "nanotech",
+      "file": "nanotech_concept_v1.png",
+      "sha256": "31de56ee5756b70a860b3e4643cb2ff9fa76e269ad75a5479d6f32786af1683c",
+      "brief": "Sealed cleanroom fabrication hall with blue observation windows and attached filtration module."
+    },
+    {
+      "asset_type": "building",
+      "facility_kind": "hospital",
+      "file": "hospital_concept_v1.png",
+      "sha256": "98990a3e07aa97503ff26f21b8d9d50cb83f82f2227770f7344503328e19a318",
+      "brief": "Low-rise clinic with medical wings, simple rooftop landing marker and red beacon."
+    },
+    {
+      "asset_type": "building",
+      "facility_kind": "school",
+      "file": "school_concept_v1.png",
+      "sha256": "df9a018e2213f09acba81df796245c2a7941c4fe11ba4f773a62a8b2f47c7a75",
+      "brief": "Low-rise classroom wings around a planted central courtyard."
+    },
+    {
+      "asset_type": "building",
+      "facility_kind": "command",
+      "file": "command_concept_v1.png",
+      "sha256": "bfce8246e241d03d590b82b6c628f75e356d4b3eab098a8db610d91e3dae5c9d",
+      "brief": "Central two-storey operations block with flanking wings, communications mast and sensors."
+    },
+    {
+      "asset_type": "building",
+      "facility_kind": "security",
+      "file": "security_concept_v1.png",
+      "sha256": "53033cc4a057ea5b8726ddc49b386337710ef7366019b0ae0316901fcb5f5b52",
+      "brief": "Civilian guardhouse within a fenced site with controlled barrier gate and light mast."
+    },
+    {
+      "asset_type": "building",
+      "facility_kind": "terraforming",
+      "file": "terraforming_concept_v1.png",
+      "sha256": "0e43276d0240899a7bbc4a57f757162f544bd47078761aa077391c0130fe8670",
+      "brief": "Atmosphere-processing core with staged intake tower, scrubbers, conduits and control cabin."
+    }
+  ],
+  "limitations": [
+    "References are generic, not faction-specific or scale-calibrated.",
+    "No TRELLIS.2 inference or GLB export has been run for these images.",
+    "Open-pit mining remains procedural terrain, not a drilling-facility model."
+  ]
+}

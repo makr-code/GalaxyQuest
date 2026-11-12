@@ -1,19 +1,282 @@
-# GalaxyQuest: GitHub -> Plesk deployment
+# GalaxyQuest: server-initiated GitHub -> Plesk deployment
 
 ## Status and scope
 
-This is the supported deployment preparation, not evidence that the remote host
-has been installed. Remote installation was deferred until its SSH host key is
-independently verified. No local or remote player database is copied.
+**Blocked and obsolete:** the instructions below describe the previous
+containerized Apache/MySQL architecture, not the requested native Plesk
+Apache/PHP and database architecture. Do not follow them for a new installation.
+GitHub deployment and all legacy stack commands, including `preflight`,
+`bootstrap`, `deploy`, `backup`, `verify` and `rollback`, are disabled locally
+until a native deployment has been implemented and verified.
+Already transferred bundles and previously published workflows are not affected
+by these local changes and must not be used. No application installation has
+been performed. A verified SSH host key and valid Plesk API TLS certificate are
+required for remote access. No local or remote player database is copied.
 
-| Environment | Domain | Compose project | Web / Grafana loopback ports |
+### Native Plesk preparation (not yet deployable)
+
+The intended delivery model is **server-side pull**, not a GitHub Actions SSH
+push. CI tests source and produces release candidates; a restricted server-side
+process will retrieve a specifically approved, immutable artifact and image
+digests from GitHub. It must not run `git pull` inside the live document root.
+Use separate staging and production state, make production approval explicit,
+and verify artifact provenance and checksums, backups, migrations, activation,
+health and recovery before enabling any scheduled updates. The current Actions
+artifact is a non-deployable candidate with limited retention, not a release
+distribution or approval mechanism. Retrieval credentials, artifact discovery
+and authenticity, scheduling and the pull/activation agent are not implemented.
+
+On 2026-11-12 the operator-provided Plesk Git extension was configured with
+two separate public-HTTPS repositories under the production domain's Plesk Git
+panel: `galaxyquest-develop.git` tracks `develop` and
+`galaxyquest-release.git` tracks `main`. Both show **No deployment** after
+reloading the panel. Plesk's **Pull now** fetches Git content independently;
+it does not build the Vite frontend, verify CI acceptance, perform migrations,
+or install the game. The two repository records do not constitute isolated
+staging and production deployments. There is no `release` branch on GitHub as
+of this inspection, so `main` is used as the current production-source branch,
+not as evidence of an approved release. Do not select automatic or manual
+deployment to the existing document root; Plesk defaults to automatic
+deployment there when creating a repository. Keep deployment disabled until
+the native release and WordPress safety gates are completed.
+
+The operator subsequently created staging domain
+`08846123-1de4-449b-a0cf-4fe8ec3b3da9.themisdb.org` in the same Plesk
+subscription, with a separate document root named for that hostname and PHP
+8.4.27. It shares the subscription's system user with the existing sites and
+therefore is not an OS-user security boundary. At inspection the hostname did
+not resolve externally, HTTPS was enabled but no certificate was selected,
+and only `/plesk-stat` was password-protected. Do not deploy application data
+until authoritative DNS, a valid certificate, staging-wide access control and
+separate database credentials have been configured and tested. An opaque
+hostname is not access control and is not guaranteed to remain secret.
+On 2026-11-12, direct A-record queries to two IONOS authoritative nameservers
+and a public resolver initially returned NXDOMAIN. A later check on the same
+date found all four IONOS authoritative nameservers returning A
+`217.160.0.108` and AAAA `2001:8d8:100f:f000::200` for staging, both with
+TTL 3600. These are not the Plesk server addresses. HTTP to the public A
+record returned a different server's response, while an IPv4 request pinned
+to `82.165.41.60` reached Plesk's HTTPS redirect. The pinned HTTPS connection
+failed certificate-chain verification. Correct the staging hostname's A record
+in the authoritative IONOS zone to `82.165.41.60` and remove its unrelated
+AAAA record; add an IPv6 record only after independently verifying IPv6
+reachability. Do not change unrelated domain records or the nameservers.
+Recheck authoritative and public DNS after TTL expiry, then issue and verify
+the staging certificate without disabling TLS verification. The Plesk
+administrator browser session had expired at the later inspection.
+
+After the operator replaced the IONOS Default Site DNS records, all four
+authoritative servers returned only A `82.165.41.60` for staging on
+2026-11-12. Google and Quad9 resolved the new address, but Cloudflare still
+returned the previously cached IPv4 address at the later check; propagation
+must still be verified. Subsequently the operator obtained and assigned a
+Let's Encrypt certificate. A TLS-verified request pinned to `82.165.41.60`
+succeeded for the staging hostname; Plesk reports expiry on 2027-02-10 and
+automatic renewal enabled, not a proven future renewal. The root returned HTTP
+200 without authentication. The last inspected protected directories list
+contained only `/plesk-stat`; staging-wide access control is still required
+and must be tested before publishing application or test data.
+
+Both Plesk repositories were verified as separate bare Git repositories, and
+their configured origin was the expected public HTTPS GitHub URL. A manual
+**Pull now** was invoked for each with deployment disabled; afterward their
+selected branch tips matched GitHub's independently queried tips
+(`develop` at `cd7fa7a90715af3ec088857d3858f40e8f7486e1` and `main` at
+`e8b89955c5f9993f1e44a0abdb5a8e4bec69b390`). Both tips were already current
+before the test, so this does not prove that a new commit is fetched or that
+the other repository remains unchanged when a branch advances. The document
+root still contained the existing default page and WordPress directory after
+the pulls. This is a fetch-only smoke check, not a deployment or CI approval.
+
+`bash deploy/inspect-plesk-git.sh staging|production ABSOLUTE_BARE_REPOSITORY
+EXPECTED_COMMIT` is a local, read-only source diagnostic. It requires the exact
+public HTTPS origin, selects `develop` for staging or `main` for production and
+compares that bare repository's branch tip to an explicitly supplied full
+commit ID. Its JSON output has `status: source-only`: it does not fetch, prove
+GitHub provenance or CI acceptance, pin a ref against concurrent pulls, inspect
+the other repository, approve a release or install anything. Run only from a
+trusted copy and account with Git access; the Plesk chroot currently lacks Git.
+
+The local CI definition no longer invokes Plesk deployment jobs; the legacy
+reusable workflow only fails and contains no SSH or SCP step. These changes
+have not been published and do not disable existing GitHub workflows. Until
+the replacement is fully verified, keep the old deployment gate disabled.
+
+Read-only server inspection on 2026-11-12 established the following baseline:
+
+- The SSH ED25519 fingerprint presented at the host's public IPv4 address
+  matched the host public key displayed in the Plesk administrator terminal.
+  Pin and verify that exact key for each SSH client; this observation does not
+  configure client trust or verify other host keys.
+- Apache, MariaDB and PHP 8.4 FPM were active; nginx was inactive. Docker was
+  initially absent, then installed by the operator. A subsequent read-only
+  check found Docker active, client/server 29.9.3 and Compose v5.7.1; `docker
+  ps` returned no running containers. Installation does not constitute
+  acceptance of the sidecar or monitoring configuration.
+- At inspection time no TCP listeners appeared on ports 5500, 5501, 8188 or
+  8189. This is not a reservation or proof that a future bind will succeed;
+  check again at deployment. `nvidia-smi` was unavailable, so GPU support is
+  not established.
+- The OS PHP CLI at `/usr/bin/php` reported 8.4.27; the tested CLI extensions
+  included `pdo_mysql`, while `intl` was absent. CLI extension availability
+  does not establish FPM configuration or application requirements.
+- The production domain directory contained an `index.html` and a `wordpress`
+  directory. WordPress entry, configuration and settings files existed, but
+  there was no `.htaccess` in that directory at inspection time. No file
+  contents were inspected or changed. Its actual routing and maintenance state
+  must be checked before adding game rewrite rules or activating a release.
+- A read-only chroot command using the website user's primary UID/GID found
+  Bash, sh, curl and tar on its `PATH`; curl and tar ran. Git and PHP were not
+  found on that path. This is not a full SSH login or a check of supplementary
+  groups. Test required commands under the actual restricted login before
+  choosing an SSH deployment mechanism; do not grant Docker or root
+  privileges to compensate.
+
+On the same date, the published GitHub reusable deployment workflow was still
+active and the `develop` CI workflow still referenced it behind
+`vars.PLESK_DEPLOY_ENABLED`. After confirming the repository variable was
+absent, it was explicitly created as `false` and read back. This blocks the
+published `develop` CI caller's variable-gated jobs; it does not disable the
+reusable workflow, prevent other callers, cancel in-flight jobs, or publish the
+local fail-closed change. Do not enable the legacy gate or assume the local
+block protects GitHub.
+
+The published `develop` CI run 43167160243 failed multiple gates, including a
+duplicate `X-Content-Type-Options` header in the container health smoke test.
+The local Apache configuration now removes the application's copy from Apache's
+normal response-header table before setting the baseline in its always table;
+this is locally tested but not published or evidence that the other failed
+gates have passed.
+Subsequent local checks passed JavaScript and PHP lint, PHPStan, the four
+previously failing renderer cases, and three runs of the 44-test MySQL
+concurrency group. The PHP test fixture now waits for all configured server
+workers, not just an open socket. A local full Vitest run with two workers
+passed 5,374 tests with 41 skipped. These checks and the isolated MariaDB
+native schema/migration/restore fixture are not a replacement for a successful
+published CI run or a production backup and restore.
+
+The target architecture uses Plesk's Apache/PHP-FPM and MariaDB, with distinct
+staging and production databases and credentials. Production serves the game
+at `galaxyquest.themisdb.org/`; the existing `/wordpress` directory and its
+database must remain untouched. Plesk currently reports PHP-FPM 8.4 for that
+domain. WordPress URLs, routing and security rules must be verified before
+changing the document root or serving a release.
+
+Read-only public checks on 2026-11-12 found the production root responding
+HTTP 200, `/wordpress/` responding HTTP 503 with a WP Toolkit scheduled
+maintenance page, and `/wordpress/wp-json/` responding HTTP 404. A later check
+the same day, after creating the disabled Git repositories, found the root
+returning the Plesk default page (200), `/wordpress/` returning the GalaxyQuest
+Blog page (200), and `/wordpress/wp-json/` still returning 404. The cause of
+the WordPress status change is unknown; no maintenance setting was changed.
+The originally proposed staging hostname did not resolve from the development
+machine; the UUID-based replacement also did not resolve when checked. These are observations,
+not proof that WordPress is broken or that maintenance should be disabled.
+Preserve its existing state and obtain an operator-approved baseline and
+working staging DNS/TLS before any cutover; recheck all results at that time.
+
+The candidate image acceptance also runs `scripts/check_wordpress_routing.mjs`
+against a disposable Apache fixture with a simulated WordPress directory, both
+with standard WordPress rewrite rules and without a `.htaccess`. When the
+directory exists, the game's root `.htaccess` leaves its routes to WordPress;
+without WordPress rewrite rules, missing blog paths return 404 rather than the
+game. It does not install WordPress rewrites or repair permalinks. If the
+directory does not exist, the game fallback is unchanged. `FilesMatch` denies
+selected sensitive extensions even if WordPress has its own rewrite rules; the
+fixture checks `.env` case variants, not every sensitive path or server-level
+policy. The test checks game
+routes, API and health routes, blog permalinks, REST-style routes and static
+assets. This tests the repository Apache rules only: it is not a real WordPress
+installation, does not cover
+Plesk nginx, plugins, PHP-FPM, filesystem permissions, maintenance or TLS, and
+must not be treated as approval for cutover.
+
+`native-plesk-services.yml` defines only TTS; the optional
+`native-plesk-gpu.yml` adds ComfyUI. Neither defines an Apache or database
+service. These are preparation files, **not an approved production stack**:
+port collision checks, digest enforcement, host-specific GPU acceptance,
+monitoring and deployment integration are not implemented. Do not start them
+on the server yet. They bind to IPv4 loopback, not a public interface, but
+loopback does not isolate other local users or containers. TTS refuses to start
+without a shared secret of at least 32 characters; the native PHP configuration
+must use the same secret. ComfyUI has no comparable authentication and needs a
+reviewed host access boundary before activation. Staging and production must
+use different project names, ports, credentials and volumes.
+
+The read-only `node deploy/check-native-services.mjs staging|production tts|gpu`
+resolves Compose from the current environment and rejects invalid project names,
+unpinned images, public, reserved or duplicate bindings, short or placeholder
+TTS secrets, and unexpected services. It never starts containers or prints the
+resolved secrets. It does not check whether ports are already in use, validate
+the other environment, establish GPU access isolation or authorize deployment;
+direct `docker compose` commands do not automatically run this check.
+
+The Plesk control panel is reachable through the hostname on its certificate,
+`jovial-napier.82-165-41-60.plesk.page`; `www.themisdb.org:8443` presented a
+certificate for that different hostname when checked. Never disable TLS
+verification. Native release activation, safe database initialization and
+restore, migration gates, secure PHP-FPM secret propagation, web access rules
+(including nginx static-file behavior), monitoring and acceptance against the
+actual PHP/MariaDB versions remain outstanding. Keep legacy automation blocked.
+
+The local compatibility check `npm run check:native-db-compatibility` starts
+uniquely named disposable Docker fixtures, not a Plesk connection: MariaDB
+11.8.6, PHP 8.4 with `pdo_mysql`, a limited staging database account and
+separate production and legacy-name sentinel schemas. It imports the base
+schema into the selected fixture schema after checking and removing its exact
+legacy database preamble and validating the reviewed schema SHA-256 through
+`NativeBaseSchema`, runs and verifies the canonical migration manifest,
+repeats migrations, seeds faction homeworlds and checks representative fleet
+queries and cross-schema denial. It additionally dumps only the staging fixture
+and restores into a separate empty test schema with a different account. It
+compares table names, migration history and every table's row count, checks
+table integrity, and verifies the restored migration manifest. These checks do
+not prove every row or stored object matches. It is an experiment, not an
+installer or production backup: accounts have broad privileges on their own
+test schemas; consistent backups require stopped or coordinated writers; and it
+does not validate Plesk PHP-FPM, web routing, actual permissions or remote
+configuration. CI runs this check before publishing images.
+The source-pinned parser only returns statements; it is not an installer and
+does not check database identity, privileges, emptiness, concurrent writers,
+or backups. A reviewed schema change requires updating its pin and tests; never
+use a changed schema simply by ignoring a pin mismatch.
+
+`scripts/native_db_inspect.php --database=NAME --user=NAME` is a read-only
+diagnostic requiring explicit `DB_HOST`, `DB_NAME`, `DB_USER`, and `DB_PASS`
+environment variables; `DB_PORT` is optional. It checks the selected database
+and authenticated account and reports visible table, view, routine, event and
+trigger counts as JSON. It never writes or grants access. Visibility depends on
+database privileges; `empty_visible: true` is **not proof** that the schema is
+empty, is owned by GalaxyQuest, or is safe to initialize. Concurrent changes,
+server identity, permissions and verified backup still require independent
+checks. Run it only with an operator-provided environment, never command-line
+passwords, and do not use it as an authorization to initialize.
+
+CI prepares a **non-deployable candidate** after the web image passes its
+existing acceptance checks, using `package-native-release.sh`. It combines
+explicitly selected tracked files from the exact commit with the Vite `dist`
+from the accepted image ID; the image revision label must match the commit.
+The archive records both IDs and excludes the WordPress installation, mutable `generated` and
+`cache` contents, and untracked local files. Its deterministic tar metadata
+applies only to identical inputs and the same archiving tools; it does not
+establish that separately rebuilt image contents are identical. Candidate
+acceptance currently uses PHP 8.2 and MySQL, not the Plesk PHP/MariaDB versions.
+Do not extract it into a live document root: secure static-file serving,
+WordPress coexistence, persistent generated assets, required seed assets and
+the native release activation process have not been verified.
+
+## Legacy container architecture (obsolete; do not execute)
+
+| Environment | Domain | Compose project | Example web / Grafana loopback ports |
 |---|---|---|---|
 | Staging | staging-galaxyquest.themisdb.org | galaxyquest-staging | 8082 / 3001 |
 | Production | galaxyquest.themisdb.org | galaxyquest-production | 8081 / 3000 |
 
 Both use production application settings, separate credentials, databases,
 sessions, generated assets, monitoring and GPU volumes. Do not copy production
-player data into staging. All images are pinned by digest.
+player data into staging. All images are pinned by digest. The example ports
+are not reservations: select four distinct ports that are actually free on
+the target host, and configure each domain's proxy to match its `WEB_PORT`.
 
 Architecture:
 
@@ -34,13 +297,49 @@ source-code bind mounts or production builds on the Plesk host. Plesk manages
 domains/TLS; Compose, not individual Plesk container edits, owns service lifecycle.
 Do not configure an independent Plesk Git auto-deployment or Watchtower.
 
+### Coexistence with the existing Plesk services
+
+The existing host Apache/nginx and MySQL/MariaDB remain installed and running.
+Plesk continues to own the public HTTP/HTTPS ports 80 and 443 and its existing
+virtual hosts. GalaxyQuest's Apache listens on port 8080 **inside its container**
+and is reachable by Plesk only through the chosen loopback `WEB_PORT`.
+The app's MySQL runs in its own container and project-specific volume; the
+container port 3306 is **not published on the host**. It neither replaces nor
+uses the Plesk database server, its socket, credentials, data directory or
+databases. The restore-check also uses an isolated container and temporary data.
+Switching to Plesk's existing database would require a separately designed
+backup, migration and compatibility workflow; do not just change `DB_HOST`.
+
+Before provisioning, an administrator must inventory the host without changing
+running services, for example:
+
+```bash
+sudo ss -H -ltn
+docker ps --format 'table {{.Names}}\t{{.Ports}}'
+```
+
+Look for wildcard and IPv6 bindings as well as `127.0.0.1`, and choose four
+distinct free ports for staging/production web and Grafana. Services may change
+after inspection: the deployment preflight rejects detected listeners unless
+they correspond to exactly the existing loopback binding of the same Compose
+project and service. `ss` is required. The check is not an atomic port
+reservation; Docker may still reject a race or a conflicting publication that
+does not appear as a host listener. The check compares the listener address and
+Docker's binding metadata; it does not prove which process owns a socket.
+Investigate rather than stopping or reconfiguring any existing Plesk service.
+
+The host remains a shared resource: provision memory, CPU, disk and backup
+capacity for both Plesk's existing workloads and the new containers. Verify
+other Docker networks and container names do not overlap; dedicated Compose
+project names isolate the game volumes and networks.
+
 ## 1. Host prerequisites
 
 An administrator must first verify:
 
 - Supported 64-bit Linux Plesk host, x86-64 for the current GPU wheel set.
 - Docker Engine, Compose v2 with multiple `--env-file` support, `bash`, `jq`,
-  `flock`, `gzip`, `sha256sum`, `curl` and GNU coreutils.
+  `flock`, `gzip`, `sha256sum`, `curl`, `ss` (iproute2) and GNU coreutils.
 - Deployment account allowed to use Docker. Docker group membership is effectively
   root access; use a dedicated account, not ordinary shared-hosting access.
 - Server NVIDIA GPU, compatible driver and NVIDIA Container Toolkit. Verify
@@ -135,8 +434,10 @@ variables, command arguments, screenshots or commits.
   Its process and Alertmanager
   get the supplementary `DEPLOY_GID`, allowing read-only group access to these
   two mode-640 files without running them as root.
-- Staging: project `galaxyquest-staging`, web port 8082, Grafana port 3001.
-  Production: project `galaxyquest-production`, ports 8081 and 3000.
+- Staging: project `galaxyquest-staging`; production: `galaxyquest-production`.
+  The example ports 8082/3001 and 8081/3000 must be checked first and may be
+  replaced with distinct free unprivileged ports. Avoid host MySQL port 3306.
+  `WEB_PORT` must match its domain's Plesk proxy configuration.
 - Optional non-GPU acceptance only: clear `COMPOSE_PROFILES` and explicitly set
   `COMFYUI_ENABLED=0`. Do not claim GPU readiness in this mode.
 
@@ -180,12 +481,15 @@ auth helpers or seed shared default passwords.
 
 ## 4. Plesk reverse proxy
 
-In each Plesk domain, install its certificate, enable HTTPS redirection and
-disable Apache proxy mode before adding the reviewed
+On each dedicated GalaxyQuest domain only, install its certificate, enable
+HTTPS redirection and disable that domain's Apache proxy mode before adding the reviewed
 [nginx directives](../../deploy/plesk-nginx.conf.example) to Additional nginx
-directives. Use 8081 for production, 8082 for staging. Validate the generated
-nginx configuration with Plesk; existing custom `location /` blocks must be
-reconciled rather than duplicated.
+directives. Set the upstream port to that environment's verified `WEB_PORT`.
+Do not disable Apache, nginx or proxy mode globally, and do not alter other
+domains. The template assumes nginx is enabled in Plesk; if it is not, do not
+change server-wide settings without an administrator-approved alternative.
+Validate the generated nginx configuration with Plesk; existing custom
+`location /` blocks must be reconciled rather than duplicated.
 
 All paths must reach the container, not Plesk's old document root. Disable
 Plesk's direct static-file serving for the application domain if it bypasses
@@ -349,4 +653,5 @@ build/inference, SMTP receipt, GitHub Environment protections/secrets, public
 Plesk routing, encrypted off-host backup/restore, and a complete successful
 GitHub deployment run. Do not label these as verified by local contract tests.
 
-Official reference: [Plesk Docker administration](https://docs.plesk.com/en-US/obsidian/administrator-guide/plesk-administration/using-docker.75823/).
+Official references: [Plesk Docker administration](https://docs.plesk.com/en-US/obsidian/administrator-guide/plesk-administration/using-docker.75823/)
+and [Plesk's domain-to-container proxy guide](https://support.plesk.com/hc/en-us/articles/12377286180503-How-to-proxy-web-requests-from-domains-to-Docker-containers-via-nginx-in-Plesk).

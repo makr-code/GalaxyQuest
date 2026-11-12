@@ -1,6 +1,6 @@
 // @vitest-environment node
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, readdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -12,15 +12,45 @@ const ci = read('.github/workflows/ci.yml');
 const stack = read('deploy/stack.sh');
 
 describe('protected Plesk delivery', () => {
-  it('deploys the same immutable main images to staging before production', () => {
-    expect(ci).toContain('needs: [docker-build, deploy-staging]');
-    expect(ci).toContain("github.ref == 'refs/heads/main' && vars.PLESK_DEPLOY_ENABLED == 'true'");
-    expect(workflow).toContain('environment: ${{ inputs.environment }}');
-    expect(workflow).toContain('cancel-in-progress: false');
-    expect(workflow).toContain('StrictHostKeyChecking=yes');
-    expect(workflow).toContain('secrets.PLESK_KNOWN_HOSTS');
+  it('gates image publication on isolated native database compatibility', () => {
+    expect(ci).toContain('native-db:');
+    expect(ci).toContain('npm run check:native-db-compatibility');
+    expect(ci).toMatch(/needs:\s*\[lint-php, lint-js, phpunit-unit, phpunit, vitest, playwright-smoke, native-db\]/);
+  });
+
+  it('blocks the superseded reusable workflow without remote access', () => {
+    const block = workflow.indexOf('name: Block superseded container deployment');
+    expect(block).toBeGreaterThan(-1);
+    expect(workflow).toContain('exit 1');
+    expect(workflow).not.toMatch(/ssh |scp |PLESK_SSH_KEY|PLESK_KNOWN_HOSTS|actions\/checkout/);
+  });
+
+  it.each(['preflight', 'bootstrap', 'deploy', 'backup', 'verify', 'rollback', 'unknown'])(
+    'blocks legacy %s before touching the deployment root', (command) => {
+    const bash = process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash';
+    const script = path.resolve('deploy', 'stack.sh').replaceAll('\\', '/');
+    const root = mkdtempSync(path.join(os.tmpdir(), 'gq-legacy-block-'));
+    const shellRoot = process.platform === 'win32'
+      ? `/${root[0].toLowerCase()}${root.slice(2).replaceAll('\\', '/')}`
+      : root;
+    try {
+      writeFileSync(path.join(root, 'sentinel'), 'untouched');
+      const result = spawnSync(bash, [script, shellRoot, command], {
+        encoding: 'utf8',
+        timeout: 10000,
+      });
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('Legacy containerized Apache/MySQL deployment is disabled');
+      expect(readdirSync(root)).toEqual(['sentinel']);
+      expect(readFileSync(path.join(root, 'sentinel'), 'utf8')).toBe('untouched');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not push deployments from CI to the server', () => {
+    expect(ci).not.toMatch(/deploy-staging:|deploy-production:|deploy-plesk\.yml|PLESK_DEPLOY_ENABLED|PLESK_SSH_KEY/);
     expect(workflow).not.toMatch(/ssh-keyscan|StrictHostKeyChecking=no|pull_request_target/);
-    expect(workflow).toContain('node scripts/check_deployment_http.mjs "$PUBLIC_URL"');
   });
 
   it('backs up and restores into a disposable database before applying migrations', () => {
@@ -40,6 +70,68 @@ describe('protected Plesk delivery', () => {
   it('keeps shell scripts executable on Linux after Windows checkout', () => {
     expect(read('.gitattributes')).toContain('deploy/*.sh text eol=lf');
     expect(readFileSync('deploy/stack.sh', 'utf8')).not.toContain('\r');
+    expect(readFileSync('deploy/check-ports.sh', 'utf8')).not.toContain('\r');
+    expect(stack).toContain('source "$BUNDLE/check-ports.sh"');
+  });
+});
+
+describe('host-port guard', () => {
+  const bash = process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash';
+  const guard = path.resolve('deploy', 'check-ports.sh').replaceAll('\\', '/');
+  function run({ port = '8081', listeners = '', container = '', inspect = '', ssStatus = 0, composeStatus = 0 } = {}) {
+    const script = `
+      fail() { printf '%s\\n' "$*" >&2; exit 1; }
+      ss() { printf '%s' "$LISTENERS"; return "$SS_STATUS"; }
+      compose() { printf '%s' "$CONTAINER"; return "$COMPOSE_STATUS"; }
+      docker() { printf '%s\\n' "$INSPECT"; }
+      source "$GUARD"
+      check_host_port web "$PORT" galaxyquest-production
+    `;
+    return spawnSync(bash, ['--noprofile', '--norc', '-c', script], {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: {
+        ...process.env, GUARD: guard, PORT: port, LISTENERS: listeners, CONTAINER: container,
+        INSPECT: inspect, SS_STATUS: String(ssStatus), COMPOSE_STATUS: String(composeStatus),
+      },
+    });
+  }
+  const localListener = 'LISTEN 0 4096 127.0.0.1:8081 0.0.0.0:*\n';
+  it('accepts a free unprivileged port', () => {
+    expect(run().status).toBe(0);
+    expect(run({ port: '18081' }).status).toBe(0);
+  });
+  it.each(['80', '443', '3306', '65536', '0080', 'hello'])('rejects invalid or reserved port %s', (port) => {
+    expect(run({ port }).status).not.toBe(0);
+  });
+  it('rejects Plesk or another listener without a matching running container', () => {
+    const result = run({ listeners: localListener });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('already listening');
+  });
+  it('allows an existing exact loopback binding owned by this project and service', () => {
+    expect(run({
+      listeners: localListener,
+      container: 'owned-id',
+      inspect: 'true galaxyquest-production web 127.0.0.1:8081 ',
+    }).status).toBe(0);
+  });
+  it.each([
+    'true galaxyquest-staging web 127.0.0.1:8081 ',
+    'true galaxyquest-production grafana 127.0.0.1:8081 ',
+    'false galaxyquest-production web 127.0.0.1:8081 ',
+    'true galaxyquest-production web 0.0.0.0:8081 ',
+  ])('rejects a foreign or incorrect Docker binding', (inspect) => {
+    expect(run({ listeners: localListener, container: 'id', inspect }).status).not.toBe(0);
+  });
+  it('rejects ambiguous wildcard or multiple listeners even if the project owns a binding', () => {
+    const inspect = 'true galaxyquest-production web 127.0.0.1:8081 ';
+    expect(run({ listeners: 'LISTEN 0 4096 0.0.0.0:8081 0.0.0.0:*\n', container: 'id', inspect }).status).not.toBe(0);
+    expect(run({ listeners: localListener + localListener, container: 'id', inspect }).status).not.toBe(0);
+  });
+  it('fails closed when listener or Compose inspection fails', () => {
+    expect(run({ ssStatus: 1 }).status).not.toBe(0);
+    expect(run({ listeners: localListener, composeStatus: 1 }).status).not.toBe(0);
   });
 });
 
@@ -79,6 +171,8 @@ describe.skipIf(process.env.GQ_DOCKER_CONTEXT_TESTS !== '1')('actual production 
       expect(service.image).toBe(digest);
     }
     expect(services.web.environment.APP_ENV).toBe('production');
+    expect(services.web.environment.DB_HOST).toBe('db');
+    expect(services.web.environment.DB_PORT).toBe('3306');
     expect(services.web.environment.XDEBUG_MODE).toBe('off');
     expect(services.web.volumes.every((mount) => mount.type === 'volume')).toBe(true);
     for (const name of ['db', 'tts', 'comfyui', 'prometheus', 'mysql-exporter', 'node-exporter', 'blackbox', 'alertmanager']) {
@@ -100,5 +194,20 @@ describe.skipIf(process.env.GQ_DOCKER_CONTEXT_TESTS !== '1')('actual production 
   it('requires explicit GPU profile and keeps the restore checker out of normal startup', () => {
     expect(config('galaxyquest-production', false).services.comfyui).toBeUndefined();
     expect(config('galaxyquest-production').services['restore-check']).toBeUndefined();
+  });
+  it('accepts different operator-selected loopback ports without exposing MySQL', () => {
+    const env = {
+      ...process.env, DEPLOY_ROOT: root, DEPLOY_GID: '1001', COMPOSE_PROJECT_NAME: 'galaxyquest-production',
+      COMPOSE_PROFILES: '', WEB_PORT: '18081', GRAFANA_PORT: '13000',
+    };
+    for (const key of ['WEB', 'TTS', 'GPU', 'MYSQL', 'PROMETHEUS', 'GRAFANA', 'MYSQL_EXPORTER', 'NODE_EXPORTER', 'BLACKBOX', 'ALERTMANAGER']) {
+      env[`${key}_IMAGE`] = digest;
+    }
+    const { services } = JSON.parse(execFileSync('docker', [
+      'compose', '-f', 'deploy/compose.yml', 'config', '--format', 'json',
+    ], { env, encoding: 'utf8', timeout: 30000 }));
+    expect(services.web.ports[0]).toMatchObject({ host_ip: '127.0.0.1', published: '18081' });
+    expect(services.grafana.ports[0]).toMatchObject({ host_ip: '127.0.0.1', published: '13000' });
+    expect(services.db.ports ?? []).toEqual([]);
   });
 });

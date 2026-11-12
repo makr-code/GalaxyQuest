@@ -111,9 +111,9 @@ final class FleetReadSideEffectsTest extends TestCase
 
         $recall = $this->functionBody($source, 'recall_fleet');
         self::assertStringContainsString('$db->beginTransaction();', $recall);
-        self::assertStringContainsString('returning = 0 FOR UPDATE', $recall);
+        self::assertStringContainsString('`returning` = 0 FOR UPDATE', $recall);
         self::assertStringContainsString('arrival_time', $recall);
-        self::assertStringContainsString('WHERE id = ? AND returning = 0', $recall);
+        self::assertStringContainsString('WHERE id = ? AND `returning` = 0', $recall);
         self::assertStringContainsString('$db->commit();', $recall);
         self::assertStringContainsString('$db->rollBack();', $recall);
 

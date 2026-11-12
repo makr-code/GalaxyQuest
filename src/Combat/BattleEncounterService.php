@@ -47,7 +47,7 @@ final class BattleEncounterService
         string $seed
     ): int {
         $this->assertTransactionalStorage();
-        $claim = $this->db->prepare('SELECT returning, mission FROM fleets WHERE id=? FOR UPDATE');
+        $claim = $this->db->prepare('SELECT `returning`, mission FROM fleets WHERE id=? FOR UPDATE');
         $claim->execute([$fleet['id']]);
         $current = $claim->fetch(PDO::FETCH_ASSOC);
         if (!$current || (int)$current['returning'] !== 0 || $current['mission'] !== 'attack') {

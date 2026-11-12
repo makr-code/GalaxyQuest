@@ -10,6 +10,7 @@
 #   phpunit-unit     — Database-independent PHPUnit unit tests (SQLite)
 #   phpunit          — Complete PHPUnit suite (PHP 8.2 + MySQL 8.4 service)
 #   vitest           — Vitest JavaScript unit tests
+#   native-db        — PHP 8.4 / MariaDB 11.8 native database compatibility
 #   playwright-smoke — Playwright smoke test (isolated built web image + database)
 #   docker-build     — Build, scan and publish web/TTS images (develop/main)
 
@@ -108,10 +109,10 @@ jobs:
           fi
           npm run check:migration-history -- --base "$MIGRATION_BASE"
 
-      - name: Verify Docker context excludes private and runtime material
+      - name: Verify Docker context and native Plesk service contracts
         env:
           GQ_DOCKER_CONTEXT_TESTS: '1'
-        run: npx vitest run tests/js/docker-context.test.js tests/js/ci-stack.test.js --testTimeout=30000
+        run: npx vitest run tests/js/docker-context.test.js tests/js/ci-stack.test.js tests/js/native-plesk-services.test.js tests/js/native-release-package.test.js --testTimeout=30000 --hookTimeout=150000
 
   phpunit-unit:
     name: PHPUnit Unit Tests (SQLite)
@@ -371,12 +372,26 @@ jobs:
         if: always()
         run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down --volumes --remove-orphans
 
+  native-db:
+    name: Native PHP 8.4 and MariaDB 11.8
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+      - name: Check isolated schema, migrations, database isolation and restore
+        run: npm run check:native-db-compatibility
+
   docker-build:
     name: Build & Publish Docker Image
     runs-on: ubuntu-latest
     # Never publish PR images or deploy untrusted pull request code.
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
-    needs: [lint-php, lint-js, phpunit-unit, phpunit, vitest, playwright-smoke]
+    needs: [lint-php, lint-js, phpunit-unit, phpunit, vitest, playwright-smoke, native-db]
     outputs:
       web-image: ${{ steps.release.outputs.web-image }}
       tts-image: ${{ steps.release.outputs.tts-image }}
@@ -454,6 +469,21 @@ jobs:
           docker pull axllent/mailpit:v1.29
           node scripts/check_production_stack.mjs
           node scripts/check_smtp_delivery.mjs
+          node scripts/check_wordpress_routing.mjs
+
+      - name: Prepare native Plesk candidate from the accepted image
+        env:
+          CANDIDATE_ID: ${{ steps.candidate.outputs.imageid }}
+        run: |
+          bash deploy/package-native-release.sh "$CANDIDATE_ID" "$GITHUB_SHA" "$RUNNER_TEMP/native-plesk-candidate.tar.gz"
+
+      - name: Preserve non-deployable native candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-plesk-candidate
+          path: ${{ runner.temp }}/native-plesk-candidate.tar.gz
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Log in to GitHub Container Registry after scan
         uses: docker/login-action@v3
@@ -505,23 +535,3 @@ jobs:
           path: release.json
           if-no-files-found: error
           retention-days: 90
-
-  deploy-staging:
-    needs: docker-build
-    if: vars.PLESK_DEPLOY_ENABLED == 'true'
-    uses: ./.github/workflows/deploy-plesk.yml
-    with:
-      environment: staging
-      web-image: ${{ needs.docker-build.outputs.web-image }}
-      tts-image: ${{ needs.docker-build.outputs.tts-image }}
-    secrets: inherit
-
-  deploy-production:
-    needs: [docker-build, deploy-staging]
-    if: github.ref == 'refs/heads/main' && vars.PLESK_DEPLOY_ENABLED == 'true'
-    uses: ./.github/workflows/deploy-plesk.yml
-    with:
-      environment: production
-      web-image: ${{ needs.docker-build.outputs.web-image }}
-      tts-image: ${{ needs.docker-build.outputs.tts-image }}
-    secrets: inherit

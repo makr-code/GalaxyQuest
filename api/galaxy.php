@@ -1248,7 +1248,7 @@ if (!is_array($response)) {
 
     $fleetStmt = $db->prepare(
         'SELECT f.id, f.user_id, f.origin_colony_id, f.target_galaxy, f.target_system, f.target_position,
-                f.mission, f.ships_json, f.departure_time, f.arrival_time, f.return_time, f.returning,
+                f.mission, f.ships_json, f.departure_time, f.arrival_time, f.return_time, f.`returning`,
             f.origin_x_ly, f.origin_y_ly, f.origin_z_ly, f.origin_radius_ly, f.origin_theta_rad, f.origin_height_ly,
             f.target_x_ly, f.target_y_ly, f.target_z_ly, f.target_radius_ly, f.target_theta_rad, f.target_height_ly,
                  cb.galaxy_index AS origin_galaxy, cb.system_index AS origin_system, cb.position AS origin_position,

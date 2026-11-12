@@ -143,14 +143,14 @@ try {
 
     // Pending outbound fleets (not yet arrived, not returning)
     $stmt = $db->prepare(
-        'SELECT id FROM fleets WHERE user_id = ? AND arrival_time > NOW() AND returning = 0'
+        'SELECT id FROM fleets WHERE user_id = ? AND arrival_time > NOW() AND `returning` = 0'
     );
     $stmt->execute([$uid]);
     $snapshot['fleet_ids'] = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'id');
 
     // Pending return fleets
     $stmt = $db->prepare(
-        'SELECT id FROM fleets WHERE user_id = ? AND return_time > NOW() AND returning = 1'
+        'SELECT id FROM fleets WHERE user_id = ? AND return_time > NOW() AND `returning` = 1'
     );
     $stmt->execute([$uid]);
     $snapshot['return_fleet_ids'] = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'id');
@@ -224,7 +224,7 @@ while (true) {
                 "SELECT id, mission, target_galaxy, target_system, target_position
                  FROM fleets
                  WHERE user_id = ? AND id IN ($placeholders)
-                   AND arrival_time <= NOW() AND returning = 0"
+                   AND arrival_time <= NOW() AND `returning` = 0"
             );
             $stmt->execute($params);
             $arrived = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -297,7 +297,7 @@ while (true) {
 
         // Re-check for any new outbound fleets launched since connection
         $stmt = $db->prepare(
-            'SELECT id FROM fleets WHERE user_id = ? AND arrival_time > NOW() AND returning = 0'
+            'SELECT id FROM fleets WHERE user_id = ? AND arrival_time > NOW() AND `returning` = 0'
         );
         $stmt->execute([$uid]);
         $currentOutbound = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'id');
@@ -317,7 +317,7 @@ while (true) {
                 "SELECT id, mission FROM fleets
                  WHERE user_id = ? AND id IN ($placeholders)
                    AND (return_time IS NULL OR return_time <= NOW())
-                   AND returning = 1"
+                   AND `returning` = 1"
             );
             $stmt->execute($params);
             $returned = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -350,7 +350,7 @@ while (true) {
                AND f.mission IN ('attack','spy')
                AND f.arrival_time > NOW()
                AND f.arrival_time <= DATE_ADD(NOW(), INTERVAL 5 MINUTE)
-               AND f.returning = 0
+               AND f.`returning` = 0
              GROUP BY f.id"
         );
         $stmt->execute([$uid, $uid]);

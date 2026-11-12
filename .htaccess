@@ -2,6 +2,15 @@ Options -Indexes
 RewriteEngine On
 DirectoryIndex index.php index.html
 
+# Preserve sensitive-file protection when a child directory has its own rewrites.
+<FilesMatch "\.(?i:md|sql|log|env|ini|ya?ml|lock)$">
+	Require all denied
+</FilesMatch>
+
+# An existing WordPress installation owns its routes and rewrite rules.
+RewriteCond %{DOCUMENT_ROOT}/wordpress -d
+RewriteRule ^wordpress(?:/|$) - [L]
+
 # Legacy shell links must use the same bundled entry as the directory index.
 RewriteRule ^index\.html$ index.php [L]
 

@@ -421,7 +421,7 @@ final class FleetMySqlConcurrencyTest extends TestCase
         self::assertSame(0, $this->countRows('battle_encounters'));
         self::assertSame(0, $this->countRows('messages'));
         self::assertSame(20, $this->shipCount(2));
-        self::assertSame(0, (int)$this->db->query('SELECT returning FROM fleets')->fetchColumn());
+        self::assertSame(0, (int)$this->db->query('SELECT `returning` FROM fleets')->fetchColumn());
     }
 
     public function testTerminalEncounterCannotCompleteTwiceOrResolveResetFleetAgain(): void
@@ -443,7 +443,7 @@ final class FleetMySqlConcurrencyTest extends TestCase
             $this->db->rollBack();
         }
         self::assertSame($before, $this->snapshot());
-        $this->db->exec('UPDATE fleets SET returning=0');
+        $this->db->exec('UPDATE fleets SET `returning`=0');
         $this->makeDue($fleetId);
         $before = $this->snapshot();
         try {
@@ -463,7 +463,7 @@ final class FleetMySqlConcurrencyTest extends TestCase
         $this->processDue($fleetId);
         self::assertSame(0, $this->countRows('battle_encounters'));
         self::assertSame(0, $this->countRows('battle_reports'));
-        self::assertSame(1, (int)$this->db->query('SELECT returning FROM fleets')->fetchColumn());
+        self::assertSame(1, (int)$this->db->query('SELECT `returning` FROM fleets')->fetchColumn());
     }
 
     public function testDistinctAttackFleetsSerializeTheDefenderSnapshot(): void

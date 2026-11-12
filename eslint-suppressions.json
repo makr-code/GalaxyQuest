@@ -1,15 +1,5 @@
 {
-  "js/admin/texture-admin-ui.js": {
-    "no-unsanitized/property": {
-      "count": 6
-    }
-  },
   "js/components/advisor_npc_integration.js": {
-    "no-unsanitized/property": {
-      "count": 1
-    }
-  },
-  "js/components/multi-mode-modal.js": {
     "no-unsanitized/property": {
       "count": 1
     }
@@ -167,14 +157,14 @@
       "count": 2
     }
   },
-  "js/engine/runtime/RuntimeQuickNavFacade.js": {
-    "no-unsanitized/property": {
-      "count": 3
-    }
-  },
   "js/engine/runtime/RuntimeQuestsRenderFacade.js": {
     "no-unsanitized/property": {
       "count": 1
+    }
+  },
+  "js/engine/runtime/RuntimeQuickNavFacade.js": {
+    "no-unsanitized/property": {
+      "count": 3
     }
   },
   "js/engine/runtime/RuntimeResearchController.js": {
@@ -332,11 +322,6 @@
       "count": 1
     }
   },
-  "js/features/galaxy/galaxy-controller.js": {
-    "no-unsanitized/property": {
-      "count": 2
-    }
-  },
   "js/gq-ui.js": {
     "no-unsanitized/property": {
       "count": 2
@@ -345,11 +330,6 @@
   "js/runtime/wm-widgets.js": {
     "no-unsanitized/property": {
       "count": 7
-    }
-  },
-  "js/runtime/wm.js": {
-    "no-unsanitized/property": {
-      "count": 2
     }
   },
   "js/tests/benchmark-v3.js": {
@@ -365,11 +345,6 @@
   "js/ui/admin-users.js": {
     "no-unsanitized/property": {
       "count": 2
-    }
-  },
-  "js/ui/glossary.js": {
-    "no-unsanitized/property": {
-      "count": 1
     }
   },
   "js/ui/gq-ui.js": {

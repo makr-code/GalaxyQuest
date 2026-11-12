@@ -5,7 +5,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const workflow = readFileSync(path.resolve('.github', 'workflows', 'ci.yml'), 'utf8').replaceAll('\r\n', '\n');
-const publication = workflow.slice(workflow.indexOf('\n  docker-build:'), workflow.indexOf('\n  deploy-staging:'));
+const publication = workflow.slice(workflow.indexOf('\n  docker-build:'));
 
 function step(name) {
   const marker = `      - name: ${name}\n`;
@@ -21,7 +21,7 @@ describe('image publication workflow contract (configuration, not live registry 
     const dependencies = publication.match(/^    needs: \[([^\]]+)\]/m)[1]
       .split(',').map((value) => value.trim());
     expect(dependencies).toEqual([
-      'lint-php', 'lint-js', 'phpunit-unit', 'phpunit', 'vitest', 'playwright-smoke',
+      'lint-php', 'lint-js', 'phpunit-unit', 'phpunit', 'vitest', 'playwright-smoke', 'native-db',
     ]);
     expect(publication).toContain("github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')");
   });

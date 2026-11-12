@@ -4,19 +4,21 @@ umask 077
 
 fail() { printf 'DEPLOY ERROR: %s\n' "$*" >&2; exit 1; }
 [[ $# -ge 2 ]] || fail "Usage: stack.sh ABSOLUTE_ROOT preflight|bootstrap|deploy|backup|verify|rollback [arguments]"
+fail "Legacy containerized Apache/MySQL deployment is disabled; native Plesk deployment is not ready."
 ROOT=$(realpath "$1")
 COMMAND=$2
 shift 2
 [[ "$ROOT" != / && -d "$ROOT" ]] || fail "Use a dedicated existing deployment directory."
 BUNDLE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 export DEPLOY_ROOT="$ROOT"
-for tool in docker jq flock curl gzip sha256sum stat sed awk grep; do command -v "$tool" >/dev/null || fail "Missing tool: $tool"; done
+for tool in docker jq flock curl gzip sha256sum stat sed awk grep ss; do command -v "$tool" >/dev/null || fail "Missing tool: $tool"; done
 exec 9>"$ROOT/deployment.lock"
 flock -n 9 || fail "Another deployment/backup is running."
 [[ -f "$ROOT/.env" ]] || fail "Missing server .env"
 [[ -f "$ROOT/current.env" ]] || printf '# Initial release\n' > "$ROOT/current.env"
 RELEASE="$ROOT/current.env"
 compose() { docker compose --env-file "$ROOT/.env" --env-file "$RELEASE" -f "$BUNDLE/compose.yml" "$@"; }
+source "$BUNDLE/check-ports.sh"
 cleanup_container=""
 cleanup() {
   if [[ -n "$cleanup_container" ]]; then docker rm -f "$cleanup_container" >/dev/null || printf 'Restore-check cleanup failed: %s\n' "$cleanup_container" >&2; fi
@@ -49,26 +51,29 @@ preflight() {
     (.services.web.environment.SMTP_PASSWORD | length) > 0 and
     (.services.web.environment.REGISTRATION_PUBLIC_URL | startswith("https://"))' <<< "$config" >/dev/null ||
     fail "Database/TTS secrets do not match, are too short, or SMTP/public HTTPS URL is missing."
-  local expected_project expected_url expected_port expected_grafana
+  local expected_project expected_url web_port grafana_port
   case "${ROOT##*/}" in
     production)
       expected_project=galaxyquest-production
       expected_url=https://galaxyquest.themisdb.org
-      expected_port=8081
-      expected_grafana=3000
       ;;
     staging)
       expected_project=galaxyquest-staging
       expected_url=https://staging-galaxyquest.themisdb.org
-      expected_port=8082
-      expected_grafana=3001
       ;;
     *) fail "Deployment root must end in staging or production." ;;
   esac
-  jq -e --arg project "$expected_project" --arg url "$expected_url" --arg port "$expected_port" --arg grafana "$expected_grafana" \
+  jq -e --arg project "$expected_project" --arg url "$expected_url" \
     '.name == $project and .services.web.environment.REGISTRATION_PUBLIC_URL == $url and
-    .services.web.ports[0].published == $port and .services.grafana.ports[0].published == $grafana' <<< "$config" >/dev/null ||
-    fail "Project, domain or ports do not match this deployment root. Refusing cross-environment writes."
+    (.services.web.ports | length == 1) and (.services.grafana.ports | length == 1) and
+    .services.web.ports[0].host_ip == "127.0.0.1" and .services.grafana.ports[0].host_ip == "127.0.0.1" and
+    (.services.db.ports // [] | length == 0)' <<< "$config" >/dev/null ||
+    fail "Project, domain, host bindings or database isolation do not match this deployment root. Refusing cross-environment writes."
+  web_port=$(jq -r '.services.web.ports[0].published' <<< "$config")
+  grafana_port=$(jq -r '.services.grafana.ports[0].published' <<< "$config")
+  [[ "$web_port" != "$grafana_port" ]] || fail "Web and Grafana must use different host ports."
+  check_host_port web "$web_port" "$expected_project"
+  check_host_port grafana "$grafana_port" "$expected_project"
   for file in mysql-exporter.cnf alertmanager.yml; do
     [[ "$(stat -c '%g' "$ROOT/$file")" == "$(jq -r '.services["mysql-exporter"].group_add[0]' <<< "$config")" ]] ||
       fail "$file group must match DEPLOY_GID."

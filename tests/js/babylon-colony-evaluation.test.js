@@ -213,7 +213,10 @@ describe('bounded benchmark validity', () => {
       const { canvas, context, device } = nativeDevice();
       const native = await createNativeColony(canvas);
       expect(native.backend).toBe('native-colony-webgpu');
-      expect(device.createRenderPipeline).toHaveBeenCalledTimes(6);
+      expect(device.createRenderPipeline.mock.calls.map(([descriptor]) => descriptor.label)).toEqual([
+        'colony_city', 'colony_body_surface', 'colony_pressure_dome', 'colony_sky_dome',
+        'colony_cloud_crossing', 'colony_building_vfx', 'colony_industrial_smoke',
+      ]);
       expect(context.configure).toHaveBeenCalledOnce();
       const event = new Event('uncapturederror');
       event.error = { message: 'bad submission' };

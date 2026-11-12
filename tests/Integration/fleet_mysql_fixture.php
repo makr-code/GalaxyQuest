@@ -190,7 +190,7 @@ function create_fleet_schema(PDO $db): void
             target_x_ly DOUBLE, target_y_ly DOUBLE, target_z_ly DOUBLE,
             target_radius_ly DOUBLE, target_theta_rad DOUBLE, target_height_ly DOUBLE,
             speed_ly_h DOUBLE, distance_ly DOUBLE, departure_time DATETIME,
-            arrival_time DATETIME, return_time DATETIME, returning TINYINT DEFAULT 0,
+            arrival_time DATETIME, return_time DATETIME, `returning` TINYINT DEFAULT 0,
             stealth_until DATETIME NULL, hull_damage_pct INT DEFAULT 0
         ) ENGINE=InnoDB;
         CREATE TABLE battle_reports (

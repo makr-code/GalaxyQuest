@@ -51,9 +51,9 @@ foreach ($rows as $row) {
 // ── Fleets ────────────────────────────────────────────────────────────────────
 $fleetRow = $db->query(
     "SELECT
-        SUM(returning = 0 AND arrival_time > NOW()) AS in_motion,
-        SUM(returning = 1 AND return_time  > NOW()) AS returning,
-        SUM(arrival_time <= NOW() AND return_time IS NULL AND returning = 0) AS pending_resolve
+        SUM(`returning` = 0 AND arrival_time > NOW()) AS in_motion,
+        SUM(`returning` = 1 AND return_time  > NOW()) AS `returning`,
+        SUM(arrival_time <= NOW() AND return_time IS NULL AND `returning` = 0) AS pending_resolve
      FROM fleets"
 )->fetch(PDO::FETCH_ASSOC);
 

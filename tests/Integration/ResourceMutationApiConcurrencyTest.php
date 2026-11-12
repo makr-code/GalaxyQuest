@@ -771,19 +771,25 @@ final class ResourceMutationApiConcurrencyTest extends TestCase
         );
         self::assertIsResource($this->server);
 
+        stream_set_blocking($this->serverPipes[2], false);
+        $serverLog = '';
+        $startupMessage = 'Development Server (http://127.0.0.1:' . $this->port . ') started';
         $deadline = hrtime(true) + 10_000_000_000;
         do {
-            $probe = @stream_socket_client('tcp://127.0.0.1:' . $this->port, $errno, $error, 0.1);
-            if (is_resource($probe)) {
-                fclose($probe);
-                return;
+            $serverLog .= stream_get_contents($this->serverPipes[2]);
+            if (substr_count($serverLog, $startupMessage) >= 5) {
+                $probe = @stream_socket_client('tcp://127.0.0.1:' . $this->port, $errno, $error, 0.1);
+                if (is_resource($probe)) {
+                    fclose($probe);
+                    return;
+                }
             }
             $status = proc_get_status($this->server);
-            self::assertTrue($status['running'], 'PHP API test server exited before becoming ready.');
+            self::assertTrue($status['running'], 'PHP API test server exited before becoming ready: ' . $serverLog);
             usleep(20_000);
         } while (hrtime(true) < $deadline);
 
-        self::fail('PHP API test server did not become ready.');
+        self::fail('PHP API test server workers did not become ready: ' . $serverLog);
     }
 
     private function startBuyRequest(string $sessionId): mixed

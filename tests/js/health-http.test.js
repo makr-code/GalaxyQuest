@@ -25,6 +25,7 @@ describe.skipIf(process.env.GQ_HEALTH_HTTP_TESTS !== '1')('real HTTP health prob
     expect(response.status).toBe(ready ? 200 : 503);
     expect(await response.json()).toEqual({ status: ready ? 'ready' : 'unavailable' });
     expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
     expect(response.headers.get('set-cookie')).toBeNull();
     expect(response.headers.get('retry-after')).toBe(ready ? null : '5');
   });
@@ -36,12 +37,14 @@ describe.skipIf(process.env.GQ_HEALTH_HTTP_TESTS !== '1')('real HTTP health prob
   it.each(['/health/live', '/health/ready'])('rejects POST %s before probing', async (path) => {
     const response = await request(path, 'POST');
     expect(response.status).toBe(405);
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
     expect(response.headers.get('allow')).toBe('GET, HEAD');
     expect(await response.json()).toEqual({ status: 'method_not_allowed' });
   });
   it.each(['/health/unknown', '/health.php'])('does not fall through unknown probe %s to HTML', async (path) => {
     const response = await request(path);
     expect(response.status).toBe(404);
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
     expect(await response.json()).toEqual({ status: 'not_found' });
   });
   it('ignores query parameters without switching the liveness probe to DB readiness', async () => {

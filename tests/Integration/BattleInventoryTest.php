@@ -129,7 +129,6 @@ final class BattleInventoryTest extends TestCase
             public function prepare(string $query, array $options = []): PDOStatement|false
             {
                 // Adapt MySQL syntax only; mutations still execute against the test database.
-                $query = str_replace('returning=', '"returning"=', $query);
                 $query = str_replace(
                     'ON DUPLICATE KEY UPDATE count=count+?',
                     'ON CONFLICT(colony_id,type) DO UPDATE SET count=count+?',

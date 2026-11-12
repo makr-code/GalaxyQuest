@@ -551,15 +551,6 @@
             "lineHash": "5ff69efa3a3da7faa4fda8c1c7f8751de510e911214a526ba494df36c335b95f",
             "count": 1
         },
-        "03ce09b589417e47669d1d3d046fc9b8f2e16a7c38d56688184b6da6ddba6133": {
-            "path": "api/fleet.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 161 characters",
-            "column": 161,
-            "lineHash": "15375d86fa1c43ee839f43f1e911bea9a14a1c9ed0a9d609e8c0213bde3d8ad4",
-            "count": 1
-        },
         "03f196223524493f113cf31c9771ffbd15cc2d0bf5e83e9d24984ac1e51e93d4": {
             "path": "api/llm.php",
             "source": "Generic.WhiteSpace.DisallowTabIndent.TabsUsed",
@@ -9686,6 +9677,15 @@
             "lineHash": "6c81aa68ea9603502b9df4853a8a3da622fb0e71105a6652d644ff50411d3f9d",
             "count": 1
         },
+        "3ef89cc9f6ab977dddcc47b998f22dfefb725d3976ee5d7c014dd1830657eeec": {
+            "path": "config/config.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 3 and the first side effect is on line 118.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "3f4507583e75d1ffa1d061d7a9078997fea70e1fdb3d8237defc5d1e8c5854de": {
             "path": "api/llm.php",
             "source": "Generic.WhiteSpace.DisallowTabIndent.TabsUsed",
@@ -12035,6 +12035,15 @@
             "lineHash": "fbb7534ef2eab04980d87f45f7a3412eb693f7212672571c419aa992afbd057c",
             "count": 1
         },
+        "4f5a0fdfa5f2d7b131ac5bc98527425c693100fc11c8a0757b903d39ef250c32": {
+            "path": "api/fleet.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 173 and the first side effect is on line 18.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "4f5e97af24e721173b7dcd4c1aed18351308fbfca55da192a6d3827700be1ffa": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceAfter",
@@ -12933,15 +12942,6 @@
             "message": "Line exceeds 120 characters; contains 171 characters",
             "column": 171,
             "lineHash": "73d4eb5726237b87a45bf4ef343c7ceebd13e5ba13b633f0dfe42f327ad15151",
-            "count": 1
-        },
-        "7a11dcb5d39eab3404dba222c00f808575b09c7abae59c8bb03be0b9e6dcaf7b": {
-            "path": "config/config.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 3 and the first side effect is on line 117.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "5584f8662164f7b1d41df75bcb8ea1daceaee2ac7394036009d4483349fe3859": {
@@ -17192,15 +17192,6 @@
             "lineHash": "8688b9c61bcccb5e12e0b9a685c03a52630e9dc0fa205d3c0f5c8925fdcf5120",
             "count": 1
         },
-        "7ee47bc57e3892bab4e3a5b41514fb16562e63acb88b13e22a758b5dac2157ba": {
-            "path": "api/npc_llm_controller.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 14 and the first side effect is on line 5.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
-            "count": 1
-        },
         "71ff406a6063027bd29ecaecd20eb0a13823761c7402557e72d0ff32555a6c5c": {
             "path": "api/galaxy_seed.php",
             "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
@@ -19109,6 +19100,15 @@
             "lineHash": "bf2712965d86efc42be5c1f41668d1fa1cd3ef1b157e4646fb35e6f7e8bc5a4a",
             "count": 1
         },
+        "7ee47bc57e3892bab4e3a5b41514fb16562e63acb88b13e22a758b5dac2157ba": {
+            "path": "api/npc_llm_controller.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 14 and the first side effect is on line 5.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "7eeb9cf5eded008377b72557ad53609a58dee851dea2d9d1a07b28b171453326": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceBefore",
@@ -20592,15 +20592,6 @@
             "message": "Inline control structures are not allowed",
             "column": 5,
             "lineHash": "8d99d4a1cace7eaefb339543059d92a95de62562e4c330ea22b9ac486b8262d9",
-            "count": 1
-        },
-        "4f5a0fdfa5f2d7b131ac5bc98527425c693100fc11c8a0757b903d39ef250c32": {
-            "path": "api/fleet.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 173 and the first side effect is on line 18.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "8960954cc5fb6d9847d57dd7680ff5be2ca53cc02e0c67b10f6a62f2cd9df7c4": {
@@ -23024,6 +23015,15 @@
             "lineHash": "4a987c72fd6063099e8f3c70be79a78569b31fcfb48af9c83b79e2ce0b38590d",
             "count": 1
         },
+        "9ab764e1ef413d1756629b9f274142d89cc93afb4d8d0f6f65063b2e8245bf66": {
+            "path": "api/buildings.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 328 and the first side effect is on line 12.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "9ac72336c7cce29963da69125aca48b3cf58d00c7d5a307c1d576df5ba8bb968": {
             "path": "api/colony_buildings.php",
             "source": "PSR12.Files.FileHeader.SpacingAfterDocblockBlock",
@@ -23832,6 +23832,15 @@
             "message": "Whitespace found at end of line",
             "column": 51,
             "lineHash": "157ce69757321aa8aab2ff847f9ef928ea667dc5dfde7bc1b72d8726420f7696",
+            "count": 1
+        },
+        "9f6bb10971f182b996cacb46fa374863bea424cf47e15b57fb51eb33032ded14": {
+            "path": "api/textures-ai.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 109 and the first side effect is on line 19.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "9f7a8df553b46b953172123777b46b18c54a67e768a7a0c292739b7c6964fb75": {
@@ -24805,15 +24814,6 @@
             "column": 1,
             "lineHash": "05a8475feebbfea685ece06045be63722edc61bb2ade8060a9f03aed6d49f454",
             "count": 18
-        },
-        "a5fff6c23964e342d96735d19c42b87df9a9b55ff7cb42da98d6d3a141114946": {
-            "path": "api/buildings.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 321 and the first side effect is on line 11.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
-            "count": 1
         },
         "a600bf0157eacac81c7acad54ecdf18bf43ed0ad3da23d0bb2e4e0204a3b1f55": {
             "path": "api/galaxy.php",
@@ -28773,15 +28773,6 @@
             "message": "Opening brace should be on a new line",
             "column": 72,
             "lineHash": "cdbe139f293a4c6b79e9485190d5b869767545272ea5d13ca7a3e4ff5363b2e9",
-            "count": 1
-        },
-        "9f6bb10971f182b996cacb46fa374863bea424cf47e15b57fb51eb33032ded14": {
-            "path": "api/textures-ai.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 109 and the first side effect is on line 19.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "c2f0733d918c78f4b51e7ffe955ebe53f11a5bd53523b9af8f70c99032d26809": {

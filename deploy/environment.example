@@ -2,6 +2,7 @@
 COMPOSE_PROJECT_NAME=galaxyquest-production
 DEPLOY_GID=REPLACE_WITH_OUTPUT_OF_ID_G
 COMPOSE_PROFILES=gpu
+# Examples only. Verify each port is unused on this Plesk host.
 WEB_PORT=8081
 GRAFANA_PORT=3000
 PUBLIC_URL=https://galaxyquest.themisdb.org
