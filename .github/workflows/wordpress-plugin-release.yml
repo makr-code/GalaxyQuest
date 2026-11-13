@@ -143,7 +143,12 @@ jobs:
           gh release create "$RELEASE_TAG" "$ZIP" "$CHECKSUM" "$MANIFEST" \
             --repo "$GH_REPO" --verify-tag --target "$RELEASE_SHA" \
             --draft --latest=false --title "WordPress Deployment Plugin $VERSION" --notes-file notes.txt
-          gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" > uploaded.json
+          # The by-tag endpoint does not expose drafts; select the authenticated list entry.
+          gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" > draft-releases.json
+          jq --arg tag "$RELEASE_TAG" \
+            '[.[][] | select(.tag_name == $tag)] |
+             if length == 1 then .[0] else error("Expected one uploaded plugin draft") end' \
+            draft-releases.json > uploaded.json
           jq -e --arg zip "$ZIP" --arg digest "$DIGEST" --argjson size "$SIZE" \
             '.draft == true and any(.assets[];
              .name == $zip and .state == "uploaded" and .digest == $digest and .size == $size)' uploaded.json
