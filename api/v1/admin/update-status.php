@@ -18,16 +18,12 @@ try {
 
     $root = dirname(__DIR__, 4);
     require_once $root . '/config/config.php';
+    require_once $root . '/lib/app_version.php';
     require_once $root . '/lib/UpdateManager.php';
     require_once $root . '/lib/GithubReleaseChecker.php';
 
     $db = get_db();
-
-    $currentVersion = file_get_contents($root . '/VERSION.txt');
-    if ($currentVersion === false) {
-        $currentVersion = '1.0.0';
-    }
-    $currentVersion = trim($currentVersion);
+    $currentVersion = gq_read_app_version($root);
 
     $manager = new UpdateManager($db, $root, $currentVersion);
     $status = $manager->getStatus();

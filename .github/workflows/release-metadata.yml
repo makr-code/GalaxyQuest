@@ -29,6 +29,12 @@ jobs:
         with:
           node-version-file: '.nvmrc'
 
+      - name: Set up PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
       - name: Verify version tag and extract reviewed changelog
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
@@ -37,11 +43,28 @@ jobs:
           node scripts/check_release_metadata.mjs --tag "$RELEASE_TAG" --notes-file "$NOTES_FILE"
           test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
 
+      - name: Build versioned release package
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/release-package
+        run: |
+          mkdir -p "$OUTPUT_DIR"
+          VERSION="$(tr -d '\r\n' < VERSION.txt)"
+          php scripts/prepare_release.php "$VERSION" --output-dir="$OUTPUT_DIR"
+          (cd "$OUTPUT_DIR" && sha256sum --check "galaxyquest-${VERSION}.sha256")
+
       - name: Upload validated notes for operator review
         uses: actions/upload-artifact@v4
         with:
           name: validated-release-notes
           path: ${{ runner.temp }}/release-notes.md
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload versioned release package for operator review
+        uses: actions/upload-artifact@v4
+        with:
+          name: galaxyquest-release-package
+          path: ${{ runner.temp }}/release-package/*
           if-no-files-found: error
           retention-days: 30
 

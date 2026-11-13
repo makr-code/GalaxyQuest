@@ -1,7 +1,6 @@
 # WebGL Engine Analysis — GalaxyQuest
 
-> **Status:** Phase 0 complete — Basis-Analyse & Migration-Vorbereitung  
-> **Datum:** 2026-03-30
+> **Historischer Analyse-Snapshot:** 2026-03-30. „Phase 0 complete“, Datei-/Versionsinventar und Migrationsempfehlungen geben nicht den aktuellen Runtime- oder Produktionsstatus wieder. Für die aktuelle Architektur siehe [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 

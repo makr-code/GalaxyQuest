@@ -1,0 +1,220 @@
+name: GitHub Release Publication
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to publish after all tag gates succeed
+        required: true
+        type: string
+  workflow_run:
+    workflows:
+      - CI/CD Pipeline
+      - Security Scans
+      - python-quality
+      - CodeQL
+      - WebGPU Shader Validation (SwiftShader)
+      - Release Metadata Preparation
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  prepare:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.event == 'push' &&
+       startsWith(github.event.workflow_run.head_branch, 'v') &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.source.outputs.tag }}
+      sha: ${{ steps.source.outputs.sha }}
+      tools_sha: ${{ steps.source.outputs.tools_sha }}
+      prerelease: ${{ steps.source.outputs.prerelease }}
+      eligible: ${{ steps.gates.outputs.eligible }}
+    defaults:
+      run:
+        working-directory: source
+    steps:
+      - name: Checkout trusted release tools
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: release-tools
+          persist-credentials: false
+
+      - name: Checkout candidate source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.event.workflow_run.head_sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: source/.nvmrc
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      - name: Validate release source and publication policy
+        id: source
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          AUTOMATIC: ${{ github.event_name == 'workflow_run' }}
+          NOTES_FILE: ${{ runner.temp }}/release-notes.md
+        run: |
+          VERSION="$(tr -d '\r\n' < VERSION.txt)"
+          TAG="${INPUT_TAG:-v$VERSION}"
+          node ../release-tools/scripts/check_release_metadata.mjs --tag "$TAG" --notes-file "$NOTES_FILE"
+          SHA="$(git rev-parse HEAD)"
+          test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$SHA"
+          PRERELEASE=false
+          if [[ "$VERSION" == *-* ]]; then PRERELEASE=true; fi
+          if [ "$AUTOMATIC" = true ] && [ "$PRERELEASE" = false ]; then
+            echo "::notice::Stable releases require an operator workflow_dispatch."
+            exit 0
+          fi
+          BRANCH=main
+          if [ "$PRERELEASE" = true ]; then BRANCH=develop; fi
+          if ! git merge-base --is-ancestor "$SHA" "origin/$BRANCH"; then
+            echo "::error::The release commit must be contained in $BRANCH."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "tools_sha=$(git -C ../release-tools rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Require successful quality and security runs for this exact tag
+        if: steps.source.outputs.tag != ''
+        id: gates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.source.outputs.tag }}
+          RELEASE_SHA: ${{ steps.source.outputs.sha }}
+          AUTOMATIC: ${{ github.event_name == 'workflow_run' }}
+        run: |
+          ARGS=(--sha "$RELEASE_SHA" --tag "$RELEASE_TAG")
+          if [ "$AUTOMATIC" = true ]; then ARGS+=(--automatic); fi
+          node ../release-tools/scripts/check_release_gates.mjs "${ARGS[@]}"
+
+      - name: Build and verify package from the accepted source
+        if: steps.gates.outputs.eligible == 'true'
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/release-package
+          RELEASE_TAG: ${{ steps.source.outputs.tag }}
+          RELEASE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          npm ci
+          npm run vite:build
+          npm run check:bundle-budget
+          test -s dist/index.html
+          test -d dist/assets
+          mkdir -p "$OUTPUT_DIR"
+          VERSION="$(tr -d '\r\n' < VERSION.txt)"
+          php scripts/prepare_release.php "$VERSION" --output-dir="$OUTPUT_DIR"
+          cp "$RUNNER_TEMP/release-notes.md" "$OUTPUT_DIR/release-notes.md"
+          printf '{"tag":"%s","version":"%s","commit":"%s"}\n' \
+            "$RELEASE_TAG" "$VERSION" "$RELEASE_SHA" > "$OUTPUT_DIR/galaxyquest-${VERSION}.release.json"
+          (cd "$OUTPUT_DIR" && sha256sum --check "galaxyquest-${VERSION}.sha256")
+
+      - name: Transfer verified package to publisher
+        if: steps.gates.outputs.eligible == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-release-package
+          path: ${{ runner.temp }}/release-package/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: prepare
+    if: needs.prepare.outputs.eligible == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: github-release-${{ needs.prepare.outputs.tag }}
+      cancel-in-progress: false
+    environment: ${{ github.event_name == 'workflow_dispatch' && 'github-release' || 'developer-release' }}
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout only the pinned trusted release tools
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tools_sha }}
+          path: release-tools
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: release-tools/.nvmrc
+
+      - name: Recheck gates after operator approval and publication serialization
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+        run: node release-tools/scripts/check_release_gates.mjs --sha "$RELEASE_SHA" --tag "$RELEASE_TAG"
+
+      - name: Download this run's verified package
+        uses: actions/download-artifact@v4
+        with:
+          name: github-release-package
+          path: release-package
+
+      - name: Publish existing tag without overwriting an existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+          RUNNER_TEMP: ${{ runner.temp }}
+        working-directory: release-package
+        run: |
+          test "$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)" = "$RELEASE_SHA"
+          VERSION="${RELEASE_TAG#v}"
+          sha256sum --check "galaxyquest-${VERSION}.sha256"
+          gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" > releases.json
+          jq --arg tag "$RELEASE_TAG" '[.[][] | select(.tag_name == $tag)]' releases.json > existing.json
+          COUNT="$(jq length existing.json)"
+          ARCHIVE="galaxyquest-${VERSION}.tar.gz"
+          CHECKSUM="galaxyquest-${VERSION}.sha256"
+          MANIFEST="galaxyquest-${VERSION}.release.json"
+          if [ "$COUNT" != 0 ]; then
+            test "$COUNT" = 1
+            jq -e --argjson prerelease "$PRERELEASE" \
+              --arg archive "$ARCHIVE" --arg checksum "$CHECKSUM" \
+              --arg manifest "$MANIFEST" \
+              --rawfile notes release-notes.md \
+              '.[0] | .draft == false and .prerelease == $prerelease
+               and (.body | rtrimstr("\n")) == ($notes | rtrimstr("\n"))
+               and ([.assets[].name] | sort) == ([$archive, $checksum, $manifest] | sort)
+               and all(.assets[]; .state == "uploaded" and .size > 0)' existing.json
+            mkdir -p "$RUNNER_TEMP/existing-release"
+            gh release download "$RELEASE_TAG" --dir "$RUNNER_TEMP/existing-release" --repo "$GH_REPO"
+            cmp --silent "$RUNNER_TEMP/existing-release/$MANIFEST" "$MANIFEST"
+            (cd "$RUNNER_TEMP/existing-release" && sha256sum --check "$CHECKSUM")
+            echo "::notice::Matching release already published; no assets or metadata overwritten."
+            exit 0
+          fi
+          OPTIONS=()
+          if [ "$PRERELEASE" = true ]; then OPTIONS+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" \
+            "$ARCHIVE" "$CHECKSUM" "$MANIFEST" \
+            --verify-tag --target "$RELEASE_SHA" --draft --latest=false \
+            --title "GalaxyQuest $VERSION" --notes-file release-notes.md "${OPTIONS[@]}"
+          LATEST=true
+          if [ "$PRERELEASE" = true ]; then LATEST=false; fi
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease="$PRERELEASE" --latest="$LATEST"

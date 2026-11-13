@@ -123,3 +123,25 @@ describe('real release gate CLI', () => {
     expect(readFileSync(notes, 'utf8')).toBe('Previous reviewed notes.');
   }));
 });
+
+describe('tagged release packaging workflow', () => {
+  it('builds and uploads the package only after tag validation without publishing it', () => {
+    const workflow = readFileSync(path.resolve('.github', 'workflows', 'release-metadata.yml'), 'utf8')
+      .replaceAll('\r\n', '\n');
+    const validationStep = workflow.indexOf('      - name: Verify version tag and extract reviewed changelog');
+    const packageStep = workflow.indexOf('      - name: Build versioned release package');
+    const uploadStep = workflow.indexOf('      - name: Upload versioned release package for operator review');
+
+    expect(validationStep).toBeGreaterThanOrEqual(0);
+    expect(packageStep).toBeGreaterThan(validationStep);
+    expect(uploadStep).toBeGreaterThan(packageStep);
+    expect(workflow).toContain("php-version: '8.2'");
+    expect(workflow).toContain('OUTPUT_DIR: ${{ runner.temp }}/release-package');
+    expect(workflow).toContain('php scripts/prepare_release.php "$VERSION" --output-dir="$OUTPUT_DIR"');
+    expect(workflow).toContain('sha256sum --check "galaxyquest-${VERSION}.sha256"');
+    expect(workflow).toContain('path: ${{ runner.temp }}/release-package/*');
+    expect(workflow).toContain('retention-days: 30');
+    expect(workflow).not.toContain('softprops/action-gh-release');
+    expect(workflow).toContain('no GitHub Release, deployment or production image publication');
+  });
+});

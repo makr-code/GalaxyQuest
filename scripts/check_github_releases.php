@@ -20,10 +20,18 @@ if (PHP_SAPI !== 'cli') {
 
 $root = dirname(__DIR__);
 require_once $root . '/config/config.php';
+require_once $root . '/lib/app_version.php';
 require_once $root . '/lib/GithubReleaseChecker.php';
 
 $notify = in_array('--notify', $argv);
 $storeReleases = in_array('--store-releases', $argv);
+
+try {
+    $currentVersion = gq_read_app_version($root);
+} catch (RuntimeException $e) {
+    fwrite(STDERR, "[check-releases] " . $e->getMessage() . "\n");
+    exit(1);
+}
 
 try {
     $db = get_db();
@@ -31,13 +39,6 @@ try {
     fwrite(STDERR, "Database connection failed: " . $e->getMessage() . "\n");
     exit(1);
 }
-
-// Get current version
-$currentVersion = file_get_contents($root . '/VERSION.txt');
-if ($currentVersion === false) {
-    $currentVersion = '1.0.0';
-}
-$currentVersion = trim($currentVersion);
 
 // Get configuration
 $owner = env_value('GITHUB_OWNER', 'makr-code');

@@ -1,7 +1,7 @@
 # TRELLIS2 → GalaxyQuest Asset Integration Workflow
 
-**Status**: ✅ READY  
-**Date**: 2026-08-02  
+> Historical workflow draft dated 2026-08-02; not a deployment or production-readiness approval. The manual import steps are not a current integration contract, and the `GameEngine::spawn_asset()` example is not present in the current runtime. Use the [TRELLIS2 Dev Toolset](../technical/TRELLIS2_DEV_TOOLSET.md) for current local generation guidance.
+
 **Pipeline**: GLB → Game Assets → Database
 
 ---

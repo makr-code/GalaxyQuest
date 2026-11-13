@@ -16,6 +16,7 @@ describe('TRELLIS2 facility generation workflow', () => {
     expect(workflow['6'].inputs.image).toBe('gq_industry_concept_0123456789abcdef.png');
     expect(workflow['39'].inputs.modelname).toBe('microsoft/TRELLIS.2-4B');
     expect(workflow['39'].inputs.conv_backend).toBe('spconv');
+    expect(workflow['209'].inputs.value).toBe(15000);
     expect(workflow['194'].inputs.image).toEqual(['6', 0]);
     expect(workflow['213'].inputs).toMatchObject({ pipeline: ['39', 0], image: ['194', 0] });
     expect(workflow['214'].inputs).toMatchObject({
@@ -30,6 +31,31 @@ describe('TRELLIS2 facility generation workflow', () => {
       trimesh: ['202', 0], filename_prefix: ['219', 0], file_format: 'glb',
     });
     expect(workflow['219'].inputs.value).toBe('gq_trellis2/building_industry_pilot_v1');
+  });
+
+  it('builds the optional low-poly PBR texturing path from the decoded mesh', () => {
+    const workflow = buildFacilityWorkflow({
+      facilityKind: 'industry',
+      imageName: 'gq_industry_concept_0123456789abcdef.png',
+      seed: 20261112,
+      textured: true,
+    });
+
+    expect(workflow['257'].inputs.target_face_num).toBe(5000);
+    expect(workflow['209'].inputs.value).toBe(500000);
+    expect(workflow['258']).toMatchObject({
+      class_type: 'Trellis2MeshTexturing',
+      inputs: {
+        pipeline: ['217', 2],
+        image: ['194', 0],
+        trimesh: ['202', 0],
+        seed: 20261112,
+        texture_size: 2048,
+        resolution: 1024,
+      },
+    });
+    expect(workflow['203'].inputs.trimesh).toEqual(['258', 0]);
+    expect(workflow['219'].inputs.value).toBe('gq_trellis2/building_industry_pilot_v1_lowpoly_textured');
   });
 
   it('rejects non-manifest classes, unsafe image names and invalid seeds', () => {

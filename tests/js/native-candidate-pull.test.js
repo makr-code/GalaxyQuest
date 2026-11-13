@@ -72,7 +72,7 @@ describe('non-deploying native candidate pull', () => {
   function pull(expectedDigest = digest, token = 'ghp_test_token_1234567890', commit = 'a'.repeat(40)) {
     return spawnSync(bash, [
       '-c',
-      'PATH="$1:$PATH"; shift; exec "$@"',
+      'PATH="$1:$PATH"; shift; exec bash "$@"',
       'bash',
       shellPath(bin),
       script,
@@ -94,7 +94,7 @@ describe('non-deploying native candidate pull', () => {
   function stage(zip = fixtureZip, expectedDigest = digest, commit = 'a'.repeat(40)) {
     return spawnSync(bash, [
       '-c',
-      'PATH="$1:$PATH"; shift; exec "$@"',
+      'PATH="$1:$PATH"; shift; exec bash "$@"',
       'bash',
       shellPath(bin),
       stageScript,
@@ -205,8 +205,8 @@ fi
       commit: 'a'.repeat(40),
       file: path.basename(output),
       status: 'downloaded-unexpanded-not-deployable',
-    }, 30000);
-  });
+    });
+  }, 30000);
 
   it.skipIf(!hasRequiredTools)('rejects a digest mismatch and removes temporary files', () => {
     const result = pull(`sha256:${'0'.repeat(64)}`);

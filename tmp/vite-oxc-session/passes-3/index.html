@@ -1,0 +1,2607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>GalaxyQuest – Unified Command Shell</title>
+  <!-- Design System Foundation -->
+  <!-- Core Stylesheets -->
+  <!-- NPC Dialogue Panel -->
+  <!-- Game Guide NPC -->
+  <style>#game-guide-panel{z-index:1000;color:#e0e0e0;background:linear-gradient(135deg,#0f192df2 0%,#141e32f2 100%);border:2px solid #4fbf73;border-radius:8px;flex-direction:column;width:380px;max-height:600px;font-family:Segoe UI,Tahoma,Geneva,Verdana,sans-serif;display:flex;position:fixed;bottom:20px;right:20px;overflow:hidden;box-shadow:0 8px 32px #4fbf7333}#game-guide-panel.hidden{display:none!important}#game-guide-panel .guide-header{background:#4fbf731a;border-bottom:1px solid #4fbf73;justify-content:space-between;align-items:center;padding:12px 16px;display:flex}#game-guide-panel .guide-name{color:#4fbf73;font-size:1.1em;font-weight:700}#game-guide-panel .close-btn{color:#4fbf73;cursor:pointer;background:0 0;border:none;justify-content:center;align-items:center;width:24px;height:24px;padding:0;font-size:1.5em;display:flex}#game-guide-panel .close-btn:hover{color:#3fa063}#game-guide-panel .guide-content{flex:1;padding:16px;overflow-y:auto}#game-guide-panel .guide-item{background:#4fbf730d;border-left:3px solid #4fbf73;border-radius:4px;margin-bottom:12px;padding:10px;font-size:.9em;line-height:1.5}#game-guide-panel .critical{background:#dc32321a;border-left-color:#dc3232}#game-guide-panel .warning{background:#ffc1071a;border-left-color:#ffc107}#game-guide-panel .tip{background:#4fbf731a;border-left-color:#4fbf73}#game-guide-panel .guide-footer{background:#0003;border-top:1px solid #4fbf73;gap:8px;padding:12px 16px;display:flex}#game-guide-panel .guide-footer button{color:#0a0e27;cursor:pointer;background:#4fbf73;border:none;border-radius:4px;flex:1;padding:8px 12px;font-size:.85em;font-weight:700;transition:all .3s}#game-guide-panel .guide-footer button:hover{background:#3fa063;transform:translateY(-2px)}</style>
+  <style>#boot-terminal:not(.wm-window):not(.wm-window-adapted){z-index:99999;color:#d7e8ff;pointer-events:auto;background:#040e24f0;border:1px solid #4f97ff80;border-radius:10px 10px 0 0;height:170px;font:12px/1.4 Consolas,Menlo,Monaco,monospace;position:fixed;bottom:0;left:12px;right:12px;box-shadow:0 -12px 28px #00000061}#boot-terminal:not(.wm-window):not(.wm-window-adapted).hidden{display:none}#boot-terminal:not(.wm-window):not(.wm-window-adapted) #boot-terminal-head{color:#91c7ff;background:#09183ebf;border-bottom:1px solid #4f97ff40;justify-content:space-between;align-items:center;gap:10px;padding:7px 10px;display:flex}.boot-terminal-title{align-items:center;gap:8px;display:inline-flex}#boot-terminal:not(.wm-window):not(.wm-window-adapted) #boot-terminal-mode{color:#b8daff;border:1px solid #82b8ff61;border-radius:999px;padding:1px 6px;font-size:11px;line-height:1.2;display:inline-block}.boot-line{margin:0 0 3px}.boot-line-info{color:#9fd0ff}.boot-line-warn{color:#ffd37f}.boot-line-error{color:#ff9f9f}</style>
+  <script type="module" crossorigin src="/assets/index-dJxhrHwG.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-sJBDdmOt.js">
+  <link rel="modulepreload" crossorigin href="/assets/auth-CmiPsXMP.js">
+  <link rel="modulepreload" crossorigin href="/assets/core-CK1SbBTL.js">
+  <link rel="stylesheet" crossorigin href="/assets/index-DL-qK6Dq.css">
+</head>
+<body class="auth-page">
+
+  <!-- Shared galaxy background stage (auth + game) -->
+  <!-- Galaxy background wrapper (fixed z-index: 1) -->
+  <section id="wm-galaxy-section" class="auth-shell">
+    <div id="galaxy-bg-wrapper" aria-hidden="true">
+      <div id="galaxy-host-wrapper" >
+        <div id="galaxy-3d-host" class="galaxy-3d-canvas"><canvas id="starfield"></canvas></div>
+        <div id="galaxy-hover-card" class="galaxy-hover-card hidden"></div>
+      </div>
+    </div>
+  </section> 
+  
+  <section id="auth-section" class="auth-shell">
+    <div id="start-menu" class="start-menu">
+      <div id="start-music-player" class="start-music-player" aria-label="Start music player">
+        <span class="start-music-label">GALACTIC RADIO</span>
+        <span id="start-music-title" class="start-music-title">Nebula Overture</span>
+        <div class="start-music-controls">
+          <button id="start-music-prev" type="button" title="Previous track" aria-label="Previous track" disabled><svg aria-hidden="true"><use href="/assets/prev-CoprERQm.svg#icon-prev"></use></svg></button>
+          <button id="start-music-play" type="button" title="Musik starten" aria-label="Musik starten" disabled><svg aria-hidden="true"><use href="/assets/play-DgqO1hXg.svg#icon-play"></use></svg></button>
+          <button id="start-music-next" type="button" title="Next track" aria-label="Next track" disabled><svg aria-hidden="true"><use href="/assets/next-CLANEpv5.svg#icon-next"></use></svg></button>
+          <button id="start-music-mute" type="button" title="Audio stummschalten" aria-label="Audio stummschalten" aria-pressed="false" disabled><svg aria-hidden="true"><use href="/assets/volume-D6JWuhtZ.svg#icon-volume"></use></svg></button>
+        </div>
+        <label class="start-music-volume">Musiklautstärke
+          <input id="start-music-volume" type="range" min="0" max="100" step="1" value="55" disabled />
+        </label>
+        <span id="start-music-status" class="start-music-status" aria-live="polite"></span>
+      </div>
+      <p class="start-eyebrow">GALAXY QUEST / COMMAND INTERFACE</p>
+      <h1 class="start-title">Galaxy<span>Quest</span></h1>
+      <p class="start-tagline">Conquer the stars</p>
+      <nav class="start-navigation" aria-label="Main menu">
+        <button id="start-resume" class="start-button start-button-primary" type="button" hidden>Fortsetzen</button>
+        <div class="start-panel-anchor"><button id="start-login" class="start-button start-button-primary" type="button" aria-expanded="false">Login<span>Return to your command</span></button></div>
+        <div class="start-panel-anchor"><button id="start-register" class="start-button" type="button" aria-expanded="false">Begin a new campaign<span>Write your first chapter</span></button></div>
+        <div class="start-panel-anchor"><button id="start-dev" class="start-button start-button-small" type="button" aria-expanded="false">Developer tools</button></div>
+        <div class="start-panel-anchor"><button class="start-button start-button-small" type="button" data-start-panel="news" aria-expanded="false">News and transmissions</button></div>
+        <div class="start-panel-anchor"><button class="start-button start-button-small" type="button" data-start-panel="settings" aria-expanded="false">Settings</button></div>
+        <button id="start-announcements" class="start-log-button" type="button" aria-expanded="false">Server announcements <span id="start-announcements-status" class="start-session-status">Loading</span></button>
+      </nav>
+      <p id="start-session-status" class="start-session-status" role="status" aria-live="polite">Your next chapter awaits.</p>
+      <p id="start-galaxy-source" class="start-galaxy-source" role="status" aria-live="polite">Procedural visual galaxy; not DB system data.</p>
+      <div class="start-credits">
+        <span>© 2026 Galaxy Quest Interactive</span>
+        <span>Conquer the stars</span>
+      </div>
+      <dialog id="start-content-dialog" class="start-dialog" aria-labelledby="start-content-title">
+        <header class="start-dialog-header">
+          <h2 id="start-content-title">Start menu</h2>
+          <button type="button" data-start-close>Close</button>
+        </header>
+        <section id="start-panel-news" hidden>
+          <div class="start-news-toolbar" role="group" aria-label="Nachrichtenaktionen">
+            <button id="start-news-refresh" type="button">Beiträge aktualisieren</button>
+            <button id="start-news-read" type="button" disabled>Beitrag vorlesen</button>
+            <button id="start-news-stop" type="button" disabled>Vorlesen stoppen</button>
+            <button id="start-news-flight" type="button" disabled>Beitragsziel anfliegen</button>
+            <a href="developer-blog-admin.php">Redaktion (Administratoren)</a>
+          </div>
+          <p id="start-news-source" class="start-news-source"></p>
+          <p id="start-news-status" role="status" aria-live="polite"></p>
+          <p id="start-news-flight-status" role="status"></p>
+          <div id="start-news-posts" role="group" aria-label="Die fünf neuesten Entwicklerbeiträge"></div>
+          <article>
+            <h3 id="start-news-title" tabindex="-1">Beiträge werden geladen …</h3>
+            <p id="start-news-meta"></p>
+            <p id="start-news-taxonomy" class="start-news-taxonomy"></p>
+            <p id="start-news-body"></p>
+            <a id="start-news-original" hidden target="_blank" rel="noopener noreferrer">Vollständigen Beitrag im Blog lesen</a>
+          </article>
+          <p id="server-announcements-status"></p>
+        </section>
+        <section id="start-panel-settings" hidden>
+          <label class="start-setting"><input id="start-reduced-motion" type="checkbox" /> Reduce motion</label>
+          <label class="start-setting"><input id="start-flight-tour" type="checkbox" /> Automatic galaxy flight</label>
+          <p id="start-flight-status" class="start-session-status" role="status" aria-live="polite">Off. Read-only database flight demo.</p>
+          <label class="start-setting"><input id="start-mute" type="checkbox" /> Mute audio</label>
+          <p id="start-settings-status" class="start-session-status" role="status" aria-live="polite"></p>
+        </section>
+      </dialog>
+    </div>
+    <template id="auth-forms-template">
+  <div class="auth-wrapper" id="auth-wrapper" data-wm-window="auth">
+    <div class="auth-logo">
+      <div class="logo-icon"><svg class="gq-icon" aria-hidden="true" focusable="false" style="width:1.9rem;height:1.9rem"><use href="/assets/galaxy-DdBhRPGV.svg#icon-galaxy"></use></svg></div>
+      <h1 class="logo-title">GalaxyQuest</h1>
+      <p class="logo-subtitle">Conquer the Stars</p>
+    </div>
+
+    <!-- Tab bar -->
+    <div class="auth-tabs">
+      <button class="tab-btn active" data-tab="login">Login</button>
+      <button class="tab-btn" data-tab="register">Register</button>
+      <button id="auth-dev-tab" class="tab-btn" data-tab="dev">Dev</button>
+    </div>
+
+    <!-- Login form -->
+    <form id="login-form" class="auth-form" autocomplete="on" method="post" action="index.html">
+      <div class="form-group">
+        <label for="login-username">Commander Name or E-Mail</label>
+        <input id="login-username" type="text" name="username" required
+               autocomplete="username" placeholder="Your username or e-mail" />
+      </div>
+      <div class="form-group">
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" name="password" required
+               autocomplete="current-password" placeholder="••••••••" />
+      </div>
+      <div class="form-group">
+        <label>
+          <input id="login-remember" type="checkbox" name="remember" value="1" checked />
+          Auf diesem Gerät angemeldet bleiben
+        </label>
+      </div>
+      <button type="submit" class="btn btn-primary btn-full">Enter the Galaxy</button>
+      <div id="login-error" class="form-error" aria-live="polite"></div>
+    </form>
+
+    <!-- ── TOTP 2FA challenge panel (shown instead of login form when 2FA active) ── -->
+    <div id="auth-2fa-panel" class="auth-form hidden" role="region" aria-label="Zwei-Faktor-Authentifizierung" aria-live="polite">
+      <div class="auth-logo" style="margin-bottom:0.5rem">
+        <div class="logo-icon" style="font-size:1.6rem"><svg class="gq-icon" aria-hidden="true" focusable="false" style="width:1.6rem;height:1.6rem"><use href="/assets/lock-CmMclBQM.svg#icon-lock"></use></svg></div>
+        <h2 class="logo-title" style="font-size:1.2rem">Zwei-Faktor-Code</h2>
+        <p class="logo-subtitle">Gib den 6-stelligen Code aus deiner Authenticator-App ein.</p>
+      </div>
+      <div class="form-group">
+        <label for="auth-2fa-code">Authenticator-Code</label>
+        <input id="auth-2fa-code" type="text" inputmode="numeric" pattern="\d{6}"
+               maxlength="6" autocomplete="one-time-code"
+               placeholder="000 000" style="letter-spacing:0.25em; font-size:1.3rem; text-align:center" />
+      </div>
+      <div id="auth-2fa-error" class="form-error" aria-live="polite"></div>
+      <div style="display:flex; gap:0.5rem; margin-top:0.5rem">
+        <button id="auth-2fa-submit" type="button" class="btn btn-primary" style="flex:1">Bestätigen</button>
+        <button id="auth-2fa-cancel" type="button" class="btn btn-secondary"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/back-BORgVdYf.svg#icon-back"></use></svg>Zurück</button>
+      </div>
+    </div>
+
+    <form id="dev-auth-tools" class="auth-form hidden" aria-live="polite" autocomplete="off" method="post" action="index.html" onsubmit="return false;">
+      <h3>Dev Tools</h3>
+      <p style="margin-top:0">Local-only password reset for test users.</p>
+      <div class="form-group">
+        <label for="dev-reset-username">Username</label>
+        <input id="dev-reset-username" type="text" placeholder="default_user" />
+      </div>
+      <div class="form-group">
+        <label for="dev-reset-password">New Password</label>
+        <input id="dev-reset-password" type="password" minlength="8" placeholder="New password" />
+      </div>
+      <button id="dev-reset-btn" type="button" class="btn btn-danger btn-full">Reset Password (Dev)</button>
+      <div id="dev-reset-result" class="form-error" aria-live="polite"></div>
+    </form>
+
+    <!-- Register form -->
+    <form id="register-form" class="auth-form hidden" autocomplete="on" method="post" action="index.html">
+      <div class="form-group">
+        <label for="reg-username">Commander Name</label>
+        <input id="reg-username" type="text" name="username" required
+               autocomplete="username" pattern="[A-Za-z0-9_]{3,32}"
+               title="3-32 alphanumeric characters or underscores"
+               placeholder="Choose a unique name" />
+      </div>
+      <div class="form-group">
+        <label for="reg-email">Email</label>
+        <input id="reg-email" type="email" name="email" required
+               autocomplete="email" placeholder="you@example.com" />
+      </div>
+      <div class="form-group">
+        <label for="reg-password">Password</label>
+        <input id="reg-password" type="password" name="password" required
+               autocomplete="new-password" minlength="8"
+               placeholder="Min 8 characters" />
+      </div>
+      <div class="form-group">
+        <label>
+          <input id="reg-remember" type="checkbox" name="remember" value="1" />
+          Keep me signed in
+        </label>
+      </div>
+      <button type="submit" class="btn btn-primary btn-full">Launch into the Galaxy</button>
+      <div id="register-error" class="form-error" aria-live="polite"></div>
+    </form>
+
+    <div class="auth-inline-copyright" aria-hidden="true">
+      <p class="auth-inline-copyright-main">© 2026 Galaxy Quest Interactive. All rights reserved.</p>
+      <p class="auth-inline-copyright-build">build {{buildnr}} — {{build_date}}</p>
+    </div>
+
+    <div class="auth-bottom-bar" aria-label="Auth Quick Links">
+      <button id="auth-console-toggle" class="auth-bottom-btn" type="button" title="Toggle Developer Console" aria-label="Developer Console"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/terminal-CUgq9hKY.svg#icon-terminal"></use></svg>Konsole</button>
+      <a class="auth-bottom-btn auth-bottom-link" href="README.md" target="_blank" rel="noopener noreferrer" aria-label="Hilfe oeffnen"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/search-DGJHjAtB.svg#icon-search"></use></svg>Hilfe</a>
+      <a class="auth-bottom-btn auth-bottom-link" href="docs/lore/" target="_blank" rel="noopener noreferrer" aria-label="Blog oeffnen"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/mail-DYWC6qpZ.svg#icon-mail"></use></svg>Blog</a>
+    </div>
+  </div>
+    </template>
+  </section>
+
+    <dialog id="server-announcements-dialog" class="start-dialog server-announcements-dialog" aria-labelledby="server-announcements-title">
+      <header class="start-dialog-header">
+        <h2 id="server-announcements-title">Server announcements</h2>
+        <button type="button" data-announcements-close>Close</button>
+      </header>
+      <p id="server-announcements-status" class="start-session-status" role="status" aria-live="polite">Loading announcements...</p>
+      <div id="server-announcements-list"></div>
+      <button id="server-announcements-refresh" class="start-button start-button-small" type="button">Refresh</button>
+    </dialog>
+
+    <section id="registration-prologue" class="registration-prologue" aria-label="Registration prologue" hidden>
+      <button id="registration-back" class="registration-back" type="button">Zurück</button>
+      <main class="registration-stage">
+        <p id="registration-chapter" class="registration-chapter"></p>
+        <progress id="registration-progress" class="registration-progress" max="10" value="1" aria-label="Fortschritt im Registrierungsintro"></progress>
+        <h2 id="registration-title" tabindex="-1"></h2>
+        <p id="registration-story" class="registration-story"></p>
+        <p id="registration-narration-status" role="status" aria-live="polite"></p>
+        <button id="registration-narration-retry" class="wm-modal-nav-btn" type="button" hidden>Sprachausgabe erneut versuchen</button>
+        <p id="registration-flight-status" role="status" aria-live="polite"></p>
+        <div id="registration-choices" class="registration-choices"></div>
+        <section id="registration-character" hidden>
+          <p id="registration-draft-summary" class="registration-draft-summary" hidden></p>
+          <form id="registration-character-form">
+            <label for="registration-name">Commander-Name</label>
+            <input id="registration-name" name="name" type="text" minlength="3" maxlength="32" required autocomplete="off" />
+            <label for="registration-background">Hintergrund</label>
+            <textarea id="registration-background" name="background" rows="3" maxlength="500" required></textarea>
+            <button class="wm-modal-nav-btn wm-modal-nav-btn-primary" type="submit" disabled>Charakter-Draft speichern</button>
+          </form>
+          <div class="registration-portrait">
+            <img id="registration-portrait-image" alt="Privates Commander-Portrait" hidden />
+            <p id="registration-portrait-status" role="status" aria-live="polite">Speichere zuerst deinen Charakter-Draft.</p>
+            <button id="registration-portrait-generate" class="wm-modal-nav-btn" type="button" disabled>KI-Portrait erzeugen</button>
+            <button id="registration-portrait-refresh" class="wm-modal-nav-btn" type="button" hidden>Status aktualisieren</button>
+          </div>
+        </section>
+        <section id="registration-surface" hidden aria-label="Planetenoberfläche"></section>
+        <section id="registration-review" class="registration-review" hidden aria-labelledby="registration-review-title">
+          <h3 id="registration-review-title">Dein Entwurf</h3>
+          <dl>
+            <div><dt>Herkunft</dt><dd id="registration-review-origin"></dd></div>
+            <div><dt>System</dt><dd id="registration-review-system"></dd></div>
+            <div><dt>Startwelt</dt><dd id="registration-review-world"></dd></div>
+            <div><dt>Kommandantenname</dt><dd id="registration-review-commander"></dd></div>
+            <div><dt>Hintergrund</dt><dd id="registration-review-background"></dd></div>
+          </dl>
+          <p>Du kannst sofort in deiner isolierten Draft-Welt spielen. Erst die E-Mail-Bestätigung etabliert sie in der gemeinsamen Galaxy und übernimmt deinen Fortschritt.</p>
+        </section>
+        <p id="registration-status" role="status" aria-live="polite"></p>
+        <p id="registration-error" role="alert" aria-live="assertive"></p>
+        <div class="registration-stage-actions">
+          <button id="registration-retry" class="wm-modal-nav-btn" type="button" hidden>Erneut versuchen</button>
+          <button id="registration-continue" class="wm-modal-nav-btn wm-modal-nav-btn-primary" type="button" hidden>Weiter</button>
+        </div>
+      </main>
+    </section>
+
+    <section id="draft-world" class="draft-world" aria-labelledby="draft-world-title" hidden>
+      <header>
+        <p>DRAFT MODUS / ISOLIERTE STARTWELT</p>
+        <h2 id="draft-world-title" tabindex="-1">Dein Kommandostand</h2>
+        <button id="draft-refresh" type="button">Fortschritt aktualisieren</button>
+        <button id="draft-leave" type="button">Zum Hauptmenü</button>
+      </header>
+      <p>Dein Fortschritt wird serverseitig ohne Ablaufdatum gespeichert. Andere Spieler können diese Welt weder sehen noch mit ihr interagieren. Die E-Mail-Bestätigung übernimmt sie dauerhaft in die Galaxy.</p>
+      <p id="draft-location"></p>
+      <p id="draft-resources" aria-live="polite"></p>
+      <p id="draft-population"></p>
+      <p id="draft-status" role="status" aria-live="polite"></p>
+      <p id="draft-error" role="alert"></p>
+      <section aria-labelledby="draft-orders-title">
+        <h3 id="draft-orders-title">Lokale Aufträge</h3>
+        <ul id="draft-queues"></ul>
+      </section>
+      <section>
+        <h3>Gebäude</h3>
+        <p id="draft-buildings"></p>
+        <form id="draft-building-form">
+          <label for="draft-building">Gebäude ausbauen</label>
+          <select id="draft-building" required></select>
+          <button type="submit">Ausbau starten</button>
+        </form>
+      </section>
+      <section>
+        <h3>Forschung</h3>
+        <p id="draft-research-levels"></p>
+        <form id="draft-research-form">
+          <label for="draft-research">Technologie</label>
+          <select id="draft-research" required></select>
+          <button type="submit">Forschung starten</button>
+        </form>
+      </section>
+      <section>
+        <h3>Lokale Flotte</h3>
+        <p id="draft-ships"></p>
+        <form id="draft-ship-form">
+          <label for="draft-ship">Schiff bauen</label>
+          <select id="draft-ship" required></select>
+          <label for="draft-ship-count">Anzahl</label>
+          <input id="draft-ship-count" type="number" value="1" min="1" max="100" required />
+          <button type="submit">Schiffbau starten</button>
+        </form>
+        <form id="draft-fleet-form">
+          <label for="draft-planet">Private Systemerkundung (eine Sonde, 10 Deuterium)</label>
+          <select id="draft-planet" required></select>
+          <button type="submit">Sonde entsenden</button>
+        </form>
+        <p id="draft-surveyed"></p>
+      </section>
+      <details id="draft-registration">
+        <summary>Dauerhaft in der Galaxy etablieren</summary>
+        <p>Die Bestätigung aktiviert dein Konto und übernimmt Ressourcen, Gebäude, Forschung und Flotte. Bis dahin kannst du ohne Kontodaten weiterspielen.</p>
+        <form id="draft-email-form">
+          <label for="draft-username">Kontoname für den Login (Commander-Dossier bleibt unverändert)</label>
+          <input id="draft-username" type="text" minlength="3" maxlength="32" pattern="[A-Za-z0-9_]{3,32}" autocomplete="username" required />
+          <label for="draft-email">E-Mail</label>
+          <input id="draft-email" type="email" maxlength="255" autocomplete="email" required />
+          <label for="draft-password">Passwort (12–72 Bytes)</label>
+          <input id="draft-password" type="password" minlength="12" maxlength="72" autocomplete="new-password" required />
+          <button type="submit">Bestätigung senden</button>
+        </form>
+        <p id="draft-mail-status" role="status"></p>
+      </details>
+      <button id="draft-confirm-retry" type="button" hidden>Bestätigungslink erneut prüfen</button>
+      <button id="draft-activate-retry" type="button" hidden>Bestätigte Spielebene erneut öffnen</button>
+    </section>
+
+  <!-- Narrative registration prologue (shown once after successful registration) -->
+  <section id="prolog-section" class="prolog-section hidden" aria-hidden="true" aria-live="polite"></section>
+
+  <section id="auth-preload-section" class="auth-preload-shell" aria-live="polite" aria-atomic="true">
+    <div id="auth-preload-panel" class="auth-preload-panel hidden" role="status">
+      <div id="auth-preload-label" class="auth-preload-label">Systemcheck laeuft...</div>
+      <div class="auth-preload-track" aria-hidden="true">
+        <div id="auth-preload-bar" class="auth-preload-bar"></div>
+      </div>
+      <div id="auth-preload-meta" class="auth-preload-meta">0%</div>
+    </div>
+  </section>
+
+  <section id="auth-action-section" class="auth-action-shell" aria-live="polite" aria-atomic="true">
+    <div id="auth-action-modal" class="auth-action-modal hidden" role="status" aria-live="polite" aria-busy="false">
+      <div class="auth-action-card">
+        <div id="auth-action-spinner" class="auth-action-spinner" aria-hidden="true"></div>
+        <h3 id="auth-action-title" class="auth-action-title">Bitte warten...</h3>
+        <p id="auth-action-text" class="auth-action-text">Anmeldung wird verarbeitet.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="auth-login-confirm-section" class="auth-login-confirm-section hidden" aria-live="polite" aria-atomic="true">
+    <div id="auth-login-confirm-card" class="auth-login-confirm-card">
+      <h3 id="auth-login-confirm-title" class="auth-login-confirm-title">Login ok</h3>
+      <p id="auth-login-confirm-text" class="auth-login-confirm-text">Lade Kommandostand...</p>
+      <div class="auth-login-confirm-track" aria-hidden="true">
+        <div id="auth-login-confirm-bar" class="auth-login-confirm-bar"></div>
+      </div>
+      <div id="auth-login-confirm-meta" class="auth-login-confirm-meta">0% • Session ok</div>
+    </div>
+  </section>
+
+  <section id="topbar-section" class="game-ui-section">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button id="topbar-title-btn" class="topbar-brand-btn" type="button" title="Daten aktualisieren" aria-label="Daten aktualisieren">
+          <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="/assets/galaxy-DdBhRPGV.svg#icon-galaxy"></use></svg>
+          <span class="game-command-action-label">Daten aktualisieren</span>
+        </button>
+        <button id="topbar-home-btn" class="topbar-home-btn" type="button" title="Zum Heimatsystem springen" aria-label="Zum Heimatsystem springen">
+          <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="/assets/home-CdSU0v1a.svg#icon-home"></use></svg>
+          <span class="game-command-action-label">Heimatsystem</span>
+        </button>
+        <span id="topbar-coords" class="coords-badge"></span>
+        <label class="sr-only" for="game-colony-select">Aktive Kolonie</label>
+        <select id="game-colony-select" aria-label="Aktive Kolonie" disabled></select>
+        <span id="topbar-orbit-mode" class="coords-badge orbit-mode-badge hidden" aria-live="polite" role="button" tabindex="0" title="Orbit-Simulation umschalten (AUTO → SIMPLE → COMPLEX)"></span>
+      </div>
+
+      <nav class="topbar-nav" aria-label="Open windows">
+
+        <!-- Colony group: direct action + dropdown for sub-items -->
+        <div class="nav-split-group" id="nav-group-colony">
+          <button class="nav-btn nav-split-primary" data-win="overview" title="Colony Overview"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/colony-B234cryI.svg#icon-colony"></use></svg>Colony</button>
+          <button class="nav-btn nav-split-arrow" aria-haspopup="true" aria-expanded="false"
+                  aria-controls="nav-drop-colony" data-nav-drop="colony" type="button"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="/assets/chevron-down-_d1k9njO.svg#icon-chevron-down"></use></svg></button>
+          <div id="nav-drop-colony" class="nav-dropdown hidden" role="menu">
+            <button class="nav-drop-item" data-win="overview" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/colony-B234cryI.svg#icon-colony"></use></svg>Overview</button>
+            <button class="nav-drop-item" data-win="buildings" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/buildings-C5jP0bS1.svg#icon-buildings"></use></svg>Buildings</button>
+            <button class="nav-drop-item" data-win="research" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/research-D8Uhp6b6.svg#icon-research"></use></svg>Research</button>
+            <button class="nav-drop-item" data-win="economy" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/trade-5HVxJ6PY.svg#icon-trade"></use></svg>Economy</button>
+          </div>
+        </div>
+
+        <!-- Military group -->
+        <div class="nav-split-group" id="nav-group-military">
+          <button class="nav-btn nav-split-primary" data-win="fleet" title="Fleet"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/military-Bj_rQ0mr.svg#icon-military"></use></svg>Military</button>
+          <button class="nav-btn nav-split-arrow" aria-haspopup="true" aria-expanded="false"
+                  aria-controls="nav-drop-military" data-nav-drop="military" type="button"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="/assets/chevron-down-_d1k9njO.svg#icon-chevron-down"></use></svg></button>
+          <div id="nav-drop-military" class="nav-dropdown hidden" role="menu">
+            <button class="nav-drop-item" data-win="shipyard" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/shipyard-CodD7qjL.svg#icon-shipyard"></use></svg>Shipyard</button>
+            <button class="nav-drop-item" data-win="fleet" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/fleet-DmOrW1CA.svg#icon-fleet"></use></svg>Fleet</button>
+            <button class="nav-drop-item" data-win="wormholes" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/wormhole-Bd3bL3uv.svg#icon-wormhole"></use></svg>Wormholes</button>
+            <button class="nav-drop-item" data-win="wars" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/military-Bj_rQ0mr.svg#icon-military"></use></svg>Wars</button>
+            <button class="nav-drop-item" data-win="conflict" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/intel-vuTvmdJW.svg#icon-intel"></use></svg>Conflict</button>
+          </div>
+        </div>
+
+        <!-- Comms group: shows combined badge on primary button -->
+        <div class="nav-split-group" id="nav-group-comms">
+          <button class="nav-btn nav-split-primary" data-win="messages" title="Messages">
+            <svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/mail-DYWC6qpZ.svg#icon-mail"></use></svg>Comms
+            <span id="comms-badge" class="msg-badge hidden">0</span>
+          </button>
+          <button class="nav-btn nav-split-arrow" aria-haspopup="true" aria-expanded="false"
+                  aria-controls="nav-drop-comms" data-nav-drop="comms" type="button"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="/assets/chevron-down-_d1k9njO.svg#icon-chevron-down"></use></svg></button>
+          <div id="nav-drop-comms" class="nav-dropdown hidden" role="menu">
+            <button class="nav-drop-item" data-win="messages" role="menuitem">
+              <svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/mail-DYWC6qpZ.svg#icon-mail"></use></svg>Messages <span id="msg-badge" class="msg-badge hidden">0</span>
+            </button>
+            <button class="nav-drop-item" data-win="intel" role="menuitem">
+              <svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/intel-vuTvmdJW.svg#icon-intel"></use></svg>Intel <span id="intel-badge" class="msg-badge hidden">0</span>
+            </button>
+            <button class="nav-drop-item" data-win="trade-routes" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/trade-5HVxJ6PY.svg#icon-trade"></use></svg>Trade Routes</button>
+            <button class="nav-drop-item" data-win="traders" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/leaderboard-B2k8u2B8.svg#icon-leaderboard"></use></svg>Traders</button>
+            <button class="nav-drop-item" data-win="pirates" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/fleet-DmOrW1CA.svg#icon-fleet"></use></svg>Pirates</button>
+            <button class="nav-drop-item" data-win="conflict" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/intel-vuTvmdJW.svg#icon-intel"></use></svg>Conflict Board</button>
+            <button class="nav-drop-item" data-win="quests" role="menuitem">
+              <svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/quests-elSjaVCy.svg#icon-quests"></use></svg>Quests <span id="quest-badge" class="msg-badge hidden">0</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Galaxy group -->
+        <div class="nav-split-group" id="nav-group-galaxy">
+          <button class="nav-btn nav-split-primary" data-game-galaxy-overview title="Galaxy"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/galaxy-DdBhRPGV.svg#icon-galaxy"></use></svg>Galaxy</button>
+          <button class="nav-btn nav-split-arrow" aria-haspopup="true" aria-expanded="false"
+                  aria-controls="nav-drop-galaxy" data-nav-drop="galaxy" type="button"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="/assets/chevron-down-_d1k9njO.svg#icon-chevron-down"></use></svg></button>
+          <div id="nav-drop-galaxy" class="nav-dropdown hidden" role="menu">
+            <button class="nav-drop-item" data-win="factions" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/factions-DftXkZ5E.svg#icon-factions"></use></svg>Factions</button>
+            <button class="nav-drop-item" data-win="leaders" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/user-BsFy1hIv.svg#icon-user"></use></svg>Leaders</button>
+            <button class="nav-drop-item" data-win="leaderboard" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/leaderboard-B2k8u2B8.svg#icon-leaderboard"></use></svg>Leaderboard</button>
+            <button class="nav-drop-item" data-win="minimap" role="menuitem"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/map-Bsclw6jm.svg#icon-map"></use></svg>Minimap</button>
+          </div>
+        </div>
+
+      </nav>
+
+      <div class="topbar-right">
+        <!-- Search -->
+        <div class="topbar-menu topbar-search-wrap" id="topbar-search-wrap">
+          <button id="topbar-search-toggle" class="topbar-icon-btn" type="button" title="Suche"
+                  aria-label="Suche" aria-expanded="false" aria-haspopup="true" aria-controls="topbar-search-menu">
+            <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="/assets/search-DGJHjAtB.svg#icon-search"></use></svg>
+          </button>
+          <div id="topbar-search-menu" class="topbar-menu-panel hidden" role="dialog" aria-label="Galaxy search">
+            <input id="topbar-search-input" class="topbar-search-input" type="search"
+                   placeholder="Sterne/Systeme suchen..." autocomplete="off" aria-label="Galaxy search" />
+            <div id="topbar-search-overlay" class="topbar-search-overlay hidden"
+                 role="listbox" aria-label="Search results"></div>
+          </div>
+        </div>
+
+        <!-- Audio: icon-only quick controls + expand -->
+        <div class="topbar-player topbar-menu" id="topbar-player" aria-label="Musiksteuerung">
+          <button id="topbar-player-toggle" class="topbar-icon-btn" type="button"
+            title="Musik starten" aria-label="Musik starten">
+            <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="/assets/play-DgqO1hXg.svg#icon-play"></use></svg>
+          </button>
+          <button id="audio-toggle-btn" class="topbar-icon-btn" type="button"
+            title="Audio stummschalten" aria-label="Audio stummschalten">
+            <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="/assets/volume-D6JWuhtZ.svg#icon-volume"></use></svg>
+          </button>
+          <button id="topbar-player-menu-toggle" class="topbar-icon-btn" type="button"
+                  title="Player-Menü" aria-expanded="false" aria-haspopup="true"
+            aria-label="Player-Menü" aria-controls="topbar-player-menu">
+            <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="/assets/music-DCCNzri7.svg#icon-music"></use></svg>
+          </button>
+          <div id="topbar-player-menu" class="topbar-menu-panel topbar-player-menu hidden"
+               role="dialog" aria-label="Erweiterte Musiksteuerung">
+            <div class="topbar-player-menu-row">
+              <button id="topbar-player-prev" class="btn btn-secondary btn-sm" type="button" title="Vorheriger Track"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="/assets/prev-CoprERQm.svg#icon-prev"></use></svg><span class="sr-only">Vorheriger Track</span></button>
+              <button id="topbar-player-next-quick" class="btn btn-secondary btn-sm" type="button" title="Nächster Track"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="/assets/next-CLANEpv5.svg#icon-next"></use></svg><span class="sr-only">Nächster Track</span></button>
+            </div>
+            <select id="topbar-player-track" class="topbar-player-track" title="Track auswählen" aria-label="Track auswählen"></select>
+            <div id="topbar-player-track-list" class="topbar-player-track-list" role="listbox" aria-label="Verfügbare Titel"></div>
+            <span id="topbar-player-current" class="topbar-player-current" title="Aktueller Track">-</span>
+            <span id="topbar-player-mode" class="topbar-player-mode" title="Transition-Modus">FADE</span>
+            <label>Musiklautstärke
+              <input id="topbar-player-volume" type="range" min="0" max="100" step="1" value="55" disabled />
+            </label>
+            <label><input id="topbar-player-ducking" type="checkbox" checked disabled /> Musik bei Sprachausgabe absenken</label>
+            <label>Absenkstärke bei Sprache
+              <input id="topbar-player-ducking-strength" type="range" min="10" max="90" step="5" value="55" disabled />
+            </label>
+            <span id="topbar-player-status" role="status" aria-live="polite"></span>
+          </div>
+        </div>
+
+        <!-- User menu -->
+        <div class="user-menu-wrap" id="user-menu-wrap">
+          <!-- Advisor Tau Button -->
+          <button id="open-advisor-btn" class="btn btn-info btn-sm advisor-btn" type="button" 
+                  title="Open Advisor Tau" aria-label="Open Advisor Tau"
+                  style="margin-right: 0.5rem;">
+            <span style="font-size: 1.2em;">📚</span>
+          </button>
+          
+          <div class="commander-split" role="group" aria-label="Commander menu">
+            <button id="commander-name" class="commander commander-btn" type="button"
+                    aria-haspopup="dialog" title="Einstellungen oeffnen"></button>
+            <button id="commander-menu-arrow" class="commander commander-arrow-btn" type="button"
+                    aria-haspopup="menu" aria-expanded="false" title="Commander-Menue oeffnen">
+              <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="/assets/chevron-down-_d1k9njO.svg#icon-chevron-down"></use></svg>
+            </button>
+          </div>
+        </div>
+
+        <button id="logout-btn" class="btn btn-danger btn-sm" title="Logout" aria-label="Logout">
+          <svg class="gq-icon gq-icon-btn" aria-hidden="true" focusable="false"><use href="/assets/logout-BFtZVJ6Q.svg#icon-logout"></use></svg>
+        </button>
+      </div>
+    </header>
+    <!-- System Bodies Breadcrumb Navigation -->
+    <div id="system-breadcrumb-nav" aria-label="System bodies breadcrumb" role="navigation"></div>
+    <!-- Stellaris-style System Overview: each body rendered as WebGPU canvas -->
+    <div id="stellaris-system-overview" aria-label="Stellaris System Overview" role="region"></div>
+  </section>
+
+  <section id="resource-section" class="">
+    <p id="game-data-status" role="status" aria-live="polite"></p>
+    <nav class="game-development-actions" aria-label="Kolonieentwicklung">
+      <button class="btn btn-secondary btn-sm" type="button" data-game-development="buildings">Gebäude</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-game-development="research">Forschung</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-game-economy>Wirtschaft</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-game-fleets>Flotten</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-game-fleet-launch>Flotte starten</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-game-shipyard>Werft</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-game-market>Markt</button>
+      <button class="btn btn-secondary btn-sm" type="button" data-game-population>Bevölkerung</button>
+    </nav>
+    <p class="game-resource-help">Koloniebestände · Ressource auswählen, um Details zu öffnen. Dunkle Materie ist kontoweit. Tastatur: ↑/↓ wechseln, Pos1/Ende zum ersten/letzten Eintrag.</p>
+    <div class="resource-bar">
+
+      <button class="resource resource-btn metal" type="button" data-resource="metal" title="Metalldetails öffnen">
+        <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="/assets/metal-C3fOy81n.svg#icon-metal"></use></svg></span>
+        <span class="res-label">Metall</span>
+        <span id="res-metal" class="res-value">—</span>
+      </button>
+      <button class="resource resource-btn crystal" type="button" data-resource="crystal" title="Kristalldetails öffnen">
+        <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="/assets/crystal-CpWMkAO_.svg#icon-crystal"></use></svg></span>
+        <span class="res-label">Kristall</span>
+        <span id="res-crystal" class="res-value">—</span>
+      </button>
+      <button class="resource resource-btn deuterium" type="button" data-resource="deuterium" title="Deuteriumdetails öffnen">
+        <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="/assets/deuterium-Bjw1a8jh.svg#icon-deuterium"></use></svg></span>
+        <span class="res-label">Deuterium</span>
+        <span id="res-deuterium" class="res-value">—</span>
+      </button>
+      <button class="resource resource-btn food" type="button" data-resource="food" title="Nahrungsdetails öffnen">
+        <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="/assets/food-DoiUar4T.svg#icon-food"></use></svg></span>
+        <span class="res-label">Nahrung</span>
+        <span id="res-food" class="res-value">—</span>
+      </button>
+      <button class="resource resource-btn rare-earth" type="button" data-resource="rare_earth" title="Details zu seltenen Erden öffnen">
+        <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="/assets/rare-earth-DBSbC4Mu.svg#icon-rare-earth"></use></svg></span>
+        <span class="res-label">Seltene Erden</span>
+        <span id="res-rare-earth" class="res-value">—</span>
+      </button>
+      <button class="resource resource-btn population" type="button" data-resource="population" title="Bevölkerungsdetails öffnen">
+        <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="/assets/population-BL4RMrNs.svg#icon-population"></use></svg></span>
+        <span class="res-label">Bevölkerung</span>
+        <span id="res-population" class="res-value">—</span>
+      </button>
+      <button class="resource resource-btn happiness" type="button" data-resource="happiness" title="Zufriedenheitsdetails öffnen">
+        <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="/assets/happiness-DykMFu6U.svg#icon-happiness"></use></svg></span>
+        <span class="res-label">Zufriedenheit</span>
+        <span id="res-happiness" class="res-value">—</span>
+      </button>
+      <button class="resource resource-btn energy" type="button" data-resource="energy" title="Energiedetails öffnen">
+        <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="/assets/energy-B9WrCLIA.svg#icon-energy"></use></svg></span>
+        <span class="res-label">Energie</span>
+        <span id="res-energy" class="res-value">—</span>
+      </button>
+      <div class="resource dark-matter" title="Dunkle Materie: bestätigter Kontostand">
+        <span class="res-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="/assets/dark-matter-IL2hXEZq.svg#icon-dark-matter"></use></svg></span>
+        <span class="res-label">Dunkle Materie</span>
+        <span id="res-dark-matter" class="res-value">0</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- WM windows are section-based. New window hosts are created as <section> directly under <body>. -->
+
+  <section id="left_sidebar" class="wm-window-host" aria-label="Left Sidebar Host">
+    <section class="wm-adaptable-window sidebar-panel sidebar-panel-left"
+      data-wm-window="left-sidebar"
+      data-wm-title="Left Sidebar"
+      data-wm-width="300"
+      data-wm-height="520"
+      data-wm-default-dock="left"
+      data-wm-default-y="72"
+      data-wm-preserve-on-close="1"
+      data-wm-hide-task-button="0"
+      data-wm-persist-state="0">
+      <div class="wm-titlebar">
+        <span class="wm-title">Left Sidebar</span>
+        <div class="wm-controls">
+          <button type="button" class="wm-btn wm-btn-min" title="Minimise">-</button>
+          <button type="button" class="wm-btn wm-btn-close" title="Close">X</button>
+        </div>
+      </div>
+      <div class="wm-body">
+        <div class="sidebar-panel-content text-muted">Left Sidebar ready for WM adapt.</div>
+      </div>
+      <div class="wm-resize-handle" title="Resize"></div>
+    </section>
+  </section>
+
+  <section id="right_sidebar" class="wm-window-host" aria-label="Right Sidebar Host">
+    <section class="wm-adaptable-window sidebar-panel sidebar-panel-right"
+      data-wm-window="right-sidebar"
+      data-wm-title="Right Sidebar"
+      data-wm-width="300"
+      data-wm-height="520"
+      data-wm-default-dock="right"
+      data-wm-default-y="72"
+      data-wm-preserve-on-close="1"
+      data-wm-hide-task-button="0"
+      data-wm-persist-state="0">
+      <div class="wm-titlebar">
+        <span class="wm-title">Right Sidebar</span>
+        <div class="wm-controls">
+          <button type="button" class="wm-btn wm-btn-min" title="Minimise">-</button>
+          <button type="button" class="wm-btn wm-btn-close" title="Close">X</button>
+        </div>
+      </div>
+      <div class="wm-body">
+        <div class="sidebar-panel-content text-muted">Right Sidebar ready for WM adapt.</div>
+      </div>
+      <div class="wm-resize-handle" title="Resize"></div>
+    </section>
+  </section>
+
+  <!-- System Bodies Card Window — GQWM floating window with card layout -->
+  <section id="system-bodies-cards-host" class="wm-window-host" aria-label="System Bodies Card Window Host">
+    <section class="wm-adaptable-window"
+      data-wm-window="system-bodies-cards"
+      data-wm-title="System Bodies"
+      data-wm-width="740"
+      data-wm-height="500"
+      data-wm-persist-state="1">
+      <div class="wm-titlebar">
+        <span class="wm-title">System Bodies</span>
+        <div class="wm-controls">
+          <button type="button" class="wm-btn wm-btn-min" title="Minimise">-</button>
+          <button type="button" class="wm-btn wm-btn-close" title="Close">X</button>
+        </div>
+      </div>
+      <div class="wm-body">
+        <div class="sbcw-toolbar">
+          <span id="system-bodies-cards-count" class="sbcw-count" aria-live="polite"></span>
+        </div>
+        <div id="system-bodies-cards-grid" class="sbcw-grid" role="list" aria-label="Celestial bodies"></div>
+      </div>
+      <div class="wm-resize-handle" title="Resize"></div>
+    </section>
+  </section>
+
+  <!-- NPC Dialogue Panel Host -->
+  <section id="npc-dialogue-panel-host" class="wm-window-host" aria-label="NPC Dialogue Panel Host" aria-hidden="true">
+    <section 
+      id="npc-dialogue-panel" 
+      class="npc-dialogue-container wm-adaptable-window hidden" 
+      data-wm-window="npc-dialogue"
+      data-wm-title="NPC Chat"
+      data-wm-width="380"
+      data-wm-height="500"
+      data-wm-default-dock="floating"
+      data-wm-default-x="auto"
+      data-wm-default-y="auto"
+      data-wm-default-floating-x="calc(100% - 420px)"
+      data-wm-default-floating-y="calc(100% - 540px)"
+      data-wm-preserve-on-close="1"
+      data-wm-hide-task-button="0"
+      data-wm-persist-state="0">
+      <div class="wm-titlebar">
+        <span class="wm-title">NPC Chat</span>
+        <div class="wm-controls">
+          <button type="button" class="wm-btn wm-btn-min" title="Minimise">-</button>
+          <button type="button" class="wm-btn wm-btn-close" title="Close">X</button>
+        </div>
+      </div>
+      <div class="wm-body"></div>
+      <div class="wm-resize-handle" title="Resize"></div>
+    </section>
+  </section>
+
+  <!-- Game Guide NPC Panel -->
+  <div id="game-guide-panel" class="hidden" style="display: none !important;">
+    <div class="guide-header">
+      <span class="guide-name">📚 Advisor Tau</span>
+      <button class="close-btn" onclick="document.getElementById('game-guide-panel').classList.add('hidden')">×</button>
+    </div>
+    <div class="guide-content">
+      <div id="guide-greeting" class="guide-item">Hallo! Willkommen zu GalaxyQuest. Ich bin Advisor Tau, dein persönlicher Ratgeber. Was möchtest du wissen?</div>
+      <div id="guide-assessment" style="display:none;"></div>
+      <div id="guide-tips" style="display:none;"></div>
+    </div>
+    <div class="guide-footer">
+      <button onclick="showGameGuideTopic('getting_started')">Hilfe</button>
+      <button onclick="assessGameStateFromGuide()">Analyse</button>
+    </div>
+  </div>
+
+  <section id="taskbar-section" class="">
+    <div id="wm-taskbar" class="wm-taskbar" aria-label="Open windows">
+      <div id="wm-taskbar-split" class="wm-taskbar-split" role="group" aria-label="Windows-Menü">
+        <button id="wm-taskbar-menu-btn" class="wm-taskbar-menu-btn" type="button" title="Zuletzt geschlossene Fenster anzeigen">Windows</button>
+        <button id="wm-taskbar-menu-arrow" class="wm-taskbar-menu-arrow" type="button" aria-label="Windows-Menü öffnen" title="Menü öffnen">▾</button>
+      </div>
+      <div id="wm-taskbar-spacer" class="wm-taskbar-spacer"></div>
+      <div class="footer-actions" id="footer-actions">
+        <button id="footer-quicknav-btn" class="footer-action-btn" type="button" title="Quick Navigation &amp; Favoriten">
+          <svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/star-BOn8VkF3.svg#icon-star"></use></svg>QuickNav <span id="footer-quicknav-badge" class="footer-action-badge hidden">0</span>
+        </button>
+        <button id="footer-nav-orb-btn" class="footer-action-btn" type="button" title="Nav-Orb-Fenster ein-/ausblenden"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/orb-Cnrc_xD4.svg#icon-orb"></use></svg>Orb</button>
+        <button id="footer-minimap-btn" class="footer-action-btn" type="button" title="Minikarte ein-/ausblenden"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/map-Bsclw6jm.svg#icon-map"></use></svg>Map</button>
+        <button id="ui-console-toggle" class="footer-action-btn" type="button" title="UI-Konsole ein-/ausklappen"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/terminal-CUgq9hKY.svg#icon-terminal"></use></svg>Con</button>
+        <button id="footer-uikit-btn" class="footer-action-btn" type="button" title="UI Kit Preview &amp; Modal-Demos ein-/ausblenden"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/gameplay-C70g7GV8.svg#icon-gameplay"></use></svg>Kit</button>
+        <button id="footer-system-cards-btn" class="footer-action-btn" type="button" title="System Bodies — Card View"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/colony-B234cryI.svg#icon-colony"></use></svg>Bodies</button>
+      </div>
+      <div id="footer-load-badge" class="footer-load-badge hidden" role="status" aria-live="polite" aria-atomic="true">Nachladen</div>
+      <div id="footer-load" class="footer-load hidden" role="status" aria-live="polite">
+        <span id="footer-load-label" class="footer-load-label">Lade Daten…</span>
+        <div class="footer-load-track" aria-hidden="true">
+          <div id="footer-load-bar" class="footer-load-bar"></div>
+        </div>
+        <span id="footer-load-queue" class="footer-load-queue">Q:0|F:0|C:0</span>
+        <span id="footer-network-status" class="footer-net footer-net-unknown">NET: ?</span>
+        <span id="footer-load-pct" class="footer-load-pct">0%</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="terminal-section">
+    <div id="toast" class="toast hidden" role="status" aria-live="assertive"></div>
+    <section id="boot-terminal" class="ui-console-panel" data-wm-window="console" aria-label="System log">
+      <div id="boot-terminal-head" class="ui-console-head">
+        <div class="boot-terminal-title">
+          <strong>System log</strong>
+          <span id="boot-terminal-mode">Mode: Fallback</span>
+        </div>
+        <section id="auth-status-section" class="auth-status-shell" aria-label="Latest log entry">
+          <span class="auth-status-caption">Latest entry</span>
+          <div id="auth-status-line" class="auth-status-line">INITIALIZING</div>
+        </section>
+        <div class="ui-console-actions">
+          <button id="ui-console-expand" class="btn btn-secondary btn-sm" type="button" aria-expanded="false" aria-controls="ui-console-log" title="Boot-Log anzeigen">Show log</button>
+          <label for="ui-console-filter" class="ui-console-filter-label">Level</label>
+          <select id="ui-console-filter" class="ui-console-filter" title="Log-Level filtern">
+            <option value="all" selected>All</option>
+            <option value="abort">Abort</option>
+            <option value="error">Error</option>
+            <option value="warn">Warn</option>
+            <option value="info">Info</option>
+            <option value="log">Log</option>
+            <option value="debug">Debug</option>
+            <option value="system">System</option>
+          </select>
+          <button id="ui-console-copy" class="btn btn-secondary btn-sm" type="button">Copy</button>
+          <button id="ui-console-clear" class="btn btn-secondary btn-sm" type="button">Clear</button>
+          <button id="ui-console-close" class="btn btn-secondary btn-sm" type="button">Close</button>
+        </div>
+      </div>
+      <div id="auth-log-alert" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+      <div id="ui-console-log" class="ui-console-log" role="region" aria-label="Log entries" tabindex="0" hidden></div>
+      <div id="ui-console-input-row" class="ui-console-input-row" hidden>
+        <input id="ui-console-input" type="text" placeholder="help | refresh | home | open settings | transitions on/off | msg &lt;user&gt; &lt;text&gt;" />
+        <button id="ui-console-run" class="btn btn-primary btn-sm" type="button">Run</button>
+      </div>
+    </section>
+    <script>
+      (function () {
+        const bootTerminal = document.getElementById('boot-terminal');
+        const bootLog = document.getElementById('ui-console-log');
+        const bootMode = document.getElementById('boot-terminal-mode');
+        const bootLogToggle = document.getElementById('ui-console-expand');
+        const bootConsoleInput = document.getElementById('ui-console-input-row');
+        const bootLines = [];
+        const maxBootLines = 120;
+        const moduleTraceSeen = new Map();
+        let fallbackActive = true;
+        let closedLogScrollTop = 0;
+        let closedLogFollow = true;
+
+        function setBootConsoleExpanded(expanded) {
+          if (!bootTerminal || !bootLog || !bootConsoleInput || !bootLogToggle) return;
+          const isExpanded = Boolean(expanded);
+          const wasExpanded = bootTerminal.classList.contains('is-expanded');
+          if (wasExpanded && !isExpanded) {
+            closedLogScrollTop = bootLog.scrollTop;
+            closedLogFollow = bootLog.scrollHeight - bootLog.scrollTop - bootLog.clientHeight <= 24;
+          }
+          bootTerminal.classList.toggle('is-expanded', isExpanded);
+          bootLog.hidden = !isExpanded;
+          bootConsoleInput.hidden = !isExpanded;
+          if (isExpanded && !wasExpanded) {
+            bootLog.scrollTop = closedLogFollow ? bootLog.scrollHeight : closedLogScrollTop;
+          }
+          bootLogToggle.setAttribute('aria-expanded', String(isExpanded));
+          bootLogToggle.textContent = isExpanded ? 'Hide log' : 'Show log';
+          bootLogToggle.title = isExpanded ? 'Boot-Log ausblenden' : 'Boot-Log anzeigen';
+        }
+
+        window.__GQ_SET_BOOT_CONSOLE_EXPANDED = setBootConsoleExpanded;
+        bootLogToggle?.addEventListener('click', () => {
+          setBootConsoleExpanded(!bootTerminal?.classList.contains('is-expanded'));
+        });
+
+        function isBootScriptTraceEnabled() {
+          try {
+            const params = new URLSearchParams(String(window.location?.search || ''));
+            const qp = String(params.get('gqBootTrace') || '').toLowerCase();
+            if (qp === '1' || qp === 'true' || qp === 'on' || qp === 'yes') return true;
+            return localStorage.getItem('gq_boot_trace') === '1';
+          } catch (_) {
+            return false;
+          }
+        }
+
+        function ensureBootTerminalHostVisible() {
+          const host = document.getElementById('terminal-section');
+          if (!host) return;
+          host.style.display = 'block';
+          host.style.visibility = 'visible';
+          host.style.opacity = '1';
+        }
+
+        window.addEventListener('gq:terminal-log', (event) => {
+          if (fallbackActive || !document.body.classList.contains('auth-page')
+            || bootTerminal?.classList.contains('ui-console-enhanced')
+            || String(event.detail?.level || '').toLowerCase() !== 'error') return;
+          ensureBootTerminalHostVisible();
+          bootTerminal?.classList.remove('hidden');
+          setBootConsoleExpanded(true);
+        });
+
+        function safeText(v) {
+          return String(v || '').replace(/\s+/g, ' ').trim();
+        }
+
+        function setBootModeLabel(modeText) {
+          if (!bootMode) return;
+          bootMode.textContent = `Mode: ${safeText(modeText || 'Fallback')}`;
+        }
+
+        function setStatusFromLog(level, source, text) {
+          const line = document.getElementById('auth-status-line');
+          if (!line) return;
+          const normalizedLevel = safeText(level || 'info').toUpperCase();
+          const normalizedSource = safeText(source || 'app');
+          const message = safeText(text);
+          line.textContent = `[${normalizedLevel}] [${normalizedSource}] ${message}`;
+          line.classList.toggle('auth-status-warn', normalizedLevel === 'WARN' || normalizedLevel === 'WARNING');
+          line.classList.toggle('auth-status-error', normalizedLevel === 'ERROR');
+          const alert = document.getElementById('auth-log-alert');
+          if (alert && document.body.classList.contains('auth-page') && normalizedLevel === 'ERROR') {
+            alert.textContent = `Log error: ${message}`;
+          }
+        }
+
+        window.__GQ_SET_AUTH_STATUS_FROM_LOG = setStatusFromLog;
+
+        function appendBootLine(level, message, detail, source) {
+          if (!bootLog) return;
+          const ts = new Date();
+          const hh = String(ts.getHours()).padStart(2, '0');
+          const mm = String(ts.getMinutes()).padStart(2, '0');
+          const ss = String(ts.getSeconds()).padStart(2, '0');
+          const lvl = safeText(level || 'info').toUpperCase();
+          const msg = safeText(message || '');
+          const det = safeText(detail || '');
+          const src = safeText(source || 'boot');
+          const lineText = `[${hh}:${mm}:${ss}] [${lvl}] [${src}] ${msg}${det ? ' | ' + det : ''}`;
+
+          const follow = bootLog.hidden || bootLog.scrollHeight - bootLog.scrollTop - bootLog.clientHeight <= 24;
+          bootLines.push({ ts: ts.getTime(), level: lvl.toLowerCase(), source: src, message: `${msg}${det ? ' | ' + det : ''}`, text: lineText });
+          setStatusFromLog(lvl, src, `${msg}${det ? ' | ' + det : ''}`);
+          if (bootLines.length > maxBootLines) bootLines.shift();
+
+          bootLog.replaceChildren(...bootLines.map((line) => {
+            const cls = line.level === 'error'
+              ? 'boot-line-error'
+              : line.level === 'warn'
+                ? 'boot-line-warn'
+                : 'boot-line-info';
+            const row = document.createElement('div');
+            row.className = `boot-line ${cls}`;
+            row.textContent = line.text;
+            return row;
+          }));
+          if (follow) bootLog.scrollTop = bootLog.scrollHeight;
+
+          if (String(lvl).toLowerCase() === 'error' && bootTerminal) {
+            ensureBootTerminalHostVisible();
+            bootTerminal.classList.remove('hidden');
+            setBootConsoleExpanded(true);
+          }
+        }
+
+        function directProbe(message, level = 'info') {
+          if (!fallbackActive) {
+            sendToTerminalLogger(level, message, '', 'probe');
+            return;
+          }
+          appendBootLine(level, message, '', 'probe');
+        }
+
+        function normalizeModuleName(src) {
+          try {
+            const url = new URL(String(src || ''), window.location.href);
+            const file = String(url.pathname || '').split('/').pop() || String(src || 'unknown');
+            return file || 'unknown';
+          } catch (_) {
+            const raw = String(src || 'unknown');
+            const clean = raw.split('?')[0];
+            return clean.split('/').pop() || raw;
+          }
+        }
+
+        function traceModuleEvent(state, src, detail) {
+          if (!isBootScriptTraceEnabled()) return;
+          if (!fallbackActive) return;
+          const mod = normalizeModuleName(src);
+          const dedupeKey = `${state}:${mod}`;
+          const now = Date.now();
+          const lastSeen = Number(moduleTraceSeen.get(dedupeKey) || 0);
+          if ((now - lastSeen) < 1200) return;
+          moduleTraceSeen.set(dedupeKey, now);
+
+          const extra = safeText(detail || '');
+          let msg = '';
+          let lvl = 'info';
+          if (state === 'init') {
+            msg = `Init <${mod}> ...`;
+          } else if (state === 'done') {
+            msg = `Init <${mod}> done.`;
+          } else {
+            msg = `Init <${mod}> failed.`;
+            lvl = 'error';
+          }
+          const payload = extra ? `${msg} ${extra}` : msg;
+
+          if (window.GQLog && typeof window.GQLog[lvl] === 'function') {
+            window.GQLog[lvl](`[module] ${payload}`);
+          } else {
+            directProbe(payload, lvl);
+          }
+        }
+
+        function traceScriptElement(el) {
+          if (!el || el.tagName !== 'SCRIPT') return;
+          const src = String(el.getAttribute('src') || '');
+          if (!src) return;
+          if (el.__gqScriptTraceBound) return;
+          el.__gqScriptTraceBound = true;
+
+          traceModuleEvent('init', src);
+
+          el.addEventListener('load', function () {
+            traceModuleEvent('done', src);
+          }, { once: true });
+
+          el.addEventListener('error', function () {
+            traceModuleEvent('error', src, '(load error)');
+          }, { once: true });
+        }
+
+        function initScriptTraceObserver() {
+          if (!isBootScriptTraceEnabled()) return;
+          if (window.__GQ_SCRIPT_TRACE_OBSERVER_READY) return;
+          window.__GQ_SCRIPT_TRACE_OBSERVER_READY = true;
+
+          document.querySelectorAll('script[src]').forEach((el) => traceScriptElement(el));
+
+          const observer = new MutationObserver(function (mutations) {
+            mutations.forEach((m) => {
+              m.addedNodes.forEach((n) => {
+                if (!n || n.nodeType !== 1) return;
+                if (n.tagName === 'SCRIPT') {
+                  traceScriptElement(n);
+                  return;
+                }
+                if (typeof n.querySelectorAll === 'function') {
+                  n.querySelectorAll('script[src]').forEach((el) => traceScriptElement(el));
+                }
+              });
+            });
+          });
+          observer.observe(document.documentElement || document.body, { childList: true, subtree: true });
+          window.__GQ_SCRIPT_TRACE_OBSERVER = observer;
+        }
+
+        function sendToTerminalLogger(level, message, detail, source = 'boot') {
+          const lvl = String(level || 'info').toLowerCase() === 'error'
+            ? 'error'
+            : String(level || 'info').toLowerCase() === 'warn'
+              ? 'warn'
+              : 'info';
+          const msg = safeText(message);
+          const det = safeText(detail);
+          const payload = det ? `${msg} | ${det}` : msg;
+
+          if (window.GQLog && typeof window.GQLog[lvl] === 'function') {
+            window.GQLog[lvl](`[${source}] ${payload}`);
+            return;
+          }
+          if (fallbackActive) appendBootLine(lvl, msg, det, source);
+        }
+
+        function reportBootIssue(kind, message, detail) {
+          try {
+            const label = document.getElementById('auth-preload-label');
+            const meta = document.getElementById('auth-preload-meta');
+            const panel = document.getElementById('auth-preload-panel');
+            const authSection = document.getElementById('auth-section');
+            const loginErr = document.getElementById('login-error');
+            const msg = safeText(message) || 'unknown error';
+            const det = safeText(detail);
+            const authVisible = !!(authSection && !authSection.classList.contains('hidden'));
+
+            if (panel) {
+              panel.classList.toggle('hidden', authVisible);
+            }
+            if (!authVisible || (panel && !panel.classList.contains('hidden'))) {
+              ensureBootTerminalHostVisible();
+            }
+            if (label) label.textContent = `Boot error (${safeText(kind) || 'runtime'})`;
+            if (meta) meta.textContent = det ? `${msg} | ${det}` : msg;
+            if (loginErr) loginErr.textContent = det ? `${msg} (${det})` : msg;
+            sendToTerminalLogger('error', `${safeText(kind) || 'runtime'}: ${msg}`, det, 'boot');
+          } catch (_) {
+            // Avoid recursive errors during emergency reporting.
+          }
+        }
+
+        appendBootLine('info', 'Boot terminal active', 'Fallback aktiv bis terminal.js uebernimmt', 'boot');
+        setBootModeLabel('Fallback');
+        initScriptTraceObserver();
+
+        function takeoverByTerminal(gqLogApi) {
+          if (!fallbackActive) return;
+          if (typeof gqLogApi?.importBootEntries === 'function') {
+            gqLogApi.importBootEntries(bootLines.map(({ ts, level, source, message }) => ({ ts, level, source, text: message })));
+          }
+          fallbackActive = false;
+          try {
+            if (window.__GQ_SCRIPT_TRACE_OBSERVER && typeof window.__GQ_SCRIPT_TRACE_OBSERVER.disconnect === 'function') {
+              window.__GQ_SCRIPT_TRACE_OBSERVER.disconnect();
+            }
+            window.__GQ_SCRIPT_TRACE_OBSERVER = null;
+            window.__GQ_SCRIPT_TRACE_OBSERVER_READY = false;
+          } catch (_) {}
+          try {
+            window.removeEventListener('error', onWindowError);
+            window.removeEventListener('unhandledrejection', onUnhandledRejection);
+          } catch (_) {}
+
+          if (bootLog && typeof gqLogApi?.importBootEntries !== 'function') {
+            bootLog.innerHTML = '';
+          }
+          bootLines.length = 0;
+
+          if (gqLogApi && typeof gqLogApi.bindBootTerminal === 'function') {
+            gqLogApi.bindBootTerminal();
+          }
+          setBootModeLabel('GQLog');
+          if (gqLogApi && typeof gqLogApi.info === 'function') {
+            gqLogApi.info('[boot] takeover complete: terminal.js steuert Boot-Terminal');
+          }
+        }
+
+        window.__GQ_BOOT_TERMINAL_ADAPTER = {
+          append(level, message, detail, source) {
+            if (!fallbackActive) return;
+            appendBootLine(level, message, detail, source);
+          },
+          report(kind, message, detail) {
+            reportBootIssue(kind, message, detail);
+          },
+          takeover: takeoverByTerminal,
+          isFallbackActive() {
+            return fallbackActive;
+          },
+        };
+
+        window.__GQ_BOOT_PROBE = {
+          log: directProbe,
+        };
+
+        window.__GQ_BOOT_DIAG = {
+          report: reportBootIssue,
+          log: function (level, message, detail) {
+            sendToTerminalLogger(level, message, detail, 'bootdiag');
+          },
+        };
+
+        const bootToggleBtn = document.getElementById('ui-console-close');
+        const bootClearBtn = document.getElementById('ui-console-clear');
+        const bootCopyBtn = document.getElementById('ui-console-copy');
+
+        bootToggleBtn?.addEventListener('click', function () {
+          if (document.body.classList.contains('auth-page') && !bootTerminal?.classList.contains('ui-console-enhanced')) {
+            setBootConsoleExpanded(false);
+            bootLogToggle?.focus();
+            return;
+          }
+          if (!fallbackActive) return;
+          if (!bootTerminal) return;
+          bootTerminal.classList.add('hidden');
+        });
+
+        bootClearBtn?.addEventListener('click', function () {
+          if (!fallbackActive) return;
+          bootLines.length = 0;
+          bootLog?.replaceChildren();
+          setStatusFromLog('info', 'boot', 'Terminal log cleared');
+        });
+
+        bootCopyBtn?.addEventListener('click', async function () {
+          if (!fallbackActive) return;
+          const payload = bootLines.map((line) => String(line?.text || '')).join('\n');
+          if (!payload) return;
+          try {
+            if (navigator?.clipboard?.writeText) {
+              await navigator.clipboard.writeText(payload);
+            } else {
+              const ta = document.createElement('textarea');
+              ta.value = payload;
+              ta.setAttribute('readonly', 'readonly');
+              ta.style.position = 'fixed';
+              ta.style.left = '-10000px';
+              document.body.appendChild(ta);
+              try {
+                ta.select();
+                if (!document.execCommand('copy')) throw new Error('Clipboard copy was rejected');
+              } finally {
+                ta.remove();
+              }
+            }
+            directProbe('Boot terminal copied to clipboard');
+          } catch (_) {
+            directProbe('Boot terminal copy failed', 'error');
+          }
+        });
+
+        function onWindowError(ev) {
+          const msg = safeText(ev && ev.message);
+          const src = safeText(ev && ev.filename);
+          const line = Number((ev && ev.lineno) || 0);
+          const col = Number((ev && ev.colno) || 0);
+          const where = src ? `${src}${line > 0 ? ':' + line : ''}${col > 0 ? ':' + col : ''}` : '';
+          reportBootIssue('window.error', msg || 'script error', where);
+        }
+
+        function onUnhandledRejection(ev) {
+          const reason = ev && ev.reason;
+          const msg = safeText(reason && (reason.message || reason.error || reason.reason || reason)) || 'promise rejection';
+          reportBootIssue('unhandledrejection', msg, 'startup promise failed');
+        }
+
+        window.addEventListener('error', onWindowError);
+        window.addEventListener('unhandledrejection', onUnhandledRejection);
+
+        window.addEventListener('load', function () {
+          directProbe('index load event reached');
+          const loginForm = document.getElementById('login-form');
+          const loginTemplate = document.getElementById('auth-forms-template');
+          if (!loginForm && loginTemplate?.content.querySelector('#login-form')) {
+            directProbe('login form deferred to the start-screen dialog');
+          } else if (loginForm) {
+            document.addEventListener('submit', function (event) {
+              if (event.target?.id !== 'login-form') return;
+              const st = window.__GQ_AUTH_READY || {};
+              const status = `authReady init=${!!st.initialized} loginBound=${!!st.loginBound} registerBound=${!!st.registerBound}`;
+              directProbe('login submit captured in index', 'warn');
+              directProbe(status, 'warn');
+            }, true);
+            directProbe('login submit probe bound');
+          } else {
+            directProbe('login form missing from start-screen markup', 'error');
+          }
+
+          if (window.GQLog && window.__GQ_BOOT_TERMINAL_ADAPTER && typeof window.__GQ_BOOT_TERMINAL_ADAPTER.takeover === 'function') {
+            window.__GQ_BOOT_TERMINAL_ADAPTER.takeover(window.GQLog);
+          }
+        });
+      })();
+    </script>
+  </section>
+
+  <section id="modal_container">
+
+    <section id="dialog_alert" class="wm-modal" aria-modal="true" aria-label="Alert" role="dialog" hidden>
+      <div class="wm-modal-backdrop" data-wm-modal-close></div>
+      <div class="wm-modal-dialog wm-modal-alert">
+        <div class="wm-modal-header">
+          <span class="wm-modal-title">System Alert</span>
+          <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" data-wm-modal-close>&#x2715;</button>
+        </div>
+        <div class="wm-modal-body">
+          <p class="tooltip-text">Incoming anomaly detected near the outer rim. Please confirm reconnaissance readiness.</p>
+        </div>
+        <div class="wm-modal-footer wm-modal-footer-end">
+          <button type="button" class="wm-modal-nav-btn" data-wm-modal-close>OK</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="dialog_confirm" class="wm-modal" aria-modal="true" aria-label="Confirm" role="dialog" hidden>
+      <div class="wm-modal-backdrop" data-wm-modal-close></div>
+      <div class="wm-modal-dialog wm-modal-confirm">
+        <div class="wm-modal-header">
+          <span class="wm-modal-title">Confirm Fleet Jump</span>
+          <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" data-wm-modal-close>&#x2715;</button>
+        </div>
+        <div class="wm-modal-body">
+          <p class="tooltip-text">Jumping now consumes 230 Deuterium. Continue mission briefing and initiate jump?</p>
+        </div>
+        <div class="wm-modal-footer wm-modal-footer-end">
+          <button type="button" class="wm-modal-nav-btn" data-wm-modal-close data-wm-modal-action="cancel">Cancel</button>
+          <button type="button" class="wm-modal-nav-btn wm-modal-nav-btn-primary" data-wm-modal-close data-wm-modal-action="confirm">Confirm</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="dialog_wizard" class="wm-modal" aria-modal="true" aria-label="Wizard" role="dialog" hidden>
+      <div class="wm-modal-backdrop" data-wm-modal-close></div>
+      <div class="wm-modal-dialog wm-modal-wizard">
+        <div class="wm-modal-header">
+          <span class="wm-modal-title">Colony Setup Wizard</span>
+          <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" data-wm-modal-close>&#x2715;</button>
+        </div>
+        <div class="wm-modal-body">
+          <div class="tooltip-section" data-wm-card="0">
+            <h4 class="tooltip-title">Step 1: Role</h4>
+            <p class="tooltip-text">Choose your initial focus to get a guided setup path.</p>
+          </div>
+          <div class="tooltip-section" data-wm-card="1" hidden>
+            <h4 class="tooltip-title">Step 2: Economy</h4>
+            <p class="tooltip-text">Balanced growth recommended: Metal 40%, Crystal 35%, Energy 25%.</p>
+          </div>
+          <div class="tooltip-section" data-wm-card="2" hidden>
+            <h4 class="tooltip-title">Step 3: Defense</h4>
+            <p class="tooltip-text">Activate perimeter drones and queue one scout frigate for intel.</p>
+          </div>
+        </div>
+        <div class="wm-modal-footer">
+          <span class="wm-modal-page-indicator" data-wm-modal-indicator>1 / 3</span>
+          <div class="wm-modal-nav">
+            <button type="button" class="wm-modal-nav-btn" data-wm-modal-prev disabled>&#8592; Back</button>
+            <button type="button" class="wm-modal-nav-btn" data-wm-modal-next>Next &#8594;</button>
+            <button type="button" class="wm-modal-nav-btn wm-modal-nav-btn-primary" data-wm-modal-close data-wm-modal-action="finish">Finish</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="dialog_form" class="wm-modal" aria-modal="true" aria-label="Form Dialog" role="dialog" hidden>
+      <div class="wm-modal-backdrop" data-wm-modal-close></div>
+      <div class="wm-modal-dialog wm-modal-form">
+        <div class="wm-modal-header">
+          <span class="wm-modal-title">Quick Message</span>
+          <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" data-wm-modal-close>&#x2715;</button>
+        </div>
+        <div class="wm-modal-body">
+          <label class="wm-form-field">
+            <span>Target Commander</span>
+            <input id="dialog-form-target" type="text" placeholder="Commander ID">
+          </label>
+          <label class="wm-form-field">
+            <span>Message</span>
+            <textarea id="dialog-form-message" rows="4" placeholder="Your tactical note..."></textarea>
+          </label>
+        </div>
+        <div class="wm-modal-footer wm-modal-footer-end">
+          <button type="button" class="wm-modal-nav-btn" data-wm-modal-close>Cancel</button>
+          <button type="button" class="wm-modal-nav-btn wm-modal-nav-btn-primary" data-wm-modal-action="submit-message" data-wm-modal-close>Send</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="ui-kit-preview-panel" class="ui-kit-preview-panel" aria-label="UI Kit Preview" hidden>
+      <div class="ui-kit-preview-head">
+        <strong>UI Kit + Modal Preview</strong>
+        <button id="ui-kit-preview-expand-btn" class="wm-dialog-test-btn ui-kit-preview-toggle" type="button" aria-expanded="false" aria-controls="ui-kit-preview-body" title="Panel erweitern">Mehr</button>
+      </div>
+      <div class="ui-kit-preview-actions-wrap">
+        <div class="ui-kit-preview-group" aria-label="Modal Demos">
+          <span class="ui-kit-preview-group-title">Modal Demos</span>
+          <div class="ui-kit-preview-actions">
+            <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="tooltip_container">Tooltip</button>
+            <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="dialog_alert">Alert</button>
+            <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="dialog_confirm">Confirm</button>
+            <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="dialog_wizard">Wizard</button>
+            <button type="button" class="wm-dialog-test-btn" data-wm-open-modal="dialog_form">Form</button>
+          </div>
+        </div>
+        <div class="ui-kit-preview-group" aria-label="UI Kit Demos">
+          <span class="ui-kit-preview-group-title">UI Kit Demos</span>
+          <div class="ui-kit-preview-actions">
+            <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="buttons">Buttons</button>
+            <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="grid">Grid</button>
+            <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="tabs">Tabs</button>
+            <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="contextmenu">Menu</button>
+            <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="empty">Empty</button>
+            <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="skeleton">Skeleton</button>
+            <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="kpi">KPI</button>
+            <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="timeline">Timeline</button>
+            <button type="button" class="wm-dialog-test-btn" data-ui-kit-demo="clear">Clear</button>
+          </div>
+        </div>
+      </div>
+      <div id="ui-kit-preview-body" class="ui-kit-preview-body"></div>
+    </section>
+
+    <section id="ui-kit-templates" class="ui-kit-templates" aria-hidden="true">
+      <template id="tpl-ui-button-row">
+        <section class="ui-button-stack">
+          <div class="ui-button-row">
+            <button class="btn btn-primary" type="button">Primary</button>
+            <button class="btn btn-secondary" type="button">Secondary</button>
+            <button class="btn btn-success" type="button">Success</button>
+            <button class="btn btn-danger" type="button">Danger</button>
+          </div>
+          <div class="ui-button-row">
+            <button class="btn btn-secondary btn-sm" type="button">Small</button>
+            <button class="btn btn-quiet btn-sm" type="button">Quiet</button>
+            <button class="btn btn-secondary btn-xs" type="button">XS</button>
+            <button class="btn btn-primary btn-xs" type="button">Compact Action</button>
+          </div>
+        </section>
+      </template>
+
+      <template id="tpl-ui-grid-demo">
+        <section class="ui-grid ui-grid-auto">
+          <article class="ui-grid-card">
+            <strong>Adaptive Cards</strong>
+            <p>Auto-fit grid cells scale from narrow to wide layouts without custom per-view CSS.</p>
+          </article>
+          <article class="ui-grid-card">
+            <strong>Readable Density</strong>
+            <p>Cards keep spacing and alignment stable while the viewport changes.</p>
+          </article>
+          <article class="ui-grid-card">
+            <strong>Reusable Primitive</strong>
+            <p>Can be used for inspectors, stats panels, compact dashboards and tool layouts.</p>
+          </article>
+        </section>
+      </template>
+
+      <template id="tpl-ui-tabs-demo">
+        <section class="ui-tabs" data-ui-tabs data-ui-active-tab="ops">
+          <div class="ui-tab-list" role="tablist" aria-label="UI Demo Tabs">
+            <button class="ui-tab-btn" type="button" role="tab" data-ui-tab-target="ops" aria-selected="true">Operations</button>
+            <button class="ui-tab-btn" type="button" role="tab" data-ui-tab-target="intel" aria-selected="false">Intel</button>
+            <button class="ui-tab-btn" type="button" role="tab" data-ui-tab-target="logistics" aria-selected="false">Logistics</button>
+          </div>
+          <section class="ui-tab-panel" role="tabpanel" data-ui-tab-panel="ops">
+            <strong class="ui-tab-panel-title">Operations Overview</strong>
+            <p>Tabs switch inline content without extra modal layers and support keyboard navigation.</p>
+          </section>
+          <section class="ui-tab-panel" role="tabpanel" data-ui-tab-panel="intel" hidden>
+            <strong class="ui-tab-panel-title">Intel Briefing</strong>
+            <p>Use tabs for dense dashboards where related data should stay in one focused surface.</p>
+          </section>
+          <section class="ui-tab-panel" role="tabpanel" data-ui-tab-panel="logistics" hidden>
+            <strong class="ui-tab-panel-title">Logistics</strong>
+            <p>Works well for settings, inspectors, split panels and progressive detail blocks.</p>
+          </section>
+        </section>
+      </template>
+
+      <template id="tpl-ui-contextmenu">
+        <section class="ui-context-demo">
+          <p class="ui-context-demo-note">Das WM-Kontextmenü ist jetzt als zentrale Infrastruktur verfuegbar. Rechtsklick auf Fenstertitel oder Taskbar-Button oeffnet es ebenfalls.</p>
+          <div class="ui-button-row">
+            <button class="btn btn-secondary btn-sm" type="button" data-ui-open-menu>Menu öffnen</button>
+            <button class="btn btn-quiet btn-xs" type="button">Context Target</button>
+          </div>
+        </section>
+      </template>
+
+      <template id="tpl-ui-empty-state">
+        <section class="ui-empty-state">
+          <div class="ui-empty-icon"><svg class="gq-icon" aria-hidden="true" focusable="false"><use href="/assets/orb-Cnrc_xD4.svg#icon-orb"></use></svg></div>
+          <h4 class="ui-empty-title">Noch keine Daten verfuegbar</h4>
+          <p class="ui-empty-text">Sobald neue Ereignisse eintreffen, erscheinen sie hier automatisch.</p>
+          <div class="ui-empty-actions">
+            <button class="wm-modal-nav-btn wm-modal-nav-btn-primary" type="button">Jetzt synchronisieren</button>
+          </div>
+        </section>
+      </template>
+
+      <template id="tpl-ui-skeleton-list">
+        <section class="ui-skeleton-list" aria-label="Ladeplatzhalter">
+          <div class="ui-skeleton-row"></div>
+          <div class="ui-skeleton-row short"></div>
+          <div class="ui-skeleton-row"></div>
+          <div class="ui-skeleton-row tiny"></div>
+        </section>
+      </template>
+
+      <template id="tpl-ui-kpi-grid">
+        <section class="ui-kpi-grid">
+          <article class="ui-kpi-card">
+            <span class="ui-kpi-label">Fleet Readiness</span>
+            <strong class="ui-kpi-value">92%</strong>
+            <span class="ui-kpi-chip is-good">Stable</span>
+          </article>
+          <article class="ui-kpi-card">
+            <span class="ui-kpi-label">Trade Flux</span>
+            <strong class="ui-kpi-value">+14.8%</strong>
+            <span class="ui-kpi-chip is-up">Rising</span>
+          </article>
+          <article class="ui-kpi-card">
+            <span class="ui-kpi-label">Threat Level</span>
+            <strong class="ui-kpi-value">Medium</strong>
+            <span class="ui-kpi-chip is-warn">Watch</span>
+          </article>
+        </section>
+      </template>
+
+      <template id="tpl-ui-timeline">
+        <section class="ui-timeline">
+          <article class="ui-timeline-item">
+            <span class="ui-timeline-dot is-good"></span>
+            <div class="ui-timeline-content">
+              <strong>Docking sequence complete</strong>
+              <p>Frigate wing beta has arrived at Alpha Prime.</p>
+            </div>
+          </article>
+          <article class="ui-timeline-item">
+            <span class="ui-timeline-dot is-warn"></span>
+            <div class="ui-timeline-content">
+              <strong>Sensor anomaly</strong>
+              <p>Long-range scan detected unstable signal near route C-9.</p>
+            </div>
+          </article>
+          <article class="ui-timeline-item">
+            <span class="ui-timeline-dot is-up"></span>
+            <div class="ui-timeline-content">
+              <strong>Market update</strong>
+              <p>Rare Earth prices gained +6.2% in the last cycle.</p>
+            </div>
+          </article>
+        </section>
+      </template>
+    </section>
+  </section>
+
+  <section id="tooltip_container" class="wm-modal card-layout" aria-modal="true" aria-label="Tooltip Dialog" role="dialog" hidden>
+    <div class="wm-modal-backdrop" data-wm-modal-close></div>
+    <div class="wm-modal-dialog" id="tooltip-dialog">
+      <div class="wm-modal-header">
+        <span class="wm-modal-title" id="tooltip-modal-title">System Info</span>
+        <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" title="Close" data-wm-modal-close>&#x2715;</button>
+      </div>
+      <div id="tooltip-content" class="wm-modal-body tooltip-content">
+        <div id="tooltip-card1" class="tooltip-section tooltip-overview" data-tooltip-card="0">
+          <h4 class="tooltip-title">System Overview</h4>
+          <p class="tooltip-text">This system is a bustling hub of activity, with multiple colonies and a busy trade route. The star is a G-type main-sequence star, providing ample energy for the thriving civilizations orbiting it.</p>
+        </div>
+        <div id="tooltip-card2" class="tooltip-section tooltip-details" data-tooltip-card="1">
+          <h4 class="tooltip-title">System Details</h4>
+          <ul class="tooltip-list">
+            <li><strong>Star Type:</strong> G-type main-sequence</li>
+            <li><strong>Planets:</strong> 5 (2 habitable)</li>
+            <li><strong>Colonies:</strong> 3 (Alpha, Beta, Gamma)</li>
+            <li><strong>Trade Routes:</strong> 4 active routes</li>
+            <li><strong>Notable Features:</strong> Rich in rare minerals, frequent pirate activity</li>
+          </ul>
+        </div>
+      </div>
+      <div class="wm-modal-footer">
+        <label class="wm-modal-no-repeat">
+          <input type="checkbox" id="tooltip-no-repeat"> Don't show this again
+        </label>
+        <div class="wm-modal-nav">
+          <button id="tooltip-btn-prev" class="wm-modal-nav-btn" type="button" disabled>&#8592; Prev</button>
+          <span class="wm-modal-page-indicator" id="tooltip-page-indicator">1 / 2</span>
+          <button id="tooltip-btn-next" class="wm-modal-nav-btn" type="button">Next &#8594;</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="context_menu_container"></section>
+
+  <script>
+    /* ── Topbar splitbutton dropdowns ──────────────────────────────────────── */
+    (function () {
+      const ATTR = 'data-nav-drop';
+
+      function closeAll(except) {
+        document.querySelectorAll('[' + ATTR + ']').forEach(function (arrow) {
+          if (arrow === except) return;
+          const id = arrow.getAttribute(ATTR);
+          const drop = document.getElementById('nav-drop-' + id);
+          if (drop) drop.classList.add('hidden');
+          arrow.setAttribute('aria-expanded', 'false');
+        });
+      }
+
+      function toggle(arrow) {
+        const id   = arrow.getAttribute(ATTR);
+        const drop = document.getElementById('nav-drop-' + id);
+        if (!drop) return;
+        const open = !drop.classList.contains('hidden');
+        closeAll(open ? null : arrow);
+        drop.classList.toggle('hidden', open);
+        arrow.setAttribute('aria-expanded', String(!open));
+      }
+
+      document.addEventListener('click', function (ev) {
+        const arrow = ev.target && ev.target.closest ? ev.target.closest('[' + ATTR + ']') : null;
+        if (arrow) {
+          ev.stopPropagation();
+          toggle(arrow);
+          return;
+        }
+        // Close on outside click.
+        if (!ev.target.closest('.nav-split-group')) {
+          closeAll(null);
+        }
+      });
+
+      // Keyboard: close on Escape.
+      document.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') closeAll(null);
+      });
+
+      // Clicking a drop item fires data-win and closes the menu.
+      document.addEventListener('click', function (ev) {
+        const item = ev.target && ev.target.closest ? ev.target.closest('.nav-drop-item') : null;
+        if (!item) return;
+        closeAll(null);
+        // Propagate data-win click to WM if available.
+        const win = item.getAttribute('data-win');
+        if (win && window.WM && typeof window.WM.open === 'function') {
+          window.WM.open(win);
+        }
+      });
+
+      // Sync combined comms-badge from individual child badges.
+      function syncCommsBadge() {
+        const msgBadge   = document.getElementById('msg-badge');
+        const intelBadge = document.getElementById('intel-badge');
+        const questBadge = document.getElementById('quest-badge');
+        const combined   = document.getElementById('comms-badge');
+        if (!combined) return;
+        const total =
+          (parseInt((msgBadge   && msgBadge.textContent)   || '0', 10) || 0) +
+          (parseInt((intelBadge && intelBadge.textContent) || '0', 10) || 0) +
+          (parseInt((questBadge && questBadge.textContent) || '0', 10) || 0);
+        combined.textContent = total > 0 ? String(total) : '0';
+        combined.classList.toggle('hidden', total === 0);
+      }
+
+      // Observe badge mutations to keep the combined badge up-to-date.
+      const badgeObs = new MutationObserver(syncCommsBadge);
+      ['msg-badge', 'intel-badge', 'quest-badge'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (el) badgeObs.observe(el, { childList: true, characterData: true, subtree: true });
+      });
+      syncCommsBadge();
+    })();
+  </script>
+
+  <script>
+    (function () {
+      function openDialogById(id) {
+        if (!id || !window.WM || typeof window.WM.modal !== 'function') return;
+        window.WM.modal(id);
+      }
+
+      document.addEventListener('click', function (ev) {
+        const btn = ev.target && ev.target.closest ? ev.target.closest('[data-wm-open-modal]') : null;
+        if (!btn) return;
+        const targetId = btn.getAttribute('data-wm-open-modal');
+        openDialogById(targetId);
+      });
+
+      window.addEventListener('wm:modal-action', function (ev) {
+        const d = ev && ev.detail ? ev.detail : {};
+        if (d.id === 'dialog_confirm' && d.action === 'confirm') {
+          if (window.GQLog && typeof window.GQLog.info === 'function') {
+            window.GQLog.info('[modal] Fleet jump confirmed');
+          }
+        }
+        if (d.id === 'dialog_form' && d.action === 'submit-message') {
+          const target = document.getElementById('dialog-form-target');
+          const msg = document.getElementById('dialog-form-message');
+          const text = `[modal] Message queued to ${target?.value || 'unknown'}: ${msg?.value || ''}`;
+          if (window.GQLog && typeof window.GQLog.info === 'function') {
+            window.GQLog.info(text);
+          }
+        }
+      });
+    })();
+  </script>
+
+  <!-- ES6 Module Entry Point (Vite) — NEW -->
+
+  <!-- Legacy boot-manifest and runtime initialization (DISABLED - being replaced by ES6 modules) -->
+  <!-- <script src="js/runtime/boot-manifest.js?v=20260801p1"></script> -->
+  <!-- <script src="js/runtime/boot-assets.js?v=20260404p1"></script> -->
+  <!-- <script src="js/ui/terminal.js?v=20260404p51"></script> -->
+  
+  <!-- Comprehensive Debug Logging -->
+  <script>
+    window.__GQ_DEBUG_LOG = [];
+    
+    function debugLog(msg) {
+      window.__GQ_DEBUG_LOG.push({ ts: Date.now(), msg });
+      if (window.__GQ_DEBUG_LOG.length > 100) window.__GQ_DEBUG_LOG.shift();
+    }
+    
+    // Catch early errors
+    window.addEventListener('error', (e) => {
+      debugLog(`ERROR: ${e.message} @ ${e.filename}:${e.lineno}`);
+    }, true);
+    
+    debugLog('Debug logging started');
+  </script>
+  <script>
+    (function initAuthStatusBar() {
+      const renderStatus = window.__GQ_SET_AUTH_STATUS_FROM_LOG;
+      if (typeof renderStatus !== 'function') return;
+
+      window.addEventListener('gq:terminal-log', (event) => {
+        const entry = event.detail || {};
+        renderStatus(entry.level, entry.source, entry.text);
+      });
+
+      const entries = window.GQLog?.getSessionEntries?.() || window.GQLog?.getAll?.() || [];
+      const latest = entries[entries.length - 1];
+      if (latest) renderStatus(latest.level, latest.source, latest.text);
+    })();
+  </script>
+  
+  <!-- Core Network & API Scripts (manually prioritized - DISABLED for ES6 migration) -->
+  <!-- <script src="js/runtime/wm.js?v=20260408p2"></script> -->
+  <!-- <script>debugLog('wm.js loaded')</script> -->
+  
+  <!-- <script>debugLog('wm-widgets.js loaded')</script> -->
+  
+  <!-- <script src="js/runtime/gqwm.js?v=20260407p1"></script> -->
+  <!-- <script>debugLog('gqwm.js loaded')</script> -->
+  
+  <!-- <script src="js/network/binary-decoder.js?v=20260404p50"></script> -->
+  <!-- <script>debugLog('binary-decoder.js loaded')</script> -->
+  
+  <!-- <script src="js/network/binary-decoder-v2.js?v=20260404p50"></script> -->
+  <!-- <script>debugLog('binary-decoder-v2.js loaded')</script> -->
+  
+  <!-- <script src="js/network/binary-decoder-v3.js?v=20260404p50"></script> -->
+  <!-- <script>debugLog('binary-decoder-v3.js loaded')</script> -->
+  
+  <!-- <script src="js/network/api-transport.js?v=20260404p50"></script> -->
+  <!-- <script>debugLog('api-transport.js loaded')</script> -->
+  
+  <!-- <script src="js/network/api-queue.js?v=20260404p50"></script> -->
+  <!-- <script>debugLog('api-queue.js loaded')</script> -->
+  
+  <!-- <script src="js/network/api-cache.js?v=20260404p50"></script> -->
+  <!-- <script>debugLog('api-cache.js loaded')</script> -->
+  
+  <!-- <script src="js/network/api-schema-adapters.js?v=20260404p50"></script> -->
+  <!-- <script>debugLog('api-schema-adapters.js loaded')</script> -->
+  
+  <!-- <script>debugLog('api-session.js loaded')</script> -->
+  
+  <!-- LEGACY: Verify API dependencies (now handled by ES6 modules) -->
+  <!-- <script>
+    const deps = {
+      APITransport: typeof window.APITransport,
+      APIQueue: typeof window.APIQueue,
+      APICache: typeof window.APICache,
+      APISession: typeof window.APISession,
+      APISchemaAdapters: typeof window.APISchemaAdapters
+    };
+    debugLog(`API Deps before api.js: ${JSON.stringify(deps)}`);
+  </script> -->
+  
+  <!-- <script>debugLog(`Before api.js: window.API = ${typeof window.API}, APITransport = ${typeof window.APITransport}`)</script> -->
+  <!-- <script src="js/network/api.js?v=20260405p1"></script> -->
+  <!-- <script>
+    debugLog(`After api.js: window.API = ${typeof window.API}`);
+    if (typeof window.API === 'undefined') {
+      debugLog('ERROR: window.API is undefined after api.js load');
+      debugLog(`API object exists: ${typeof API}`);
+      debugLog(`Setting window.API manually...`);
+      try {
+        if (typeof API !== 'undefined') {
+          window.API = API;
+          debugLog(`Manually set window.API: ${typeof window.API}`);
+        }
+      } catch (err) {
+        debugLog(`Error setting window.API: ${err.message}`);
+      }
+    }
+  </script> -->
+  
+  <!-- <script src="js/network/api-contracts.js?v=20260404p50"></script> -->
+  <!-- <script>debugLog('api-contracts.js loaded')</script> -->
+  
+  <!-- LEGACY: Game engine + runtime startup (replaced by ES6 modules) -->
+  <!-- <script>
+    (async function() {
+      debugLog('Inline loader starting');
+      if (!window.__GQ_BOOT) {
+        debugLog('ERROR: __GQ_BOOT not available');
+        return;
+      }
+      
+      const scripts = (window.__GQ_BOOT.gameScripts || []).slice(14); // Skip the ones we already loaded above
+      debugLog(`Starting to load ${scripts.length} additional scripts`);
+      
+      for (let i = 0; i < scripts.length; i++) {
+        const src = scripts[i];
+        if (!src || typeof src !== 'string') continue;
+        
+        const existing = document.querySelector(`script[src="${src}"]`);
+        if (existing) continue;
+        
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = false;
+        
+        try {
+          await new Promise((resolve, reject) => {
+            script.onload = () => {
+              if (i % 50 === 0) debugLog(`Loaded ${i}/${scripts.length}`);
+              resolve();
+            };
+            script.onerror = () => {
+              debugLog(`Script load failed: ${src}`);
+              resolve(); // Continue on error
+            };
+            document.head.appendChild(script);
+          });
+        } catch (err) {
+          debugLog(`Error: ${src}: ${err.message}`);
+        }
+      }
+      debugLog('All scripts loaded');
+    })();
+  </script> -->
+  
+  <!-- Minimal boot path: auth shell + shared galaxy background before session branching. -->
+  <!-- UX/UI Interactions Module -->
+  <!-- Legacy UI scripts (temporarily disabled for ES6 module migration) -->
+  <!-- <script src="js/ui/theme-manager.js?v=20260730p1"></script> -->
+  <!-- <script src="js/ui/interactions.js?v=20260730p1"></script> -->
+  <!-- <script src="js/ui/tooltips.js?v=20260730p1"></script> -->
+  <!-- <script src="js/ui/modals.js?v=20260730p1"></script> -->
+  <!-- <script src="js/vfx/particle-system.js?v=20260730p1"></script> -->
+  <!-- <script src="js/rendering/canvas-animation-engine.js?v=20260730p1"></script> -->
+  <!-- <script src="js/rendering/trajectory-renderer.js?v=20260730p1"></script> -->
+  <script>
+    // Keep the auth shell canvas visually ready without forcing a second context
+    // onto a renderer-owned WebGL canvas.
+    (function() {
+      setTimeout(() => {
+        const canvas = document.getElementById('starfield');
+        if (!canvas) return;
+        if (canvas.width <= 1 && canvas.height <= 1) {
+          const dpr = window.devicePixelRatio || 1;
+          canvas.width = Math.floor(window.innerWidth * dpr);
+          canvas.height = Math.floor(window.innerHeight * dpr);
+          canvas.style.width = `${window.innerWidth}px`;
+          canvas.style.height = `${window.innerHeight}px`;
+        }
+        canvas.style.display = 'block';
+        canvas.style.visibility = 'visible';
+        canvas.style.opacity = '1';
+      }, 500);
+    })();
+  </script>
+  <!-- <script src="js/ui/prolog.js?v=1"></script> -->
+  <!-- NPC Dialogue System Integration -->
+  <!-- <script src="js/systems/npc_dialogue_system.js?v=1"></script> -->
+  <!-- <script src="js/components/npc_dialogue_panel.js?v=1"></script> -->
+  <!-- <script src="js/components/npc_interaction_handler.js?v=1"></script> -->
+  <!-- Game Guide NPC System -->
+  <!-- <script src="js/systems/game_guide_system.js?v=1"></script> -->
+  <!-- <script src="js/components/advisor_npc_integration.js?v=1"></script> -->
+  <script>
+    (function initNpcDialoguePanel() {
+      try {
+        // Initialize the NPC Dialogue Panel for the game UI
+        if (
+          document.getElementById('npc-dialogue-panel')
+          && typeof NpcDialogueSystem === 'function'
+          && typeof NPCDialoguePanel === 'function'
+        ) {
+          window.GQNpcDialogueSystem = new NpcDialogueSystem();
+          window.initNpcDialoguePanel = function(npcId, npcName, faction, playerId) {
+            const panel = new NPCDialoguePanel({
+              containerId: 'npc-dialogue-panel',
+              npcId: npcId || 'npc_merchant_01',
+              npcName: npcName || 'Unknown NPC',
+              faction: faction || 'Neutral',
+              playerId: playerId || localStorage.getItem('player_id') || '1',
+              apiBaseUrl: '/api',
+              autoLoadHistory: true
+            });
+            panel.render();
+            return panel;
+          };
+          // Initialize NPC Interaction Handler for click delegation
+          if (typeof NpcInteractionHandler !== 'undefined') {
+            window.GQNpcInteractionHandler = new NpcInteractionHandler({
+              autoInit: true,
+              debug: false,
+              gameState: window.gameState || {}
+            });
+          }
+          if (window.GQLog && typeof window.GQLog.info === 'function') {
+            window.GQLog.info('[npc-dialogue] System initialized');
+          }
+        } else if (document.getElementById('npc-dialogue-panel')) {
+          console.warn('[npc-dialogue] dependencies missing, init skipped');
+        }
+      } catch (error) {
+        console.error('[npc-dialogue] Initialization failed:', error);
+      }
+    })();
+    
+    // Initialize Game Guide NPC Integration
+    (function initGameGuideNPC() {
+      try {
+        if (typeof GameGuideSystem !== 'undefined' && typeof AdvisorNPCIntegration !== 'undefined') {
+          // Initialize Game Guide System
+          window.gameGuide = new GameGuideSystem({
+            userId: window.gameState?.userId || parseInt(localStorage.getItem('user_id') || '1'),
+            apiBaseUrl: '/api',
+            debug: false
+          });
+          
+          // Initialize Advisor NPC Integration
+          window.advisorNPC = new AdvisorNPCIntegration();
+          window.advisorNPC.init(window.gameGuide);
+          
+          // Setup click handler for advisor button
+          const setupButtonHandler = () => {
+            const button = document.getElementById('open-advisor-btn');
+            if (button && window.GQNpcDialogueSystem && window.initNpcDialoguePanel) {
+              window.advisorNPC.setupAdvisorButtonHandler(async () => {
+                const panel = window.initNpcDialoguePanel(
+                  'npc_advisor_tau',
+                  'Advisor Tau',
+                  'Neutral',
+                  localStorage.getItem('user_id') || '1'
+                );
+                const gameContext = window.gameState?.currentGameState || {};
+                await window.advisorNPC.openAdvisor(panel, gameContext);
+              });
+              clearTimeout(setupTimeout);
+            }
+          };
+          
+          // Try to setup immediately, then retry every 500ms for 5 seconds
+          let setupTimeout;
+          const setupCheck = setInterval(() => {
+            setupButtonHandler();
+          }, 500);
+          setupTimeout = setTimeout(() => clearInterval(setupCheck), 5000);
+          
+          if (window.GQLog && typeof window.GQLog.info === 'function') {
+            window.GQLog.info('[game-guide-npc] System initialized');
+          }
+        }
+      } catch (error) {
+        console.error('[game-guide-npc] Initialization failed:', error);
+      }
+    })();
+  </script>
+  <script>
+    (function runBootAssetAudits() {
+      try {
+        if (!window.GQBootAssets) return;
+        window.GQBootAssets.auditDirectBootScripts(window.__GQ_DIRECT_BOOT_SCRIPTS);
+        window.GQBootAssets.auditLazyLocalScripts(window.__GQ_LAZY_LOCAL_SCRIPTS, window.__GQ_BOOT);
+      } catch (error) {
+        console.warn('[GQ Boot] Boot asset audit dispatch failed:', error);
+      }
+    })();
+  </script>
+
+  <!-- =========================================================
+    Post-FX Settings Panel
+    Opened via: WM.modal('dialog_postfx') or Settings button.
+    The panel is wired to the running GameEngine by PostFxController
+    (js/engine/post-effects/PostFxController.js).
+  ========================================================== -->
+  <section id="dialog_postfx" class="wm-modal" aria-modal="true" aria-label="Post-Processing Settings" role="dialog" hidden>
+    <div class="wm-modal-backdrop" data-wm-modal-close></div>
+    <div class="wm-modal-dialog">
+      <div class="wm-modal-header">
+        <span class="wm-modal-title"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/graphics-yMVmJgil.svg#icon-graphics"></use></svg>Post-Processing Effects</span>
+        <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" data-wm-modal-close>&#x2715;</button>
+      </div>
+      <div class="wm-modal-body" id="gfx-postfx-panel">
+
+        <!-- Bloom -->
+        <fieldset class="postfx-group">
+          <legend class="postfx-legend">
+            <label class="postfx-toggle">
+              <input type="checkbox" data-postfx="bloom" data-param="enabled" checked />
+              Bloom
+            </label>
+          </legend>
+          <div class="postfx-controls">
+            <label class="postfx-row">
+              <span class="postfx-label">Threshold</span>
+              <input type="range" data-postfx="bloom" data-param="threshold"
+                     min="0" max="1" step="0.01" value="0.8" data-decimals="2" />
+              <span class="postfx-val" data-postfx-display="bloom" data-param="threshold">0.80</span>
+            </label>
+            <label class="postfx-row">
+              <span class="postfx-label">Strength</span>
+              <input type="range" data-postfx="bloom" data-param="strength"
+                     min="0" max="3" step="0.05" value="1.2" data-decimals="2" />
+              <span class="postfx-val" data-postfx-display="bloom" data-param="strength">1.20</span>
+            </label>
+            <label class="postfx-row">
+              <span class="postfx-label">Radius</span>
+              <input type="range" data-postfx="bloom" data-param="radius"
+                     min="0" max="2" step="0.05" value="0.6" data-decimals="2" />
+              <span class="postfx-val" data-postfx-display="bloom" data-param="radius">0.60</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <!-- Vignette -->
+        <fieldset class="postfx-group">
+          <legend class="postfx-legend">
+            <label class="postfx-toggle">
+              <input type="checkbox" data-postfx="vignette" data-param="enabled" checked />
+              Vignette
+            </label>
+          </legend>
+          <div class="postfx-controls">
+            <label class="postfx-row">
+              <span class="postfx-label">Darkness</span>
+              <input type="range" data-postfx="vignette" data-param="darkness"
+                     min="0" max="1" step="0.01" value="0.5" data-decimals="2" />
+              <span class="postfx-val" data-postfx-display="vignette" data-param="darkness">0.50</span>
+            </label>
+            <label class="postfx-row">
+              <span class="postfx-label">Falloff</span>
+              <input type="range" data-postfx="vignette" data-param="falloff"
+                     min="0.1" max="5" step="0.1" value="2.0" data-decimals="1" />
+              <span class="postfx-val" data-postfx-display="vignette" data-param="falloff">2.0</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <!-- Chromatic Aberration -->
+        <fieldset class="postfx-group">
+          <legend class="postfx-legend">
+            <label class="postfx-toggle">
+              <input type="checkbox" data-postfx="chromatic" data-param="enabled" checked />
+              Chromatic Aberration
+            </label>
+          </legend>
+          <div class="postfx-controls">
+            <label class="postfx-row">
+              <span class="postfx-label">Power</span>
+              <input type="range" data-postfx="chromatic" data-param="power"
+                     min="0" max="0.05" step="0.001" value="0.005" data-decimals="3" />
+              <span class="postfx-val" data-postfx-display="chromatic" data-param="power">0.005</span>
+            </label>
+            <label class="postfx-row">
+              <span class="postfx-label">Angle (rad)</span>
+              <input type="range" data-postfx="chromatic" data-param="angle"
+                     min="0" max="6.28" step="0.01" value="0" data-decimals="2" />
+              <span class="postfx-val" data-postfx-display="chromatic" data-param="angle">0.00</span>
+            </label>
+          </div>
+        </fieldset>
+
+      </div><!-- /#gfx-postfx-panel -->
+      <div class="wm-modal-footer wm-modal-footer-end">
+        <button type="button" class="wm-modal-nav-btn" data-wm-modal-close>Close</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========================================================
+    Settings Dialog with Tabs
+    Profile, Audio, Graphics, Gameplay, Account/2FA Settings
+    Opened via: WM.open('settings') nav button or user menu
+  ========================================================== -->
+  <section id="settings-modal" class="wm-modal" aria-modal="true" aria-label="Settings" role="dialog" hidden>
+    <div class="wm-modal-backdrop" data-wm-modal-close></div>
+    <div class="wm-modal-dialog settings-dialog">
+      <div class="wm-modal-header">
+        <span class="wm-modal-title"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/settings-RMhOg3zt.svg#icon-settings"></use></svg>Settings</span>
+        <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" data-wm-modal-close>&#x2715;</button>
+      </div>
+
+      <!-- Settings Tabs Navigation -->
+      <section id="settings-tabs" class="ui-tabs settings-tabs" data-ui-tabs data-ui-active-tab="profile">
+        <div class="ui-tab-list settings-tab-nav" role="tablist" aria-label="Settings Tabs">
+          <button class="ui-tab-btn settings-tab-btn" data-ui-tab-target="profile" type="button" role="tab" aria-selected="true"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/user-BsFy1hIv.svg#icon-user"></use></svg>Profile</button>
+          <button class="ui-tab-btn settings-tab-btn" data-ui-tab-target="audio" type="button" role="tab" aria-selected="false"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/volume-D6JWuhtZ.svg#icon-volume"></use></svg>Audio</button>
+          <button class="ui-tab-btn settings-tab-btn" data-ui-tab-target="graphics" type="button" role="tab" aria-selected="false"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/graphics-yMVmJgil.svg#icon-graphics"></use></svg>Graphics</button>
+          <button class="ui-tab-btn settings-tab-btn" data-ui-tab-target="gameplay" type="button" role="tab" aria-selected="false"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/gameplay-C70g7GV8.svg#icon-gameplay"></use></svg>Gameplay</button>
+          <button class="ui-tab-btn settings-tab-btn" data-ui-tab-target="account" type="button" role="tab" aria-selected="false"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/lock-CmMclBQM.svg#icon-lock"></use></svg>Security</button>
+        </div>
+
+      <!-- Settings Contents -->
+      <div class="wm-modal-body settings-body">
+
+        <!-- Profile Tab -->
+        <div class="ui-tab-panel settings-tab-content" role="tabpanel" data-ui-tab-panel="profile" data-tab="profile">
+          <fieldset class="settings-group">
+            <legend>Account Information</legend>
+            <label class="settings-row">
+              <span class="settings-label">Username</span>
+              <input type="text" class="settings-text-readonly" id="profile-username" readonly />
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Email</span>
+              <input type="email" class="settings-text-readonly" id="profile-email" readonly />
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Rank Points</span>
+              <input type="text" class="settings-text-readonly" id="profile-rank-points" readonly />
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Dark Matter</span>
+              <input type="text" class="settings-text-readonly" id="profile-dark-matter" readonly />
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Member Since</span>
+              <input type="text" class="settings-text-readonly" id="profile-created-at" readonly />
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Last Login</span>
+              <input type="text" class="settings-text-readonly" id="profile-last-login" readonly />
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-group">
+            <legend>Account Status</legend>
+            <label class="settings-checkbox">
+              <input type="checkbox" id="profile-pvp-mode" />
+              <span>PvP Mode Active</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" id="profile-vacation-mode" />
+              <span>Vacation Mode</span>
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Account Protection Until</span>
+              <input type="text" class="settings-text-readonly" id="profile-protection-until" readonly />
+            </label>
+            <p class="settings-help-text" id="profile-status-message"></p>
+          </fieldset>
+        </div>
+
+        <!-- Audio Tab -->
+        <div class="ui-tab-panel settings-tab-content" role="tabpanel" data-ui-tab-panel="audio" data-tab="audio" hidden>
+          <fieldset class="settings-group">
+            <legend>Volume Control</legend>
+            <label class="settings-row">
+              <span class="settings-label">Master Volume</span>
+              <input type="range" class="settings-range" data-setting="masterVolume" min="0" max="1" step="0.05" value="0.8" />
+              <span class="settings-value">0.8</span>
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Music Volume</span>
+              <input type="range" class="settings-range" data-setting="musicVolume" min="0" max="1" step="0.05" value="0.55" />
+              <span class="settings-value">0.55</span>
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">SFX Volume</span>
+              <input type="range" class="settings-range" data-setting="sfxVolume" min="0" max="1" step="0.05" value="0.8" />
+              <span class="settings-value">0.8</span>
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-group">
+            <legend>Audio Options</legend>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="masterMuted" />
+              <span>Mute Master</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="musicMuted" />
+              <span>Mute Music</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="sfxMuted" />
+              <span>Mute Sound Effects</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="autoSceneMusic" checked />
+              <span>Auto Scene Music</span>
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-group">
+            <legend>NPC Voice (TTS)</legend>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="ttsAutoVoice" id="settings-tts-auto-voice" checked />
+              <span>Auto-Voice NPC dialogue</span>
+            </label>
+          </fieldset>
+        </div>
+
+        <!-- Graphics Tab -->
+        <div class="ui-tab-panel settings-tab-content" role="tabpanel" data-ui-tab-panel="graphics" data-tab="graphics" hidden>
+          <fieldset class="settings-group">
+            <legend>Rendering Quality</legend>
+            <label class="settings-row">
+              <span class="settings-label">Quality Profile</span>
+              <select class="settings-select" data-setting="renderQualityProfile">
+                <option value="auto">Auto (Recommended, WebGPU first)</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="ultra">Ultra</option>
+              </select>
+            </label>
+            <div class="settings-help" style="margin-top:6px;font-size:0.85em;opacity:0.82;">
+              WebGL/Three.js is retained as a compatibility backend where WebGPU paths are not yet available.
+            </div>
+            <label class="settings-row">
+              <span class="settings-label">Cluster Density</span>
+              <select class="settings-select" data-setting="clusterDensityMode">
+                <option value="auto">Auto</option>
+                <option value="sparse">Sparse</option>
+                <option value="normal">Normal</option>
+                <option value="dense">Dense</option>
+              </select>
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-group">
+           <legend>Advanced Rendering</legend>
+           <label class="settings-row">
+             <span class="settings-label">Quality Preset</span>
+             <select class="settings-select" id="adv-rendering-preset" data-setting="advRenderingPreset">
+               <option value="ultra">Ultra (RTX Desktop)</option>
+               <option value="high">High (Desktop)</option>
+               <option value="medium">Medium (Balanced)</option>
+               <option value="low">Low (Performance)</option>
+               <option value="mobile">Mobile (Extreme Low)</option>
+             </select>
+           </label>
+           <div class="settings-help" style="margin-top:6px;font-size:0.85em;opacity:0.82;">
+             Presets automatically enable/disable LOD, bloom, motion blur, depth of field, and decals based on performance target.
+           </div>
+          </fieldset>
+
+          <fieldset class="settings-group">
+           <legend>Rendering Features</legend>
+           <label class="settings-checkbox">
+             <input type="checkbox" id="adv-rendering-lod" data-setting="advRenderingLOD" checked />
+             <span>Level of Detail (LOD)</span>
+           </label>
+           <label class="settings-checkbox">
+             <input type="checkbox" id="adv-rendering-bloom" data-setting="advRenderingBloom" checked />
+             <span>Dynamic Bloom</span>
+           </label>
+           <label class="settings-checkbox">
+             <input type="checkbox" id="adv-rendering-motionblur" data-setting="advRenderingMotionBlur" checked />
+             <span>Motion Blur</span>
+           </label>
+           <label class="settings-checkbox">
+             <input type="checkbox" id="adv-rendering-dof" data-setting="advRenderingDOF" checked />
+             <span>Depth of Field</span>
+           </label>
+           <label class="settings-checkbox">
+             <input type="checkbox" id="adv-rendering-decals" data-setting="advRenderingDecals" checked />
+             <span>Impact Decals</span>
+           </label>
+           <label class="settings-checkbox">
+             <input type="checkbox" id="adv-rendering-tonemapping" data-setting="advRenderingToneMapping" checked />
+             <span>HDR Tone Mapping</span>
+           </label>
+          </fieldset>
+
+          <fieldset class="settings-group">
+           <legend>Performance Monitor</legend>
+           <label class="settings-checkbox">
+             <input type="checkbox" id="adv-rendering-perfmon" data-setting="advRenderingPerfMon" />
+             <span>Show Performance Stats</span>
+           </label>
+           <div id="adv-rendering-stats" class="settings-stats-display" style="display:none; margin-top:12px; padding:8px; background:rgba(0,0,0,0.3); border-radius:4px; font-family:monospace; font-size:0.85em; line-height:1.6;">
+             <div><span>FPS:</span> <span id="perf-fps">--</span></div>
+             <div><span>Memory:</span> <span id="perf-memory">-- MB</span></div>
+             <div><span>Triangles:</span> <span id="perf-triangles">--</span></div>
+             <div><span>Draw Calls:</span> <span id="perf-draws">--</span></div>
+           </div>
+          </fieldset>
+
+          <fieldset class="settings-group">
+            <legend>Visual Effects</legend>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="clusterBoundsVisible" checked />
+              <span>Cluster Bounds</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="galaxyFleetVectorsVisible" checked />
+              <span>Fleet Vectors</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="galacticCoreFxEnabled" checked />
+              <span>Core Effects</span>
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-group">
+            <legend>Interface Theme</legend>
+            <label class="settings-row">
+              <span class="settings-label">Theme Source</span>
+              <select class="settings-select" data-setting="uiThemeMode">
+                <option value="auto">Auto (Faction if available)</option>
+                <option value="faction">Faction Theme</option>
+                <option value="custom">Custom Accent</option>
+              </select>
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Theme Faction</span>
+              <select class="settings-select" data-setting="uiThemeFactionId">
+                <option value="0">Player faction (auto)</option>
+              </select>
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Custom Accent</span>
+              <input type="color" class="settings-color" data-setting="uiThemeCustomAccent" value="#3aa0ff" />
+            </label>
+            <div class="settings-theme-preview" aria-live="polite">
+              <div class="settings-theme-preview-head">
+                <span class="settings-theme-preview-title">Theme Preview</span>
+                <span class="settings-theme-preview-meta" data-theme-preview-source>Source: -</span>
+              </div>
+              <div class="settings-theme-preview-swatches">
+                <span class="settings-theme-swatch" data-theme-swatch="accent" title="Accent"></span>
+                <span class="settings-theme-swatch" data-theme-swatch="accentSoft" title="Accent Soft"></span>
+                <span class="settings-theme-swatch" data-theme-swatch="complement" title="Complement"></span>
+                <span class="settings-theme-swatch" data-theme-swatch="complementSoft" title="Complement Soft"></span>
+              </div>
+              <div class="settings-theme-preview-meta" data-theme-preview-detail>Palette: -</div>
+            </div>
+            <p class="settings-help-text">Faction colors are converted into complementary UI palettes and cached locally for fast reuse.</p>
+          </fieldset>
+        </div>
+
+        <!-- Gameplay Tab -->
+        <div class="ui-tab-panel settings-tab-content" role="tabpanel" data-ui-tab-panel="gameplay" data-tab="gameplay" hidden>
+          <fieldset class="settings-group">
+            <legend>Transition Settings</legend>
+            <label class="settings-row">
+              <span class="settings-label">Transition Preset</span>
+              <select class="settings-select" data-setting="transitionPreset">
+                <option value="cinematic">Cinematic</option>
+                <option value="balanced">Balanced</option>
+                <option value="fast">Fast</option>
+                <option value="instant">Instant</option>
+              </select>
+            </label>
+            <label class="settings-row">
+              <span class="settings-label">Min Stable Time (ms)</span>
+              <input type="number" class="settings-number" data-setting="transitionStableMinMs" min="0" max="500" step="10" value="160" />
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-group">
+            <legend>Gameplay Options</legend>
+            <label class="settings-row">
+              <span class="settings-label">Orbit Simulation</span>
+              <select class="settings-select" data-setting="orbitSimulationMode">
+                <option value="auto">Auto</option>
+                <option value="simple">Simple</option>
+                <option value="complex">Complex</option>
+              </select>
+            </label>
+            <div class="settings-row">
+              <span class="settings-label">Active Mode</span>
+              <span id="settings-orbit-diag" class="settings-orbit-diag" aria-live="polite">—</span>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">Next Mode</span>
+              <span id="settings-orbit-next" class="settings-orbit-diag" aria-live="polite">—</span>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">Path Visibility</span>
+              <span id="settings-orbit-visibility" class="settings-orbit-diag" aria-live="polite">—</span>
+            </div>
+            <div class="settings-help-text settings-orbit-legend" aria-hidden="true">
+              <span class="settings-orbit-legend-item"><span class="settings-orbit-dot is-auto"></span>AUTO</span>
+              <span class="settings-orbit-legend-item"><span class="settings-orbit-dot is-simple"></span>SIMPLE</span>
+              <span class="settings-orbit-legend-item"><span class="settings-orbit-dot is-complex"></span>COMPLEX</span>
+            </div>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="systemOrbitPathsVisible" checked />
+              <span>Show Orbit Paths</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="systemOrbitMarkersVisible" checked />
+              <span>Show Orbit Direction Markers</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="systemOrbitFocusOnly" />
+              <span>Focus Orbit Paths Only</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="autoTransitions" checked />
+              <span>Auto Transitions</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="hoverMagnetEnabled" checked />
+              <span>Hover Magnet</span>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="clickMagnetEnabled" checked />
+              <span>Click Magnet</span>
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-group">
+            <legend>Galaxy Filters</legend>
+            <label class="settings-row">
+              <span class="settings-label">Colony Filter Mode</span>
+              <select class="settings-select" data-setting="galaxyColonyFilterMode">
+                <option value="all">All</option>
+                <option value="owned">Owned Only</option>
+                <option value="allied">Allied Only</option>
+              </select>
+            </label>
+            <label class="settings-checkbox">
+              <input type="checkbox" data-setting="galaxyColoniesOnly" />
+              <span>Show Colonies Only</span>
+            </label>
+          </fieldset>
+        </div>
+
+        <!-- Security/2FA Tab -->
+        <div class="ui-tab-panel settings-tab-content" role="tabpanel" data-ui-tab-panel="account" data-tab="account" hidden>
+          <fieldset class="settings-group" id="settings-2fa-group">
+            <legend>Zwei-Faktor-Authentifizierung (TOTP)</legend>
+            <p class="settings-help-text">Kompatibel mit Microsoft Authenticator, Google Authenticator, Authy u.&nbsp;a.</p>
+
+            <!-- Status row (filled by JS) -->
+            <div id="2fa-status-row" class="settings-help-text settings-stack-gap-sm">Lade 2FA-Status…</div>
+
+            <!-- Enabled state -->
+            <div id="2fa-enabled-ui" class="settings-inline-panel" hidden>
+              <p class="settings-help-text">✅ 2FA ist <strong>aktiviert</strong>.</p>
+              <button type="button" class="wm-modal-nav-btn" id="2fa-disable-open-btn">2FA deaktivieren…</button>
+            </div>
+
+            <!-- Disabled state -->
+            <div id="2fa-disabled-ui" class="settings-inline-panel" hidden>
+              <p class="settings-help-text">2FA ist aktuell <strong>deaktiviert</strong>.</p>
+              <button type="button" class="wm-modal-nav-btn wm-btn-primary" id="2fa-enable-open-btn">2FA einrichten…</button>
+            </div>
+
+            <!-- Setup panel (scan QR → confirm code) -->
+            <div id="2fa-setup-panel" class="settings-inline-panel settings-stack-gap" hidden>
+              <p class="settings-help-text">Scanne den QR-Code mit deiner Authenticator-App:</p>
+              <div id="2fa-qr-container" class="settings-qr-container">
+                <span class="settings-help-text">QR wird geladen…</span>
+              </div>
+              <p class="settings-help-text settings-code-row">
+                Manueller Schlüssel: <code id="2fa-secret-display" class="settings-select-all"></code>
+              </p>
+              <label class="settings-row settings-stack-gap-sm">
+                <span class="settings-label">Code bestätigen</span>
+                <input id="2fa-setup-code" type="text" inputmode="numeric" maxlength="6"
+                       pattern="\d{6}" placeholder="000000" autocomplete="one-time-code"
+                       class="settings-token-input" />
+              </label>
+              <div id="2fa-setup-error" class="form-error" aria-live="polite"></div>
+              <div class="ui-button-row settings-actions-row">
+                <button type="button" class="wm-modal-nav-btn wm-btn-primary" id="2fa-setup-confirm-btn">Aktivieren</button>
+                <button type="button" class="wm-modal-nav-btn" id="2fa-setup-cancel-btn">Abbrechen</button>
+              </div>
+            </div>
+
+            <!-- Disable-confirm panel -->
+            <div id="2fa-disable-panel" class="settings-inline-panel settings-stack-gap" hidden>
+              <p class="settings-help-text">Gib einen aktuellen Authenticator-Code ein, um 2FA zu deaktivieren:</p>
+              <label class="settings-row">
+                <span class="settings-label">TOTP-Code</span>
+                <input id="2fa-disable-code" type="text" inputmode="numeric" maxlength="6"
+                       pattern="\d{6}" placeholder="000000" autocomplete="one-time-code"
+                       class="settings-token-input" />
+              </label>
+              <div id="2fa-disable-error" class="form-error" aria-live="polite"></div>
+              <div class="ui-button-row settings-actions-row">
+                <button type="button" class="wm-modal-nav-btn" id="2fa-disable-confirm-btn">Deaktivieren</button>
+                <button type="button" class="wm-modal-nav-btn" id="2fa-disable-cancel-btn">Abbrechen</button>
+              </div>
+            </div>
+          </fieldset>
+        </div>
+
+      </div><!-- /.settings-body -->
+      </section>
+
+      <!-- Settings Footer with Apply/Commit Buttons -->
+      <div class="wm-modal-footer settings-footer">
+        <button type="button" class="wm-modal-nav-btn settings-btn-reset" id="settings-reset-btn">Reset to Defaults</button>
+        <div class="settings-footer-spacer"></div>
+        <button type="button" class="wm-modal-nav-btn" data-wm-modal-close>Cancel</button>
+        <button type="button" class="wm-modal-nav-btn wm-btn-primary settings-btn-apply" id="settings-apply-btn">Apply Settings</button>
+        <button type="button" class="wm-modal-nav-btn wm-btn-primary settings-btn-commit" id="settings-commit-btn" style="display:none;">Commit with 2FA</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="copyright" class="copyright">
+    <div class="copyright-container">
+      <div class="copyright-info">
+        <p class="copyright-main">© 2026 Galaxy Quest Interactive. All rights reserved.</p>
+        <p class="copyright-build">build {{buildnr}} — {{build_date}}</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="affilates" class="affiliates">
+    <div class="affiliates-container">
+      <p>Galaxy Quest is a trademark of Galaxy Quest Interactive. All other trademarks are the property of their respective owners.</p>
+    </div>
+  </section>
+
+  <!-- =========================================================
+    Admin: User Management Panel
+    Opened via: topbar nav button (admin only, shown after login)
+    Wired by: js/ui/admin-users.js
+  ========================================================== -->
+  <section id="admin-users-modal" class="wm-modal" aria-modal="true" aria-label="User Management" role="dialog" hidden>
+    <div class="wm-modal-backdrop" data-wm-modal-close></div>
+    <div class="wm-modal-dialog admin-users-dialog">
+      <div class="wm-modal-header">
+        <span class="wm-modal-title"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/admin-DUlcSBu9.svg#icon-admin"></use></svg>User Management</span>
+        <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" data-wm-modal-close>&#x2715;</button>
+      </div>
+
+      <!-- Toolbar: search + create -->
+      <div class="wm-modal-body admin-users-body">
+        <div class="ui-grid ui-grid-auto admin-users-toolbar">
+          <input id="admin-users-search" type="search" placeholder="Search username / email…"
+                 class="admin-users-search" autocomplete="off" />
+          <label class="admin-users-toggle">
+            <input type="checkbox" id="admin-users-show-deleted" />
+            Show deleted
+          </label>
+          <button id="admin-users-reload" class="wm-modal-nav-btn" type="button"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/refresh-BpiC0nzW.svg#icon-refresh"></use></svg>Reload</button>
+          <button id="admin-users-create-btn" class="wm-modal-nav-btn wm-modal-nav-btn-primary" type="button">+ New User</button>
+        </div>
+
+        <!-- User table -->
+        <div class="admin-users-table-wrap">
+          <table id="admin-users-table" class="admin-users-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Username</th>
+                <th>Email</th>
+                <th>Type</th>
+                <th>Auth</th>
+                <th>Admin</th>
+                <th>Colonies</th>
+                <th>Rank</th>
+                <th>Last Login</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="admin-users-tbody">
+              <tr><td colspan="11" class="admin-users-empty">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        <div id="admin-users-pagination" class="admin-users-pagination">
+          <button id="admin-users-prev" class="wm-modal-nav-btn" type="button" disabled>&#8592; Prev</button>
+          <span id="admin-users-page-info" class="admin-users-page-info"></span>
+          <button id="admin-users-next" class="wm-modal-nav-btn" type="button" disabled>Next &#8594;</button>
+        </div>
+
+        <div id="admin-users-error" class="form-error admin-users-error" aria-live="polite"></div>
+      </div>
+
+      <div class="wm-modal-footer wm-modal-footer-end">
+        <button type="button" class="wm-modal-nav-btn" data-wm-modal-close>Close</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Admin: Edit/Create User sub-dialog -->
+  <section id="admin-user-edit-modal" class="wm-modal" aria-modal="true" aria-label="Edit User" role="dialog" hidden>
+    <div class="wm-modal-backdrop"></div>
+    <div class="wm-modal-dialog admin-user-edit-dialog">
+      <div class="wm-modal-header">
+        <span class="wm-modal-title" id="admin-user-edit-title">Edit User</span>
+        <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" id="admin-user-edit-close">&#x2715;</button>
+      </div>
+      <div class="wm-modal-body">
+        <input type="hidden" id="admin-user-edit-id" value="" />
+        <div class="form-group">
+          <label for="admin-user-edit-username">Username</label>
+          <input id="admin-user-edit-username" type="text" pattern="[A-Za-z0-9_]{3,32}"
+                 placeholder="3-32 alphanumeric / underscore" autocomplete="off" />
+        </div>
+        <div class="form-group">
+          <label for="admin-user-edit-email">Email</label>
+          <input id="admin-user-edit-email" type="email" autocomplete="off" />
+        </div>
+        <div class="form-group">
+          <label for="admin-user-edit-control-type">Control Type</label>
+          <select id="admin-user-edit-control-type">
+            <option value="human">Human</option>
+            <option value="npc_engine">NPC Engine</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="admin-user-check-row">
+            <input type="checkbox" id="admin-user-edit-auth-enabled" checked />
+            Login enabled
+          </label>
+        </div>
+        <div class="form-group">
+          <label for="admin-user-edit-password">New Password <span style="opacity:.6;font-size:0.8em">(leave blank to keep)</span></label>
+          <input id="admin-user-edit-password" type="password" minlength="8" autocomplete="new-password" />
+        </div>
+        <div class="form-group">
+          <label class="admin-user-check-row">
+            <input type="checkbox" id="admin-user-edit-is-admin" />
+            Administrator
+          </label>
+        </div>
+        <div id="admin-user-edit-error" class="form-error" aria-live="polite"></div>
+      </div>
+      <div class="wm-modal-footer wm-modal-footer-end">
+        <button type="button" class="wm-modal-nav-btn" id="admin-user-edit-cancel">Cancel</button>
+        <button type="button" class="wm-modal-nav-btn wm-modal-nav-btn-primary" id="admin-user-edit-save">Save</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Admin: Delete confirmation sub-dialog -->
+  <section id="admin-user-delete-modal" class="wm-modal" aria-modal="true" aria-label="Confirm Deletion" role="dialog" hidden>
+    <div class="wm-modal-backdrop"></div>
+    <div class="wm-modal-dialog admin-user-delete-dialog">
+      <div class="wm-modal-header">
+        <span class="wm-modal-title"><svg class="gq-icon gq-icon-inline" aria-hidden="true" focusable="false"><use href="/assets/warning-BVaDXByb.svg#icon-warning"></use></svg>Delete User</span>
+        <button class="wm-btn wm-btn-close wm-modal-close-btn" type="button" id="admin-user-delete-close">&#x2715;</button>
+      </div>
+      <div class="wm-modal-body">
+        <p id="admin-user-delete-text" style="margin:0 0 0.75rem">
+          The user account will be scrubbed (username, email, password, 2FA).
+          All colonies, fleets and research will be preserved and assigned to a
+          ghost NPC placeholder.
+        </p>
+        <div id="admin-user-delete-error" class="form-error" aria-live="polite"></div>
+      </div>
+      <div class="wm-modal-footer wm-modal-footer-end">
+        <button type="button" class="wm-modal-nav-btn" id="admin-user-delete-cancel">Cancel</button>
+        <button type="button" class="wm-modal-nav-btn" id="admin-user-delete-confirm"
+                style="background:var(--btn-danger-bg,#c0392b);color:#fff;border-color:transparent">Delete Account</button>
+      </div>
+    </div>
+  </section>
+
+</body>
+</html>

@@ -33,6 +33,7 @@ if (PHP_SAPI !== 'cli') {
 
 $root = dirname(__DIR__);
 require_once $root . '/config/config.php';
+require_once $root . '/lib/app_version.php';
 require_once $root . '/lib/GithubReleaseChecker.php';
 require_once $root . '/lib/UpdateManager.php';
 
@@ -71,15 +72,18 @@ if ($command === null) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 try {
+    $currentVersion = gq_read_app_version($root);
+} catch (RuntimeException $e) {
+    fwrite(STDERR, "[update] " . $e->getMessage() . "\n");
+    exit(1);
+}
+
+try {
     $db = get_db();
 } catch (Throwable $e) {
     fwrite(STDERR, "[update] Database connection failed: " . $e->getMessage() . "\n");
     exit(1);
 }
-
-// Get current version
-$currentVersion = getenv('APP_VERSION') ?: file_get_contents($root . '/VERSION.txt') ?: '1.0.0';
-$currentVersion = trim($currentVersion);
 
 $manager = new UpdateManager($db, $root, $currentVersion);
 

@@ -10,6 +10,7 @@ const compose = read('deploy/compose.yml');
 const workflow = read('.github/workflows/deploy-plesk.yml');
 const ci = read('.github/workflows/ci.yml');
 const stack = read('deploy/stack.sh');
+const nativeCandidateHttpSmoke = read('scripts/check_native_candidate_http.mjs');
 
 describe('protected Plesk delivery', () => {
   it('gates image publication on isolated native database compatibility', () => {
@@ -18,10 +19,13 @@ describe('protected Plesk delivery', () => {
     expect(ci).toMatch(/needs:\s*\[lint-php, lint-js, phpunit-unit, phpunit, vitest, playwright-smoke, native-db\]/);
   });
 
-  it('accepts the exact native candidate on PHP 8.4 Apache before preserving it', () => {
+  it('accepts the exact native candidate through PHP 8.4 FPM before preserving it', () => {
     const packageStep = ci.indexOf('bash deploy/package-native-release.sh');
     const acceptanceStep = ci.indexOf('node scripts/check_native_candidate_http.mjs');
     const artifactStep = ci.indexOf('name: native-plesk-candidate-attempt-');
+    expect(ci).toContain('Accept native candidate on PHP 8.4 FPM behind Apache with WordPress routing');
+    expect(nativeCandidateHttpSmoke).toContain('FROM php:8.4-fpm');
+    expect(nativeCandidateHttpSmoke).toContain('proxy:fcgi://php-fpm:9000');
     expect(packageStep).toBeGreaterThanOrEqual(0);
     expect(acceptanceStep).toBeGreaterThan(packageStep);
     expect(artifactStep).toBeGreaterThan(acceptanceStep);

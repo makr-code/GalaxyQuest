@@ -1,0 +1,100 @@
+OCCURRENCES 1718 FILES 55 PROPERTIES 90
+PROPS ACESFilmicToneMapping AdditiveBlending AmbientLight AnimationClip AnimationMixer Audio BackSide Box3 BoxGeometry BufferAttribute BufferGeometry CanvasTexture CircleGeometry ClampToEdgeWrapping Clock Color ConeGeometry CopyShader CubeUVReflectionMapping CylinderGeometry DataTexture DirectionalLight DoubleSide EdgesGeometry EffectComposer EllipseCurve Float32BufferAttribute Fog FrontSide GLTFLoader GridHelper Group HemisphereLight IcosahedronGeometry InstancedMesh LOD LatheGeometry Line LineBasicMaterial LineLoop LineSegments LinearFilter LinearMipMapLinearFilter MaterialLoader MathUtils Matrix4 Mesh MeshBasicMaterial MeshPhongMaterial MeshStandardMaterial NoColorSpace NoToneMapping Object3D ObjectLoader OctahedronGeometry OrbitControls OrthographicCamera PCFShadowShadowMap PMREMGenerator PerspectiveCamera Plane PlaneGeometry PointLight Points PointsMaterial PropertyBinding Quaternion RGBAFormat Raycaster RenderPass RepeatWrapping RingGeometry SRGBColorSpace Scene ShaderMaterial ShaderPass SphereGeometry Spherical Sprite SpriteMaterial TextureLoader TorusGeometry UnrealBloomPass UnsignedByteType Vector2 Vector3 WebGLRenderTarget WebGLRenderer WebGPUCoordinateSystem WebGPURenderer
+--- FILE PROPERTY MAP ---
+js/engine/core/WebGLRenderer.js	WebGLRenderer@85, SRGBColorSpace@216, ACESFilmicToneMapping@217, WebGLRenderTarget@257, LinearFilter@258, RGBAFormat@260, UnsignedByteType@261, DataTexture@267
+js/engine/fx/AsteroidBeltAnimator.js	Quaternion@111, Vector3@113
+js/engine/fx/ImpactDecalManager.js	Mesh@137, PlaneGeometry@178, MeshStandardMaterial@195, Color@196
+js/engine/fx/StellarExplosionFX.js	PointLight@243
+js/engine/fx/SunAnimator.js	Color@136, MeshStandardMaterial@137
+js/engine/lod/LODManager.js	Vector3@54
+js/engine/procedural/ProceduralMeshGenerator.js	BufferGeometry@128, BufferAttribute@136, IcosahedronGeometry@270
+js/engine/runtime/GQNeighborWaypointOverlay.js	
+js/engine/runtime/RuntimeGalaxyInit3DFacade.js	
+js/engine/runtime/RuntimeGalaxyNavOrb.js	
+js/engine/runtime/RuntimeGalaxyPhysicsFlight.js	
+js/engine/runtime/RuntimeShipyardController.js	
+js/engine/runtime/layers/domain/galaxy/PhysicsFlight.js	
+js/engine/runtime/layers/integration/galaxy/Init3DFacade.js	
+js/engine/runtime/layers/integration/galaxy/NavOrb.js	Vector3@199
+js/engine/runtime/layers/ui/galaxy/NavOrb.js	
+js/engine/scene/CinematicCamera.js	Vector3@141
+js/engine/zoom/levels/ColonySurfaceLevelThreeJS.js	
+js/engine/zoom/levels/ObjectApproachLevelThreeJS.js	
+js/engine/zoom/levels/PlanetApproachLevelThreeJS.js	Vector3@119
+js/legacy/engine-compat.js	
+js/legacy/galaxy3d.js	Vector3@43, Scene@123, Color@124, Group@126, PerspectiveCamera@137, WebGLRenderer@140, SRGBColorSpace@147, OrbitControls@167, Raycaster@185, Vector2@187, Clock@199, MathUtils@255, AmbientLight@306, DirectionalLight@309, Mesh@409, SphereGeometry@410, MeshBasicMaterial@411, ShaderMaterial@417, AdditiveBlending@420, BackSide@421, DoubleSide@452, RingGeometry@490, CanvasTexture@508, SpriteMaterial@509, Sprite@516, CircleGeometry@604, BufferGeometry@691, BufferAttribute@692, Points@746, MeshStandardMaterial@934, Float32BufferAttribute@1525, LineBasicMaterial@1528, LineSegments@1535, Box3@1558, BoxGeometry@1602, EdgesGeometry@1603, TorusGeometry@1657, FrontSide@1741, EllipseCurve@1803, LineLoop@1805, OctahedronGeometry@1861, CylinderGeometry@1867, LatheGeometry@2226, RepeatWrapping@2279, PointsMaterial@2508, Spherical@3000
+js/rendering/GeometryInstancingOptimizer.js	InstancedMesh@149, Mesh@149
+js/rendering/SystemSpecialBodiesRenderer.js	InstancedMesh@111, Object3D@111, IcosahedronGeometry@111, MeshStandardMaterial@112, BufferGeometry@215, BufferAttribute@216, PointsMaterial@218, Points@227, TorusGeometry@231, MeshBasicMaterial@232, Mesh@239, Group@243, LOD@248, PlaneGeometry@309, DoubleSide@315, AdditiveBlending@316, SphereGeometry@361, Color@470, BackSide@570, RingGeometry@674
+js/rendering/earth-reference.js	Vector3@15, BufferGeometry@26, Float32BufferAttribute@27, WebGPURenderer@83, SRGBColorSpace@92, NoToneMapping@93, Scene@95, Color@96, PerspectiveCamera@97, WebGPUCoordinateSystem@98, Group@103, CanvasTexture@109, RepeatWrapping@111, MeshStandardMaterial@113, MeshBasicMaterial@114, SphereGeometry@118, Mesh@126, LineSegments@134, LineBasicMaterial@135, BackSide@139, DirectionalLight@237, AmbientLight@239, Matrix4@253, Raycaster@285, Vector2@286
+js/rendering/galaxy-camera-controller.js	Vector3@142
+js/rendering/galaxy-renderer-core.js	MathUtils@138, Vector3@282, Scene@351, Color@353, Group@355, PerspectiveCamera@366, WebGLRenderer@388, SRGBColorSpace@400, OrbitControls@445, Raycaster@462, Vector2@464, Clock@476, Mesh@1000, SphereGeometry@1001, MeshBasicMaterial@1002, ShaderMaterial@1008, AdditiveBlending@1011, BackSide@1012, DoubleSide@1043, RingGeometry@1081, CanvasTexture@1099, SpriteMaterial@1100, Sprite@1107, CircleGeometry@1214, BufferGeometry@1301, BufferAttribute@1302, Points@1356, MeshStandardMaterial@1643, Line@1702, LineBasicMaterial@1704, ClampToEdgeWrapping@1853, LinearMipMapLinearFilter@1855, LinearFilter@1856, Float32BufferAttribute@2685, LineSegments@2695, Box3@2718, BoxGeometry@2762, EdgesGeometry@2763, TorusGeometry@2819, EllipseCurve@2967, LineLoop@2969, PointsMaterial@3660, OctahedronGeometry@4177, CylinderGeometry@4194, ConeGeometry@4912, LatheGeometry@5167, Quaternion@5737, Spherical@6679, Matrix4@8826
+js/rendering/geometry-manager.js	
+js/rendering/input-contexts/core-context-actions.js	Spherical@33, Vector3@69
+js/rendering/light-rig-manager.js	DirectionalLight@81, PointLight@88, AmbientLight@99, CubeUVReflectionMapping@136
+js/rendering/material-factory.js	SRGBColorSpace@197, NoColorSpace@197, MeshStandardMaterial@223
+js/rendering/planet-textures.js	RepeatWrapping@65, ClampToEdgeWrapping@66, SRGBColorSpace@69, TextureLoader@77, MeshStandardMaterial@180, Vector2@186, Color@191, Vector3@221, CanvasTexture@503
+js/rendering/post-effects.js	EffectComposer@42, RenderPass@52, ShaderPass@66, CopyShader@66, UnrealBloomPass@73, Vector2@79
+js/rendering/rendering-validation.js	MathUtils@243
+js/rendering/starfield.js	Scene@409, Vector3@409
+js/rendering/texture-manager.js	DataTexture@79, RGBAFormat@79, UnsignedByteType@79, SRGBColorSpace@80, NoColorSpace@80, RepeatWrapping@81, MeshStandardMaterial@99, Vector2@175, Color@180, TextureLoader@323, CanvasTexture@456
+js/rendering/three-CopyShader.js	CopyShader@3
+js/rendering/three-EffectComposer.js	EffectComposer@4, WebGLRenderTarget@6, RGBAFormat@7, UnsignedByteType@8, Vector2@22
+js/rendering/three-RenderPass.js	RenderPass@3, Color@17
+js/rendering/three-ShaderPass.js	ShaderPass@3, BufferGeometry@17, BufferAttribute@20, ShaderMaterial@23, Scene@30, OrthographicCamera@31, Mesh@32
+js/rendering/three-UnrealBloomPass.js	UnrealBloomPass@3, Vector2@4, RGBAFormat@13, UnsignedByteType@14, WebGLRenderTarget@17, ShaderMaterial@69, Scene@75, OrthographicCamera@76, Mesh@77, BufferGeometry@195, BufferAttribute@198
+js/rendering/world-material-reference.js	WebGLRenderer@13, SRGBColorSpace@15, ACESFilmicToneMapping@16, Scene@19, Color@20, OrthographicCamera@21, PMREMGenerator@24, HemisphereLight@30, DirectionalLight@31, SphereGeometry@35, Mesh@41
+js/runtime/model_registry.js	Color@187, AnimationMixer@207, LOD@343, Group@343, ObjectLoader@500, AnimationClip@534, SphereGeometry@599, TorusGeometry@604, CylinderGeometry@609, BoxGeometry@615, ConeGeometry@618, OctahedronGeometry@621, RingGeometry@624, Mesh@636, MeshStandardMaterial@667, SRGBColorSpace@701, NoColorSpace@701, TextureLoader@714
+js/telemetry/space-camera-flight-driver.js	MathUtils@251, Vector3@275
+js/telemetry/trajectory-planner.js	Vector3@16, MathUtils@176
+js/tests/flight-driver-integration-tests.js	Vector3@122
+js/three-runtime.js	
+js/ui/ShipHangarViewer.js	
+js/ui/node-editor-option-a.js	Raycaster@58, Vector2@59, Scene@231, Color@232, PerspectiveCamera@234, WebGLRenderer@237, DirectionalLight@283, AmbientLight@286, GridHelper@289, SphereGeometry@319, MeshStandardMaterial@324, Mesh@330, LineSegments@462, BufferGeometry@481, BufferAttribute@482, LineBasicMaterial@483
+js/ui/node-editor-simple.js	Raycaster@25, Vector2@26, Scene@61, Color@62, PerspectiveCamera@64, WebGLRenderer@67, DirectionalLight@71, AmbientLight@74, BufferGeometry@77, BufferAttribute@83, LineBasicMaterial@84, LineSegments@85, SphereGeometry@97, MeshStandardMaterial@98, Mesh@99
+js/ui/node-editor.js	Raycaster@45, Vector2@46, Scene@155, Color@156, PerspectiveCamera@158, WebGLRenderer@166, DirectionalLight@171, AmbientLight@175, BufferGeometry@179, BufferAttribute@192, LineBasicMaterial@193, LineSegments@194, SphereGeometry@233, MeshStandardMaterial@234, Mesh@239, Plane@410, Vector3@410
+js/ui/ship-designer-trellis2.js	Scene@696, PerspectiveCamera@697, WebGLRenderer@698, DirectionalLight@706, AmbientLight@710, GLTFLoader@736
+js/ui/ship-designer.js	Vector3@714, BufferGeometry@783, LineBasicMaterial@784, BufferAttribute@801, LineSegments@802, Scene@819, Color@820, PerspectiveCamera@821, WebGLRenderer@822, DirectionalLight@828, AmbientLight@833, GLTFLoader@902, Box3@917, MeshStandardMaterial@934
+js/ui/wireframe-editor.js	Vector3@60, Raycaster@130, Vector2@131, Scene@242, Color@243, Fog@244, PerspectiveCamera@247, WebGLRenderer@257, PCFShadowShadowMap@260, AmbientLight@264, DirectionalLight@267, GridHelper@275, SphereGeometry@472, MeshStandardMaterial@474, Mesh@475, BufferGeometry@528, LineBasicMaterial@529, LineSegments@530, BufferAttribute@1299, Quaternion@1524, MeshPhongMaterial@1619, DoubleSide@1623, MeshBasicMaterial@1636, Plane@1733
+js/vendor/three.min.js	MaterialLoader@7, Audio@7, PropertyBinding@7, ObjectLoader@7
+--- BRACKETS ---
+--- MUTATIONS ---
+js/three-runtime.js	4	namespace	
+js/legacy/galaxy3d.js	167	property	OrbitControls
+js/rendering/galaxy-renderer-core.js	90	namespace	
+js/rendering/galaxy-renderer-core.js	445	property	OrbitControls
+js/rendering/geometry-manager.js	10	namespace	
+js/rendering/GeometryInstancingOptimizer.js	100	namespace	
+js/rendering/light-rig-manager.js	10	namespace	
+js/rendering/material-factory.js	10	namespace	
+js/rendering/rendering-validation.js	166	namespace	
+js/rendering/starfield.js	409	property	Scene
+js/rendering/starfield.js	409	property	Vector3
+js/rendering/texture-manager.js	17	namespace	
+js/rendering/texture-manager.js	69	namespace	
+js/rendering/texture-manager.js	435	namespace	
+js/rendering/three-CopyShader.js	3	property	CopyShader
+js/rendering/three-EffectComposer.js	4	property	EffectComposer
+js/rendering/three-RenderPass.js	3	property	RenderPass
+js/rendering/three-ShaderPass.js	3	property	ShaderPass
+js/rendering/three-UnrealBloomPass.js	3	property	UnrealBloomPass
+js/telemetry/space-camera-flight-driver.js	20	namespace	
+js/telemetry/space-camera-flight-driver.js	269	namespace	
+js/telemetry/space-camera-flight-driver.js	321	namespace	
+js/telemetry/trajectory-planner.js	29	namespace	
+js/telemetry/trajectory-planner.js	68	namespace	
+js/telemetry/trajectory-planner.js	195	namespace	
+js/vendor/three.min.js	7	namespace	
+js/engine/core/WebGLRenderer.js	36	namespace	
+js/engine/core/WebGLRenderer.js	38	namespace	
+js/engine/core/WebGLRenderer.js	85	property	WebGLRenderer
+js/engine/core/WebGLRenderer.js	87	namespace	
+js/engine/core/WebGLRenderer.js	157	namespace	
+js/engine/fx/AsteroidBeltAnimator.js	107	namespace	
+js/engine/fx/ImpactDecalManager.js	174	namespace	
+js/engine/fx/ImpactDecalManager.js	191	namespace	
+js/engine/fx/StellarExplosionFX.js	242	namespace	
+js/engine/procedural/ProceduralMeshGenerator.js	266	namespace	
+js/engine/runtime/RuntimeGalaxyInit3DFacade.js	172	namespace	
+js/engine/runtime/RuntimeShipyardController.js	625	namespace	
+js/engine/scene/CinematicCamera.js	161	namespace	
+js/engine/runtime/layers/integration/galaxy/Init3DFacade.js	173	namespace	

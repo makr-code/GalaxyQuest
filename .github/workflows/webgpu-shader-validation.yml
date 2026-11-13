@@ -27,6 +27,8 @@ on:
       - 'copilot/improve-webgpu-integration'
       - 'main'
       - 'develop'
+    tags:
+      - 'v*'
     paths:
       - 'js/engine/webgpu/**/*.js'
       - 'js/engine/fx/shaders/*.wgsl'

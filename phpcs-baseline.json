@@ -9659,15 +9659,6 @@
             "lineHash": "6c81aa68ea9603502b9df4853a8a3da622fb0e71105a6652d644ff50411d3f9d",
             "count": 1
         },
-        "3ef89cc9f6ab977dddcc47b998f22dfefb725d3976ee5d7c014dd1830657eeec": {
-            "path": "config/config.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 3 and the first side effect is on line 118.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
-            "count": 1
-        },
         "3f4507583e75d1ffa1d061d7a9078997fea70e1fdb3d8237defc5d1e8c5854de": {
             "path": "api/llm.php",
             "source": "Generic.WhiteSpace.DisallowTabIndent.TabsUsed",
@@ -11763,6 +11754,15 @@
             "message": "Inline control structures are not allowed",
             "column": 5,
             "lineHash": "846be341531ed567eefc5aabff0cfff3ae21ca78cae94548b9c79f812714c603",
+            "count": 1
+        },
+        "4dd46fab57807681e1fc1fdc3ebd431b5ef703a502a1404e7645a0815e54b6dc": {
+            "path": "config/config.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 3 and the first side effect is on line 130.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "4ddb60d5ae5cd66f69a598a9c98c122e83fa1117924c8bbe49ea876b159b1078": {

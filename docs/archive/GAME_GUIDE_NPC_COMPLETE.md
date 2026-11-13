@@ -1,5 +1,7 @@
 # Game Guide NPC - Intelligenter Tutorial-Assistent
 
+> Historischer Implementierungs-Snapshot, kein aktueller Integrationsvertrag. API-, Schema-, Migrations- und Frontend-Beispiele können vom aktuellen Runtime-Pfad abweichen; insbesondere darf API-Ausgabe nicht ungeprüft per `innerHTML` eingesetzt werden.
+
 ## Übersicht
 
 Der **GameGuide NPC** (Advisor Tau) ist ein intelligenter Onboarding-Assistent, der:
@@ -523,6 +525,6 @@ A: Prüfen Sie Datenbankverbindung und `game_guide_progress` Tabelle
 ## Support & Fragen
 
 Für Fragen zur GameGuide NPC Integration siehe:
-- [Historischer NPC-Dialog-Prototyp](docs/archive/NPC_DIALOGUE_INTEGRATION_GUIDE.md) - nicht in `index.html` aktiviert; Client/API-Verträge weichen voneinander ab
-- [Historischer NPC-Aktionsprototyp](docs/archive/NPC_GAME_INTEGRATION_ACTIONS.md) - nicht an den aktuellen NPC-Chat-Endpoint angebunden
-- Historical, unimplemented API proposal: [API_NPC_GAME_INTEGRATION_GUIDE.md](docs/archive/API_NPC_GAME_INTEGRATION_GUIDE.md). The proposed consequences handler is not available in the current endpoint.
+- [Historischer NPC-Dialog-Prototyp](NPC_DIALOGUE_INTEGRATION_GUIDE.md) - nicht in `index.html` aktiviert; Client/API-Verträge weichen voneinander ab
+- [Historischer NPC-Aktionsprototyp](NPC_GAME_INTEGRATION_ACTIONS.md) - nicht an den aktuellen NPC-Chat-Endpoint angebunden
+- Historical, unimplemented API proposal: [API_NPC_GAME_INTEGRATION_GUIDE.md](API_NPC_GAME_INTEGRATION_GUIDE.md). The proposed consequences handler is not available in the current endpoint.

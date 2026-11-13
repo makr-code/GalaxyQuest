@@ -1,6 +1,6 @@
 # Ollama LLM + Wikipedia RAG Setup
 
-Das GalaxyQuest Glossar nutzt jetzt **Ollama LLM mit Wikipedia RAG** für wissenschaftliche Definitionen.
+Das Glossar enthält statische Definitionen und einen optionalen AI-Generierungspfad mit Ollama und Wikipedia-Kontext. Die AI-Generierung setzt erreichbare Dienste voraus; bei Fehlern bleiben die statischen Definitionen im Frontend verfügbar.
 
 ## Quick Start
 
@@ -80,9 +80,8 @@ Generiert eine LLM-Definitionen mit Wikipedia RAG.
 
 ### Fallbacks
 
-- Wenn Ollama nicht verfügbar: Nutzt statische Definitionen
-- Wenn Wikipedia nicht erreichbar: Nutzt Ollama ohne Context (schwächer)
-- Wenn LLM timeout: Zeigt statische Definition + Warnung
+- Wenn Ollama oder Wikipedia nicht verfügbar ist, antwortet der Generate-Endpoint mit einem Fehler; er erzeugt keine Definition ohne Wikipedia-Kontext.
+- Das Frontend behält die statische Definition bei und zeigt einen Fehlerhinweis, wenn die AI-Generierung fehlschlägt.
 
 ## Unterstützte Modelle
 
@@ -104,7 +103,7 @@ curl -X POST http://localhost/api/glossary.php?action=generate \
 - **Erstmaliger Aufruf**: ~3–8 Sekunden (LLM Inference)
 - **Cache Hit**: ~50ms
 - **Cache TTL**: 5 Tage
-- **Parallel Requests**: OK (Queue-basiert in Ollama)
+- **Parallel Requests**: GalaxyQuest stellt keine eigene Queue bereit; die Parallelität hängt von der Ollama-Serverkonfiguration ab. Die Laufzeitangaben sind Richtwerte, keine gemessenen Garantien.
 
 ## Troubleshooting
 
@@ -115,23 +114,14 @@ ollama serve
 ```
 
 ### "Timeout"
-```php
-// In glossary.php: timeout auf 60s erhöhen
-'timeout' => 60
-```
+Der aktuelle Ollama-HTTP-Aufruf in `api/glossary.php` hat ein Timeout von 30 Sekunden. Nur bei begründetem Bedarf den HTTP-Timeout dort anpassen; ein Fehler lässt die statische Definition im Frontend bestehen.
 
 ### "Invalid JSON from Ollama"
 - Andere Modelle testen: `OLLAMA_MODEL=neural-chat`
 - Prompt in glossary.php anpassen (line ~120)
 
 ### Wikipedia API SSL Error
-```php
-// In fetch_wikipedia_context(): SSL-Verifizierung deaktivieren
-$ctx = stream_context_create([
-    'ssl' => ['verify_peer' => false],
-    'http' => ['timeout' => 5]
-]);
-```
+TLS-Prüfung nicht deaktivieren. Stattdessen System-CA-Zertifikate, DNS, Uhrzeit und ausgehende HTTPS-Verbindung prüfen. Der aktuelle Request nutzt die standardmäßige Zertifikatsprüfung und ein 5-Sekunden-Timeout.
 
 ## Frontend UI
 
@@ -176,5 +166,6 @@ Siehe: [ARCHITECTURE.md](ARCHITECTURE.md#educational-ui)
 
 ---
 
-**Last Updated:** 28. März 2026  
-**Status:** ✅ Phase E.1 Complete + RAG Integration
+**Last Updated:** 13. November 2026
+
+**Status:** API- und UI-Vertrag gegen die aktuelle Implementierung geprüft; keine Garantie für erreichbare Ollama-/Wikipedia-Dienste oder Performancewerte.

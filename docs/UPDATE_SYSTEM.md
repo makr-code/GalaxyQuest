@@ -4,6 +4,8 @@
 
 The auto-update system provides safe, automated checking and installation of released packages from GitHub. It includes rollback capability, health checks, and comprehensive audit logging.
 
+The installed version is read and SemVer-validated from the repository-root `VERSION.txt`. Update commands do not accept an `APP_VERSION` override or substitute a fallback version. The `version` field in `config/update-config.json` is legacy template metadata and is not authoritative at runtime.
+
 ## Features
 
 - **Automatic Release Checking** – Periodically fetch latest releases from GitHub API
@@ -81,6 +83,8 @@ Top-level settings for the update system:
   }
 }
 ```
+
+The JSON template's `version` field is not used to determine the installed application version.
 
 ### 2. Database Configuration (`update_configuration` table)
 
@@ -179,25 +183,44 @@ CREATE TABLE update_backups (
 
 ### Preparing a Release
 
-To create a release that works with this system:
+`VERSION.txt` is the canonical application version. The tag workflow first validates the exact tag/commit and changelog, then runs the packager and uploads the archive and checksum as a 30-day GitHub Actions artifact for operator review. It does not publish a GitHub Release or deploy the application.
 
-1. **Tag your release** with semantic versioning:
-   ```bash
-   git tag -a v1.2.0 -m "Release v1.2.0: New features and bugfixes"
-   git push origin v1.2.0
+To prepare the same archive locally, use a writable output directory outside the repository:
+
+```bash
+php scripts/prepare_release.php "$(cat VERSION.txt)" --output-dir=/path/to/releases
+```
+
+The packager rejects a version that differs from `VERSION.txt`, an unavailable or unwritable output directory, and existing artifacts with the same version. It writes `galaxyquest-<version>.tar.gz` and its SHA-256 checksum.
+
+The tag workflows run quality and security checks, and the release-metadata workflow prepares validated notes and a package artifact. These preparation outputs are not release approval. Publication is handled separately as described below; staging and production deployment remain outside these workflows.
+
+### Publishing GitHub Releases
+
+The `GitHub Release Publication` workflow has two entry points. Manual workflow dispatch is accepted only when run from `main`:
+
+- **Operator release:** Run `github-release.yml` manually with an existing `v<version>` tag. Stable versions must point to a commit contained in `main`. The publisher uses the `github-release` environment.
+- **Automated developer release:** Push a SemVer prerelease tag such as `v0.9.0-alpha.1`, matching `VERSION.txt`, package mirrors and a dated changelog section. The tagged commit must be contained in `develop`. Successful tag-workflow completion events recheck the gates; unfinished gates explicitly defer publication until a later completion event. The result is a GitHub prerelease with `latest=false`, leaving the stable updater channel unchanged.
+
+Developer automation does **not** invent versions, create tags, or publish on every untagged `develop` push. Stable tags are never automatically published.
+
+Both paths require the latest push run for the **same tag and full commit SHA** to succeed in all six workflows: main CI, Security Scans, Python Quality, CodeQL, WebGPU Shader Validation and Release Metadata Preparation. Missing, failed, skipped or cancelled gates cannot authorize publication. A read-only job installs locked frontend dependencies, builds Vite, checks the bundle budget and includes the built `dist` in the package; only a separate publishing job receives `contents: write`.
+
+For an operator release, after preparing the version and tag and obtaining green tag runs:
+
+```bash
+gh workflow run github-release.yml --ref main -f tag=v1.2.0
+```
+
+Install the workflow and trusted release helpers on the repository's default branch before using automatic `workflow_run` publication. Configure required reviewers and allowed branches for the `github-release` environment in GitHub if an additional operator approval is required; these repository settings are not created by the workflow. The separate `developer-release` environment must not require manual approval for automation.
+
+After environment approval and publication serialization, the publisher rechecks the gates using the pinned trusted helper, then verifies the remote tag commit and package checksum, uploads the archive, checksum and a tag/version/commit manifest into a draft, and only then publishes it. Stable operator releases become latest; developer prereleases do not. Repeated events verify that the existing release's manifest matches the tag and commit and that its downloaded archive passes its published checksum before leaving it unchanged. Existing drafts or releases with different source manifest, notes, prerelease status or asset metadata fail closed; no assets are replaced. A failed upload or final publication can leave a draft requiring operator inspection, not an automatically approved release.
+
+No workflow is dispatched and no live release is created merely by adding this implementation. First remote-run acceptance, production-package validation, staging and rollback remain required.
+
+**Checksum File Format** (`galaxyquest-<version>.sha256`):
    ```
-
-2. **Create GitHub Release** with:
-   - Tag: `v1.2.0`
-   - Release name: `Version 1.2.0`
-   - Description: Changelog (in Markdown)
-   - Artifacts:
-     - `galaxyquest-1.2.0.tar.gz` (application files)
-     - `galaxyquest-1.2.0.sha256` (checksum file)
-
-3. **Checksum File Format** (`galaxyquest-1.2.0.sha256`):
-   ```
-   a1b2c3d4e5f6... galaxyquest-1.2.0.tar.gz
+   a1b2c3d4e5f6...  galaxyquest-<version>.tar.gz
    ```
 
 ### Archive Contents
@@ -316,10 +339,11 @@ php bin/update.php rollback
 export GITHUB_OWNER=your-org
 export GITHUB_REPO=your-repo
 export GITHUB_TOKEN=ghp_...
-export APP_VERSION=1.2.0
 
 php bin/update.php check
 ```
+
+The current version is always loaded from the repository-root `VERSION.txt`.
 
 ### Database Configuration
 
@@ -354,46 +378,12 @@ $stmt->execute();
 
 ### GitHub Actions Workflow
 
-Create `.github/workflows/release.yml`:
-
-```yaml
-name: Release
-
-on:
-  push:
-    tags:
-      - 'v*'
-
-jobs:
-  release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Create Release Archive
-        run: |
-          tar -czf galaxyquest-${VERSION}.tar.gz \
-            --exclude=.git \
-            --exclude=.github \
-            --exclude=node_modules \
-            --exclude=updates \
-            .
-          
-      - name: Generate Checksum
-        run: |
-          sha256sum galaxyquest-${VERSION}.tar.gz > galaxyquest-${VERSION}.sha256
-      
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            galaxyquest-*.tar.gz
-            galaxyquest-*.sha256
-```
+The metadata workflow prepares review artifacts; `github-release.yml` publishes GitHub Releases under the operator/developer policy above, only after the exact tag's quality/security gates. These release workflows do not deploy to staging or publish production container images.
 
 ## Next Steps
 
-- [ ] Set up automatic release creation in GitHub Actions
+- [x] Implement manual operator releases and automatic tagged developer prereleases
+- [ ] Verify the first release workflow run and configure operator environment protection
 - [ ] Configure production update schedule (cron job)
 - [ ] Integrate with admin dashboard UI
 - [ ] Add email notifications for admins

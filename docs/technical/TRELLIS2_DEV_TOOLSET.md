@@ -129,6 +129,20 @@ Vertexfarben sind ohnehin keine PBR-Texturen. Dies ist kein
 Kompatibilitaetsnachweis fuer andere GPU-Modelle, Torch-Versionen oder
 alle Nodes; die Testdateien sind keine freigegebenen Koloniegebaeude.
 
+Am 2026-11-13 bestand das vorhandene `nvdiffrast`-Wheel fuer `sm_86`
+zusaetzlich einen isolierten Test in einem kurzlebigen Python-3.12-Container
+mit PyTorch 2.9.1+cu128 auf der RTX 3060: der CUDA-Rasterkontext wurde
+erzeugt und ein Dreieck deckte 72 Pixel ab. Der Container nutzte das Wheel
+read-only und wurde anschliessend entfernt. Dies bestaetigt nur den
+Raster-Kernel in dieser Kombination, nicht den vollstaendigen
+ComfyUI-Texturierungsworkflow oder die Qualitaet eines exportierten GLB.
+Ein zweiter ComfyUI/TRELLIS-Prozess wurde nicht gestartet: Die laufende
+ComfyUI-Instanz teilt dieselbe 12-GiB-GPU; bei der Pruefung waren laut
+`nvidia-smi` nur 9.102 MiB frei. Die gemeinsam genutzte Instanz und ihre
+installierten Wheels blieben unveraendert. Ein vollstaendiger PBR-Lauf
+bleibt offen und erfordert einen isolierten Lauf mit ausreichender
+GPU-Kapazitaet oder ein kontrolliertes Wartungsfenster.
+
 Im verwendeten lokalen CPU-Mesh-Fallback war zusaetzlich der Ursprung
 verschoben: Die rekonstruierten Vertices werden als `coords / resolution`
 ausgegeben, der Textur-Sampler erwartet dagegen den Mesh-Ursprung
@@ -332,6 +346,14 @@ Normalenattribute und kein PBR-Material. Dieses unverarbeitete Ergebnis
 bleibt ausserhalb des DEV-Imports und erweitert nicht die Zahl der
 sichtgeprueften Pilot-Assets.
 
+Ein mesh-only-Erzeugungsversuch fuer `agriculture` vom 2026-11-13 erzeugte
+`building_agriculture_pilot_v1_00001_.glb` (8.683.252 Bytes). Die
+Offline-Inspektion fand 480.326 Dreiecke, 101.025 Nullflaechen, 122.892
+Face-Komponenten, ungueltige UVs, keine Normalenattribute und kein
+PBR-Material. Auch dieses Ergebnis bleibt unimportiert und ist kein
+Referenz-Pilot. Weitere Mesh-only-Jobs mit demselben Graphen sind bis zur
+Korrektur des Export-/Bereinigungspfads pausiert.
+
 | Facility | DEV-Asset | Pruefergebnis |
 |---|---|---|
 | `warehouse` | `building_generic_warehouse_pilot_v2_normals_lod0_trellis2_dev.glb` | 15.000 Dreiecke, gueltige UVs, farbige 1024²-Basisfarbe und Metallic/Roughness; kein Normalenbefund. Ein separates 8-Dreiecke-Fragment bleibt zur manuellen Beurteilung erhalten. |
@@ -344,7 +366,9 @@ PBR-Texturen pixelgenau gegen den jeweiligen `v1`-Export verifiziert; dies
 gilt auch fuer den Hydroponik-Export.
 Die Dateien bleiben **DEV_ONLY**: physikalischer Massstab,
 Bodenkontakt, LOD/Renderbudget und Integration in beide Kolonieansichten
-sind weiterhin offen. Die uebrigen 13 Facility-Referenzen haben noch keine
+sind weiterhin offen. Von den 13 Klassen ausserhalb der drei akzeptierten
+Piloten haben `industry` und `agriculture` nur die oben dokumentierten,
+inspektionsseitig abgelehnten Roh-Exporte; elf Klassen haben noch keine
 TRELLIS-Inferenz oder GLB-Ausgabe.
 
 Manifest-Schema, eindeutige Klassen, PNG-Aufloesung und Bildhashes sind
@@ -365,6 +389,9 @@ auf eine frei gewaehlte Darstellungsbreite normiert und am synthetischen
 Berlin-Referenzstandort auf der glatten Kugel gezeigt. Die Breite ist kein
 Nachweis des realen Modellmassstabs; die Ansicht prueft weder Kontakt mit
 ETOPO-Relief noch LOD, Produktionsbudget oder beide Kolonieansichten.
+Eine Browserpruefung lud alle drei GLBs erfolgreich (HTTP 200) und zeigte sie
+bei 250 m angenommener Breite im Viewport. Das bestaetigt nur Loader und
+Darstellung der DEV-Vorschau, keine visuelle Assetfreigabe.
 
 Die Vorschau ist absichtlich nicht mit `PersistentBodyPlanetApproachRenderer`
 verbunden. Dieser bleibt beim bestehenden deterministischen, prozeduralen
@@ -387,6 +414,7 @@ Der Standardaufruf ist ein Dry-Run:
 ```powershell
 node scripts/trellis2_generate_facility.mjs --kind industry
 node scripts/trellis2_generate_facility.mjs --kind industry --preflight
+node scripts/trellis2_generate_facility.mjs --kind industry --textured --preflight
 ```
 
 Eine GPU-Inferenz wird nur mit `--submit` gestartet. Das Skript prueft
@@ -397,8 +425,25 @@ nicht automatisch importiert:
 
 ```powershell
 node scripts/trellis2_generate_facility.mjs --kind industry --submit
+node scripts/trellis2_generate_facility.mjs --kind industry --textured --submit
 python scripts/trellis2_inspect.py generated/comfyui/output/<relative-glb>.glb --facility-kind industry
 ```
+
+`--textured` verwendet den Low-Poly-Zweig des vorhandenen ComfyUI-Beispiel-
+Workflows: 5.000 Ziel-Dreiecke, Mesh-Texturierung mit 1024er Modellauflosung
+und 2048er PBR-Texturen. Diese Werte wurden gegen die aktive ComfyUI-Node-
+Schema geprueft. Der Export erhaelt den getrennten Namenszusatz
+`_lowpoly_textured`; der bestehende Mesh-only-Aufruf bleibt unveraendert.
+
+Der erste `--textured --submit`-Lauf am 2026-11-13 erreichte den
+Texturierungs-Node mit einem Mesh aus 4.974 Dreiecken, scheiterte dort aber
+in `nvdiffrast` beim Erzeugen des CUDA-Rasterkontexts (`Cuda error: 209`,
+`fineRasterKernel`). Es wurde kein GLB exportiert. Das passt zum oben
+dokumentierten Torch291-Wheel, das nur `sm_120` statt der aktiven RTX-3060-
+Architektur `sm_86` enthaelt. Die vorhandenen `sm_86`-Test-Wheels duerfen
+nicht ungeprueft in den gemeinsam genutzten ComfyUI-Dienst installiert
+werden; sie muessen zuerst in einer isolierten Zielumgebung validiert
+werden.
 
 Nur nach manueller Sichtpruefung und Bearbeitung offener Inspector-Befunde
 den DEV-Import ausfuehren. Ein generierter oder erfolgreich inspizierter

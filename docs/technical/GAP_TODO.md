@@ -1,9 +1,10 @@
 # GalaxyQuest — Gap TODO (docs/ vs. Implementierung)
 
 > **Erstellt:** 2026-04-08  
-> **Letzte Überprüfung:** 2026-07-31
+> **Letzte vollständige Gap-Prüfung:** 2026-07-31
+> **Gezielte Dokumentations-Audits:** bis 2026-11-07 (siehe Fortschrittslog)
 > **Basis:** Vollständige Gap-Analyse der docs/ gegen die reale Implementierung  
-> **Status:** Living document — nach jeder Implementierung aktualisieren
+> **Status:** Historischer Gap-Backlog. Häkchen und Prozentwerte sind nicht als aktueller Code- oder Release-Status verifiziert. Die verbindliche aktuelle Umsetzungsreihenfolge steht in der [ROADMAP.md](../../ROADMAP.md).
 
 ---
 

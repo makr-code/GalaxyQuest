@@ -38,7 +38,7 @@
 | [../SHIP_DESIGNER_README.md](../SHIP_DESIGNER_README.md) | Ship Designer prompt/UI prototype — REST generation route and standalone page are currently unavailable; not production-ready |
 | [technical/DOCUMENTATION_GUIDE.md](technical/DOCUMENTATION_GUIDE.md) | How to navigate and contribute to docs |
 | [technical/IMPLEMENTATION_AUDIT.md](technical/IMPLEMENTATION_AUDIT.md) | Implementierungs-Audit — historischer Snapshot vom 31.07.2026; alte Prozent- und Stack-Angaben zurückgezogen |
-| [technical/GAP_TODO.md](technical/GAP_TODO.md) | **Gap-TODO** — priorisierte Lücken zwischen Design und Implementierung |
+| [technical/GAP_TODO.md](technical/GAP_TODO.md) | **Gap-TODO** — historischer Gap-Backlog (letzte vollständige Prüfung 31.07.2026); Häkchen und Schätzungen sind kein aktueller Code-/Release-Status, siehe verbindliche [Roadmap](../ROADMAP.md) |
 | [technical/TEMPLATE_SYSTEM_DESIGN.md](technical/TEMPLATE_SYSTEM_DESIGN.md) | **Template system design** — Mustache in PHP, JS & CSS: Vorgaben, Vor-/Nachteile, Migrationsplan |
 | [technical/MIGRATION_STRATEGY_OOP.md](technical/MIGRATION_STRATEGY_OOP.md) | OOP refactoring roadmap and conventions |
 | [technical/PROJECTION_RUNBOOK.md](technical/PROJECTION_RUNBOOK.md) | Projection runtime operations guide |
@@ -58,7 +58,7 @@
 | [technical/webgpu_implementation_guide.md](technical/webgpu_implementation_guide.md) | Implementation guide and usage |
 | [technical/webgpu_api_reference.md](technical/webgpu_api_reference.md) | Engine API reference |
 | [technical/webgpu_migration_roadmap.md](technical/webgpu_migration_roadmap.md) | WebGL → WebGPU migration plan |
-| [technical/webgl_engine_analysis.md](technical/webgl_engine_analysis.md) | Legacy WebGL engine analysis |
+| [technical/webgl_engine_analysis.md](technical/webgl_engine_analysis.md) | Historical WebGL analysis snapshot (2026-03-30); use [current architecture](technical/ARCHITECTURE.md) for active runtime status |
 | [technical/WEBGPU_ENGINE_ATTRIBUTION.md](technical/WEBGPU_ENGINE_ATTRIBUTION.md) | Third-party attributions and licenses |
 | [technical/GALAXY_POSTPROCESS_ROADMAP.md](technical/GALAXY_POSTPROCESS_ROADMAP.md) | Post-processing pipeline roadmap |
 | [technical/COLONY_BUILDING_WEBGPU_DESIGN.md](technical/COLONY_BUILDING_WEBGPU_DESIGN.md) | Colony building system — WebGPU integration design |
@@ -150,9 +150,11 @@ Reports, completed experiments, and superseded proposals are kept in the [docume
 - **Historical updater implementation snapshot:** [MVP integration guide](archive/INTEGRATION_GUIDE_UPDATES.md); use the maintained [update-system guide](UPDATE_SYSTEM.md) for current operations.
 - **Unimplemented NPC API proposal:** [NPC game consequences endpoint sketch](archive/API_NPC_GAME_INTEGRATION_GUIDE.md); the proposed handler is not available in the current endpoint.
 - **Unconnected NPC game-action prototype:** [action and consequences reference](archive/NPC_GAME_INTEGRATION_ACTIONS.md); it is not wired to NPC chat or an active endpoint.
+- **Game Guide NPC snapshot:** [historical implementation reference](archive/GAME_GUIDE_NPC_COMPLETE.md); its API, schema, migration, and frontend examples are not current integration instructions.
 - **Legacy NPC dialogue panel guide:** [historical integration prototype](archive/NPC_DIALOGUE_INTEGRATION_GUIDE.md); not enabled in the main page and its frontend/API contracts are mismatched.
 - **TRELLIS2 quick reference:** [historical deployment snapshot](archive/TRELLIS2_QUICK_REFERENCE.md); its production claim and admin-authentication examples are stale.
 - **TRELLIS2 deployment snapshot:** [historical local-development guide](archive/TRELLIS2_DEPLOYMENT_GUIDE.md); remote deployment, health-check, authentication, and permission recipes are unverified and not approved for production.
+- **TRELLIS2 asset integration workflow:** [historical manual-import draft](archive/TRELLIS2_ASSET_INTEGRATION_WORKFLOW.md); not a production approval. Use the current [developer toolset](technical/TRELLIS2_DEV_TOOLSET.md) for local generation.
 - **TRELLIS2 production setup checklist:** [archived historical snapshot](archive/TRELLIS2_PRODUCTION_READY_SETUP.md); its service, security, testing, and production-readiness claims are unverified and its deployment examples are not operational instructions.
 - **TRELLIS2 launch proposal:** [historical test/auth/deployment plan](archive/TEST_AUTH_PRODUCTION_LAUNCH.md); its test counts, auth, service health, and go-live claims were not verified.
 - **Ship Designer integration prototype:** [historical guide](archive/SHIP_DESIGNER_INTEGRATION.md); queue, persistence, worker, and polling examples are not current API contracts. Use the active [prompt/UI prototype quickstart](../SHIP_DESIGNER_README.md).

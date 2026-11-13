@@ -39,7 +39,7 @@ function docker(args, options = {}) {
 function safeArchiveEntries() {
   const entries = execFileSync('tar', ['-tzf', archive], {
     encoding: 'utf8',
-    timeout: 30000,
+    timeout: 120000,
     maxBuffer: 32 * 1024 * 1024,
   }).replaceAll('\r\n', '\n').trimEnd().split('\n');
   if (!entries.length || entries.some((entry) => !entry.startsWith('./'))) {
@@ -54,7 +54,7 @@ function safeArchiveEntries() {
   }
   const details = execFileSync('tar', ['-tvzf', archive], {
     encoding: 'utf8',
-    timeout: 30000,
+    timeout: 120000,
     maxBuffer: 32 * 1024 * 1024,
   }).replaceAll('\r\n', '\n').trimEnd().split('\n');
   if (details.some((line) => !['-', 'd'].includes(line[0]))) {
@@ -115,7 +115,7 @@ try {
   mkdirSync(site);
   execFileSync('tar', [
     '-xzf', archive, '-C', site, '--no-same-owner', '--no-same-permissions',
-  ], { timeout: 30000 });
+  ], { timeout: 120000 });
   const extractedManifest = JSON.parse(readFileSync(path.join(site, 'native-release.json'), 'utf8'));
   assert.deepEqual(extractedManifest, manifest);
   assert.ok(readdirSync(path.join(site, 'dist', 'assets')).length > 0, 'Candidate assets are missing');
@@ -125,7 +125,7 @@ try {
 
   writeFileSync(path.join(root, 'Dockerfile'), `
 FROM php:8.4-apache
-RUN a2dismod php8.4 \\
+RUN a2dismod php \\
     && a2enmod rewrite headers proxy proxy_fcgi \\
     && sed -i 's/^Listen 80$/Listen 8080/' /etc/apache2/ports.conf \\
     && mkdir -p /var/run/apache2 /var/lock/apache2 \\

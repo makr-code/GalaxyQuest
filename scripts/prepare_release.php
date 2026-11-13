@@ -27,23 +27,52 @@ if (!$version) {
     exit(1);
 }
 
+$root = dirname(__DIR__);
+require_once $root . '/lib/app_version.php';
+
+try {
+    $currentVersion = gq_read_app_version($root);
+} catch (RuntimeException $e) {
+    fwrite(STDERR, "[prepare-release] " . $e->getMessage() . "\n");
+    exit(1);
+}
+
+if ($version !== $currentVersion) {
+    fwrite(STDERR, "[prepare-release] Requested version must match VERSION.txt.\n");
+    exit(1);
+}
+
 // Parse options
 $outputDir = null;
 foreach (array_slice($argv, 2) as $arg) {
-    if (preg_match('/^--output-dir=(.+)$/', $arg, $m)) {
+    if ($outputDir === null && preg_match('/^--output-dir=(.+)$/', $arg, $m) === 1) {
         $outputDir = $m[1];
+    } else {
+        fwrite(STDERR, "[prepare-release] Unknown or duplicate option: {$arg}\n");
+        exit(1);
     }
 }
 
 $outputDir = $outputDir ?? getcwd();
-if (!is_dir($outputDir)) {
-    fwrite(STDERR, "Output directory does not exist: {$outputDir}\n");
+if ($outputDir === false || !is_dir($outputDir) || !is_writable($outputDir)) {
+    fwrite(STDERR, "[prepare-release] Output directory is unavailable or not writable.\n");
     exit(1);
 }
 
-$root = dirname(__DIR__);
+$resolvedOutputDir = realpath($outputDir);
+if ($resolvedOutputDir === false) {
+    fwrite(STDERR, "[prepare-release] Output directory could not be resolved.\n");
+    exit(1);
+}
+$outputDir = $resolvedOutputDir;
+
 $filename = "galaxyquest-{$version}.tar.gz";
-$filepath = $outputDir . '/' . $filename;
+$filepath = $outputDir . DIRECTORY_SEPARATOR . $filename;
+$checksumFile = $outputDir . DIRECTORY_SEPARATOR . "galaxyquest-{$version}.sha256";
+if (file_exists($filepath) || is_link($filepath) || file_exists($checksumFile) || is_link($checksumFile)) {
+    fwrite(STDERR, "[prepare-release] An artifact with this version already exists in the output directory.\n");
+    exit(1);
+}
 
 echo "[prepare-release] Creating release archive for version {$version}\n";
 echo "[prepare-release] Output: {$filepath}\n";
@@ -69,10 +98,12 @@ $excludePatterns = [
 // Build tar command
 $exclude = '';
 foreach ($excludePatterns as $pattern) {
-    $exclude .= " --exclude='{$pattern}'";
+    $exclude .= ' --exclude=' . escapeshellarg($pattern);
 }
 
-$cmd = "cd " . dirname($root) . " && tar -czf '{$filepath}'{$exclude} " . basename($root) . " 2>&1";
+$cmd = 'cd ' . escapeshellarg(dirname($root))
+    . ' && tar -czf ' . escapeshellarg($filepath) . $exclude
+    . ' ' . escapeshellarg(basename($root)) . ' 2>&1';
 
 echo "[prepare-release] Running: tar -czf {$filename} ...\n";
 $output = [];
@@ -92,6 +123,10 @@ if (!file_exists($filepath)) {
 
 $fileSize = filesize($filepath);
 $checksum = hash_file('sha256', $filepath);
+if ($fileSize === false || $checksum === false) {
+    fwrite(STDERR, "[prepare-release] Archive size or checksum could not be read.\n");
+    exit(1);
+}
 
 echo "[prepare-release] ✓ Archive created successfully\n";
 echo "  File: {$filename}\n";
@@ -99,8 +134,12 @@ echo "  Size: " . format_bytes($fileSize) . "\n";
 echo "  SHA256: {$checksum}\n";
 
 // Create checksum file
-$checksumFile = $outputDir . '/galaxyquest-' . $version . '.sha256';
-file_put_contents($checksumFile, "{$checksum}  {$filename}\n");
+$checksumContents = "{$checksum}  {$filename}\n";
+$bytesWritten = file_put_contents($checksumFile, $checksumContents, LOCK_EX);
+if ($bytesWritten !== strlen($checksumContents)) {
+    fwrite(STDERR, "[prepare-release] Checksum file could not be written completely.\n");
+    exit(1);
+}
 
 echo "[prepare-release] ✓ Checksum file created\n";
 echo "  File: galaxyquest-{$version}.sha256\n";

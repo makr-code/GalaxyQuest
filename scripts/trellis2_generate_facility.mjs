@@ -9,6 +9,9 @@ const MANIFEST_PATH = path.join(REPO_ROOT, 'generated', 'trellis2', 'references'
 const OUTPUT_ROOT = path.join(REPO_ROOT, 'generated', 'comfyui', 'output');
 const INPUT_NODE = 'Trellis2LoadImageWithTransparency';
 const OUTPUT_NODE = '203';
+const TEXTURING_NODE = '258';
+const MESH_ONLY_FACE_TARGET = 15000;
+const TEXTURED_FACE_TARGET = 5000;
 const NODE_CLASSES = new Set([
   'PrimitiveInt',
   'PrimitiveString',
@@ -19,6 +22,7 @@ const NODE_CLASSES = new Set([
   'Trellis2ImageCondGenerator',
   INPUT_NODE,
   'Trellis2LoadModel',
+  'Trellis2MeshTexturing',
   'Trellis2MeshWithVoxelToTrimesh',
   'Trellis2PreProcessImage',
   'Trellis2ReconstructMeshWithQuad',
@@ -33,7 +37,7 @@ if (manifest.schema !== 'gq.trellis-reference.v1' || manifest.status !== 'CONCEP
   throw new Error('Unsupported or untrusted TRELLIS2 reference manifest.');
 }
 
-export function buildFacilityWorkflow({ facilityKind, imageName, seed = 20261112 }) {
+export function buildFacilityWorkflow({ facilityKind, imageName, seed = 20261112, textured = false }) {
   if (!manifest.assets.some(asset => asset.asset_type === 'building' && asset.facility_kind === facilityKind)) {
     throw new RangeError(`Facility kind is not in the reference manifest: ${facilityKind}`);
   }
@@ -44,7 +48,7 @@ export function buildFacilityWorkflow({ facilityKind, imageName, seed = 20261112
     throw new RangeError('Seed must be an integer from 0 to 2147483647.');
   }
 
-  const filenamePrefix = `gq_trellis2/building_${facilityKind}_pilot_v1`;
+  const filenamePrefix = `gq_trellis2/building_${facilityKind}_pilot_v1${textured ? '_lowpoly_textured' : ''}`;
   const pipeline = ['39', 0];
   const image = ['194', 0];
   const imageCondition = ['213', 0];
@@ -65,7 +69,7 @@ export function buildFacilityWorkflow({ facilityKind, imageName, seed = 20261112
   const simplifiedMesh = ['257', 0];
   const faceTarget = ['209', 0];
 
-  return {
+  const workflow = {
     '6': { class_type: INPUT_NODE, inputs: { image: imageName } },
     '39': {
       class_type: 'Trellis2LoadModel',
@@ -172,7 +176,10 @@ export function buildFacilityWorkflow({ facilityKind, imageName, seed = 20261112
       class_type: 'Trellis2ReconstructMeshWithQuad',
       inputs: { mesh: holeFilledMesh, remesh_band: 1, resolution: 1024, remove_floaters: true, remove_inner_faces: true },
     },
-    '209': { class_type: 'PrimitiveInt', inputs: { value: 500000 } },
+    '209': {
+      class_type: 'PrimitiveInt',
+      inputs: { value: textured ? 500000 : MESH_ONLY_FACE_TARGET },
+    },
     '218': {
       class_type: 'Trellis2SimplifyMesh',
       inputs: { mesh: reconstructedMesh, target_face_num: faceTarget, method: 'Cumesh' },
@@ -192,6 +199,42 @@ export function buildFacilityWorkflow({ facilityKind, imageName, seed = 20261112
       inputs: { trimesh: ['202', 0], filename_prefix: ['219', 0], file_format: 'glb' },
     },
   };
+
+  if (textured) {
+    workflow['257'].inputs.target_face_num = TEXTURED_FACE_TARGET;
+    workflow[TEXTURING_NODE] = {
+      class_type: 'Trellis2MeshTexturing',
+      inputs: {
+        pipeline: ['217', 2],
+        image: ['194', 0],
+        trimesh: ['202', 0],
+        seed,
+        texture_steps: 12,
+        texture_guidance_strength: 5,
+        texture_guidance_rescale: 0.05,
+        texture_rescale_t: 3,
+        resolution: 1024,
+        texture_size: 2048,
+        texture_alpha_mode: 'OPAQUE',
+        double_side_material: false,
+        texture_guidance_interval_start: 0,
+        texture_guidance_interval_end: 0.9,
+        max_views: 1,
+        bake_on_vertices: false,
+        use_custom_normals: false,
+        mesh_cluster_threshold_cone_half_angle_rad: 60,
+        sampler: 'euler',
+        inpainting: 'telea',
+        verbose: false,
+        dino_lock: 0,
+        dino_substeps: 4,
+        dino_foundation_cap: 1,
+      },
+    };
+    workflow[OUTPUT_NODE].inputs.trimesh = [TEXTURING_NODE, 0];
+  }
+
+  return workflow;
 }
 
 export function selectNewExportPath(outputPaths, previousPaths) {
@@ -220,6 +263,7 @@ function parseArgs(argv) {
     baseUrl: process.env.COMFYUI_BASE_URL || 'http://127.0.0.1:8188',
     preflight: false,
     submit: false,
+    textured: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -228,6 +272,7 @@ function parseArgs(argv) {
     else if (arg === '--base-url') options.baseUrl = argv[++i];
     else if (arg === '--preflight') options.preflight = true;
     else if (arg === '--submit') options.submit = true;
+    else if (arg === '--textured') options.textured = true;
     else if (arg === '--help') options.help = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
@@ -300,7 +345,7 @@ function imageChoices(objectInfo) {
   return schema;
 }
 
-async function findFacilityExports(facilityKind) {
+async function findFacilityExports(facilityKind, textured = false) {
   const exportDirectory = path.join(OUTPUT_ROOT, 'gq_trellis2');
   let entries;
   try {
@@ -309,7 +354,8 @@ async function findFacilityExports(facilityKind) {
     if (error?.code === 'ENOENT') return [];
     throw error;
   }
-  const pattern = new RegExp(`^building_${facilityKind}_pilot_v1_\\d{5}_\\.glb$`);
+  const profile = textured ? '_lowpoly_textured' : '';
+  const pattern = new RegExp(`^building_${facilityKind}_pilot_v1${profile}_\\d{5}_\\.glb$`);
   return entries
     .filter(entry => entry.isFile() && pattern.test(entry.name))
     .map(entry => path.join(exportDirectory, entry.name));
@@ -348,7 +394,7 @@ async function ensureReferenceUploaded(baseUrl, objectInfo, imageName, bytes, ex
   return uploadReference(baseUrl, imageName, bytes);
 }
 
-async function waitForOutput(baseUrl, promptId, timeoutMs, facilityKind, previousExports) {
+async function waitForOutput(baseUrl, promptId, timeoutMs, facilityKind, previousExports, textured) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const history = await requestJson(baseUrl, `/history/${encodeURIComponent(promptId)}`);
@@ -370,7 +416,7 @@ async function waitForOutput(baseUrl, promptId, timeoutMs, facilityKind, previou
           throw new Error('TRELLIS2 export escaped the ComfyUI output directory.');
         }
       } else {
-        outputPath = selectNewExportPath(await findFacilityExports(facilityKind), previousExports);
+        outputPath = selectNewExportPath(await findFacilityExports(facilityKind, textured), previousExports);
       }
       const info = await stat(outputPath);
       if (info.size < 20) throw new Error(`TRELLIS2 GLB is too small: ${info.size} bytes.`);
@@ -396,7 +442,7 @@ async function waitForOutput(baseUrl, promptId, timeoutMs, facilityKind, previou
 async function main(argv) {
   const options = parseArgs(argv);
   if (options.help) {
-    console.log('Usage: node scripts/trellis2_generate_facility.mjs --kind <facility-kind> [--seed <int>] [--submit] [--base-url <url>]');
+    console.log('Usage: node scripts/trellis2_generate_facility.mjs --kind <facility-kind> [--seed <int>] [--textured] [--submit] [--base-url <url>]');
     console.log('Without --submit, validates the manifest image and prints the generation plan only.');
     return;
   }
@@ -411,11 +457,12 @@ async function main(argv) {
     facilityKind: asset.facility_kind,
     imageName,
     seed: options.seed ?? 20261112,
+    textured: options.textured,
   });
   console.log(`Facility: ${asset.facility_kind}`);
   console.log(`Reference: ${referencePath}`);
   console.log(`Reference SHA-256: ${imageHash}`);
-  console.log(`Output prefix: gq_trellis2/building_${asset.facility_kind}_pilot_v1`);
+  console.log(`Output prefix: ${workflow['219'].inputs.value}`);
   if (!options.submit && !options.preflight) {
     console.log('Dry run only. Add --preflight to check ComfyUI or --submit to upload and enqueue one GPU generation.');
     return;
@@ -429,7 +476,7 @@ async function main(argv) {
     return;
   }
 
-  const previousExports = new Set(await findFacilityExports(asset.facility_kind));
+  const previousExports = new Set(await findFacilityExports(asset.facility_kind, options.textured));
   const uploadedName = await ensureReferenceUploaded(
     options.baseUrl,
     objectInfo,
@@ -458,9 +505,10 @@ async function main(argv) {
     60 * 60 * 1000,
     asset.facility_kind,
     previousExports,
+    options.textured,
   );
   console.log(`GLB: ${outputPath}`);
-  console.log('Status: generated, not inspected or imported; keep this asset DEV_ONLY pending manual review.');
+  console.log(`Status: ${options.textured ? 'low-poly textured ' : ''}generated, not inspected or imported; keep this asset DEV_ONLY pending manual review.`);
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : '';

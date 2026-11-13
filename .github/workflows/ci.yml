@@ -2,7 +2,7 @@
 #
 # GalaxyQuest — Main CI/CD Pipeline
 #
-# Runs on every push to supported branches and on every pull request.
+# Runs on every push to supported branches or version tags and on every pull request.
 #
 # Jobs:
 #   lint-php         — PHP syntax, counted PSR-12 baseline and PHPStan Level 5
@@ -22,6 +22,8 @@ on:
       - develop
       - main
       - master
+    tags:
+      - 'v*'
   pull_request:
     branches:
       - develop

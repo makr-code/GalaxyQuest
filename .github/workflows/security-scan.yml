@@ -11,6 +11,8 @@ on:
       - develop
       - main
       - master
+    tags:
+      - 'v*'
   schedule:
     - cron: "30 7 * * 1"
   workflow_dispatch:
