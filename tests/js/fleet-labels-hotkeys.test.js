@@ -63,26 +63,20 @@ describe('RuntimeOverviewLists – fleet label rendering', () => {
     return div;
   }
 
-  function makeRenderTemplateList() {
-    return (tplName, rows) => rows.map((row) =>
-      `<div class="fleet-row" data-fleet-id="${row.fleetId}">${row.fleetLabelHtml}${row.mission}${row.fleetHealthHtml}</div>`
-    ).join('');
-  }
-
   it('renders named fleet label', () => {
     const { createOverviewLists } = window.GQRuntimeOverviewLists;
     const ol = createOverviewLists({ esc, fmt, fmtName, countdown, api: makeApi(), showToast: vi.fn(), windowRef: window });
     const root = makeRoot([{ id: 7, fleet_label: 'Alpha Strike', mission: 'attack', target_galaxy: 1, target_system: 2, target_position: 3, arrival_time: new Date(Date.now() + 60000).toISOString() }]);
-    ol.renderFleetList({ root, renderTemplateList: makeRenderTemplateList(), onReload: async () => {} });
+    ol.renderFleetList({ root, onReload: async () => {} });
     const fleetList = root.querySelector('#fleet-list-wm');
-    expect(fleetList.innerHTML).toContain('Alpha Strike');
+    expect(fleetList.querySelector('.fleet-label-text')?.textContent).toBe('Alpha Strike');
   });
 
   it('renders edit button for unnamed fleet', () => {
     const { createOverviewLists } = window.GQRuntimeOverviewLists;
     const ol = createOverviewLists({ esc, fmt, fmtName, countdown, api: makeApi(), showToast: vi.fn(), windowRef: window });
     const root = makeRoot([{ id: 3, fleet_label: null, mission: 'transport', target_galaxy: 1, target_system: 1, target_position: 1, arrival_time: new Date(Date.now() + 60000).toISOString() }]);
-    ol.renderFleetList({ root, renderTemplateList: makeRenderTemplateList(), onReload: async () => {} });
+    ol.renderFleetList({ root, onReload: async () => {} });
     expect(root.querySelector('.fleet-label-edit-btn')).not.toBeNull();
   });
 
@@ -90,7 +84,7 @@ describe('RuntimeOverviewLists – fleet label rendering', () => {
     const { createOverviewLists } = window.GQRuntimeOverviewLists;
     const ol = createOverviewLists({ esc, fmt, fmtName, countdown, api: makeApi(), showToast: vi.fn(), windowRef: window });
     const root = makeRoot([{ id: 8, mission: 'attack', target_galaxy: 1, target_system: 1, target_position: 1 }]);
-    ol.renderFleetList({ root, renderTemplateList: makeRenderTemplateList(), onReload: async () => {} });
+    ol.renderFleetList({ root, onReload: async () => {} });
 
     expect(root.querySelector('.entity-bars-compact')).toBeNull();
     expect(root.querySelector('.fleet-hull-badge')).toBeNull();
@@ -100,7 +94,7 @@ describe('RuntimeOverviewLists – fleet label rendering', () => {
     const { createOverviewLists } = window.GQRuntimeOverviewLists;
     const ol = createOverviewLists({ esc, fmt, fmtName, countdown, api: makeApi(), showToast: vi.fn(), windowRef: window });
     const root = makeRoot([{ id: 9, mission: 'attack', shield_pct: 43, target_galaxy: 1, target_system: 1, target_position: 1 }]);
-    ol.renderFleetList({ root, renderTemplateList: makeRenderTemplateList(), onReload: async () => {} });
+    ol.renderFleetList({ root, onReload: async () => {} });
 
     expect(root.querySelector('.entity-bar-value')?.textContent).toBe('43%');
     expect(root.querySelector('.entity-bars-compact')).not.toBeNull();
@@ -110,7 +104,7 @@ describe('RuntimeOverviewLists – fleet label rendering', () => {
     const { createOverviewLists } = window.GQRuntimeOverviewLists;
     const ol = createOverviewLists({ esc, fmt, fmtName, countdown, api: makeApi(), showToast: vi.fn(), windowRef: window });
     const root = makeRoot([{ id: 42, fleet_label: 'Wolf Pack', mission: 'spy', target_galaxy: 1, target_system: 1, target_position: 1, arrival_time: new Date(Date.now() + 60000).toISOString() }]);
-    ol.renderFleetList({ root, renderTemplateList: makeRenderTemplateList(), onReload: async () => {} });
+    ol.renderFleetList({ root, onReload: async () => {} });
     const btn = root.querySelector('.fleet-label-edit-btn');
     expect(btn.dataset.fid).toBe('42');
   });
@@ -119,7 +113,7 @@ describe('RuntimeOverviewLists – fleet label rendering', () => {
     const { createOverviewLists } = window.GQRuntimeOverviewLists;
     const ol = createOverviewLists({ esc, fmt, fmtName, countdown, api: makeApi(), showToast: vi.fn(), windowRef: window });
     const root = makeRoot([{ id: 5, fleet_label: 'Recon', mission: 'spy', target_galaxy: 1, target_system: 1, target_position: 1, arrival_time: new Date(Date.now() + 60000).toISOString() }]);
-    ol.renderFleetList({ root, renderTemplateList: makeRenderTemplateList(), onReload: async () => {} });
+    ol.renderFleetList({ root, onReload: async () => {} });
     const btn = root.querySelector('.fleet-label-edit-btn');
     btn.click();
     expect(root.querySelector('.fleet-label-input')).not.toBeNull();
@@ -130,7 +124,7 @@ describe('RuntimeOverviewLists – fleet label rendering', () => {
     const { createOverviewLists } = window.GQRuntimeOverviewLists;
     const ol = createOverviewLists({ esc, fmt, fmtName, countdown, api, showToast: vi.fn(), windowRef: window });
     const root = makeRoot([{ id: 6, fleet_label: 'Vanguard', mission: 'attack', target_galaxy: 1, target_system: 1, target_position: 1, arrival_time: new Date(Date.now() + 60000).toISOString() }]);
-    ol.renderFleetList({ root, renderTemplateList: makeRenderTemplateList(), onReload: async () => {} });
+    ol.renderFleetList({ root, onReload: async () => {} });
     root.querySelector('.fleet-label-edit-btn').click();
     const input = root.querySelector('.fleet-label-input');
     expect(input).not.toBeNull();
@@ -145,7 +139,7 @@ describe('RuntimeOverviewLists – fleet label rendering', () => {
     const { createOverviewLists } = window.GQRuntimeOverviewLists;
     const ol = createOverviewLists({ esc, fmt, fmtName, countdown, api, showToast, windowRef: window });
     const root = makeRoot([{ id: 9, fleet_label: '', mission: 'transport', target_galaxy: 1, target_system: 1, target_position: 1, arrival_time: new Date(Date.now() + 60000).toISOString() }]);
-    ol.renderFleetList({ root, renderTemplateList: makeRenderTemplateList(), onReload: async () => {} });
+    ol.renderFleetList({ root, onReload: async () => {} });
     root.querySelector('.fleet-label-edit-btn').click();
     const input = root.querySelector('.fleet-label-input');
     input.value = 'Nighthawks';
@@ -159,7 +153,7 @@ describe('RuntimeOverviewLists – fleet label rendering', () => {
     const { createOverviewLists } = window.GQRuntimeOverviewLists;
     const ol = createOverviewLists({ esc, fmt, fmtName, countdown, api, showToast: vi.fn(), windowRef: window });
     const root = makeRoot([{ id: 11, fleet_label: null, mission: 'transport', target_galaxy: 1, target_system: 1, target_position: 1, arrival_time: new Date(Date.now() + 60000).toISOString() }]);
-    ol.renderFleetList({ root, renderTemplateList: makeRenderTemplateList(), onReload: async () => {} });
+    ol.renderFleetList({ root, onReload: async () => {} });
     root.querySelector('.fleet-label-edit-btn').click();
     const input = root.querySelector('.fleet-label-input');
     input.value = 'A'.repeat(60);

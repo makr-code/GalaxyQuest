@@ -871,6 +871,33 @@ New-Item -ItemType Directory -Force .\wordpress\wp-content\mu-plugins | Out-Null
 Copy-Item .\wordpress-integration\gq-game-news.php .\wordpress\wp-content\mu-plugins\gq-game-news.php -Force
 ```
 
+The `wordpress-integration/gq-deployment-status.php` plugin adds a top-level
+WordPress admin menu comparing GitHub CI, Plesk bare Git mirrors and deployed
+release-state files for staging (`develop`) and production (`main`). It can
+optionally trigger Plesk Git **fetches** for fixed repository mappings; fetch
+does not deploy webroot files. Production promotion remains disabled until a
+deployable artifact and verified activation/rollback runner exist. Configure
+the per-environment Git/state paths and optional Plesk XML API settings in
+`wp-config.php` as described in
+[`docs/technical/PLESK_DEPLOYMENT.md`](docs/technical/PLESK_DEPLOYMENT.md).
+Keep Plesk and GitHub credentials outside the database and plugin source.
+Game configuration, setup and database administration use the independent
+`wordpress-integration/gq-game-admin.php` plugin, not this deployment panel.
+Its first stage consumes private read-only migration reports; all game mutations
+remain locked. See [Game Administration](wordpress-integration/GAME_ADMINISTRATION.md).
+For local Windows development, create an NTFS hard link in the WordPress
+plugin directory and activate it from the WordPress Plugins page:
+
+```powershell
+New-Item -ItemType HardLink `
+  -Path .\wordpress\wp-content\plugins\gq-deployment-status.php `
+  -Target .\wordpress-integration\gq-deployment-status.php
+```
+
+Both paths must be on the same volume. A hard link shares the same file data;
+if Git or an editor replaces the source file rather than editing it in place,
+recreate the link so WordPress does not keep pointing at the old file.
+
 The local WordPress site must be configured for the Compose web/database
 services, with its public `home` and `siteurl` set to
 `http://localhost:8081/wordpress`. The plugin exposes typed REST metadata and

@@ -17,7 +17,6 @@
     emitRenderProbe: null,
     ensureInitialGalaxyFrame: null,
     getGalaxy3d: null,
-    esc: null,
   };
 
   function configureGalaxyStarErrorUiRuntime(opts = {}) {
@@ -30,7 +29,14 @@
     state.emitRenderProbe = typeof opts.emitRenderProbe === 'function' ? opts.emitRenderProbe : null;
     state.ensureInitialGalaxyFrame = typeof opts.ensureInitialGalaxyFrame === 'function' ? opts.ensureInitialGalaxyFrame : null;
     state.getGalaxy3d = typeof opts.getGalaxy3d === 'function' ? opts.getGalaxy3d : null;
-    state.esc = typeof opts.esc === 'function' ? opts.esc : null;
+  }
+
+  function renderDetails(details, className, message) {
+    if (!details) return;
+    const status = details.ownerDocument.createElement('span');
+    status.className = className;
+    status.textContent = message;
+    details.replaceChildren(status);
   }
 
   function applyRecoveredFallback(opts = {}) {
@@ -94,9 +100,11 @@
       }
     }
 
-    if (details) {
-      details.innerHTML = `<span class="text-yellow">Netzwerkfehler bei ${from}..${to}; nutze lokalen Fallback mit ${mergedStars.length} Sternen.</span>`;
-    }
+    renderDetails(
+      details,
+      'text-yellow',
+      `Netzwerkfehler bei ${from}..${to}; nutze lokalen Fallback mit ${mergedStars.length} Sternen.`
+    );
 
     refreshGalaxyDensityMetricsFn?.(root);
     emitRenderProbeFn?.('error-fallback', {
@@ -117,10 +125,7 @@
     const errMsg = String(opts.errMsg || 'unknown error');
     const galaxyStars = Array.isArray(opts.galaxyStars) ? opts.galaxyStars : [];
 
-    if (details) {
-      const safeErr = state.esc ? state.esc(errMsg) : errMsg;
-      details.innerHTML = `<span class="text-red">Failed to load stars: ${safeErr}</span>`;
-    }
+    renderDetails(details, 'text-red', `Failed to load stars: ${errMsg}`);
     state.renderGalaxyFallbackList?.(root, galaxyStars, from, to, errMsg);
   }
 

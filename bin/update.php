@@ -6,7 +6,7 @@ declare(strict_types=1);
 /**
  * GalaxyQuest – Update System CLI
  * 
- * Manages application updates: checking for releases, downloading, installing, and rolling back.
+ * Checks and downloads application releases. Installation and rollback are disabled.
  * 
  * Usage:
  *   php bin/update.php <command> [options]
@@ -14,15 +14,13 @@ declare(strict_types=1);
  * Commands:
  *   check                    Check for available updates from GitHub
  *   download <version>       Download a specific version
- *   install <version>        Install a downloaded version
- *   rollback [version]       Rollback to previous version
+ *   install <version>        Disabled
+ *   rollback [version]       Disabled
  *   status                   Show current update status
  *   history [limit]          Show update history
  * 
  * Options:
- *   --dry-run               Preview without making changes
- *   --force                 Skip confirmations
- *   --prerelease            Include pre-release versions
+ *   --prerelease            Check the latest valid prerelease instead of stable
  *   --help, -h              Show this help
  */
 
@@ -32,17 +30,13 @@ if (PHP_SAPI !== 'cli') {
 }
 
 $root = dirname(__DIR__);
-require_once $root . '/config/config.php';
-require_once $root . '/lib/app_version.php';
-require_once $root . '/lib/GithubReleaseChecker.php';
 require_once $root . '/lib/UpdateManager.php';
+require_once $root . '/lib/GithubReleaseChecker.php';
 
 // ──────────────────────────────────────────────────────────────────────────────
 
 $command = null;
 $args = [];
-$dryRun = false;
-$force = false;
 $prerelease = false;
 
 // Parse arguments
@@ -50,10 +44,8 @@ foreach (array_slice($argv, 1) as $arg) {
     if ($arg === '--help' || $arg === '-h') {
         print_help();
         exit(0);
-    } elseif ($arg === '--dry-run') {
-        $dryRun = true;
-    } elseif ($arg === '--force') {
-        $force = true;
+    } elseif ($arg === '--dry-run' || $arg === '--force') {
+        continue;
     } elseif ($arg === '--prerelease') {
         $prerelease = true;
     } elseif ($command === null && !str_starts_with($arg, '--')) {
@@ -69,7 +61,14 @@ if ($command === null) {
     exit(1);
 }
 
+if ($command === 'install' || $command === 'rollback') {
+    fwrite(STDERR, '[update] ' . UpdateManager::MUTATION_UNAVAILABLE . "\n");
+    exit(1);
+}
 // ──────────────────────────────────────────────────────────────────────────────
+
+require_once $root . '/config/config.php';
+require_once $root . '/lib/app_version.php';
 
 try {
     $currentVersion = gq_read_app_version($root);
@@ -103,20 +102,6 @@ switch ($command) {
         cmd_download($manager, $version);
         break;
 
-    case 'install':
-        $version = $args[0] ?? null;
-        if (!$version) {
-            fwrite(STDERR, "[update] Error: version argument required\n");
-            exit(1);
-        }
-        cmd_install($manager, $version, $dryRun, $force);
-        break;
-
-    case 'rollback':
-        $version = $args[0] ?? null;
-        cmd_rollback($manager, $version, $dryRun, $force);
-        break;
-
     case 'status':
         cmd_status($manager);
         break;
@@ -142,7 +127,12 @@ function cmd_check(UpdateManager $manager, bool $includePrerelease): void
 {
     echo "[update] Checking for available updates...\n";
 
-    $release = $manager->checkForUpdates($includePrerelease);
+    try {
+        $release = $manager->checkForUpdates($includePrerelease);
+    } catch (RuntimeException $e) {
+        fwrite(STDERR, "[update] Release check failed: " . $e->getMessage() . "\n");
+        exit(1);
+    }
 
     if (!$release) {
         echo "[update] No updates available.\n";
@@ -173,83 +163,7 @@ function cmd_download(UpdateManager $manager, string $version): void
     echo "  File: " . $result['filename'] . "\n";
     echo "  Size: " . format_bytes($result['size']) . "\n";
     echo "  Checksum: " . substr($result['checksum'] ?? 'N/A', 0, 16) . "...\n";
-    echo "\nTo install: php bin/update.php install {$version}\n";
-}
-
-function cmd_install(UpdateManager $manager, string $version, bool $dryRun, bool $force): void
-{
-    $status = $manager->performHealthChecks();
-    if (!$status['healthy']) {
-        fwrite(STDERR, "[update] System is not healthy for updates:\n");
-        foreach ($status['checks'] as $check => $result) {
-            if (is_array($result) && !($result['status'] ?? false)) {
-                fwrite(STDERR, "  ✗ {$check}: " . ($result['error'] ?? 'Failed') . "\n");
-            }
-        }
-        exit(1);
-    }
-
-    echo "[update] Installing version {$version}...\n";
-    if ($dryRun) {
-        echo "[update] DRY-RUN mode — no changes will be made.\n";
-    }
-
-    if (!$force) {
-        echo "[update] This will update your application. Continue? (yes/no): ";
-        $input = trim(fgets(STDIN));
-        if ($input !== 'yes') {
-            echo "[update] Cancelled.\n";
-            exit(0);
-        }
-    }
-
-    $result = $manager->installRelease($version, dirname(__DIR__) . '/updates/downloads/' . basename($version) . '.tar.gz', $dryRun);
-
-    if (!$result) {
-        fwrite(STDERR, "[update] Installation failed\n");
-        exit(1);
-    }
-
-    if ($dryRun) {
-        echo "[update] ✓ DRY-RUN: Installation would succeed\n";
-    } else {
-        echo "[update] ✓ Installation completed\n";
-        echo "  Installed version: " . $result['version'] . "\n";
-        echo "  Previous version: " . $result['previous_version'] . "\n";
-        echo "  Installed at: " . $result['installed_at'] . "\n";
-    }
-}
-
-function cmd_rollback(UpdateManager $manager, ?string $version, bool $dryRun, bool $force): void
-{
-    if (!$force) {
-        echo "[update] This will revert to a previous version. Continue? (yes/no): ";
-        $input = trim(fgets(STDIN));
-        if ($input !== 'yes') {
-            echo "[update] Cancelled.\n";
-            exit(0);
-        }
-    }
-
-    echo "[update] Rolling back" . ($version ? " to {$version}" : "") . "...\n";
-    if ($dryRun) {
-        echo "[update] DRY-RUN mode — no changes will be made.\n";
-    }
-
-    $result = $manager->rollback($version);
-
-    if (!$result) {
-        fwrite(STDERR, "[update] Rollback failed\n");
-        exit(1);
-    }
-
-    if ($dryRun) {
-        echo "[update] ✓ DRY-RUN: Rollback would succeed\n";
-    } else {
-        echo "[update] ✓ Rollback completed\n";
-        echo "  Restored version: " . $result['restored_version'] . "\n";
-        echo "  Previous version: " . $result['previous_version'] . "\n";
-    }
+    echo "\nAutomatic installation is disabled; see docs/UPDATE_SYSTEM.md.\n";
 }
 
 function cmd_status(UpdateManager $manager): void
@@ -332,24 +246,19 @@ Usage:
 Commands:
   check                    Check for available updates from GitHub
   download <version>       Download a specific version
-  install <version>        Install a downloaded version
-  rollback [version]       Rollback to previous version
+  install <version>        Disabled: installation is not implemented
+  rollback [version]       Disabled: restore is not implemented
   status                   Show current update status
   history [limit]          Show update history (default: 20)
 
 Options:
-  --dry-run               Preview without making changes
-  --force                 Skip confirmations
-  --prerelease            Include pre-release versions
+  --prerelease            Check the latest valid prerelease instead of stable
   --help, -h              Show this help
 
 Examples:
   php bin/update.php check
   php bin/update.php check --prerelease
   php bin/update.php download 1.2.0
-  php bin/update.php install 1.2.0
-  php bin/update.php install 1.2.0 --dry-run
-  php bin/update.php rollback
   php bin/update.php status
   php bin/update.php history 50
 

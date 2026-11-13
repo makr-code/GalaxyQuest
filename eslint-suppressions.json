@@ -97,39 +97,9 @@
       "count": 1
     }
   },
-  "js/engine/runtime/RuntimeGalaxyControllerWindow.js": {
-    "no-unsanitized/property": {
-      "count": 1
-    }
-  },
-  "js/engine/runtime/RuntimeGalaxyDebugLog.js": {
-    "no-unsanitized/property": {
-      "count": 1
-    }
-  },
   "js/engine/runtime/RuntimeGalaxyHoverCardFacade.js": {
     "no-unsanitized/property": {
       "count": 4
-    }
-  },
-  "js/engine/runtime/RuntimeGalaxyInit3DFacade.js": {
-    "no-unsanitized/property": {
-      "count": 4
-    }
-  },
-  "js/engine/runtime/RuntimeGalaxyStarErrorUi.js": {
-    "no-unsanitized/property": {
-      "count": 2
-    }
-  },
-  "js/engine/runtime/RuntimeGalaxyStarUiStatus.js": {
-    "no-unsanitized/property": {
-      "count": 3
-    }
-  },
-  "js/engine/runtime/RuntimeGalaxySystemDetailsFacade.js": {
-    "no-unsanitized/property": {
-      "count": 3
     }
   },
   "js/engine/runtime/RuntimeIntelController.js": {
@@ -148,11 +118,6 @@
     }
   },
   "js/engine/runtime/RuntimeOverviewController.js": {
-    "no-unsanitized/property": {
-      "count": 2
-    }
-  },
-  "js/engine/runtime/RuntimeOverviewLists.js": {
     "no-unsanitized/property": {
       "count": 2
     }
@@ -262,32 +227,7 @@
       "count": 13
     }
   },
-  "js/engine/runtime/layers/integration/galaxy/DebugLog.js": {
-    "no-unsanitized/property": {
-      "count": 1
-    }
-  },
-  "js/engine/runtime/layers/integration/galaxy/ErrorUi.js": {
-    "no-unsanitized/property": {
-      "count": 2
-    }
-  },
-  "js/engine/runtime/layers/integration/galaxy/Init3DFacade.js": {
-    "no-unsanitized/property": {
-      "count": 4
-    }
-  },
-  "js/engine/runtime/layers/integration/galaxy/UiStatus.js": {
-    "no-unsanitized/property": {
-      "count": 3
-    }
-  },
   "js/engine/runtime/layers/ui/console/Panel.js": {
-    "no-unsanitized/property": {
-      "count": 1
-    }
-  },
-  "js/engine/runtime/layers/ui/galaxy/ControllerWindow.js": {
     "no-unsanitized/property": {
       "count": 1
     }
@@ -295,21 +235,6 @@
   "js/engine/runtime/layers/ui/galaxy/HoverCardFacade.js": {
     "no-unsanitized/property": {
       "count": 4
-    }
-  },
-  "js/engine/runtime/layers/ui/galaxy/StarErrorUi.js": {
-    "no-unsanitized/property": {
-      "count": 2
-    }
-  },
-  "js/engine/runtime/layers/ui/galaxy/StarUiStatus.js": {
-    "no-unsanitized/property": {
-      "count": 3
-    }
-  },
-  "js/engine/runtime/layers/ui/galaxy/SystemDetailsFacade.js": {
-    "no-unsanitized/property": {
-      "count": 3
     }
   },
   "js/engine/runtime/layers/ui/settings/render/RenderBindings.js": {

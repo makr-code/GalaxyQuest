@@ -90,7 +90,7 @@ def _mesh(name: str, mesh: trimesh.Trimesh) -> MeshInspection:
     total_area = float(areas.sum())
     if not np.isfinite(total_area) or total_area <= 0:
         raise ValueError(f"Mesh has no finite surface area: {name}")
-    groups = sorted(groups, key=lambda group: (-float(areas[group].sum()), int(group.min())))
+    groups = sorted(groups, key=lambda group: (-float(areas[group].sum()), int(min(group))))
     components = []
     for group in groups:
         points = analysis.vertices[analysis.faces[group].ravel()]

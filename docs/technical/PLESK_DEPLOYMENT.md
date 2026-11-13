@@ -27,8 +27,61 @@ artifact is a non-deployable candidate with limited retention, not a release
 distribution or approval mechanism. Local CI/artifact inspection, authenticated
 candidate download and private quarantine extraction are implemented as
 operator-run helpers, but have not been run on Plesk. CI also smoke-tests the
-exact candidate through a disposable PHP 8.4 FPM/Apache fixture. Release approval,
-permanent distribution, scheduling and live activation are not implemented.
+exact candidate through a disposable PHP 8.4 FPM/Apache fixture. Versioned native
+GitHub Release drafts are implemented in source, but have not been accepted in
+a remote workflow run. Deployment approval, scheduling and live activation are
+not implemented.
+
+Docker is used for the frontend's **CI build and disposable acceptance fixtures**,
+not for serving the game on Plesk. The native package already contains the built
+Vite `dist/` plus the selected PHP/runtime files. Plesk serves these through its
+native Apache/PHP-FPM stack; Docker on the host is intended for services such as
+TRELLIS and ComfyUI. A Plesk Git pull retrieves source, not `dist/` or Actions
+artifacts, so it cannot replace the package download and installation steps.
+
+The candidate HTTP acceptance also rehearses a release-directory layout inside
+a disposable Docker volume: `releases/previous`, `releases/candidate`, a `current`
+symlink and a separate `shared/wordpress` directory. Apache and PHP-FPM receive
+read-only mounts; a separate, network-isolated fixture process replaces `current`
+using a same-directory symlink rename. It verifies the previous page, candidate
+page/assets, rollback after the expected database-readiness failure, repeated
+PHP responses after switches and unchanged shared WordPress routes. It does not
+test database migration/recovery or approve either fixture as a live release.
+
+The fixture explicitly sets PHP `realpath_cache_size=0`,
+`opcache.validate_timestamps=1`, `opcache.revalidate_freq=0` and
+`opcache.revalidate_path=1`. Without correct cache handling, swapping a symlink
+can continue serving the previous PHP release. These settings are fixture
+conditions, not changes to Plesk: verify the actual host's Apache symlink policy,
+PHP-FPM/OPcache settings and behavior under load before adopting this layout.
+The rehearsal deliberately uses an unready candidate and preserves its
+`not-deployable` manifest. It is not a production activation command or proof
+of zero-downtime switching.
+
+For versioned distribution, use protected version tags (for example `v1.2.0`)
+and GitHub Releases containing the native package plus a commit/digest manifest.
+The existing GitHub Release Publication workflow now reuses the native archive
+from successful branch CI for that exact commit, without rebuilding Vite or
+repacking the archive. Prerelease tags use staging/develop evidence; stable tags
+use production/main evidence and require manual dispatch from `main`. Complete
+branch CI before tagging: the latest same-commit branch run must pass all required
+jobs and preserve its unexpired native candidate. Missing or unfinished evidence
+fails closed rather than falling back to an older successful run.
+
+The six exact-tag quality/security gates remain mandatory. After approval, the
+publisher rechecks those gates and the pinned branch CI evidence. It creates
+only a **draft** containing the byte-identical native tar archive, SHA-256
+checksum and provenance manifest (tag, commit, image identity, source run/attempt
+and Actions artifact digest). Both manifests remain `not-deployable`; neither
+stable nor prerelease drafts are published or made latest. Matching draft
+reruns are no-ops; published releases or differing assets/metadata are never
+overwritten. Tag protection and environment review settings require separate
+GitHub configuration and are not installed by this workflow.
+
+Promote the exact package tested on staging without rebuilding it, and do not
+move a released tag or replace its assets. A tag or draft does not authorize
+deployment. The draft path still needs its first remote-run acceptance, and the
+native installer, backups, migration gates and recovery runner remain absent.
 
 The local candidate exports `setup.php` for CLI use, not as a web installer.
 The source rejects non-CLI requests before loading dependencies, and the
@@ -165,6 +218,51 @@ protections, approve or install a release, or prevent the run being retried
 after inspection. Use a trusted diagnostic copy and fail closed on missing
 tools, network errors or mismatched evidence.
 
+The optional WordPress admin plugin
+`wordpress-integration/gq-deployment-status.php` displays separate Staging
+(`develop`) and Production (`main`) comparisons for GitHub CI, a configured
+Plesk bare-repository ref and a configured deployed-state JSON file. Configure
+`GQ_DEPLOY_STATUS_STAGING_GIT_DIR`, `GQ_DEPLOY_STATUS_PRODUCTION_GIT_DIR`,
+`GQ_DEPLOY_STATUS_STAGING_STATE_FILE` and
+`GQ_DEPLOY_STATUS_PRODUCTION_STATE_FILE` in `wp-config.php` after confirming
+the actual Plesk paths. The previous single-environment
+`GQ_DEPLOY_STATUS_ENVIRONMENT`, `GQ_DEPLOY_STATUS_GIT_DIR` and
+`GQ_DEPLOY_STATUS_STATE_FILE` settings remain supported for that one
+environment.
+
+The plugin can optionally trigger **Plesk Git FETCH** for either configured
+repository. Configure `GQ_DEPLOY_STATUS_PLESK_API_URL` as the HTTPS
+`https://<plesk-host>:8443/enterprise/control/agent.php` endpoint,
+`GQ_DEPLOY_STATUS_PLESK_API_KEY`, and
+`GQ_DEPLOY_STATUS_PLESK_STAGING_DOMAIN`,
+`GQ_DEPLOY_STATUS_PLESK_STAGING_REPOSITORY`,
+`GQ_DEPLOY_STATUS_PLESK_PRODUCTION_DOMAIN` and
+`GQ_DEPLOY_STATUS_PLESK_PRODUCTION_REPOSITORY`. Keep the API key in
+`wp-config.php` or another protected server-side configuration, never in the
+WordPress database or plugin source. Use a Plesk account restricted to the
+relevant subscription rather than an administrator key. The action is
+administrator-only, nonce-protected and maps only to those fixed domains and
+repository names. The plugin calls only the XML API `fetch` operation for
+remote-hosting repositories; it does not call `deploy`, change Plesk settings,
+or write application files. A successful fetch updates the Plesk Git mirror,
+not the website.
+
+The production promotion control remains disabled. The current CI package is
+explicitly non-deployable, and a server-side atomic activation/backup/rollback
+runner has not been implemented or verified. Do not use Plesk Git `deploy` as
+a substitute: the current repositories are configured with **No deployment**,
+and their source is not an approved production artifact. The plugin also does
+not compare the actual webroot file tree. Its displayed artifact SHA-256
+identifies the package only, not the integrity of files currently served. The
+optional GitHub token needs repository contents and Actions read permission
+and must be configured outside the WordPress database. This plugin remains a
+status and fetch-control plane, not a release approval or deployment runner.
+
+Plesk XML API references:
+
+- [Managing Git repositories](https://docs.plesk.com/en-US/obsidian/api-rpc/about-xml-api/reference/managing-git-repositories.75959/)
+- [Fetching the remote repository](https://docs.plesk.com/en-US/obsidian/api-rpc/about-xml-api/reference/managing-git-repositories/fetching-the-remote-repository.75998/)
+
 After a successful check, the operator can pass its artifact ID, SHA-256 and
 commit to `bash deploy/pull-native-candidate.sh ARTIFACT_ID sha256:DIGEST
 FULL_COMMIT_SHA ABSOLUTE_PRIVATE_SPOOL` on the Plesk account. Supply `GH_TOKEN`
@@ -237,6 +335,10 @@ Read-only server inspection on 2026-11-12 established the following baseline:
   check found Docker active, client/server 29.9.3 and Compose v5.7.1; `docker
   ps` returned no running containers. Installation does not constitute
   acceptance of the sidecar or monitoring configuration.
+- On 2026-11-13, an authenticated read-only inspection of Plesk's Docker
+  extension showed an empty Containers page and an empty Stacks page. No
+  containers or Plesk-managed stacks were listed at that time; this does not
+  inspect images or other Docker environments.
 - At inspection time no TCP listeners appeared on ports 5500, 5501, 8188 or
   8189. This is not a reservation or proof that a future bind will succeed;
   check again at deployment. `nvidia-smi` was unavailable, so GPU support is
@@ -316,6 +418,12 @@ machine; the UUID-based replacement also did not resolve when checked. These are
 not proof that WordPress is broken or that maintenance should be disabled.
 Preserve its existing state and obtain an operator-approved baseline and
 working staging DNS/TLS before any cutover; recheck all results at that time.
+
+On 2026-11-13, TLS-verified public requests returned HTTP 200 for the
+production root and UUID staging root, both showing the Plesk default page.
+`/wordpress/` returned HTTP 200 with the GalaxyQuest Blog, while
+`/wordpress/wp-json/` returned HTTP 404. These reachability checks do not
+indicate that the game is deployed or that WordPress REST routing is healthy.
 
 The candidate image acceptance also runs `scripts/check_wordpress_routing.mjs`
 against a disposable Apache fixture with a simulated WordPress directory, both

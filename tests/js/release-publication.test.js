@@ -63,7 +63,7 @@ describe('exact tagged commit release gates', () => {
   });
 });
 
-describe('manual stable and automated developer release workflow', () => {
+describe('manual stable and automated developer native draft workflow', () => {
   const workflow = readFileSync(path.resolve('.github', 'workflows', 'github-release.yml'), 'utf8')
     .replaceAll('\r\n', '\n');
   it('runs automatically only on successful same-repository version-tag workflows', () => {
@@ -80,10 +80,10 @@ describe('manual stable and automated developer release workflow', () => {
     const publisher = workflow.slice(workflow.indexOf('\n  publish:'));
     expect(prepare).toContain('ref: ${{ github.event.repository.default_branch }}');
     expect(prepare).toContain('node ../release-tools/scripts/check_release_gates.mjs');
-    expect(prepare).toContain('npm ci');
-    expect(prepare).toContain('npm run vite:build');
-    expect(prepare).toContain('npm run check:bundle-budget');
-    expect(prepare).toContain('test -s dist/index.html');
+    expect(prepare).toContain('node ../release-tools/deploy/inspect-github-ci.mjs');
+    expect(prepare).toContain('bash ../release-tools/deploy/pull-native-candidate.sh');
+    expect(prepare).toContain('node ../release-tools/deploy/prepare-native-publication.mjs');
+    expect(prepare).not.toMatch(/npm ci|npm run vite:build|php scripts\/prepare_release\.php/);
     expect(prepare).not.toContain('contents: write');
     expect(publisher).toContain("if: needs.prepare.outputs.eligible == 'true'");
     expect(publisher).toContain('contents: write');
@@ -92,14 +92,15 @@ describe('manual stable and automated developer release workflow', () => {
     expect(publisher).not.toContain('php scripts/prepare_release.php');
     expect(publisher).toContain("github.event_name == 'workflow_dispatch' && 'github-release' || 'developer-release'");
   });
-  it('verifies commit, manifest and checksum, uploads a draft, then publishes without replacing releases', () => {
+  it('verifies commit, CI provenance and checksum and creates drafts without final publication', () => {
     const publisher = workflow.slice(workflow.indexOf('\n  publish:'));
     expect(publisher).toContain('gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha');
-    expect(publisher).toContain('sha256sum --check "galaxyquest-${VERSION}.sha256"');
+    expect(publisher).toContain('sha256sum --check "$CHECKSUM"');
+    expect(publisher).toContain('and .source_ci == $evidence[0]');
+    expect(publisher).toContain('.status == "not-deployable"');
     expect(publisher).toContain('--verify-tag --target "$RELEASE_SHA" --draft --latest=false');
-    expect(publisher).toContain('--draft=false --prerelease="$PRERELEASE" --latest="$LATEST"');
-    expect(publisher).toContain('if [ "$PRERELEASE" = true ]; then LATEST=false; fi');
-    expect(publisher).toContain('Matching release already published; no assets or metadata overwritten.');
+    expect(publisher).not.toMatch(/--draft=false|gh release edit|LATEST=true/);
+    expect(publisher).toContain('Matching native draft already exists; no assets or metadata overwritten.');
     expect(publisher).toContain('cmp --silent "$RUNNER_TEMP/existing-release/$MANIFEST" "$MANIFEST"');
     expect(publisher).toContain('gh release download "$RELEASE_TAG" --dir "$RUNNER_TEMP/existing-release" --repo "$GH_REPO"');
     expect(publisher).not.toMatch(/--clobber|continue-on-error|\|\|\s*true/);
@@ -170,20 +171,21 @@ jq() {
       }
     }
 
-    it('publishes developer artifacts as prereleases without changing latest', () => {
+    it('creates developer candidate drafts without changing latest or publishing', () => {
       const result = run();
       expect(result.status, result.stderr).toBe(0);
       expect(result.stdout).toContain(`GH:release create ${tag} galaxyquest-0.9.0-alpha.1.tar.gz galaxyquest-0.9.0-alpha.1.sha256 galaxyquest-0.9.0-alpha.1.release.json`);
       expect(result.stdout).toContain('--draft --latest=false');
       expect(result.stdout).toContain('--notes-file release-notes.md --prerelease');
-      expect(result.stdout).toContain(`GH:release edit ${tag} --draft=false --prerelease=true --latest=false`);
+      expect(result.stdout).not.toContain('GH:release edit');
     });
-    it('publishes operator stable releases as latest without the prerelease flag', () => {
+    it('keeps stable-tag native candidates as drafts and does not change latest', () => {
       const result = run({ PRERELEASE: 'false', RELEASE_TAG: 'v1.2.0' });
       expect(result.status, result.stderr).toBe(0);
       const creation = result.stdout.split('\n').find((line) => line.startsWith('GH:release create'));
       expect(creation).not.toContain('--prerelease');
-      expect(result.stdout).toContain('GH:release edit v1.2.0 --draft=false --prerelease=false --latest=true');
+      expect(creation).toContain('--draft --latest=false');
+      expect(result.stdout).not.toContain('GH:release edit');
     });
     it.each([
       { REMOTE_SHA: 'b'.repeat(40) },
@@ -198,13 +200,10 @@ jq() {
       expect(result.status).toBe(42);
       expect(result.stdout).not.toContain('GH:release edit');
     });
-    it('propagates final publication failure instead of reporting success', () => {
-      expect(run({ FAIL_COMMAND: 'edit' }).status).toBe(42);
-    });
-    it('leaves an already matching published release unchanged on repeated completion events', () => {
+    it('leaves an already matching draft unchanged on repeated completion events', () => {
       const result = run({ EXISTING_COUNT: '1' });
       expect(result.status, result.stderr).toBe(0);
-      expect(result.stdout).toContain('Matching release already published');
+      expect(result.stdout).toContain('Matching native draft already exists');
       expect(result.stdout).not.toContain('GH:release');
     });
     it('does not treat a release with a different tagged commit manifest as a match', () => {
@@ -212,7 +211,7 @@ jq() {
       expect(result.status).not.toBe(0);
       expect(result.stdout).not.toContain('GH:release create');
     });
-    it('does not overwrite an existing draft or mismatching published release', () => {
+    it('does not overwrite an existing published release or mismatching draft', () => {
       const result = run({ EXISTING_COUNT: '1', EXISTING_MATCH_STATUS: '1' });
       expect(result.status).not.toBe(0);
       expect(result.stdout).not.toContain('GH:release');

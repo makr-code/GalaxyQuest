@@ -174,4 +174,11 @@ describe('CI smoke workflow ordering and cleanup', () => {
     expect(rules).toContain('RewriteRule ^assets/(.+)$ dist/assets/$1 [L]');
     expect(rules.indexOf('^assets/(.+)$')).toBeLessThan(rules.indexOf('^(.*)$ /index.php'));
   });
+  it('keeps the nested admin update status handler ahead of the canonical API rewrite', () => {
+    const rules = readFileSync(path.resolve('.htaccess'), 'utf8');
+    const exception = rules.indexOf('RewriteRule ^api/v1/admin/update-status\\.php$ - [END]');
+    const canonical = rules.indexOf('RewriteRule ^api/v1/(.*)$ /api/$1 [QSA,L]');
+    expect(exception).toBeGreaterThan(-1);
+    expect(canonical).toBeGreaterThan(exception);
+  });
 });

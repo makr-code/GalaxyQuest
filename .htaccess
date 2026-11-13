@@ -59,6 +59,9 @@ RewriteRule ^(?:\.git|\.github|\.playwright-mcp)(?:/|$) - [F,L,NC]
 </IfModule>
 RewriteRule ^generated/tts/[a-f0-9]{64}\.mp3$ - [L]
 
+# Keep the nested legacy admin handler on its physical path.
+RewriteRule ^api/v1/admin/update-status\.php$ - [END]
+
 # Canonical API prefix: /api/v1/*.php -> /api/*.php
 RewriteRule ^api/v1/(.*)$ /api/$1 [QSA,L]
 

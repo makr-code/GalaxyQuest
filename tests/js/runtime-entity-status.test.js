@@ -103,7 +103,14 @@ describe('RuntimeOverviewController colony status bars', () => {
     loadModule('RuntimeOverviewController', 'GQRuntimeOverviewController');
   });
 
-  function renderColony(colony, { fmt, fmtName, populateSelect = false } = {}) {
+  function renderColony(colony, {
+    fmt,
+    fmtName,
+    populateSelect = false,
+    buildOfflineSummaryNode = () => null,
+    buildResourceInsightNode = () => null,
+    bindOverviewActionsFn = () => {},
+  } = {}) {
     const root = document.createElement('div');
     const planetSelect = populateSelect ? document.createElement('select') : null;
     root.planetSelect = planetSelect;
@@ -129,8 +136,8 @@ describe('RuntimeOverviewController colony status bars', () => {
       focusColonyDevelopment: () => {},
       selectColonyById: () => {},
       buildWarningsHtml: () => '',
-      buildOfflineSummaryHtml: () => '',
-      buildResourceInsightHtml: () => '',
+      buildOfflineSummaryNode,
+      buildResourceInsightNode,
       evaluateRiskUpgradeBudget: () => ({ ok: true, details: [] }),
       riskFocusFromFlags: () => '',
       signed: String,
@@ -139,7 +146,7 @@ describe('RuntimeOverviewController colony status bars', () => {
       renderInlineTemplateList: () => '',
       renderFleetListFn: () => {},
       renderBattleLogFn: () => {},
-      bindOverviewActionsFn: () => {},
+      bindOverviewActionsFn,
     });
 
     if (populateSelect) controller.populatePlanetSelect();
@@ -168,6 +175,40 @@ describe('RuntimeOverviewController colony status bars', () => {
     });
 
     expect(root.querySelector('[aria-label="Colony status bars"]')).toBeNull();
+  });
+
+  it('inserts overview insight nodes before binding delegated actions', () => {
+    const offlineNode = document.createElement('aside');
+    offlineNode.dataset.testInsight = 'offline';
+    const resourceNode = document.createElement('aside');
+    resourceNode.dataset.testInsight = 'resource';
+    const boundRoots = [];
+    const root = renderColony({
+      id: 2,
+      name: 'Gaia',
+      galaxy: 1,
+      system: 1,
+      position: 1,
+      metal: 0,
+      crystal: 0,
+      deuterium: 0,
+      energy: 5000,
+      food: 1000,
+      happiness: 70,
+      public_services: 70,
+      population: 0,
+      max_population: 500,
+    }, {
+      buildOfflineSummaryNode: () => offlineNode,
+      buildResourceInsightNode: () => resourceNode,
+      bindOverviewActionsFn: (renderedRoot) => boundRoots.push(renderedRoot),
+    });
+
+    expect(root.querySelector('[data-test-insight="offline"]')).toBe(offlineNode);
+    expect(root.querySelector('[data-test-insight="resource"]')).toBe(resourceNode);
+    expect(root.querySelector('[data-overview-offline-summary]')).toBeNull();
+    expect(root.querySelector('[data-overview-resource-insight]')).toBeNull();
+    expect(boundRoots).toEqual([root]);
   });
 
   it('renders only the colony status measurements supplied by the server', () => {

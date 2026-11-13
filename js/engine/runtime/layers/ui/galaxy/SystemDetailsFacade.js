@@ -1,8 +1,14 @@
 (function (global) {
   'use strict';
 
+  function createElement(documentRef, tagName, className = '', text = '') {
+    const element = documentRef.createElement(tagName);
+    if (className) element.className = className;
+    if (text !== null && text !== undefined) element.textContent = String(text);
+    return element;
+  }
+
   function createGalaxySystemDetailsFacade(options = {}) {
-    const esc = typeof options.esc === 'function' ? options.esc : (value) => String(value || '');
     const settingsState = options.settingsState || {};
     const getGalaxy3d = typeof options.getGalaxy3d === 'function' ? options.getGalaxy3d : () => null;
     const getWindowRef = typeof options.getWindowRef === 'function' ? options.getWindowRef : () => global;
@@ -40,7 +46,10 @@
         const colonyCount = Math.max(0, Number(target?.colony_count || 0));
         if (colonyCount <= 0) return null;
         const colonyPopulation = Math.max(0, Number(target?.colony_population || 0));
-        const colonyColor = String(target?.colony_owner_color || target?.owner_color || target?.faction_color || '#7db7ee');
+        const colonyColorCandidate = String(target?.colony_owner_color || target?.owner_color || target?.faction_color || '');
+        const colonyColor = /^#[\da-f]{3}(?:[\da-f]{3})?$/i.test(colonyColorCandidate)
+          ? colonyColorCandidate
+          : '#7db7ee';
         const ownerName = String(target?.colony_owner_name || target?.owner || '').trim();
         const isPlayer = Number(target?.colony_is_player || 0) === 1;
         const countStrength = colonyCount > 0 ? Math.max(0, Math.min(1, (Math.log2(colonyCount + 1) - 0.3) / 3.2)) : 0;
@@ -88,10 +97,24 @@
       }
       quickNavActions.push({ action: 'reset', label: 'Reset', title: 'Reset', className: 'galaxy-detail-nav-btn-reset' });
 
-      const navButtons = `
-      <div class="galaxy-detail-nav" aria-label="Schnellnavigation 3D">
-        ${quickNavActions.map((entry) => `<button type="button" class="galaxy-detail-nav-btn ${esc(entry.className || '')}" data-nav-action="${esc(entry.action)}" title="${esc(entry.title)}">${esc(entry.label)}</button>`).join('')}
-      </div>`;
+      const documentRef = details.ownerDocument;
+      const createNavButtons = () => {
+        const nav = createElement(documentRef, 'div', 'galaxy-detail-nav');
+        nav.setAttribute('aria-label', 'Schnellnavigation 3D');
+        quickNavActions.forEach((entry) => {
+          const button = createElement(
+            documentRef,
+            'button',
+            `galaxy-detail-nav-btn ${entry.className || ''}`.trim(),
+            entry.label
+          );
+          button.type = 'button';
+          button.dataset.navAction = entry.action;
+          button.title = entry.title;
+          nav.append(button);
+        });
+        return nav;
+      };
 
       const fleetVectorsOn = settingsState.galaxyFleetVectorsVisible !== false;
       const visibleFleetCount = zoomed
@@ -99,42 +122,69 @@
         : Number(galaxy3d?.galaxyFleetEntries?.length || (windowRef._GQ_fleets || []).length || 0);
       const showFleetLegend = visibleFleetCount > 0;
 
-      const fleetLegendBodyHtml = !showFleetLegend
-        ? ''
-        : (fleetVectorsOn
-          ? (zoomed
-            ? `
-        <div class="galaxy-fleet-legend-title">Fleet-Richtungsfarben (kompakt)</div>
-        <div class="galaxy-fleet-legend-row galaxy-fleet-legend-row-compact">
-          <span class="galaxy-fleet-legend-line" style="--fleet-color:#ff4d3d"></span>Angriff
-          <span class="galaxy-fleet-legend-line" style="--fleet-color:#41d1ff"></span>Spionage
-        </div>
-        <div class="galaxy-fleet-legend-row galaxy-fleet-legend-row-compact">
-          <span class="galaxy-fleet-legend-line" style="--fleet-color:#86ff66"></span>Transport
-          <span class="galaxy-fleet-legend-line" style="--fleet-color:#5cf2a5"></span>Kolonisieren
-          <span class="galaxy-fleet-legend-line" style="--fleet-color:#ffd15c"></span>Ernten
-        </div>
-      `
-            : `
-        <div class="galaxy-fleet-legend-title">Fleet-Richtungsfarben</div>
-        <div class="galaxy-fleet-legend-row"><span class="galaxy-fleet-legend-line" style="--fleet-color:#ff4d3d"></span>Angriff</div>
-        <div class="galaxy-fleet-legend-row"><span class="galaxy-fleet-legend-line" style="--fleet-color:#41d1ff"></span>Spionage</div>
-        <div class="galaxy-fleet-legend-row"><span class="galaxy-fleet-legend-line" style="--fleet-color:#86ff66"></span>Transport</div>
-        <div class="galaxy-fleet-legend-row"><span class="galaxy-fleet-legend-line" style="--fleet-color:#5cf2a5"></span>Kolonisieren</div>
-        <div class="galaxy-fleet-legend-row"><span class="galaxy-fleet-legend-line" style="--fleet-color:#ffd15c"></span>Ernten</div>
-      `)
-          : `
-        <div class="galaxy-fleet-legend-title">Fleet-Richtungsfarben</div>
-        <div class="galaxy-fleet-legend-row text-muted">In Settings deaktiviert (Galaxy: Fleet-Marker und Fluglinien anzeigen).</div>
-      `);
+      const createFleetLegend = () => {
+        const legend = createElement(
+          documentRef,
+          'div',
+          `galaxy-fleet-legend ${showFleetLegend ? 'is-visible' : 'is-hidden'}`
+        );
+        legend.setAttribute('aria-label', 'Fleet-Richtungsfarben');
+        legend.setAttribute('aria-hidden', showFleetLegend ? 'false' : 'true');
+        if (!showFleetLegend) return legend;
 
-      const fleetLegendHtml = `
-      <div class="galaxy-fleet-legend ${showFleetLegend ? 'is-visible' : 'is-hidden'}" aria-label="Fleet-Richtungsfarben" aria-hidden="${showFleetLegend ? 'false' : 'true'}">
-        ${fleetLegendBodyHtml}
-      </div>`;
+        legend.append(createElement(documentRef, 'div', 'galaxy-fleet-legend-title', 'Fleet-Richtungsfarben'));
+        if (!fleetVectorsOn) {
+          legend.append(createElement(
+            documentRef,
+            'div',
+            'galaxy-fleet-legend-row text-muted',
+            'In Settings deaktiviert (Galaxy: Fleet-Marker und Fluglinien anzeigen).'
+          ));
+          return legend;
+        }
+
+        if (zoomed) {
+          legend.querySelector('.galaxy-fleet-legend-title').textContent = 'Fleet-Richtungsfarben (kompakt)';
+          const groups = [
+            [['#ff4d3d', 'Angriff'], ['#41d1ff', 'Spionage']],
+            [['#86ff66', 'Transport'], ['#5cf2a5', 'Kolonisieren'], ['#ffd15c', 'Ernten']],
+          ];
+          groups.forEach((items) => {
+            const row = createElement(documentRef, 'div', 'galaxy-fleet-legend-row galaxy-fleet-legend-row-compact');
+            items.forEach(([color, label]) => {
+              const line = createElement(documentRef, 'span', 'galaxy-fleet-legend-line');
+              line.style.setProperty('--fleet-color', color);
+              row.append(line, documentRef.createTextNode(label));
+            });
+            legend.append(row);
+          });
+          return legend;
+        }
+
+        [
+          ['#ff4d3d', 'Angriff'],
+          ['#41d1ff', 'Spionage'],
+          ['#86ff66', 'Transport'],
+          ['#5cf2a5', 'Kolonisieren'],
+          ['#ffd15c', 'Ernten'],
+        ].forEach(([color, label]) => {
+          const row = createElement(documentRef, 'div', 'galaxy-fleet-legend-row');
+          const line = createElement(documentRef, 'span', 'galaxy-fleet-legend-line');
+          line.style.setProperty('--fleet-color', color);
+          row.append(line, documentRef.createTextNode(label));
+          legend.append(row);
+        });
+        return legend;
+      };
 
       if (!star) {
-        details.innerHTML = `${navButtons}<span class="text-muted">Press I for this overlay. Camera: mouse drag + wheel, keyboard WASD/QE + arrows, F fit, R reset, L follow ${followEnabled ? 'off' : 'on'}.</span>${fleetLegendHtml}`;
+        const hint = createElement(
+          documentRef,
+          'span',
+          'text-muted',
+          `Press I for this overlay. Camera: mouse drag + wheel, keyboard WASD/QE + arrows, F fit, R reset, L follow ${followEnabled ? 'off' : 'on'}.`
+        );
+        details.replaceChildren(createNavButtons(), hint, createFleetLegend());
         details.querySelectorAll('[data-nav-action]').forEach((button) => {
           button.addEventListener('click', () => triggerGalaxyNavAction(button.getAttribute('data-nav-action'), root));
         });
@@ -145,21 +195,43 @@
         const systems = Array.isArray(star.__clusterSystems) ? star.__clusterSystems : [];
         const from = systems.length ? Math.min(...systems) : Number(star.from || 0);
         const to = systems.length ? Math.max(...systems) : Number(star.to || 0);
-        const factionName = star?.faction?.name ? ` | ${esc(star.faction.name)}` : '';
-        details.innerHTML = `
-        <div class="system-card">
-          <div class="system-title">${esc(star.label || `Cluster ${Number(star.__clusterIndex || 0) + 1}`)}</div>
-          ${navButtons}
-          <div class="system-row">Clusterbereich: ${esc(String(from || '?'))} - ${esc(String(to || '?'))}${factionName}</div>
-          <div class="system-row">Bounding Box: ${Number(star.__clusterSize?.x || 0).toFixed(1)} x ${Number(star.__clusterSize?.y || 0).toFixed(1)} x ${Number(star.__clusterSize?.z || 0).toFixed(1)}</div>
-          <div class="system-row">Center: ${Number(star.__clusterCenter?.x || 0).toFixed(1)}, ${Number(star.__clusterCenter?.y || 0).toFixed(1)}, ${Number(star.__clusterCenter?.z || 0).toFixed(1)}</div>
-          <div class="system-row">Cluster gebunden, rotiert mit der Sternwolke und ist per Mouse hover-/selektierbar.</div>
-          <div class="system-row">Klick fokussiert die Box, Doppelklick zoomt clusterweise hinein.</div>
-          ${fleetLegendHtml}
-          <div class="system-row" style="margin-top:0.45rem;">
-            <button id="gal-load-cluster-range-btn" type="button" class="btn btn-secondary btn-sm">Cluster-Range laden</button>
-          </div>
-        </div>`;
+        const card = createElement(documentRef, 'div', 'system-card');
+        card.append(createElement(
+          documentRef,
+          'div',
+          'system-title',
+          star.label || `Cluster ${Number(star.__clusterIndex || 0) + 1}`
+        ));
+        card.append(createNavButtons());
+        card.append(createElement(
+          documentRef,
+          'div',
+          'system-row',
+          `Clusterbereich: ${String(from || '?')} - ${String(to || '?')}${star?.faction?.name ? ` | ${String(star.faction.name)}` : ''}`
+        ));
+        card.append(createElement(
+          documentRef,
+          'div',
+          'system-row',
+          `Bounding Box: ${Number(star.__clusterSize?.x || 0).toFixed(1)} x ${Number(star.__clusterSize?.y || 0).toFixed(1)} x ${Number(star.__clusterSize?.z || 0).toFixed(1)}`
+        ));
+        card.append(createElement(
+          documentRef,
+          'div',
+          'system-row',
+          `Center: ${Number(star.__clusterCenter?.x || 0).toFixed(1)}, ${Number(star.__clusterCenter?.y || 0).toFixed(1)}, ${Number(star.__clusterCenter?.z || 0).toFixed(1)}`
+        ));
+        card.append(createElement(documentRef, 'div', 'system-row', 'Cluster gebunden, rotiert mit der Sternwolke und ist per Mouse hover-/selektierbar.'));
+        card.append(createElement(documentRef, 'div', 'system-row', 'Klick fokussiert die Box, Doppelklick zoomt clusterweise hinein.'));
+        card.append(createFleetLegend());
+        const clusterActions = createElement(documentRef, 'div', 'system-row');
+        clusterActions.style.marginTop = '0.45rem';
+        const loadRangeButton = createElement(documentRef, 'button', 'btn btn-secondary btn-sm', 'Cluster-Range laden');
+        loadRangeButton.id = 'gal-load-cluster-range-btn';
+        loadRangeButton.type = 'button';
+        clusterActions.append(loadRangeButton);
+        card.append(clusterActions);
+        details.replaceChildren(card);
         details.querySelectorAll('[data-nav-action]').forEach((button) => {
           button.addEventListener('click', () => triggerGalaxyNavAction(button.getAttribute('data-nav-action'), root));
         });
@@ -175,55 +247,121 @@
 
       const countRaw = Number(star.planet_count);
       const hasKnownPlanetCount = Number.isFinite(countRaw) && countRaw > 0;
-      const planetCountHtml = hasKnownPlanetCount
-        ? String(Math.round(countRaw))
-        : '<span class="text-muted" title="legacy cache/no count">n/a</span>';
       const isFav = isFavoriteStar(star);
       const colonyMeta = getColonyMarkerMeta(star);
-      const colonyHtml = colonyMeta
-        ? `<div class="system-row system-row-colony"><span class="system-colony-swatch" style="background:${esc(colonyMeta.color)};box-shadow:0 0 10px ${esc(colonyMeta.color)};"></span>${esc(colonyMeta.label)} | ${esc(String(colonyMeta.count))} Kolonien | Bevoelkerung ${esc(colonyMeta.populationFull)}${colonyMeta.ownerName ? ` | ${esc(colonyMeta.isPlayer ? 'Dominanz: Du' : `Dominanz: ${colonyMeta.ownerName}`)}` : ''}</div>`
-        : '<div class="system-row text-muted">Keine bekannten Kolonien in diesem System.</div>';
       const scientificScaleEnabled = galaxy3d?.getRenderStats?.()?.scientificScaleEnabled === true;
-      const nearestNeighborRaw = getNearestSystemNeighbors(star, 3);
-      const nearestNeighbors = (Array.isArray(nearestNeighborRaw) ? nearestNeighborRaw : []).slice(0, 3);
-        // Neighbor waypoints are rendered as canvas-2D/3D objects via GQNeighborWaypointOverlay.
-        const _waypointOverlay = typeof global.GQNeighborWaypointOverlay?.getOverlay === 'function'
-          ? global.GQNeighborWaypointOverlay.getOverlay() : null;
-        const _canvas3d = galaxy3d?.renderer?.domElement || null;
-        if (_waypointOverlay && _canvas3d) _waypointOverlay.mount(_canvas3d, getGalaxy3d);
-      const scaleButtonHtml = zoomed ? `<button type="button" class="btn btn-secondary btn-sm${scientificScaleEnabled ? ' active' : ''}" data-system-action="scientific-scale" title="Toggle between game scale and scientific proportions">${scientificScaleEnabled ? 'Spielmodus' : 'Wissenschaft'}</button>` : '';
-      const systemActionHtml = `
-      <div class="system-row" style="margin-top:0.42rem; display:flex; gap:0.36rem; flex-wrap:wrap;">
-        <button type="button" class="btn btn-secondary btn-sm" data-system-action="enter-system">Planet View</button>
-        <button type="button" class="btn btn-secondary btn-sm" data-system-action="fleet">Fleet</button>
-        <button type="button" class="btn btn-secondary btn-sm" data-system-action="gates">Gate Installations</button>
-        ${scaleButtonHtml}
-      </div>`;
+      getNearestSystemNeighbors(star, 3);
+      // Neighbor waypoints are rendered as canvas-2D/3D objects via GQNeighborWaypointOverlay.
+      const _waypointOverlay = typeof global.GQNeighborWaypointOverlay?.getOverlay === 'function'
+        ? global.GQNeighborWaypointOverlay.getOverlay() : null;
+      const _canvas3d = galaxy3d?.renderer?.domElement || null;
+      if (_waypointOverlay && _canvas3d) _waypointOverlay.mount(_canvas3d, getGalaxy3d);
+      const createSystemActions = () => {
+        const actions = createElement(documentRef, 'div', 'system-row');
+        Object.assign(actions.style, { marginTop: '0.42rem', display: 'flex', gap: '0.36rem', flexWrap: 'wrap' });
+        [
+          ['enter-system', 'Planet View'],
+          ['fleet', 'Fleet'],
+          ['gates', 'Gate Installations'],
+        ].forEach(([action, label]) => {
+          const button = createElement(documentRef, 'button', 'btn btn-secondary btn-sm', label);
+          button.type = 'button';
+          button.dataset.systemAction = action;
+          actions.append(button);
+        });
+        if (zoomed) {
+          const scaleButton = createElement(
+            documentRef,
+            'button',
+            `btn btn-secondary btn-sm${scientificScaleEnabled ? ' active' : ''}`,
+            scientificScaleEnabled ? 'Spielmodus' : 'Wissenschaft'
+          );
+          scaleButton.type = 'button';
+          scaleButton.dataset.systemAction = 'scientific-scale';
+          scaleButton.title = 'Toggle between game scale and scientific proportions';
+          actions.append(scaleButton);
+        }
+        return actions;
+      };
 
       const fowLevel = isCurrentUserAdmin() ? 'own' : (star.visibility_level || 'unknown');
       const fowLabels = { own: 'Eigene Kolonie', active: 'Flotte aktiv', stale: 'Veraltete Aufklaerung', unknown: 'Unerforscht' };
-      const fowHtml = `<div class="system-row ${fowLevel === 'unknown' ? 'fow-unknown-badge' : ''}" style="${fowLevel === 'stale' ? 'color:#e8c843' : ''}">${esc(fowLabels[fowLevel] || fowLevel)}</div>`;
+      const card = createElement(documentRef, 'div', 'system-card');
+      card.append(createElement(documentRef, 'div', 'system-title', star.name));
+      card.append(createNavButtons());
+      card.append(createElement(documentRef, 'div', 'system-row', `Catalog: ${String(star.catalog_name || '-')}`));
+      card.append(createElement(documentRef, 'div', 'system-row', `Galaxy/System: ${star.galaxy_index}:${star.system_index}`));
+      card.append(createElement(documentRef, 'div', 'system-row', `Class: ${String(star.spectral_class || '')}${String(star.subtype ?? '')}`));
+      card.append(createElement(
+        documentRef,
+        'div',
+        'system-row',
+        `Coordinates: ${Number(star.x_ly || 0).toFixed(0)}, ${Number(star.y_ly || 0).toFixed(0)}, ${Number(star.z_ly || 0).toFixed(0)} ly`
+      ));
+      card.append(createElement(
+        documentRef,
+        'div',
+        'system-row',
+        `Habitable Zone: ${Number(star.hz_inner_au || 0).toFixed(2)} - ${Number(star.hz_outer_au || 0).toFixed(2)} AU`
+      ));
+      const planetCount = createElement(documentRef, 'div', 'system-row');
+      planetCount.append(documentRef.createTextNode(`Planets: `));
+      if (hasKnownPlanetCount) {
+        planetCount.append(documentRef.createTextNode(String(Math.round(countRaw))));
+      } else {
+        const unknownCount = createElement(documentRef, 'span', 'text-muted', 'n/a');
+        unknownCount.title = 'legacy cache/no count';
+        planetCount.append(unknownCount);
+      }
+      card.append(planetCount);
 
-      details.innerHTML = `
-      <div class="system-card">
-        <div class="system-title">${esc(star.name)}</div>
-        ${navButtons}
-        <div class="system-row">Catalog: ${esc(star.catalog_name || '-')}</div>
-        <div class="system-row">Galaxy/System: ${star.galaxy_index}:${star.system_index}</div>
-        <div class="system-row">Class: ${esc(star.spectral_class)}${esc(String(star.subtype ?? ''))}</div>
-        <div class="system-row">Coordinates: ${Number(star.x_ly || 0).toFixed(0)}, ${Number(star.y_ly || 0).toFixed(0)}, ${Number(star.z_ly || 0).toFixed(0)} ly</div>
-        <div class="system-row">Habitable Zone: ${Number(star.hz_inner_au || 0).toFixed(2)} - ${Number(star.hz_outer_au || 0).toFixed(2)} AU</div>
-        <div class="system-row">Planets: ${planetCountHtml}</div>
-        ${colonyHtml}
-        ${fowHtml}
-        <div class="system-row">Selection Follow: ${followEnabled ? 'locked' : 'free'} (L)</div>
-        <div class="system-row">${zoomed ? 'System view active. Esc/F/R returns to galaxy overview.' : 'Double click to zoom into the system and show planets.'}</div>
-        ${systemActionHtml}
-        ${fleetLegendHtml}
-        <div class="system-row" style="margin-top:0.4rem">
-          <button id="gal-quicknav-fav-btn" type="button" class="btn btn-secondary btn-sm${isFav ? ' active' : ''}">${isFav ? 'Favorit entfernen' : 'Favorit hinzufuegen'}</button>
-        </div>
-      </div>`;
+      if (colonyMeta) {
+        const colonyRow = createElement(documentRef, 'div', 'system-row system-row-colony');
+        const swatch = createElement(documentRef, 'span', 'system-colony-swatch');
+        swatch.style.backgroundColor = colonyMeta.color;
+        swatch.style.boxShadow = `0 0 10px ${colonyMeta.color}`;
+        colonyRow.append(swatch, documentRef.createTextNode(
+          `${colonyMeta.label} | ${String(colonyMeta.count)} Kolonien | Bevoelkerung ${colonyMeta.populationFull}${colonyMeta.ownerName ? ` | ${colonyMeta.isPlayer ? 'Dominanz: Du' : `Dominanz: ${colonyMeta.ownerName}`}` : ''}`
+        ));
+        card.append(colonyRow);
+      } else {
+        card.append(createElement(documentRef, 'div', 'system-row text-muted', 'Keine bekannten Kolonien in diesem System.'));
+      }
+
+      const fowRow = createElement(
+        documentRef,
+        'div',
+        `system-row ${fowLevel === 'unknown' ? 'fow-unknown-badge' : ''}`,
+        Object.prototype.hasOwnProperty.call(fowLabels, fowLevel) ? fowLabels[fowLevel] : fowLevel
+      );
+      if (fowLevel === 'stale') fowRow.style.color = '#e8c843';
+      card.append(fowRow);
+      card.append(createElement(
+        documentRef,
+        'div',
+        'system-row',
+        `Selection Follow: ${followEnabled ? 'locked' : 'free'} (L)`
+      ));
+      card.append(createElement(
+        documentRef,
+        'div',
+        'system-row',
+        zoomed ? 'System view active. Esc/F/R returns to galaxy overview.' : 'Double click to zoom into the system and show planets.'
+      ));
+      card.append(createSystemActions(), createFleetLegend());
+      const favoriteRow = createElement(documentRef, 'div', 'system-row');
+      favoriteRow.style.marginTop = '0.4rem';
+      const favoriteButton = createElement(
+        documentRef,
+        'button',
+        `btn btn-secondary btn-sm${isFav ? ' active' : ''}`,
+        isFav ? 'Favorit entfernen' : 'Favorit hinzufuegen'
+      );
+      favoriteButton.id = 'gal-quicknav-fav-btn';
+      favoriteButton.type = 'button';
+      favoriteRow.append(favoriteButton);
+      card.append(favoriteRow);
+      details.replaceChildren(card);
 
       details.querySelectorAll('[data-nav-action]').forEach((button) => {
         button.addEventListener('click', () => triggerGalaxyNavAction(button.getAttribute('data-nav-action'), root));

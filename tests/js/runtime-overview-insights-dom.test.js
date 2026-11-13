@@ -17,7 +17,6 @@ describe('RuntimeOverviewInsights DOM output', () => {
 
   it('escapes risk and resource values and only emits allowlisted actions', () => {
     const insights = loadModule().createOverviewInsights({
-      esc: String,
       fmt: () => '<img src=x onerror=alert(1)>',
       getUiState: () => ({ resourceInsight: 'metal' }),
       getCurrentColony: () => ({
@@ -42,14 +41,16 @@ describe('RuntimeOverviewInsights DOM output', () => {
     });
 
     const resourceRoot = document.createElement('div');
-    resourceRoot.innerHTML = insights.buildResourceInsightHtml({
+    resourceRoot.append(insights.buildResourceInsightNode({
       economy: { net_rates_per_hour: { metal: 5 } },
-    }, {});
+    }, {}));
     expect(resourceRoot.querySelector('img, svg, iframe, b')).toBeNull();
     expect(resourceRoot.querySelector('[onerror], [onload], [onclick]')).toBeNull();
     expect(resourceRoot.querySelectorAll('[data-resource-action]')).toHaveLength(5);
     expect(resourceRoot.textContent).toContain('<svg onload=alert(2)>');
     expect(resourceRoot.textContent).toContain('<img src=x onerror=alert(1)>');
+    expect(resourceRoot.querySelector('[data-resource-action="focus-building"]')?.dataset.resourceFocus).toBe('solar_plant');
+    expect(resourceRoot.querySelector('[data-resource-action="transport"]')?.dataset.resource).toBe('metal');
 
     const invalidInsights = loadModule().createOverviewInsights({
       getUiState: () => ({ resourceInsight: 'invalid' }),
@@ -62,17 +63,18 @@ describe('RuntimeOverviewInsights DOM output', () => {
       }),
     });
     const invalidConfigRoot = document.createElement('div');
-    invalidConfigRoot.innerHTML = invalidInsights.buildResourceInsightHtml(null, {});
+    const invalidResourceNode = invalidInsights.buildResourceInsightNode(null, {});
+    if (invalidResourceNode) invalidConfigRoot.append(invalidResourceNode);
     expect(invalidConfigRoot.querySelectorAll('[data-resource-action]')).toHaveLength(0);
+    expect(invalidResourceNode).toBeNull();
   });
 
   it('escapes offline risk data and omits actions for invalid colony IDs', () => {
     const insights = loadModule().createOverviewInsights({
       fmt: (value) => `<strong>${value}</strong>`,
-      esc: String,
     });
     const root = document.createElement('div');
-    root.innerHTML = insights.buildOfflineSummaryHtml({
+    root.append(insights.buildOfflineSummaryNode({
       had_offline_time: true,
       max_elapsed_seconds: 120,
       economy: {
@@ -89,12 +91,40 @@ describe('RuntimeOverviewInsights DOM output', () => {
           risk_flags: ['<b onclick=alert(4)>'],
         }],
       },
-    });
+    }));
 
     expect(root.querySelector('img, svg, b')).toBeNull();
     expect(root.querySelector('[onerror], [onload], [onclick]')).toBeNull();
     expect(root.querySelector('[data-risk-action]')).toBeNull();
     expect(root.textContent).toContain('<img src=x onerror=alert(2)>');
     expect(root.textContent).toContain('<img src=x onerror=alert(1)>');
+  });
+
+  it('creates valid risk actions and metric values as DOM properties and text', () => {
+    const insights = loadModule().createOverviewInsights({ documentRef: document });
+    const root = document.createElement('div');
+    root.append(insights.buildOfflineSummaryNode({
+      economy: {
+        net_rates_per_hour: { metal: 1 },
+        status_counts: { stable: 2, watch: 1, strain: 0 },
+        top_risks: [{
+          colony_id: 7,
+          colony_name: 'New Terra',
+          status: 'strain',
+          risk_score: 9,
+          food_rate_per_hour: -2,
+          energy: 3,
+          risk_flags: ['food_decline'],
+        }],
+      },
+    }));
+
+    expect(root.querySelector('.system-card')).not.toBeNull();
+    expect(root.querySelector('.text-red')?.textContent).toBe('Kritisch');
+    expect(root.querySelector('[data-risk-action="focus"]')?.dataset.riskCid).toBe('7');
+    expect(root.querySelector('[data-risk-action="focus"]')?.dataset.riskFocus).toBe('hydroponic_farm');
+    expect(root.querySelector('[data-risk-action="auto"]')?.textContent).toBe('Auto +1');
+    expect(root.textContent).toContain('Metal +1.0/h');
+    expect(root.textContent).toContain('Risk New Terra: Kritisch');
   });
 });

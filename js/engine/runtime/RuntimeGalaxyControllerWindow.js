@@ -42,70 +42,133 @@
       const planetMagnetPx = clampNumber(settingsState.hoverMagnetPlanetPx, 8, 72, 30);
       const clusterMagnetPx = clampNumber(settingsState.hoverMagnetClusterPx, 8, 72, 28);
 
-      root.innerHTML = `
-          <div class="galaxy-3d-stage galaxy-bg-stage">
-            <div id="galaxy-controls-overlay" class="galaxy-overlay-window hidden">
-              <div class="galaxy-overlay-head">
-                <strong>Galaxy Controls</strong>
-                <span class="galaxy-overlay-hotkeys">O:Controls | I:Info | L:Follow | V:Vectors</span>
-                <button class="btn btn-sm" data-overlay-close="#galaxy-controls-overlay">Close</button>
-              </div>
-              <div class="galaxy-nav">
-                <label>Galaxy: <input type="number" id="gal-galaxy" min="1" max="9" value="1" /></label>
-                <label>From: <input type="number" id="gal-from" min="1" max="${galaxySystemMax}" value="1" /></label>
-                <label>To: <input type="number" id="gal-to" min="1" max="${galaxySystemMax}" value="${galaxySystemMax}" /></label>
-                <button class="btn btn-secondary" id="gal-follow-toggle-btn">Follow: on</button>
-                <label>Policy:
-                  <select id="gal-policy-profile">
-                    <option value="auto" ${getActivePolicyMode() === 'auto' ? 'selected' : ''}>Auto (${policyProfile.label})</option>
-                    <option value="balanced" ${getActivePolicyMode() === 'manual' && policyProfileId === 'balanced' ? 'selected' : ''}>Balanced</option>
-                    <option value="cache_aggressive" ${getActivePolicyMode() === 'manual' && policyProfileId === 'cache_aggressive' ? 'selected' : ''}>Aggressive Cache</option>
-                    <option value="always_fresh" ${getActivePolicyMode() === 'manual' && policyProfileId === 'always_fresh' ? 'selected' : ''}>Always Fresh</option>
-                  </select>
-                </label>
-                <label>Density:
-                  <select id="gal-cluster-density">
-                    <option value="auto" ${clusterDensityMode === 'auto' ? 'selected' : ''}>Auto</option>
-                    <option value="high" ${clusterDensityMode === 'high' ? 'selected' : ''}>High</option>
-                    <option value="max" ${clusterDensityMode === 'max' ? 'selected' : ''}>Max</option>
-                  </select>
-                </label>
-                <button class="btn btn-secondary" id="gal-cluster-bounds-btn">Cluster Boxes: on</button>
-                <button class="btn btn-secondary" id="gal-cluster-heatmap-btn">Cluster Heatmap: on</button>
-                <button class="btn btn-secondary" id="gal-colonies-only-btn">Nur Kolonien: aus</button>
-                <button class="btn btn-secondary" id="gal-core-fx-btn">Core FX: on</button>
-                <button class="btn btn-secondary" id="gal-fleet-vectors-btn">Fleet Vectors: on</button>
-                <button class="btn btn-secondary" id="gal-system-legacy-fallback-btn">System Legacy Fallback: off</button>
-                <button class="btn btn-secondary" id="gal-magnet-hover-toggle-btn">Magnet Hover: on</button>
-                <button class="btn btn-secondary" id="gal-magnet-click-toggle-btn">Magnet Click: on</button>
-                <div class="galaxy-nav-strip" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:0.25rem;">
-                  <button class="btn btn-secondary btn-sm" type="button" data-magnet-preset="precise">Preset: Precise</button>
-                  <button class="btn btn-secondary btn-sm" type="button" data-magnet-preset="balanced">Preset: Balanced</button>
-                  <button class="btn btn-secondary btn-sm" type="button" data-magnet-preset="sticky">Preset: Sticky</button>
-                </div>
-                <label>Star Magnet Px:
-                  <input type="range" id="gal-magnet-star-px" min="8" max="64" step="1" value="${starMagnetPx}" />
-                  <span id="gal-magnet-star-px-value" class="text-muted">${starMagnetPx}</span>
-                </label>
-                <label>Planet Magnet Px:
-                  <input type="range" id="gal-magnet-planet-px" min="8" max="72" step="1" value="${planetMagnetPx}" />
-                  <span id="gal-magnet-planet-px-value" class="text-muted">${planetMagnetPx}</span>
-                </label>
-                <label>Cluster Magnet Px:
-                  <input type="range" id="gal-magnet-cluster-px" min="8" max="72" step="1" value="${clusterMagnetPx}" />
-                  <span id="gal-magnet-cluster-px-value" class="text-muted">${clusterMagnetPx}</span>
-                </label>
-                <span id="gal-magnet-help" class="text-muted">Magnetik wirkt vor allem bei langsamer Mausbewegung.</span>
-                <span id="gal-policy-hint" class="text-muted"></span>
-                <span id="gal-density-metrics" class="text-muted">Density: n/a</span>
-                <span id="gal-health-badge" class="text-muted">Health: checking...</span>
-                <button class="btn btn-secondary" id="gal-load-3d-btn">Load 3D Stars</button>
-                <button class="btn btn-warning" id="gal-clear-cache-btn">Clear Cache</button>
-              </div>
-            </div>
+      const documentRef = root.ownerDocument;
+      const createElement = (tagName, className = '', text = null) => {
+        const element = documentRef.createElement(tagName);
+        if (className) element.className = className;
+        if (text !== null && text !== undefined) element.textContent = String(text);
+        return element;
+      };
+      const createButton = (id, label, className = 'btn btn-secondary') => {
+        const button = createElement('button', className, label);
+        button.type = 'button';
+        button.id = id;
+        return button;
+      };
+      const createInput = (type, id, min, max, value, step = null) => {
+        const input = createElement('input');
+        input.type = type;
+        input.id = id;
+        input.setAttribute('min', String(min));
+        input.setAttribute('max', String(max));
+        if (step !== null) input.setAttribute('step', String(step));
+        input.setAttribute('value', String(value));
+        return input;
+      };
+      const createLabel = (labelText, control) => {
+        const label = createElement('label');
+        label.append(documentRef.createTextNode(labelText), control);
+        return label;
+      };
+      const addOption = (select, value, label, selected = false) => {
+        const option = createElement('option', '', label);
+        option.value = value;
+        if (selected) option.selected = true;
+        select.append(option);
+      };
 
-          </div>
-        `;
+      const stage = createElement('div', 'galaxy-3d-stage galaxy-bg-stage');
+      const controls = createElement('div', 'galaxy-overlay-window hidden');
+      controls.id = 'galaxy-controls-overlay';
+      const header = createElement('div', 'galaxy-overlay-head');
+      header.append(
+        createElement('strong', '', 'Galaxy Controls'),
+        createElement('span', 'galaxy-overlay-hotkeys', 'O:Controls | I:Info | L:Follow | V:Vectors')
+      );
+      const closeButton = createElement('button', 'btn btn-sm', 'Close');
+      closeButton.type = 'button';
+      closeButton.dataset.overlayClose = '#galaxy-controls-overlay';
+      header.append(closeButton);
+
+      const nav = createElement('div', 'galaxy-nav');
+      nav.append(createLabel('Galaxy: ', createInput('number', 'gal-galaxy', 1, 9, 1)));
+      nav.append(createLabel('From: ', createInput('number', 'gal-from', 1, galaxySystemMax, 1)));
+      nav.append(createLabel('To: ', createInput('number', 'gal-to', 1, galaxySystemMax, galaxySystemMax)));
+      nav.append(createButton('gal-follow-toggle-btn', 'Follow: on'));
+
+      const policySelect = createElement('select');
+      policySelect.id = 'gal-policy-profile';
+      const activePolicyMode = getActivePolicyMode();
+      addOption(policySelect, 'auto', `Auto (${policyProfile.label})`, activePolicyMode === 'auto');
+      addOption(policySelect, 'balanced', 'Balanced', activePolicyMode === 'manual' && policyProfileId === 'balanced');
+      addOption(policySelect, 'cache_aggressive', 'Aggressive Cache', activePolicyMode === 'manual' && policyProfileId === 'cache_aggressive');
+      addOption(policySelect, 'always_fresh', 'Always Fresh', activePolicyMode === 'manual' && policyProfileId === 'always_fresh');
+      nav.append(createLabel('Policy: ', policySelect));
+
+      const densitySelect = createElement('select');
+      densitySelect.id = 'gal-cluster-density';
+      addOption(densitySelect, 'auto', 'Auto', clusterDensityMode === 'auto');
+      addOption(densitySelect, 'high', 'High', clusterDensityMode === 'high');
+      addOption(densitySelect, 'max', 'Max', clusterDensityMode === 'max');
+      nav.append(createLabel('Density: ', densitySelect));
+
+      [
+        ['gal-cluster-bounds-btn', 'Cluster Boxes: on'],
+        ['gal-cluster-heatmap-btn', 'Cluster Heatmap: on'],
+        ['gal-colonies-only-btn', 'Nur Kolonien: aus'],
+        ['gal-core-fx-btn', 'Core FX: on'],
+        ['gal-fleet-vectors-btn', 'Fleet Vectors: on'],
+        ['gal-system-legacy-fallback-btn', 'System Legacy Fallback: off'],
+        ['gal-magnet-hover-toggle-btn', 'Magnet Hover: on'],
+        ['gal-magnet-click-toggle-btn', 'Magnet Click: on'],
+      ].forEach(([id, label]) => nav.append(createButton(id, label)));
+
+      const presets = createElement('div', 'galaxy-nav-strip');
+      Object.assign(presets.style, {
+        gridTemplateColumns: 'repeat(3,minmax(0,1fr))',
+        gap: '0.25rem',
+      });
+      [
+        ['precise', 'Preset: Precise'],
+        ['balanced', 'Preset: Balanced'],
+        ['sticky', 'Preset: Sticky'],
+      ].forEach(([preset, label]) => {
+        const button = createElement('button', 'btn btn-secondary btn-sm', label);
+        button.type = 'button';
+        button.dataset.magnetPreset = preset;
+        presets.append(button);
+      });
+      nav.append(presets);
+
+      [
+        ['Star Magnet Px: ', 'gal-magnet-star-px', 64, starMagnetPx, 'gal-magnet-star-px-value'],
+        ['Planet Magnet Px: ', 'gal-magnet-planet-px', 72, planetMagnetPx, 'gal-magnet-planet-px-value'],
+        ['Cluster Magnet Px: ', 'gal-magnet-cluster-px', 72, clusterMagnetPx, 'gal-magnet-cluster-px-value'],
+      ].forEach(([labelText, id, max, value, valueId]) => {
+        const input = createInput('range', id, 8, max, value, 1);
+        const valueLabel = createElement('span', 'text-muted', value);
+        valueLabel.id = valueId;
+        const label = createElement('label');
+        label.append(documentRef.createTextNode(labelText), input, valueLabel);
+        nav.append(label);
+      });
+
+      nav.append(createElement('span', 'text-muted', 'Magnetik wirkt vor allem bei langsamer Mausbewegung.'));
+      const policyHint = createElement('span', 'text-muted');
+      policyHint.id = 'gal-policy-hint';
+      const densityMetrics = createElement('span', 'text-muted', 'Density: n/a');
+      densityMetrics.id = 'gal-density-metrics';
+      const healthBadge = createElement('span', 'text-muted', 'Health: checking...');
+      healthBadge.id = 'gal-health-badge';
+      nav.append(policyHint, densityMetrics, healthBadge);
+      nav.append(
+        createButton('gal-load-3d-btn', 'Load 3D Stars'),
+        createButton('gal-clear-cache-btn', 'Clear Cache', 'btn btn-warning')
+      );
+
+      controls.append(header, nav);
+      stage.append(controls);
+      root.replaceChildren(stage);
 
       bindGalaxyWindowControls(root);
     }

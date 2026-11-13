@@ -124,22 +124,17 @@ describe('real release gate CLI', () => {
   }));
 });
 
-describe('tagged release packaging workflow', () => {
-  it('builds and uploads the package only after tag validation without publishing it', () => {
+describe('tagged release metadata workflow', () => {
+  it('uploads reviewed notes after tag validation without rebuilding a second package', () => {
     const workflow = readFileSync(path.resolve('.github', 'workflows', 'release-metadata.yml'), 'utf8')
       .replaceAll('\r\n', '\n');
     const validationStep = workflow.indexOf('      - name: Verify version tag and extract reviewed changelog');
-    const packageStep = workflow.indexOf('      - name: Build versioned release package');
-    const uploadStep = workflow.indexOf('      - name: Upload versioned release package for operator review');
+    const uploadStep = workflow.indexOf('      - name: Upload validated notes for operator review');
 
     expect(validationStep).toBeGreaterThanOrEqual(0);
-    expect(packageStep).toBeGreaterThan(validationStep);
-    expect(uploadStep).toBeGreaterThan(packageStep);
-    expect(workflow).toContain("php-version: '8.2'");
-    expect(workflow).toContain('OUTPUT_DIR: ${{ runner.temp }}/release-package');
-    expect(workflow).toContain('php scripts/prepare_release.php "$VERSION" --output-dir="$OUTPUT_DIR"');
-    expect(workflow).toContain('sha256sum --check "galaxyquest-${VERSION}.sha256"');
-    expect(workflow).toContain('path: ${{ runner.temp }}/release-package/*');
+    expect(uploadStep).toBeGreaterThan(validationStep);
+    expect(workflow).not.toMatch(/prepare_release\.php|vite:build|npm ci/);
+    expect(workflow).toContain('path: ${{ runner.temp }}/release-notes.md');
     expect(workflow).toContain('retention-days: 30');
     expect(workflow).not.toContain('softprops/action-gh-release');
     expect(workflow).toContain('no GitHub Release, deployment or production image publication');

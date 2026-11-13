@@ -1,12 +1,22 @@
 import { Box3, Group, Mesh, MeshStandardMaterial, Vector3, BoxGeometry } from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { EARTH_REFERENCE, geographicVector } from '../../js/rendering/earth-reference-geography.js';
-import { disposeTrellisBuilding, placeTrellisBuilding, TRELLIS_BUILDING_ASSETS } from '../../js/rendering/earth-reference-trellis.js';
+import {
+  disposeTrellisBuilding,
+  placeTrellisBuilding,
+  TRELLIS_BUILDING_ASSETS,
+  TRELLIS_BUILDING_CANDIDATES,
+} from '../../js/rendering/earth-reference-trellis.js';
 
 describe('Earth reference TRELLIS2 building preview', () => {
   it('only exposes the three inspected DEV_ONLY facility pilots', () => {
     expect(Object.keys(TRELLIS_BUILDING_ASSETS).sort()).toEqual(['drilling', 'hydroponics', 'warehouse']);
     expect(Object.values(TRELLIS_BUILDING_ASSETS).every(url => url.endsWith('_trellis2_dev.glb'))).toBe(true);
+  });
+
+  it('keeps unapproved cleaned mesh candidates separate from inspected pilots', () => {
+    expect(Object.keys(TRELLIS_BUILDING_CANDIDATES).sort()).toEqual(['agriculture', 'command', 'fusion', 'hospital', 'nanotech', 'research', 'school', 'security', 'silo', 'solar', 'tank', 'terraforming']);
+    expect(Object.values(TRELLIS_BUILDING_CANDIDATES).every(url => url.endsWith('_zero_area_cleaned.glb'))).toBe(true);
   });
 
   it('fits a model to the requested display width and aligns its base at the Berlin reference site', () => {

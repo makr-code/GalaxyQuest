@@ -242,6 +242,19 @@ beenden den CLI-Aufruf mit Exitcode 1 und einem strukturierten Fehler.
 Exitcode 0 bedeutet nur, dass der Bericht geschrieben wurde, **nicht**,
 dass das Asset die Sichtpruefung bestanden hat.
 
+`scripts/trellis2_clean_mesh.py` erstellt eine neue GLB-Kopie und entfernt
+ausschliesslich Dreiecke mit exakt null Flaeche. Die Quelldatei bleibt
+unveraendert; existierende Ausgaben werden nicht ueberschrieben. Der Schritt
+loescht keine getrennten Komponenten, repariert keine UVs, erzeugt keine
+Normalen und erstellt keine PBR-Materialien. Jede bereinigte Datei muss erneut
+mit `trellis2_inspect.py` geprueft werden und bleibt bis zur Sichtpruefung
+DEV_ONLY:
+
+```powershell
+.\.venv-trellis-inspect\Scripts\python.exe scripts\trellis2_clean_mesh.py generated\comfyui\output\gq_trellis2\building_hospital_pilot_v1_00001_.glb --facility-kind hospital
+.\.venv-trellis-inspect\Scripts\python.exe scripts\trellis2_inspect.py generated\comfyui\output\gq_trellis2\building_hospital_pilot_v1_00001__zero_area_cleaned.glb --facility-kind hospital
+```
+
 Der Bericht `<name>_inspection.json` enthaelt:
 
 - Schema `gq.trellis-inspection.v2`, Asset-Typ, optionale Facility-Klasse,
@@ -291,6 +304,7 @@ Regressionstests ohne GPU:
 
 ```powershell
 .\.venv-trellis-inspect\Scripts\python.exe -m unittest discover -s tests\scripts -p test_trellis2_inspect.py
+.\.venv-trellis-inspect\Scripts\python.exe -m unittest discover -s tests\scripts -p test_trellis2_clean_mesh.py
 npx vitest run tests\js\trellis2-import.test.js
 ```
 
@@ -351,8 +365,7 @@ Ein mesh-only-Erzeugungsversuch fuer `agriculture` vom 2026-11-13 erzeugte
 Offline-Inspektion fand 480.326 Dreiecke, 101.025 Nullflaechen, 122.892
 Face-Komponenten, ungueltige UVs, keine Normalenattribute und kein
 PBR-Material. Auch dieses Ergebnis bleibt unimportiert und ist kein
-Referenz-Pilot. Weitere Mesh-only-Jobs mit demselben Graphen sind bis zur
-Korrektur des Export-/Bereinigungspfads pausiert.
+Referenz-Pilot.
 
 | Facility | DEV-Asset | Pruefergebnis |
 |---|---|---|
@@ -366,10 +379,11 @@ PBR-Texturen pixelgenau gegen den jeweiligen `v1`-Export verifiziert; dies
 gilt auch fuer den Hydroponik-Export.
 Die Dateien bleiben **DEV_ONLY**: physikalischer Massstab,
 Bodenkontakt, LOD/Renderbudget und Integration in beide Kolonieansichten
-sind weiterhin offen. Von den 13 Klassen ausserhalb der drei akzeptierten
-Piloten haben `industry` und `agriculture` nur die oben dokumentierten,
-inspektionsseitig abgelehnten Roh-Exporte; elf Klassen haben noch keine
-TRELLIS-Inferenz oder GLB-Ausgabe.
+sind weiterhin offen. Fuer alle 13 Facility-Klassen ausserhalb der drei
+akzeptierten Piloten gibt es nun Mesh-only-GLBs. Die Kandidaten bleiben
+nicht akzeptiert und DEV_ONLY, bis ihre Inspector-Befunde, Optik,
+physikalischer Massstab, Bodenkontakt, LOD/Renderbudget und beide
+Kolonieansichten vollstaendig geprueft sind.
 
 Manifest-Schema, eindeutige Klassen, PNG-Aufloesung und Bildhashes sind
 lokal pruefbar. Weitere Bildlaeufe in einer isolierten Umgebung getrennt
@@ -399,6 +413,21 @@ Facility-Plan. Erst nach dokumentierter manueller Pruefung von Optik,
 physikalischem Massstab, Orientierung/Bodenkontakt, LOD und beiden
 Kolonieansichten kann ein einzelnes Asset separat fuer eine Produktions-
 integration bewertet werden.
+
+Die separate TRELLIS-Auswahl bietet neben den drei Inspektionspiloten auch
+bereinigte Rohkandidaten fuer `agriculture`, `command`, `fusion`, `hospital`,
+`nanotech`, `research`, `school`, `security`, `silo`, `solar`, `tank` und
+`terraforming` an. Sie werden nur im Basisvergleich und erst nach Aktivierung
+geladen; die Auswahl markiert sie als unfreigegebene DEV_ONLY-Kandidaten.
+Das unbereinigte Industry-Rohmodell mit 490.202 Dreiecken bleibt wegen des
+fehlenden kontrollierten LOD ausserhalb der Vorschau. Ein frueherer
+Browserlauf zeigte Hospital sichtbar im Basisvergleich. Bei der spaeteren
+Browserpruefung war kein WebGPU-Adapter verfuegbar; die elf Kandidaten
+ausserhalb Hospital sind daher nicht visuell bestaetigt. Auch Optik,
+Massstab und Produktionsqualitaet aller Rohkandidaten bleiben offen.
+Ein separater lokaler Delivery-Smoke-Test bestaetigte fuer alle zwoelf
+gelisteten Kandidaten HTTP 200 und einen `glTF`-Header; die Earth-Vorschau
+startet und uebertraegt die Dateien, aber dies ist keine visuelle Abnahme.
 
 ### Einzelne Facility aus einer Referenz generieren
 
@@ -433,7 +462,157 @@ python scripts/trellis2_inspect.py generated/comfyui/output/<relative-glb>.glb -
 Workflows: 5.000 Ziel-Dreiecke, Mesh-Texturierung mit 1024er Modellauflosung
 und 2048er PBR-Texturen. Diese Werte wurden gegen die aktive ComfyUI-Node-
 Schema geprueft. Der Export erhaelt den getrennten Namenszusatz
-`_lowpoly_textured`; der bestehende Mesh-only-Aufruf bleibt unveraendert.
+`_lowpoly_textured`. Mesh-only reduziert jetzt auf 15.000 Zieldreiecke,
+passend zum Umfang der drei akzeptierten Piloten; der Texturierungspfad
+behaelt sein 500.000er Zwischenmesh und das finale 5.000-Dreiecke-Ziel.
+
+Mit dem 15.000er Mesh-only-Ziel wurden am 2026-11-13 zwei weitere
+Referenzkandidaten erzeugt. `agriculture` (`building_agriculture_pilot_v1_00002_.glb`,
+307.668 Bytes) hat 14.974 Dreiecke, aber 755 Nullflaechen und 237
+Face-Komponenten. `solar` (`building_solar_pilot_v1_00001_.glb`, 364.952
+Bytes) hat 14.958 Dreiecke, 2.505 Nullflaechen und 1.119 Komponenten.
+Beide Exporte haben keine Normalenattribute, UVs oder PBR-Materialien und
+bleiben daher unimportierte Roh-DEV_ONLY-Kandidaten.
+
+Der Offline-Cleaner wurde auf separaten Agriculture- und Solar-Kopien
+ausgefuehrt. `agriculture` hat danach 14.219 Dreiecke, 18 Komponenten und
+keine Nullflaechen; `solar` 12.453 Dreiecke, 88 Komponenten und keine
+Nullflaechen. Beide behalten ungueltige UVs, fehlende Normalenattribute und
+fehlende PBR-Materialien. Die Quellen wurden nicht veraendert.
+
+Die Offline-Inspektion des vorhandenen Industry-Rohmodells fand 490.202
+Dreiecke und 35.181 Nullflaechen in einer 8.848.412 Bytes grossen GLB-Datei.
+Nach Nullflaechenbereinigung verblieben voraussichtlich weiterhin ueber
+455.000 Dreiecke; deshalb wurde kein Cleanup oder Vorschauimport
+durchgefuehrt. Ein kontrollierter Low-Poly-/LOD-Export ist erforderlich.
+
+Ein mesh-only-Tanklauf erzeugte
+`building_tank_pilot_v1_00001_.glb`. Die Offline-Inspektion fand 14.912
+Dreiecke, 8.470 Nullflaechen und 5.100 Face-Komponenten; UVs sind ungueltig,
+Normalenattribute und PBR-Materialien fehlen. Die Datei bleibt ein
+unimportierter Roh-DEV_ONLY-Kandidat. Die hohe Zahl an Nullflaechen und
+Komponenten verhindert eine Freigabe ohne Geometriebereinigung und erneute
+Inspektion.
+
+Ein mesh-only-Hospitallauf erzeugte
+`building_hospital_pilot_v1_00001_.glb`. Die Inspektion fand 14.962
+Dreiecke, 8.898 Nullflaechen und 9.084 Face-Komponenten; UVs sind ungueltig,
+ein Primitiv hat keine Normalenattribute und PBR-Materialien fehlen. Ein
+Hauptmesh enthaelt 5.000 Dreiecke und rund 99,9 % der Flaeche, die Datei
+bleibt dennoch ein unimportierter Roh-DEV_ONLY-Kandidat.
+
+Der Offline-Cleaner wurde an separaten Tank- und Hospital-Kopien geprueft.
+Er entfernte exakt die 8.470 bzw. 8.898 Nullflaechen; danach blieben 6.442
+Tank-Dreiecke mit 283 Komponenten und 6.064 Hospital-Dreiecke mit 928
+Komponenten. Beide bereinigten GLBs enthalten keine Nullflaechen mehr, aber
+weiterhin keine gueltigen UVs, Normalenattribute oder PBR-Materialien. Die
+Originale blieben hashidentisch; keine Komponente wurde automatisch entfernt.
+Die Kandidaten bleiben deshalb unimportiert. Weitere Klassen koennen
+weiterhin einzeln und seriell als Roh-DEV_ONLY-Ausgaben erzeugt werden; jede
+Datei muss bereinigt, erneut inspiziert und visuell bewertet werden. Es gibt
+weiterhin keine Produktionsrenderer- oder Engine-Integration.
+
+Ein mesh-only-Silolauf erzeugte
+`building_silo_pilot_v1_00001_.glb` mit 14.882 Dreiecken, davon 7.423
+Nullflaechen. Die separate bereinigte Kopie
+`building_silo_pilot_v1_00001__zero_area_cleaned.glb` hat 7.459 Dreiecke,
+keine Nullflaechen und 1.056 Face-Komponenten. UVs, Normalenattribute und
+PBR-Materialien fehlen weiterhin. Original und bereinigte Kopie bleiben
+unimportierte DEV_ONLY-Kandidaten.
+
+Ein erneuter Mesh-only-Lauf fuer `industry` mit dem 15.000er Ziel
+ueberschritt am 2026-11-13 das 60-Minuten-Wartefenster ohne GLB-Ausgabe.
+ComfyUI meldete den Prompt danach weiterhin als laufend, ohne wartende Jobs
+und mit nur 68 MiB freiem GPU-Speicher; ein Interrupt-Aufruf beendete ihn
+nicht. Bei der Fortsetzung wurde der spezifische Container
+`galaxyquest-comfyui` gezielt neu gestartet; danach war der Dienst gesund,
+die Queue leer und die GPU wieder verfuegbar. Der Industry-Lauf wurde nicht
+wiederholt; der neue Tanklauf blieb ein einzelner serieller Job.
+
+Ein mesh-only-Lauf fuer `fusion` wurde am 2026-11-13 mit
+`--kind fusion --submit` gestartet, endete nach 600 Sekunden aber ohne
+vom Generator erkannte GLB-Ausgabe. Der ComfyUI-Prompt
+`684b4808-9b13-4ee7-bf1c-95baa637a8fd` lief bei der anschliessenden
+read-only-Pruefung weiter; die Queue enthielt einen laufenden und keinen
+wartenden Job. Die RTX 3060 meldete dabei 5.503 MiB freien VRAM und 90 %
+Auslastung. Der Dienst und Prompt wurden nicht unterbrochen oder neu
+gestartet; bis zur Freigabe der Queue darf kein weiterer Inferenzjob
+gestartet werden. Nach spaeterem Queue-Leerlauf bestaetigte die History den
+Prompt als erfolgreich, enthielt aber keine Output-Metadaten. Ein weiterer
+einzelner Versuch mit Prompt
+`3b875f40-8645-4ff2-b3f9-fc99374555d6` endete ebenfalls ohne vom Generator
+erkannten Export; auch dessen History meldete spaeter `success` bei leerem
+`outputs`-Objekt. Beide Jobs zeigten nur `execution_start`,
+`execution_cached` und `execution_success`. Die Datei
+`building_fusion_pilot_v1_00001_.glb` war dennoch vorhanden (335.504 Bytes,
+14.990 Dreiecke), davon 13.100 Nullflaechen und 13.002 Komponenten; gueltige
+UVs und PBR fehlten, bei einem Primitiv fehlten Normalenattribute. Der
+separate Offline-Cleanup entfernte nur die Nullflaechen. Die bereinigte
+Kopie hat 1.890 Dreiecke, null Nullflaechen und 559 Komponenten, aber
+weiterhin keine gueltigen UVs, Normalenattribute oder PBR-Materialien.
+Quelle und Kopie bleiben DEV_ONLY und unfreigegeben.
+
+Ein mesh-only-Lauf fuer `research` wurde am 2026-11-13 gestartet. Die
+ComfyUI-Queue meldete den Prompt `e88c8f01-c1e1-4cdb-8336-d7f0e9b20400`
+18 Minuten spaeter als abgeschlossen; die History meldete `success`, aber
+keine Output-Metadaten. Der GLB
+`building_research_pilot_v1_00001_.glb` war vorhanden (326.864 Bytes,
+14.972 Dreiecke und 12.900 Nullflaechen). Der separate Cleaner entfernte
+ausschliesslich diese Faces. Die bereinigte Kopie hat 2.072 Dreiecke,
+252 Komponenten und keine Nullflaechen; gueltige UVs, Normalenattribute und
+PBR-Materialien fehlen weiterhin. Beide Dateien bleiben unimportierte
+DEV_ONLY-Kandidaten.
+
+Ein mesh-only-Lauf fuer `command` wurde am 2026-11-13 mit Prompt
+`d84ec9d3-4762-4e21-b2e0-02904d64f6ef` gestartet und nach 13 Minuten
+erfolgreich abgeschlossen. Die Rohdatei `building_command_pilot_v1_00001_.glb`
+hat 14.994 Dreiecke, davon 12.956 Nullflaechen. Der separate Cleanup
+entfernte ausschliesslich diese Faces. Die bereinigte Kopie hat 2.038
+Dreiecke, 773 Komponenten und null Nullflaechen; gueltige UVs,
+Normalenattribute und PBR-Materialien fehlen weiterhin. Quelle und Kopie
+bleiben unimportierte DEV_ONLY-Kandidaten.
+
+Ein mesh-only-Lauf fuer `security` wurde am 2026-11-13 mit Prompt
+`e7275072-a273-4764-9351-4c856a375246` gestartet und nach 12 Minuten
+24 Sekunden erfolgreich abgeschlossen. Die Rohdatei
+`building_security_pilot_v1_00001_.glb` hat 14.978 Dreiecke, davon 13.025
+Nullflaechen. Der separate Cleanup entfernte ausschliesslich diese Faces.
+Die bereinigte Kopie hat 1.953 Dreiecke, 925 Komponenten und null
+Nullflaechen; gueltige UVs, Normalenattribute und PBR-Materialien fehlen
+weiterhin. Quelle und Kopie bleiben unimportierte DEV_ONLY-Kandidaten.
+
+Ein mesh-only-Lauf fuer `terraforming` wurde am 2026-11-13 mit Prompt
+`9d572826-1b6e-4542-b70c-e988e71706ee` gestartet und erfolgreich
+abgeschlossen. Die Rohdatei hat 14.976 Dreiecke, 11.324 Nullflaechen und
+10.674 Komponenten. Der separate Cleaner entfernte ausschliesslich die
+Nullflaechen; die bereinigte Kopie hat 3.652 Dreiecke, 540 Komponenten und
+keine Nullflaechen. Gueltige UVs, Normalenattribute und PBR-Materialien
+fehlen weiterhin. Quelle und Kopie bleiben unimportierte DEV_ONLY-Kandidaten.
+
+Ein mesh-only-Lauf fuer `school` wurde am 2026-11-13 mit Prompt
+`45ed52ca-7d9e-4a18-a57e-004c88139847` gestartet. Nach dem 600-Sekunden-
+Timeout des Generators blieb der Prompt in ComfyUI aktiv; er wurde nicht
+unterbrochen oder neu gestartet. Die History bestaetigte spaeter den
+erfolgreichen Abschluss nach 39 Minuten 15 Sekunden. Die Rohdatei
+`building_school_pilot_v1_00001_.glb` hat 14.774 Dreiecke, davon 6.017
+Nullflaechen. Der separate Cleanup entfernte ausschliesslich diese Faces.
+Die bereinigte Kopie hat 8.757 Dreiecke, 569 Komponenten und null
+Nullflaechen; gueltige UVs, Normalenattribute und PBR-Materialien fehlen
+weiterhin. Quelle und Kopie bleiben unimportierte DEV_ONLY-Kandidaten.
+
+Ein mesh-only-Lauf fuer `nanotech` startete am 2026-11-13 mit Prompt
+`fb1d7d87-6ec8-4a43-b41f-cbde1cdc4226`. TRELLIS schloss Sampling und
+Marching Cubes ab und begann die Mesh-Rekonstruktion; der Generator lief
+nach seinem 60-Minuten-Wartefenster in den Timeout. Der Prompt blieb danach
+zunaechst in ComfyUI `queue_running`, ohne wartende Jobs, History-Eintrag
+oder GLB-Ausgabe; ComfyUI wurde nicht unterbrochen oder neu gestartet.
+Spaeter meldete die History den Prompt als erfolgreich abgeschlossen; der
+gesamte Lauf dauerte 1:28:32. `building_nanotech_pilot_v1_00001_.glb`
+wurde mit 383.844 Bytes und 14.998 Dreiecken geschrieben, davon 11.866
+Nullflaechen. Der Cleaner entfernte ausschliesslich diese Faces. Die
+separate Kopie hat 3.132 Dreiecke, 744 Komponenten und keine Nullflaechen;
+gueltige UVs, Normalenattribute und PBR-Materialien fehlen weiterhin.
+Beide Dateien bleiben unimportierte DEV_ONLY-Kandidaten.
 
 Der erste `--textured --submit`-Lauf am 2026-11-13 erreichte den
 Texturierungs-Node mit einem Mesh aus 4.974 Dreiecken, scheiterte dort aber

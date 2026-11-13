@@ -37,12 +37,11 @@
     focusColonyDevelopment,
     selectColonyById,
     buildWarningsHtml,
-    buildOfflineSummaryHtml,
-    buildResourceInsightHtml,
+    buildOfflineSummaryNode,
+    buildResourceInsightNode,
     evaluateRiskUpgradeBudget,
     riskFocusFromFlags,
     signed,
-    riskLabel,
     renderInlineTemplate,
     renderInlineTemplateList,
     renderFleetListFn,
@@ -312,16 +311,12 @@
     function renderFleetList(root) {
       renderFleetListFn({
         root,
-        renderTemplateList: (templateName, rows) => renderTemplateList(templateName, rows),
         onReload: async () => load(),
       });
     }
 
     function renderBattleLog(root) {
-      renderBattleLogFn({
-        root,
-        renderTemplateList: (templateName, rows) => renderTemplateList(templateName, rows),
-      });
+      renderBattleLogFn({ root });
     }
 
     function bindOverviewActions(root) {
@@ -361,9 +356,9 @@
           <button class="btn btn-secondary btn-sm" id="open-leaders-btn">Leaders</button>
         </div>
 
-        ${buildOfflineSummaryHtml(offline)}
+        <div data-overview-offline-summary></div>
 
-        ${buildResourceInsightHtml(offline, meta)}
+        <div data-overview-resource-insight></div>
 
         <h3 style="margin:0.75rem 0 0.5rem">Your Colonies</h3>
         <div class="overview-grid">
@@ -525,6 +520,16 @@
           <button class="btn btn-outline-primary btn-sm" data-open-window="galaxy">Galaxy</button>
         </div>`;
 
+      const offlineSummary = root.querySelector('[data-overview-offline-summary]');
+      const offlineSummaryNode = buildOfflineSummaryNode(offline);
+      if (offlineSummaryNode) offlineSummary?.replaceWith(offlineSummaryNode);
+      else offlineSummary?.remove();
+
+      const resourceInsight = root.querySelector('[data-overview-resource-insight]');
+      const resourceInsightNode = buildResourceInsightNode(offline, meta);
+      if (resourceInsightNode) resourceInsight?.replaceWith(resourceInsightNode);
+      else resourceInsight?.remove();
+
       bindOverviewActions(root);
       renderFleetList(root);
       renderBattleLog(root);
@@ -548,9 +553,8 @@
       riskFocusFromFlags: (flags) => riskFocusFromFlags(flags),
       evaluateRiskUpgradeBudget: (colony, nextCost, share = 0.55) => evaluateRiskUpgradeBudget(colony, nextCost, share),
       signed: (value, digits = 0) => signed(value, digits),
-      riskLabel: (status) => riskLabel(status),
-      buildOfflineSummaryHtml: (offline) => buildOfflineSummaryHtml(offline),
-      buildResourceInsightHtml: (offline, meta) => buildResourceInsightHtml(offline, meta),
+      buildOfflineSummaryNode: (offline) => buildOfflineSummaryNode(offline),
+      buildResourceInsightNode: (offline, meta) => buildResourceInsightNode(offline, meta),
     };
   }
 

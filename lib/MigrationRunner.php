@@ -157,6 +157,45 @@ class MigrationRunner
     }
 
     /**
+     * Inspect canonical history without creating tracking tables or executing SQL files.
+     *
+     * @return array{tracking_present:bool,entries:list<array{name:string,status:string,sha256:string}>,
+     *     blockers:list<string>}
+     */
+    public function inspectReadOnly(): array
+    {
+        return $this->withMigrationLock(function (): array {
+            $tracking = $this->ensureTrackingTable(true);
+            $applied = $tracking ? $this->loadAppliedMigrations() : [];
+            foreach ($applied as $name => $row) {
+                if (!in_array($name, $this->manifest, true)) {
+                    throw new RuntimeException('Applied migration is absent from the inspection manifest: ' . $name);
+                }
+            }
+            $this->verifyAppliedChecksums($applied);
+            $entries = [];
+            $pending = [];
+            foreach ($this->manifest as $name) {
+                $sql = $this->readMigrationSql($name);
+                if (!isset($applied[$name])) {
+                    $pending[] = $name;
+                }
+                $entries[] = [
+                    'name' => $name,
+                    'status' => !isset($applied[$name]) ? 'pending'
+                        : ($applied[$name]['environment'] === 'ADOPTED' ? 'adopted' : 'executed'),
+                    'sha256' => hash('sha256', $sql),
+                ];
+            }
+            $blocker = $this->pendingReplayBlocker($applied, $pending);
+            return [
+                'tracking_present' => $tracking, 'entries' => $entries,
+                'blockers' => $blocker === null ? [] : [$blocker],
+            ];
+        });
+    }
+
+    /**
      * Apply pending migrations (up direction).
      *
      * @param int|null $steps   Max number of pending migrations to apply (null = all).
@@ -331,11 +370,9 @@ class MigrationRunner
             $this->manifest,
             static fn(string $n) => !isset($applied[$n])
         ));
-        if (
-            in_array('migrate_v2.sql', $pending, true)
-            && ($applied['migrate_actor_model_v1.sql']['environment'] ?? '') === 'ADOPTED'
-        ) {
-            throw new RuntimeException('Legacy v2 replay recreates is_npc; reconcile it before running Up.');
+        $blocker = $this->pendingReplayBlocker($applied, $pending);
+        if ($blocker !== null) {
+            throw new RuntimeException($blocker);
         }
 
         if ($steps !== null) {
@@ -351,6 +388,17 @@ class MigrationRunner
         }
 
         return $results;
+    }
+
+    /**
+     * @param array<string,array{applied_at:string,checksum:string,environment:string}> $applied
+     * @param list<string> $pending
+     */
+    private function pendingReplayBlocker(array $applied, array $pending): ?string
+    {
+        return in_array('migrate_v2.sql', $pending, true)
+            && ($applied['migrate_actor_model_v1.sql']['environment'] ?? '') === 'ADOPTED'
+            ? 'Legacy v2 replay recreates is_npc; reconcile it before running Up.' : null;
     }
 
     /**

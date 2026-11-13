@@ -19,6 +19,7 @@ const fpmImage = `gq-native-candidate-fpm:${suffix}`;
 const network = `gq-native-candidate-${suffix}`;
 const apacheContainer = `gq-native-candidate-http-${suffix}`;
 const fpmContainer = `gq-native-candidate-fpm-${suffix}`;
+const releaseVolume = `gq-native-candidate-releases-${suffix}`;
 const root = mkdtempSync(path.join(os.tmpdir(), 'gq-native-candidate-http-'));
 const site = path.join(root, 'site');
 let apacheImageCreated = false;
@@ -26,6 +27,7 @@ let fpmImageCreated = false;
 let networkCreated = false;
 let apacheContainerCreated = false;
 let fpmContainerCreated = false;
+let releaseVolumeCreated = false;
 
 function docker(args, options = {}) {
   return execFileSync('docker', args, {
@@ -34,6 +36,51 @@ function docker(args, options = {}) {
     maxBuffer: 16 * 1024 * 1024,
     ...options,
   });
+}
+
+function updateFixture(script, args = [], user = '33:33') {
+  return docker(['run', '--rm', '--network', 'none', '--user', user,
+    '--mount', `type=volume,source=${releaseVolume},target=/srv/gq`,
+    '--mount', `type=bind,source=${site},target=/input,readonly`,
+    '--entrypoint', '/bin/sh', fpmImage, '-eu', '-c', script, 'fixture', ...args]);
+}
+
+function switchFixtureRelease(from, to) {
+  assert.ok(['previous', 'candidate'].includes(from));
+  assert.ok(['previous', 'candidate'].includes(to));
+  updateFixture(`
+test "$(readlink /srv/gq/current)" = "releases/$1"
+test -d "/srv/gq/releases/$2"
+ln -s "releases/$2" /srv/gq/.current-next
+mv -Tf /srv/gq/.current-next /srv/gq/current
+`, [from, to]);
+}
+
+function request(url, options = {}) {
+  // Synchronous Docker calls delay socket-close events; do not reuse idle probe connections.
+  return fetch(url, { signal: AbortSignal.timeout(5000), ...options, headers: { Connection: 'close' } });
+}
+
+async function assertWordPressRoutes(base) {
+  for (const [route, expected] of [
+    ['/wordpress/', 'WORDPRESS:/wordpress/'],
+    ['/wordpress/sample-post/', 'WORDPRESS:/wordpress/sample-post/'],
+    ['/wordpress/asset.css', '/* wordpress asset */\n'],
+    ['/wordpress/robots.txt', 'WordPress robots\n'],
+  ]) {
+    const response = await request(`${base}${route}`);
+    assert.equal(response.status, 200, route);
+    assert.equal(await response.text(), expected, route);
+  }
+}
+
+async function assertReleaseResponse(base, expected) {
+  const bodies = await Promise.all(Array.from({ length: 8 }, async () => {
+    const response = await request(`${base}/`);
+    assert.equal(response.status, 200);
+    return response.text();
+  }));
+  for (const body of bodies) assert.equal(body, expected, 'PHP-FPM served a stale release after switching');
 }
 
 function safeArchiveEntries() {
@@ -85,7 +132,7 @@ async function waitForRoot(base) {
   let lastStatus = 'no response';
   for (let attempt = 0; attempt < 60; attempt++) {
     try {
-      const response = await fetch(`${base}/`, { signal: AbortSignal.timeout(2000) });
+      const response = await request(`${base}/`, { signal: AbortSignal.timeout(2000) });
       if (response.status === 200) return response;
       lastStatus = `HTTP ${response.status}`;
     } catch {
@@ -141,6 +188,7 @@ CMD ["apache2-foreground"]
   writeFileSync(path.join(root, 'Dockerfile.fpm'), `
 FROM php:8.4-fpm
 RUN docker-php-ext-install pdo_mysql
+RUN printf 'realpath_cache_size=0\\nopcache.validate_timestamps=1\\nopcache.revalidate_freq=0\\nopcache.revalidate_path=1\\n' > /usr/local/etc/php/conf.d/release-switch.ini
 `);
   chmodSync(path.join(root, 'Dockerfile.fpm'), 0o644);
   const fpmHandler = String.raw`    <FilesMatch "\.php$">
@@ -150,17 +198,32 @@ RUN docker-php-ext-install pdo_mysql
   const vhost = readFileSync('docker/apache/vhost.conf', 'utf8');
   assert.ok(vhost.includes('</VirtualHost>'), 'Apache virtual host is missing its closing tag');
   writeFileSync(path.join(root, 'vhost.conf'),
-    vhost.replace('</VirtualHost>', `${fpmHandler}</VirtualHost>`));
+    vhost.replaceAll('/var/www/html', '/srv/gq/current')
+      .replace('AllowOverride All', 'Options +FollowSymLinks\n        AllowOverride All')
+      .replace('</VirtualHost>', `${fpmHandler}</VirtualHost>`));
   writeFileSync(path.join(root, 'security.conf'), readFileSync('docker/apache/security.conf'));
 
   docker(['build', '--tag', apacheImage, root]);
   apacheImageCreated = true;
   docker(['build', '--tag', fpmImage, '--file', path.join(root, 'Dockerfile.fpm'), root]);
   fpmImageCreated = true;
+  docker(['volume', 'create', releaseVolume]);
+  releaseVolumeCreated = true;
+  updateFixture(`
+mkdir -p /srv/gq/releases/candidate /srv/gq/releases/previous /srv/gq/shared
+cp -a /input/. /srv/gq/releases/candidate/
+mv /srv/gq/releases/candidate/wordpress /srv/gq/shared/wordpress
+ln -s ../../shared/wordpress /srv/gq/releases/candidate/wordpress
+ln -s ../../shared/wordpress /srv/gq/releases/previous/wordpress
+cp /input/.htaccess /srv/gq/releases/previous/.htaccess
+printf '%s\\n' '<?php echo "previous-release";' > /srv/gq/releases/previous/index.php
+ln -s releases/previous /srv/gq/current
+chown -R 33:33 /srv/gq
+`, [], '0:0');
   docker(['network', 'create', network]);
   networkCreated = true;
   docker(['run', '--detach', '--name', fpmContainer, '--network', network, '--network-alias', 'php-fpm',
-    '--mount', `type=bind,source=${site},target=/var/www/html,readonly`,
+    '--mount', `type=volume,source=${releaseVolume},target=/srv/gq,readonly`,
     '-e', 'APP_ENV=production',
     '-e', 'DB_HOST=127.0.0.1',
     '-e', 'DB_NAME=gq_candidate_uninitialized',
@@ -169,7 +232,7 @@ RUN docker-php-ext-install pdo_mysql
     fpmImage]);
   fpmContainerCreated = true;
   docker(['run', '--detach', '--name', apacheContainer, '--network', network, '--publish', '127.0.0.1::8080',
-    '--mount', `type=bind,source=${site},target=/var/www/html,readonly`,
+    '--mount', `type=volume,source=${releaseVolume},target=/srv/gq,readonly`,
     apacheImage]);
   apacheContainerCreated = true;
   const binding = docker(['port', apacheContainer, '8080/tcp']).trim();
@@ -177,55 +240,63 @@ RUN docker-php-ext-install pdo_mysql
   const phpVersion = docker(['exec', fpmContainer, 'php', '-r', 'echo PHP_VERSION;']).trim();
   assert.match(phpVersion, /^8\.4\./);
   const base = `http://${binding}`;
+  const previousResponse = await waitForRoot(base);
+  assert.equal(await previousResponse.text(), 'previous-release');
+  await assertWordPressRoutes(base);
+  switchFixtureRelease('previous', 'candidate');
   const rootResponse = await waitForRoot(base);
   assert.equal(rootResponse.status, 200);
   assert.equal(rootResponse.headers.get('x-content-type-options'), 'nosniff');
   const html = await rootResponse.text();
+  assert.notEqual(html, 'previous-release', 'PHP-FPM served the previous release after activation');
   const assetPaths = [...new Set(html.match(/\/assets\/[^"'?#\s]+/g) ?? [])];
   assert.ok(assetPaths.length > 0, 'Rendered candidate page has no built assets');
   for (const assetPath of assetPaths) {
-    const asset = await fetch(`${base}${assetPath}`, { signal: AbortSignal.timeout(5000) });
+    const asset = await request(`${base}${assetPath}`);
     assert.equal(asset.status, 200, assetPath);
     assert.notEqual(asset.headers.get('content-type'), 'text/html', assetPath);
   }
 
-  const live = await fetch(`${base}/health/live`, { signal: AbortSignal.timeout(5000) });
+  const live = await request(`${base}/health/live`);
   assert.equal(live.status, 200);
   assert.deepEqual(await live.json(), { status: 'alive' });
-  const ready = await fetch(`${base}/health/ready`, { signal: AbortSignal.timeout(10000) });
+  const ready = await request(`${base}/health/ready`, { signal: AbortSignal.timeout(10000) });
   assert.equal(ready.status, 503);
   assert.deepEqual(await ready.json(), { status: 'unavailable' });
+  // An unready candidate must return to the previous release, without touching shared WordPress.
+  switchFixtureRelease('candidate', 'previous');
+  await assertReleaseResponse(base, 'previous-release');
+  await assertWordPressRoutes(base);
+  switchFixtureRelease('previous', 'candidate');
+  await assertReleaseResponse(base, html);
+  await assertWordPressRoutes(base);
   for (const route of ['/setup.php', '/config/config.php', '/sql/schema.sql', '/scripts/migrate.php']) {
-    const response = await fetch(`${base}${route}`, { redirect: 'manual', signal: AbortSignal.timeout(5000) });
+    const response = await request(`${base}${route}`, { redirect: 'manual' });
     assert.equal(response.status, 403, route);
   }
 
-  for (const [route, expected] of [
-    ['/wordpress/', 'WORDPRESS:/wordpress/'],
-    ['/wordpress/sample-post/', 'WORDPRESS:/wordpress/sample-post/'],
-    ['/wordpress/asset.css', '/* wordpress asset */\n'],
-    ['/wordpress/robots.txt', 'WordPress robots\n'],
-  ]) {
-    const response = await fetch(`${base}${route}`, { signal: AbortSignal.timeout(5000) });
-    assert.equal(response.status, 200, route);
-    assert.equal(await response.text(), expected, route);
-  }
-  const hiddenWordPressFile = await fetch(`${base}/wordpress/settings.env`, { redirect: 'manual' });
+  const hiddenWordPressFile = await request(`${base}/wordpress/settings.env`, { redirect: 'manual' });
   assert.equal(hiddenWordPressFile.status, 403);
 
-  rmSync(path.join(site, 'wordpress', '.htaccess'));
+  updateFixture('rm /srv/gq/shared/wordpress/.htaccess');
   for (const route of ['/wordpress/sample-post/', '/wordpress/wp-json/']) {
-    const response = await fetch(`${base}${route}`, { redirect: 'manual' });
+    const response = await request(`${base}${route}`, { redirect: 'manual' });
     assert.equal(response.status, 404, route);
     const body = await response.text();
     assert.ok(!assetPaths.some((assetPath) => body.includes(assetPath)),
       'Missing WordPress rewrites must not reach the game.');
   }
-  rmSync(path.join(site, 'wordpress'), { recursive: true });
-  const absentWordPress = await fetch(`${base}/wordpress/sample-post/`);
+  updateFixture('rm /srv/gq/releases/candidate/wordpress');
+  const absentWordPress = await request(`${base}/wordpress/sample-post/`);
   assert.equal(absentWordPress.status, 200);
   assert.match(await absentWordPress.text(), /<html/i);
-  console.log(`Native candidate PHP ${phpVersion} FPM/Apache smoke passed; candidate remains non-deployable.`);
+  switchFixtureRelease('candidate', 'previous');
+  await assertReleaseResponse(base, 'previous-release');
+  const finalManifest = JSON.parse(readFileSync(path.join(site, 'native-release.json'), 'utf8'));
+  assert.deepEqual(finalManifest, manifest, 'Rehearsal must not approve or modify the candidate manifest');
+  const switchedManifest = JSON.parse(updateFixture('cat /srv/gq/releases/candidate/native-release.json'));
+  assert.deepEqual(switchedManifest, manifest, 'Switching must preserve the non-deployable release manifest');
+  console.log(`Native candidate PHP ${phpVersion} FPM/Apache smoke and release-switch/rollback rehearsal passed; candidate remains non-deployable.`);
 } finally {
   try {
     if (apacheContainerCreated) {
@@ -257,7 +328,15 @@ RUN docker-php-ext-install pdo_mysql
               if (result.status !== 0) throw new Error(`Candidate PHP-FPM image cleanup failed: ${result.stderr}`);
             }
           } finally {
-            rmSync(root, { recursive: true, force: true });
+            try {
+              if (releaseVolumeCreated) {
+                const result = spawnSync('docker', ['volume', 'rm', releaseVolume],
+                  { encoding: 'utf8', timeout: 30000 });
+                if (result.status !== 0) throw new Error(`Candidate release volume cleanup failed: ${result.stderr}`);
+              }
+            } finally {
+              rmSync(root, { recursive: true, force: true });
+            }
           }
         }
       }

@@ -7,43 +7,63 @@
 'use strict';
 
 (function () {
+  function setStatus(detailsEl, className, message) {
+    if (!detailsEl) return;
+    const status = detailsEl.ownerDocument.createElement('span');
+    status.className = className;
+    status.textContent = message;
+    detailsEl.replaceChildren(status);
+  }
+
   function setLoadingStatus(detailsEl) {
     if (!detailsEl) return;
-    detailsEl.innerHTML = '<span class="text-muted">Loading star cloud...</span>';
+    setStatus(detailsEl, 'text-muted', 'Loading star cloud...');
   }
 
   function setCacheStatus(detailsEl, starCount, fullRangeInModel) {
     if (!detailsEl) return;
-    detailsEl.innerHTML = `<span class="text-cyan">Cache: ${Number(starCount || 0)} stars loaded${fullRangeInModel ? ' (complete range)' : ''}. Syncing live data...</span>`;
+    setStatus(
+      detailsEl,
+      'text-cyan',
+      `Cache: ${Number(starCount || 0)} stars loaded${fullRangeInModel ? ' (complete range)' : ''}. Syncing live data...`
+    );
   }
 
   function setPolicySkipStatus(detailsEl, fromSystem, toSystem) {
     if (!detailsEl) return;
-    detailsEl.innerHTML = `<span class="text-cyan">Policy hit: fresh range from cache (${Number(fromSystem || 0)}-${Number(toSystem || 0)}), network refresh skipped.</span>`;
+    setStatus(
+      detailsEl,
+      'text-cyan',
+      `Policy hit: fresh range from cache (${Number(fromSystem || 0)}-${Number(toSystem || 0)}), network refresh skipped.`
+    );
   }
 
   function setNetworkErrorStatus(detailsEl, type) {
     if (!detailsEl) return;
     const kind = String(type || 'network');
     if (kind === 'auth') {
-      detailsEl.innerHTML = '<span class="text-red">Session expired. Please log in again.</span>';
+      setStatus(detailsEl, 'text-red', 'Session expired. Please log in again.');
     } else if (kind === 'schema') {
-      detailsEl.innerHTML = '<span class="text-red">Could not load stars (schema mismatch).</span>';
+      setStatus(detailsEl, 'text-red', 'Could not load stars (schema mismatch).');
     } else if (kind === 'stale') {
-      detailsEl.innerHTML = '<span class="text-yellow">Star data is stale.</span>';
+      setStatus(detailsEl, 'text-yellow', 'Star data is stale.');
     } else {
-      detailsEl.innerHTML = '<span class="text-red">Could not load stars (network).</span>';
+      setStatus(detailsEl, 'text-red', 'Could not load stars (network).');
     }
   }
 
   function setStaleStatus(detailsEl) {
     if (!detailsEl) return;
-    detailsEl.innerHTML = '<span class="text-yellow">Loaded stale star data; resyncing...</span>';
+    setStatus(detailsEl, 'text-yellow', 'Loaded stale star data; resyncing...');
   }
 
   function setLoadedStatus(detailsEl, starCount, fromSystem, toSystem, stride) {
     if (!detailsEl) return;
-    detailsEl.innerHTML = `<span class="text-cyan">Loaded ${Number(starCount || 0)} stars from systems ${Number(fromSystem || 0)}..${Number(toSystem || 0)} (stride ${Number(stride || 0)}).</span>`;
+    setStatus(
+      detailsEl,
+      'text-cyan',
+      `Loaded ${Number(starCount || 0)} stars from systems ${Number(fromSystem || 0)}..${Number(toSystem || 0)} (stride ${Number(stride || 0)}).`
+    );
   }
 
   function setRangeInputMax(root, systemMax) {

@@ -8,6 +8,14 @@
 'use strict';
 
 (function () {
+  function renderGalaxyInitError(root, message) {
+    const details = root.querySelector('#galaxy-system-details');
+    const error = details.ownerDocument.createElement('span');
+    error.className = 'text-red';
+    error.textContent = String(message);
+    details.replaceChildren(error);
+  }
+
   function normalizeBackendLabel(rawBackend) {
     const value = String(rawBackend || '').toLowerCase();
     if (value === 'threejs' || value === 'three-webgl' || value === 'engine-webgl' || value === 'webgl2') {
@@ -205,7 +213,7 @@
       });
       state.setGalaxy3dInitReason?.('Missing #galaxy-3d-host container');
       const reasonText = state.getGalaxy3dInitReason?.() || 'unknown';
-      root.querySelector('#galaxy-system-details').innerHTML = `<span class="text-red">3D engine failed to load. Reason: ${state.esc ? state.esc(reasonText) : reasonText}</span>`;
+      renderGalaxyInitError(root, `3D engine failed to load. Reason: ${reasonText}`);
       state.toggleGalaxyOverlay?.(root, '#galaxy-info-overlay', true);
       return;
     }
@@ -247,8 +255,7 @@
             try { state.windowRef.__GQ_THREE_RECOVERY_IN_FLIGHT = false; } catch (_) {}
           });
       }
-      const safeReason = state.esc ? state.esc(reason) : reason;
-      root.querySelector('#galaxy-system-details').innerHTML = `<span class="text-red">3D renderer unavailable. Fallback list active. Reason: ${safeReason}</span>`;
+      renderGalaxyInitError(root, `3D renderer unavailable. Fallback list active. Reason: ${reason}`);
       state.toggleGalaxyOverlay?.(root, '#galaxy-info-overlay', true);
       return;
     }
@@ -664,8 +671,7 @@
       galaxy3d = state.getGalaxy3d?.();
       if (!galaxy3d && !canBootstrapOrchestrator) {
         const reasonText = state.getGalaxy3dInitReason?.() || 'Renderer bootstrap unavailable';
-        const safeReason = state.esc ? state.esc(reasonText) : reasonText;
-        root.querySelector('#galaxy-system-details').innerHTML = `<span class="text-red">3D renderer unavailable. Fallback list active. Reason: ${safeReason}</span>`;
+        renderGalaxyInitError(root, `3D renderer unavailable. Fallback list active. Reason: ${reasonText}`);
         state.toggleGalaxyOverlay?.(root, '#galaxy-info-overlay', true);
       }
 
@@ -686,8 +692,7 @@
       console.error('Galaxy3D init failed:', err);
       const reasonText = String(err?.message || err || 'unknown error');
       state.setGalaxy3dInitReason?.(reasonText);
-      const safeReason = state.esc ? state.esc(reasonText) : reasonText;
-      root.querySelector('#galaxy-system-details').innerHTML = `<span class="text-red">3D renderer unavailable. Fallback list active. Reason: ${safeReason}</span>`;
+      renderGalaxyInitError(root, `3D renderer unavailable. Fallback list active. Reason: ${reasonText}`);
       state.toggleGalaxyOverlay?.(root, '#galaxy-info-overlay', true);
     }
   }

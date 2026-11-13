@@ -102,6 +102,70 @@ final class MigrationRunnerTest extends TestCase
     // splitStatements
     // ──────────────────────────────────────────────────────────────────────────
 
+    public function testReadOnlyInspectionDoesNotBootstrapOrExecutePendingSql(): void
+    {
+        $this->writeManifest(['first.sql']);
+        $this->writeSql('first.sql', 'CREATE TABLE must_not_exist (id INTEGER);');
+        $this->writeSql('schema_migrations.sql', 'INVALID BOOTSTRAP MUST NOT EXECUTE');
+        $this->db->exec('PRAGMA query_only = ON');
+
+        $report = $this->buildRunner()->inspectReadOnly();
+
+        self::assertFalse($report['tracking_present']);
+        self::assertSame([[
+            'name' => 'first.sql', 'status' => 'pending',
+            'sha256' => hash('sha256', 'CREATE TABLE must_not_exist (id INTEGER);'),
+        ]], $report['entries']);
+        self::assertSame(0, (int)$this->db->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")->fetchColumn());
+    }
+
+    public function testReadOnlyInspectionVerifiesHistoryAndPreservesCanonicalOrder(): void
+    {
+        $this->bootstrapTrackingTable();
+        $this->writeManifest(['first.sql', 'second.sql']);
+        $this->trackExisting('first.sql', 'SELECT 1;');
+        $this->writeSql('second.sql', 'CREATE TABLE must_not_exist (id INTEGER);');
+        $before = $this->db->query('SELECT * FROM schema_migrations')->fetchAll(PDO::FETCH_ASSOC);
+        $this->db->exec('PRAGMA query_only = ON');
+
+        $report = $this->buildRunner()->inspectReadOnly();
+
+        self::assertTrue($report['tracking_present']);
+        self::assertSame(['first.sql', 'second.sql'], array_column($report['entries'], 'name'));
+        self::assertSame(['executed', 'pending'], array_column($report['entries'], 'status'));
+        self::assertSame($before, $this->db->query('SELECT * FROM schema_migrations')->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    public function testReadOnlyInspectionRejectsChangedAppliedSql(): void
+    {
+        $this->bootstrapTrackingTable();
+        $this->writeManifest(['first.sql']);
+        $this->trackExisting('first.sql', 'SELECT 1;');
+        $this->writeSql('first.sql', 'SELECT 2;');
+        $this->db->exec('PRAGMA query_only = ON');
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('checksum mismatch');
+        $this->buildRunner()->inspectReadOnly();
+    }
+
+    public function testReadOnlyInspectionRejectsForeignHistoryAndMissingPendingFiles(): void
+    {
+        $this->bootstrapTrackingTable();
+        $this->writeManifest(['missing.sql']);
+        $this->trackExisting('foreign.sql', 'SELECT 1;');
+        try {
+            $this->buildRunner()->inspectReadOnly();
+            self::fail('Foreign history must fail inspection.');
+        } catch (RuntimeException $error) {
+            self::assertStringContainsString('absent from the inspection manifest', $error->getMessage());
+        }
+        $this->db->exec('DELETE FROM schema_migrations');
+        $this->db->exec('PRAGMA query_only = ON');
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('not found or unreadable');
+        $this->buildRunner()->inspectReadOnly();
+    }
+
     public function testVerifyFreshDatabaseDoesNotBootstrap(): void
     {
         $this->writeManifest(['first.sql']);

@@ -14,6 +14,7 @@
     const runtimeOverviewControllerApi = opts.runtimeOverviewControllerApi || {};
 
     const overviewInsights = runtimeOverviewInsightsApi.createOverviewInsights({
+      documentRef: opts.documentRef,
       fmt: opts.fmt,
       fmtName: opts.fmtName,
       esc: opts.esc,
@@ -79,12 +80,11 @@
       focusColonyDevelopment: opts.focusColonyDevelopment,
       selectColonyById: opts.selectColonyById,
       buildWarningsHtml: (colony, offline) => opts.buildWarningsHtml(colony, offline),
-      buildOfflineSummaryHtml: (offline) => overviewInsights.buildOfflineSummaryHtml(offline),
-      buildResourceInsightHtml: (offline, meta) => overviewInsights.buildResourceInsightHtml(offline, meta),
+      buildOfflineSummaryNode: (offline) => overviewInsights.buildOfflineSummaryNode(offline),
+      buildResourceInsightNode: (offline, meta) => overviewInsights.buildResourceInsightNode(offline, meta),
       evaluateRiskUpgradeBudget: (colony, nextCost, share) => overviewInsights.evaluateRiskUpgradeBudget(colony, nextCost, share),
       riskFocusFromFlags: (flags) => overviewInsights.riskFocusFromFlags(flags),
       signed: (value, digits) => overviewInsights.signed(value, digits),
-      riskLabel: (status) => overviewInsights.riskLabel(status),
       renderInlineTemplate: opts.renderInlineTemplate,
       renderInlineTemplateList: opts.renderInlineTemplateList,
       renderFleetListFn: (params) => overviewLists.renderFleetList(params),

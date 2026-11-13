@@ -11,6 +11,21 @@ export const TRELLIS_BUILDING_ASSETS = Object.freeze({
   hydroponics: new URL('../../generated/trellis2/imported/building/building_generic_hydroponics_pilot_v2_normals_lod0_trellis2_dev.glb', import.meta.url).href,
 });
 
+export const TRELLIS_BUILDING_CANDIDATES = Object.freeze({
+  agriculture: new URL('../../generated/comfyui/output/gq_trellis2/building_agriculture_pilot_v1_00002__zero_area_cleaned.glb', import.meta.url).href,
+  command: new URL('../../generated/comfyui/output/gq_trellis2/building_command_pilot_v1_00001__zero_area_cleaned.glb', import.meta.url).href,
+  fusion: new URL('../../generated/comfyui/output/gq_trellis2/building_fusion_pilot_v1_00001__zero_area_cleaned.glb', import.meta.url).href,
+  nanotech: new URL('../../generated/comfyui/output/gq_trellis2/building_nanotech_pilot_v1_00001__zero_area_cleaned.glb', import.meta.url).href,
+  research: new URL('../../generated/comfyui/output/gq_trellis2/building_research_pilot_v1_00001__zero_area_cleaned.glb', import.meta.url).href,
+  school: new URL('../../generated/comfyui/output/gq_trellis2/building_school_pilot_v1_00001__zero_area_cleaned.glb', import.meta.url).href,
+  security: new URL('../../generated/comfyui/output/gq_trellis2/building_security_pilot_v1_00001__zero_area_cleaned.glb', import.meta.url).href,
+  solar: new URL('../../generated/comfyui/output/gq_trellis2/building_solar_pilot_v1_00001__zero_area_cleaned.glb', import.meta.url).href,
+  tank: new URL('../../generated/comfyui/output/gq_trellis2/building_tank_pilot_v1_00001__zero_area_cleaned.glb', import.meta.url).href,
+  silo: new URL('../../generated/comfyui/output/gq_trellis2/building_silo_pilot_v1_00001__zero_area_cleaned.glb', import.meta.url).href,
+  hospital: new URL('../../generated/comfyui/output/gq_trellis2/building_hospital_pilot_v1_00001__zero_area_cleaned.glb', import.meta.url).href,
+  terraforming: new URL('../../generated/comfyui/output/gq_trellis2/building_terraforming_pilot_v1_00001__zero_area_cleaned.glb', import.meta.url).href,
+});
+
 export function placeTrellisBuilding(scene, widthMeters) {
   if (!scene || !Number.isFinite(widthMeters) || widthMeters <= 0) {
     throw new TypeError('TRELLIS2 preview requires a model and a positive display width');

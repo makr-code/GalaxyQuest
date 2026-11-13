@@ -10,17 +10,17 @@
 
 declare(strict_types=1);
 
+$root = dirname(__DIR__, 3);
+require_once $root . '/api/helpers.php';
+
 header('Content-Type: application/json');
+only_method('GET');
 
 try {
-    // This would need to be integrated with your auth system
-    // For now, just load the update manager
-
-    $root = dirname(__DIR__, 4);
-    require_once $root . '/config/config.php';
+    require_admin();
     require_once $root . '/lib/app_version.php';
-    require_once $root . '/lib/UpdateManager.php';
     require_once $root . '/lib/GithubReleaseChecker.php';
+    require_once $root . '/lib/UpdateManager.php';
 
     $db = get_db();
     $currentVersion = gq_read_app_version($root);
@@ -45,9 +45,10 @@ try {
         'timestamp' => date('c'),
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 } catch (Throwable $e) {
+    error_log('[update-status] ' . $e->getMessage());
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => $e->getMessage(),
+        'error' => 'Unable to read update status',
     ]);
 }

@@ -10,11 +10,17 @@ declare(strict_types=1);
  * Can be run by cron job or admin panel.
  * 
  * Usage:
- *   php scripts/check_github_releases.php [--notify] [--store-releases]
+ *   php scripts/check_github_releases.php [--store-releases]
+ *   --notify is unavailable until notifications are implemented.
  */
 
 if (PHP_SAPI !== 'cli') {
     fwrite(STDERR, "This script must be run from CLI.\n");
+    exit(1);
+}
+
+if (in_array('--notify', $argv, true)) {
+    fwrite(STDERR, "[check-releases] Notifications are not implemented.\n");
     exit(1);
 }
 
@@ -23,7 +29,6 @@ require_once $root . '/config/config.php';
 require_once $root . '/lib/app_version.php';
 require_once $root . '/lib/GithubReleaseChecker.php';
 
-$notify = in_array('--notify', $argv);
 $storeReleases = in_array('--store-releases', $argv);
 
 try {
@@ -106,54 +111,8 @@ $comparison = GithubReleaseChecker::compareVersions($release['version'], $curren
 
 if ($comparison > 0) {
     echo "[check-releases] Update available: {$currentVersion} → {$release['version']}\n";
-
-    if ($notify) {
-        notify_admins($db, $release, $currentVersion);
-    }
 } else {
     echo "[check-releases] No updates available (current: {$currentVersion})\n";
 }
 
 exit(0);
-
-// ──────────────────────────────────────────────────────────────────────────────
-
-function notify_admins(PDO $db, array $release, string $currentVersion): void
-{
-    try {
-        // Get all admin users
-        $stmt = $db->prepare("
-            SELECT id, email FROM actor
-            WHERE has_admin_role = 1
-            LIMIT 100
-        ");
-        $stmt->execute();
-        $admins = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        if (empty($admins)) {
-            return;
-        }
-
-        // Create notification record (application-specific, adjust as needed)
-        $message = sprintf(
-            "Update available: %s → %s\n%s",
-            $currentVersion,
-            $release['version'],
-            substr($release['description'], 0, 500)
-        );
-
-        foreach ($admins as $admin) {
-            // Log in system or send email
-            // This is a placeholder for your notification system
-            echo "[notify] Would notify admin {$admin['id']}: {$release['version']}\n";
-        }
-    } catch (Throwable) {
-        // Silently fail
-    }
-}
-
-function env_value(string $key, $default)
-{
-    $value = getenv($key);
-    return ($value === false || $value === '') ? $default : $value;
-}

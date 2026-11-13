@@ -167,9 +167,25 @@
     <label><input type="checkbox" name="trellisBuilding"> TRELLIS2-GLB (DEV_ONLY) im Basisvergleich anzeigen</label>
     <label>TRELLIS2-Gebaeude
       <select name="trellisBuildingAsset">
-        <option value="warehouse">Lagerhalle</option>
-        <option value="drilling">Bohrfeld</option>
-        <option value="hydroponics">Hydroponik</option>
+        <optgroup label="Inspektionspiloten (DEV_ONLY)">
+          <option value="warehouse">Lagerhalle</option>
+          <option value="drilling">Bohrfeld</option>
+          <option value="hydroponics">Hydroponik</option>
+        </optgroup>
+        <optgroup label="Unfreigegebene Mesh-Kandidaten (nur Nullflaechen bereinigt)">
+          <option value="agriculture">Landwirtschaft (Rohkandidat)</option>
+          <option value="command">Kommandozentrum (Rohkandidat)</option>
+          <option value="fusion">Fusionsanlage (Rohkandidat)</option>
+          <option value="nanotech">Nanotechnik (Rohkandidat)</option>
+          <option value="research">Forschungslabor (Rohkandidat)</option>
+          <option value="school">Schule (Rohkandidat)</option>
+          <option value="security">Sicherheitsstation (Rohkandidat)</option>
+          <option value="solar">Solaranlage (Rohkandidat)</option>
+          <option value="tank">Tanks (Rohkandidat)</option>
+          <option value="silo">Silos (Rohkandidat)</option>
+          <option value="hospital">Krankenhaus (Rohkandidat)</option>
+          <option value="terraforming">Terraforming-Anlage (Rohkandidat)</option>
+        </optgroup>
       </select>
     </label>
     <label>Darstellungsbreite (angenommene Meter)
@@ -178,10 +194,11 @@
     </label>
     <button type="button" name="visitTrellisBuilding">TRELLIS2-Modell aus 2 km Hoehe ansehen</button>
     <output data-trellis-building-status aria-live="polite"></output>
-    <small>Laedt vorhandene DEV_ONLY-GLBs nur bei Aktivierung und zeigt sie am Referenzstandort
+    <small>Laedt DEV_ONLY-GLBs nur bei Aktivierung und zeigt sie am Referenzstandort
       Berlin auf der glatten Erdkugel im Three.js-WebGPU-Basisvergleich. Die angenommene Breite
-      ist frei einstellbar und keine Massstabsfreigabe. Kein Relief-Bodenkontaktnachweis;
-      der Produktionsrenderer und seine prozeduralen Anlagen bleiben unveraendert.</small>
+      ist frei einstellbar und keine Massstabsfreigabe. Die Rohkandidaten haben weiterhin viele
+      Komponenten und keine UV/PBR-Daten; kein Relief-Bodenkontaktnachweis. Produktionsrenderer
+      und prozeduraler Anlagenplan bleiben unveraendert.</small>
     <label><input type="checkbox" name="orbitalGeometry"> Massstaebliche geostationaere Referenzobjekte</label>
     <label>Orbitalobjekt
       <select name="orbitalClass">

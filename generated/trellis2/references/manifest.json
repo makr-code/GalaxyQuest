@@ -119,7 +119,7 @@
   ],
   "limitations": [
     "References are generic, not faction-specific or scale-calibrated.",
-    "These PNGs remain concept references, not 3D assets; accepted DEV_ONLY pilot GLBs exist only for warehouse, drilling, and hydroponics. Raw industry and agriculture exports failed inspection and are not accepted pilots; the other 11 facility references have no TRELLIS.2 exports yet.",
+    "These PNGs remain concept references, not 3D assets; accepted DEV_ONLY pilot GLBs exist only for warehouse, drilling, and hydroponics. Raw industry, agriculture, solar, command, fusion, nanotech, research, school, security, tank, hospital, silo, and terraforming exports are not accepted pilots; all remaining facility references have TRELLIS.2 exports but are not accepted pilots.",
     "Open-pit mining remains procedural terrain, not a drilling-facility model."
   ]
 }

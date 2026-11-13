@@ -1,18 +1,16 @@
 'use strict';
 
 (function () {
-  function escapeHtml(value) {
-    return String(value ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
   function numericId(value) {
     const id = Number(value);
     return Number.isSafeInteger(id) && id > 0 ? id : 0;
+  }
+
+  function createElement(documentRef, tagName, className = '', text = '') {
+    const element = documentRef.createElement(tagName);
+    if (className) element.className = className;
+    if (text !== null && text !== undefined) element.textContent = String(text);
+    return element;
   }
 
   function createOverviewLists(opts = {}) {
@@ -25,7 +23,6 @@
       showToast = () => {},
       getAudioManager = () => null,
     } = opts;
-    const esc = escapeHtml;
 
     function readPercent(...values) {
       for (const value of values) {
@@ -41,7 +38,6 @@
     function renderFleetList(params = {}) {
       const {
         root = null,
-        renderTemplateList = () => '',
         onReload = async () => {},
       } = params;
 
@@ -49,105 +45,150 @@
       const fleets = windowRef._GQ_fleets || [];
       if (!fleetList) return;
       if (!fleets.length) {
-        const empty = windowRef.document.createElement('p');
-        empty.className = 'text-muted';
-        empty.textContent = 'No active fleets.';
+        const empty = createElement(fleetList.ownerDocument, 'p', 'text-muted', 'No active fleets.');
         fleetList.replaceChildren(empty);
         return;
       }
 
-      fleetList.innerHTML = renderTemplateList('fleetRow', fleets.map((fleet) => {
+      const documentRef = fleetList.ownerDocument;
+      const rows = fleets.map((fleet) => {
         const pos = fleet.current_pos || {};
         const coordinates = [pos.x, pos.y, pos.z].map(Number);
-        const positionHtml = coordinates.every(Number.isFinite)
-          ? `<span class="fleet-pos" title="3D position">POS ${coordinates.map((value) => esc(String(Math.round(value)))).join(', ')} ly</span>`
-          : '';
-        const vesselChips = (fleet.vessels || [])
-          .slice(0, 5)
-          .map((vessel) => `<span class="fleet-vessel-chip">${esc(fmtName(vessel.type))} x${esc(String(vessel.count))}</span>`)
-          .join('');
-        const vesselListHtml = vesselChips ? `<div class="fleet-vessel-list">${vesselChips}</div>` : '';
+        const fleetId = numericId(fleet.id);
+        const row = createElement(documentRef, 'div', 'fleet-row');
+        row.dataset.fleetId = fleetId ? String(fleetId) : '';
 
-        let progressPct = null;
-        let progressTone = 'is-good';
-        let progressHtml = '';
+        const labelWrap = createElement(documentRef, 'span', 'fleet-label-wrap');
+        const label = fleet.fleet_label ? String(fleet.fleet_label) : '';
+        const labelText = createElement(documentRef, 'span', 'fleet-label-text', label);
+        labelText.title = label || `Fleet ${String(fleet.id || '')}`;
+        labelWrap.append(labelText);
+        if (fleetId) {
+          const editButton = createElement(documentRef, 'button', 'fleet-label-edit-btn', '✎');
+          editButton.setAttribute('aria-label', 'Fleet umbenennen');
+          editButton.title = 'Fleet umbenennen';
+          editButton.dataset.fid = String(fleetId);
+          editButton.dataset.label = label;
+          labelWrap.append(editButton);
+        }
+        row.append(labelWrap);
+
+        row.append(createElement(documentRef, 'span', 'fleet-mission', String(fleet.mission || '').toUpperCase()));
+        const target = createElement(
+          documentRef,
+          'span',
+          'fleet-target',
+          `-> ${String(fleet.target_system_name || `[${fleet.target_galaxy}:${fleet.target_system}:${fleet.target_position}]`)}`
+        );
+        target.title = `[${String(fleet.target_galaxy || '')}:${String(fleet.target_system || '')}:${String(fleet.target_position || '')}]`;
+        row.append(target);
+
+        if (coordinates.every(Number.isFinite)) {
+          const position = createElement(
+            documentRef,
+            'span',
+            'fleet-pos',
+            `POS ${coordinates.map((value) => Math.round(value)).join(', ')} ly`
+          );
+          position.title = '3D position';
+          row.append(position);
+        }
+
+        const timer = createElement(documentRef, 'span', 'fleet-timer', countdown(fleet.arrival_time));
+        timer.dataset.end = String(fleet.arrival_time || '');
+        row.append(timer);
 
         if (fleet.departure_time && fleet.arrival_time) {
-          const now = Date.now();
           const depMs = new Date(fleet.departure_time).getTime();
           const arrMs = new Date(fleet.arrival_time).getTime();
           const totalMs = arrMs - depMs;
 
           if (Number.isFinite(depMs) && Number.isFinite(arrMs) && totalMs > 0) {
-            progressPct = Math.min(100, Math.round(Math.max(0, ((now - depMs) / totalMs) * 100)));
-            progressTone = progressPct < 30 ? 'is-critical' : (progressPct < 70 ? 'is-warning' : 'is-good');
-            progressHtml = `<div class="entity-bars" style="margin:0 4px 0 0;">
-              <div class="entity-bar-row" title="Fleet transit progress ${progressPct}%">
-                <span class="entity-bar-label" style="font-size:0.7rem;">Transit</span>
-                <div class="bar-wrap" style="min-width:60px;"><div class="bar-fill bar-integrity ${progressTone}" style="width:${progressPct}%;height:6px;"></div></div>
-                <span class="entity-bar-value" style="font-size:0.7rem;">${progressPct}%</span>
-              </div>
-            </div>`;
+            const progressPct = Math.min(100, Math.round(Math.max(0, ((Date.now() - depMs) / totalMs) * 100)));
+            const progressTone = progressPct < 30 ? 'is-critical' : (progressPct < 70 ? 'is-warning' : 'is-good');
+            const progress = createElement(documentRef, 'div', 'entity-bars');
+            progress.style.margin = '0 4px 0 0';
+            const progressRow = createElement(documentRef, 'div', 'entity-bar-row');
+            progressRow.title = `Fleet transit progress ${progressPct}%`;
+            const progressLabel = createElement(documentRef, 'span', 'entity-bar-label', 'Transit');
+            progressLabel.style.fontSize = '0.7rem';
+            const progressBarWrap = createElement(documentRef, 'div', 'bar-wrap');
+            progressBarWrap.style.minWidth = '60px';
+            const progressBar = createElement(documentRef, 'div', `bar-fill bar-integrity ${progressTone}`);
+            progressBar.style.width = `${progressPct}%`;
+            progressBar.style.height = '6px';
+            progressBarWrap.append(progressBar);
+            const progressValue = createElement(documentRef, 'span', 'entity-bar-value', `${progressPct}%`);
+            progressValue.style.fontSize = '0.7rem';
+            progressRow.append(progressLabel, progressBarWrap, progressValue);
+            progress.append(progressRow);
+            row.append(progress);
           }
         }
 
-        const rawStealthSec = Number(fleet.stealth_remaining_s || 0);
-        const stealthSec = Number.isFinite(rawStealthSec) && rawStealthSec > 0 ? Math.floor(rawStealthSec) : 0;
-        const stealthBadge = stealthSec > 0
-          ? `<span class="fleet-stealth-badge" title="Vel'Ar stealth: ${stealthSec}s remaining">Stealth ${stealthSec}s</span>`
-          : '';
-        const hullDmg = readPercent(fleet.hull_damage_pct) ?? 0;
-        const hullBadge = hullDmg > 0
-          ? `<span class="fleet-hull-badge" title="Kryl'Tha hull damage: -${hullDmg}% attack">Hull ${hullDmg}%</span>`
-          : '';
         const shieldPct = readPercent(
           fleet.shield_pct
           ?? fleet.shields_pct
           ?? fleet.shield_integrity_pct
           ?? fleet.defense_shield_pct
         );
-        const shieldTone = shieldPct === null
-          ? ''
-          : (shieldPct < 30 ? 'is-critical' : (shieldPct < 60 ? 'is-warning' : 'is-good'));
-        const fleetHealthHtml = shieldPct === null ? '' : `
-          <div class="entity-bars entity-bars-compact" aria-label="Fleet status bars">
-            <div class="entity-bar-row" title="Fleet shields ${shieldPct}%">
-              <span class="entity-bar-label">Shield</span>
-              <div class="bar-wrap"><div class="bar-fill bar-shield ${shieldTone}" style="width:${shieldPct}%"></div></div>
-              <span class="entity-bar-value">${shieldPct}%</span>
-            </div>
-          </div>`;
+        if (shieldPct !== null) {
+          const shieldTone = shieldPct < 30 ? 'is-critical' : (shieldPct < 60 ? 'is-warning' : 'is-good');
+          const health = createElement(documentRef, 'div', 'entity-bars entity-bars-compact');
+          health.setAttribute('aria-label', 'Fleet status bars');
+          const healthRow = createElement(documentRef, 'div', 'entity-bar-row');
+          healthRow.title = `Fleet shields ${shieldPct}%`;
+          healthRow.append(createElement(documentRef, 'span', 'entity-bar-label', 'Shield'));
+          const healthBarWrap = createElement(documentRef, 'div', 'bar-wrap');
+          const healthBar = createElement(documentRef, 'div', `bar-fill bar-shield ${shieldTone}`);
+          healthBar.style.width = `${shieldPct}%`;
+          healthBarWrap.append(healthBar);
+          healthRow.append(healthBarWrap);
+          healthRow.append(createElement(documentRef, 'span', 'entity-bar-value', `${shieldPct}%`));
+          health.append(healthRow);
+          row.append(health);
+        }
 
-        const fleetId = numericId(fleet.id);
-        return {
-          fleetId: fleetId ? String(fleetId) : '',
-          fleetLabelHtml: (() => {
-            const label = fleet.fleet_label ? esc(String(fleet.fleet_label)) : '';
-            return `<span class="fleet-label-wrap">` +
-              `<span class="fleet-label-text" title="${label || 'Fleet ' + esc(String(fleet.id || ''))}">${label || ''}</span>` +
-              `${fleetId ? `<button class="fleet-label-edit-btn" aria-label="Fleet umbenennen" title="Fleet umbenennen" data-fid="${fleetId}" data-label="${label}">✎</button>` : ''}` +
-              `</span>`;
-          })(),
-          mission: esc(String(fleet.mission || '').toUpperCase()),
-          targetGalaxy: esc(String(fleet.target_galaxy || '')),
-          targetSystem: esc(String(fleet.target_system || '')),
-          targetPosition: esc(String(fleet.target_position || '')),
-          targetSystemName: esc(fleet.target_system_name || `[${fleet.target_galaxy}:${fleet.target_system}:${fleet.target_position}]`),
-          positionHtml,
-          arrivalTimeRaw: esc(String(fleet.arrival_time || '')),
-          departureTimeRaw: esc(String(fleet.departure_time || '')),
-          arrivalCountdown: esc(countdown(fleet.arrival_time)),
-          progressPct: progressPct === null ? '' : esc(String(progressPct)),
-          progressHtml,
-          fleetHealthHtml,
-          vesselListHtml,
-          returningBadgeHtml: fleet.returning ? '<span class="fleet-returning">Returning</span>' : '',
-          ftlBadgesHtml: stealthBadge + hullBadge,
-          recallButtonHtml: !fleet.returning && fleetId
-            ? `<button class="btn btn-warning btn-sm recall-btn" data-fid="${fleetId}">Recall</button>`
-            : '',
-        };
-      }));
+        const vessels = Array.isArray(fleet.vessels) ? fleet.vessels : [];
+        const vesselChips = vessels
+          .slice(0, 5)
+          .map((vessel) => createElement(
+            documentRef,
+            'span',
+            'fleet-vessel-chip',
+            `${fmtName(vessel.type)} x${String(vessel.count)}`
+          ));
+        if (vesselChips.length) {
+          const vesselList = createElement(documentRef, 'div', 'fleet-vessel-list');
+          vesselList.append(...vesselChips);
+          row.append(vesselList);
+        }
+
+        if (fleet.returning) row.append(createElement(documentRef, 'span', 'fleet-returning', 'Returning'));
+
+        const rawStealthSec = Number(fleet.stealth_remaining_s || 0);
+        const stealthSec = Number.isFinite(rawStealthSec) && rawStealthSec > 0 ? Math.floor(rawStealthSec) : 0;
+        if (stealthSec > 0) {
+          const stealth = createElement(documentRef, 'span', 'fleet-stealth-badge', `Stealth ${stealthSec}s`);
+          stealth.title = `Vel'Ar stealth: ${stealthSec}s remaining`;
+          row.append(stealth);
+        }
+        const hullDmg = readPercent(fleet.hull_damage_pct) ?? 0;
+        if (hullDmg > 0) {
+          const hull = createElement(documentRef, 'span', 'fleet-hull-badge', `Hull ${hullDmg}%`);
+          hull.title = `Kryl'Tha hull damage: -${hullDmg}% attack`;
+          row.append(hull);
+        }
+
+        if (!fleet.returning && fleetId) {
+          const recallButton = createElement(documentRef, 'button', 'btn btn-warning btn-sm recall-btn', 'Recall');
+          recallButton.dataset.fid = String(fleetId);
+          row.append(recallButton);
+        }
+
+        return row;
+      });
+      fleetList.replaceChildren(...rows);
 
       fleetList.querySelectorAll('.recall-btn').forEach((btn) => {
         btn.addEventListener('click', async () => {
@@ -216,38 +257,45 @@
     function renderBattleLog(params = {}) {
       const {
         root = null,
-        renderTemplateList = () => '',
       } = params;
 
       const battleLog = root?.querySelector?.('#battle-log-wm');
       if (!battleLog) return;
       const battles = windowRef._GQ_battles || [];
       if (!battles.length) {
-        const empty = windowRef.document.createElement('p');
-        empty.className = 'text-muted';
-        empty.textContent = 'No battles yet.';
+        const empty = createElement(battleLog.ownerDocument, 'p', 'text-muted', 'No battles yet.');
         battleLog.replaceChildren(empty);
         return;
       }
 
-      battleLog.innerHTML = renderTemplateList('battleRow', battles.map((battle) => {
+      const documentRef = battleLog.ownerDocument;
+      const rows = battles.map((battle) => {
         const report = battle.report || {};
         const won = report.attacker_wins;
         const loot = report.loot || {};
-        const lootStr = [
+        const row = createElement(documentRef, 'div', `battle-row ${won ? 'battle-win' : 'battle-loss'}`);
+        row.append(createElement(documentRef, 'span', 'battle-result', won ? 'Victory' : 'Defeat'));
+        row.append(createElement(documentRef, 'span', 'battle-vs', `vs ${String(battle.defender_name ?? '')}`));
+        const time = createElement(
+          documentRef,
+          'span',
+          'battle-time',
+          new Date(battle.created_at).toLocaleString()
+        );
+        time.style.fontSize = '0.75rem';
+        time.style.color = 'var(--text-muted)';
+        row.append(time);
+
+        const lootText = [
           loot.metal > 0 ? `MET ${fmt(loot.metal)}` : '',
           loot.crystal > 0 ? `CRY ${fmt(loot.crystal)}` : '',
           loot.deuterium > 0 ? `DEU ${fmt(loot.deuterium)}` : '',
           loot.rare_earth > 0 ? `RRE ${fmt(loot.rare_earth)}` : '',
         ].filter(Boolean).join(' ');
-        return {
-          battleClass: won ? 'battle-win' : 'battle-loss',
-          resultLabel: won ? 'Victory' : 'Defeat',
-          defenderName: esc(battle.defender_name),
-          createdAt: esc(new Date(battle.created_at).toLocaleString()),
-          lootHtml: won && lootStr ? `<span class="battle-loot">${esc(lootStr)}</span>` : '',
-        };
-      }));
+        if (won && lootText) row.append(createElement(documentRef, 'span', 'battle-loot', lootText));
+        return row;
+      });
+      battleLog.replaceChildren(...rows);
     }
 
     return {

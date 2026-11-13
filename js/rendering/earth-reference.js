@@ -6,7 +6,12 @@ import { EARTH_REFERENCE, ZONE_COLORS, createEarthGeography, geographicVector,
 import { createProductionEarth } from './earth-reference-production.js';
 import { createEarthRelief, inspectReliefMesh, RELIEF_GRID } from './earth-reference-relief.js';
 import { MINE_REFERENCE } from './earth-reference-mine.js';
-import { TRELLIS_BUILDING_ASSETS, disposeTrellisBuilding, placeTrellisBuilding } from './earth-reference-trellis.js';
+import {
+  TRELLIS_BUILDING_ASSETS,
+  TRELLIS_BUILDING_CANDIDATES,
+  disposeTrellisBuilding,
+  placeTrellisBuilding,
+} from './earth-reference-trellis.js';
 
 function polygonGeometry(polygons, radius) {
   const triangles = triangulateGeography(polygons);
@@ -165,7 +170,9 @@ export async function createEarthReference(viewport, controls) {
     trellisBuildingPlacement = placeTrellisBuilding(trellisBuildingScene, widthMeters);
     trellisBuildingRoot.add(trellisBuildingPlacement);
     trellisBuildingWidthMeters = widthMeters;
-    trellisStatus.textContent = `${trellisBuildingKind}: DEV_ONLY; angenommene Breite ${widthMeters} m (nicht massstabsvalidiert).`;
+    const candidate = Object.hasOwn(TRELLIS_BUILDING_CANDIDATES, trellisBuildingKind);
+    const status = candidate ? 'unfreigegebener DEV_ONLY-Rohkandidat' : 'DEV_ONLY-Pilot';
+    trellisStatus.textContent = `${trellisBuildingKind}: ${status}; angenommene Breite ${widthMeters} m (nicht massstabsvalidiert).`;
   };
   const syncTrellisBuilding = async () => {
     const enabled = activeBackend === 'reference' && controls.querySelector('[name="trellisBuilding"]').checked;
@@ -185,7 +192,7 @@ export async function createEarthReference(viewport, controls) {
       return true;
     }
     if (trellisLoadingKind === kind && trellisLoadPromise) return trellisLoadPromise;
-    const url = TRELLIS_BUILDING_ASSETS[kind];
+    const url = TRELLIS_BUILDING_ASSETS[kind] ?? TRELLIS_BUILDING_CANDIDATES[kind];
     if (!url) throw new RangeError(`Unknown TRELLIS2 building asset: ${kind}`);
     const token = ++trellisLoadToken;
     trellisLoadingKind = kind;

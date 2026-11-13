@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing version tag to publish after all tag gates succeed
+        description: Existing version tag to attach a non-deployable native release draft
         required: true
         type: string
   workflow_run:
@@ -36,6 +36,8 @@ jobs:
       tools_sha: ${{ steps.source.outputs.tools_sha }}
       prerelease: ${{ steps.source.outputs.prerelease }}
       eligible: ${{ steps.gates.outputs.eligible }}
+      source_environment: ${{ steps.source.outputs.source_environment }}
+      ci_run_id: ${{ steps.native.outputs.ci_run_id }}
     defaults:
       run:
         working-directory: source
@@ -58,11 +60,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: source/.nvmrc
-
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.2'
-          coverage: none
 
       - name: Validate release source and publication policy
         id: source
@@ -91,6 +88,9 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          SOURCE_ENVIRONMENT=production
+          if [ "$PRERELEASE" = true ]; then SOURCE_ENVIRONMENT=staging; fi
+          echo "source_environment=$SOURCE_ENVIRONMENT" >> "$GITHUB_OUTPUT"
           echo "tools_sha=$(git -C ../release-tools rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Require successful quality and security runs for this exact tag
@@ -107,25 +107,41 @@ jobs:
           if [ "$AUTOMATIC" = true ]; then ARGS+=(--automatic); fi
           node ../release-tools/scripts/check_release_gates.mjs "${ARGS[@]}"
 
-      - name: Build and verify package from the accepted source
+      - name: Reuse the exact native package from successful branch CI
+        id: native
         if: steps.gates.outputs.eligible == 'true'
         env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           OUTPUT_DIR: ${{ runner.temp }}/release-package
           RELEASE_TAG: ${{ steps.source.outputs.tag }}
           RELEASE_SHA: ${{ steps.source.outputs.sha }}
+          SOURCE_ENVIRONMENT: ${{ steps.source.outputs.source_environment }}
         run: |
-          npm ci
-          npm run vite:build
-          npm run check:bundle-budget
-          test -s dist/index.html
-          test -d dist/assets
+          set -euo pipefail
+          BRANCH=main
+          if [ "$SOURCE_ENVIRONMENT" = staging ]; then BRANCH=develop; fi
+          CI_RUN_ID="$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs?branch=$BRANCH&event=push&head_sha=$RELEASE_SHA&per_page=100" \
+            --jq '.workflow_runs | max_by(.id).id // empty')"
+          test -n "$CI_RUN_ID"
+          node ../release-tools/deploy/inspect-github-ci.mjs \
+            "$SOURCE_ENVIRONMENT" "$RELEASE_SHA" "$CI_RUN_ID" > "$RUNNER_TEMP/native-ci.json"
+          ARTIFACT_ID="$(jq -er .artifact.id "$RUNNER_TEMP/native-ci.json")"
+          ARTIFACT_DIGEST="$(jq -er .artifact.digest "$RUNNER_TEMP/native-ci.json")"
+          SPOOL="$RUNNER_TEMP/native-publication-spool"
+          mkdir -m 700 "$SPOOL"
+          bash ../release-tools/deploy/pull-native-candidate.sh \
+            "$ARTIFACT_ID" "$ARTIFACT_DIGEST" "$RELEASE_SHA" "$SPOOL"
           mkdir -p "$OUTPUT_DIR"
+          node ../release-tools/deploy/prepare-native-publication.mjs \
+            "$SOURCE_ENVIRONMENT" "$RELEASE_SHA" "$CI_RUN_ID" "$RELEASE_TAG" \
+            "$SPOOL/native-plesk-candidate-$RELEASE_SHA-$ARTIFACT_ID.zip" "$OUTPUT_DIR"
+          printf '**Not deployable:** native candidate for review only. No staging or production installation is authorized.\n\n' \
+            > "$OUTPUT_DIR/release-notes.md"
+          cat "$RUNNER_TEMP/release-notes.md" >> "$OUTPUT_DIR/release-notes.md"
           VERSION="$(tr -d '\r\n' < VERSION.txt)"
-          php scripts/prepare_release.php "$VERSION" --output-dir="$OUTPUT_DIR"
-          cp "$RUNNER_TEMP/release-notes.md" "$OUTPUT_DIR/release-notes.md"
-          printf '{"tag":"%s","version":"%s","commit":"%s"}\n' \
-            "$RELEASE_TAG" "$VERSION" "$RELEASE_SHA" > "$OUTPUT_DIR/galaxyquest-${VERSION}.release.json"
           (cd "$OUTPUT_DIR" && sha256sum --check "galaxyquest-${VERSION}.sha256")
+          echo "ci_run_id=$CI_RUN_ID" >> "$GITHUB_OUTPUT"
 
       - name: Transfer verified package to publisher
         if: steps.gates.outputs.eligible == 'true'
@@ -165,7 +181,12 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
-        run: node release-tools/scripts/check_release_gates.mjs --sha "$RELEASE_SHA" --tag "$RELEASE_TAG"
+          SOURCE_ENVIRONMENT: ${{ needs.prepare.outputs.source_environment }}
+          CI_RUN_ID: ${{ needs.prepare.outputs.ci_run_id }}
+        run: |
+          node release-tools/scripts/check_release_gates.mjs --sha "$RELEASE_SHA" --tag "$RELEASE_TAG"
+          node release-tools/deploy/inspect-github-ci.mjs \
+            "$SOURCE_ENVIRONMENT" "$RELEASE_SHA" "$CI_RUN_ID" > "$RUNNER_TEMP/native-ci.json"
 
       - name: Download this run's verified package
         uses: actions/download-artifact@v4
@@ -183,30 +204,42 @@ jobs:
           RUNNER_TEMP: ${{ runner.temp }}
         working-directory: release-package
         run: |
+          set -euo pipefail
           test "$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)" = "$RELEASE_SHA"
           VERSION="${RELEASE_TAG#v}"
-          sha256sum --check "galaxyquest-${VERSION}.sha256"
-          gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" > releases.json
-          jq --arg tag "$RELEASE_TAG" '[.[][] | select(.tag_name == $tag)]' releases.json > existing.json
-          COUNT="$(jq length existing.json)"
           ARCHIVE="galaxyquest-${VERSION}.tar.gz"
           CHECKSUM="galaxyquest-${VERSION}.sha256"
           MANIFEST="galaxyquest-${VERSION}.release.json"
+          sha256sum --check "$CHECKSUM"
+          DIGEST="sha256:$(sha256sum "$ARCHIVE" | cut -d ' ' -f 1)"
+          SIZE="$(stat -c '%s' "$ARCHIVE")"
+          jq -e --arg tag "$RELEASE_TAG" --arg commit "$RELEASE_SHA" \
+            --arg archive "$ARCHIVE" --arg digest "$DIGEST" --argjson size "$SIZE" \
+            --slurpfile evidence "$RUNNER_TEMP/native-ci.json" \
+            '.schema_version == 1 and .repository == "makr-code/GalaxyQuest"
+             and .tag == $tag and .commit == $commit and .status == "not-deployable"
+             and .package == {name:$archive,digest:$digest,size_in_bytes:$size}
+             and .source_ci == $evidence[0]' "$MANIFEST"
+          gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" > releases.json
+          jq --arg tag "$RELEASE_TAG" '[.[][] | select(.tag_name == $tag)]' releases.json > existing.json
+          COUNT="$(jq length existing.json)"
           if [ "$COUNT" != 0 ]; then
             test "$COUNT" = 1
             jq -e --argjson prerelease "$PRERELEASE" \
               --arg archive "$ARCHIVE" --arg checksum "$CHECKSUM" \
               --arg manifest "$MANIFEST" \
               --rawfile notes release-notes.md \
-              '.[0] | .draft == false and .prerelease == $prerelease
+              '.[0] | .draft == true and .prerelease == $prerelease
                and (.body | rtrimstr("\n")) == ($notes | rtrimstr("\n"))
                and ([.assets[].name] | sort) == ([$archive, $checksum, $manifest] | sort)
                and all(.assets[]; .state == "uploaded" and .size > 0)' existing.json
             mkdir -p "$RUNNER_TEMP/existing-release"
             gh release download "$RELEASE_TAG" --dir "$RUNNER_TEMP/existing-release" --repo "$GH_REPO"
             cmp --silent "$RUNNER_TEMP/existing-release/$MANIFEST" "$MANIFEST"
+            cmp --silent "$RUNNER_TEMP/existing-release/$ARCHIVE" "$ARCHIVE"
+            cmp --silent "$RUNNER_TEMP/existing-release/$CHECKSUM" "$CHECKSUM"
             (cd "$RUNNER_TEMP/existing-release" && sha256sum --check "$CHECKSUM")
-            echo "::notice::Matching release already published; no assets or metadata overwritten."
+            echo "::notice::Matching native draft already exists; no assets or metadata overwritten."
             exit 0
           fi
           OPTIONS=()
@@ -214,7 +247,6 @@ jobs:
           gh release create "$RELEASE_TAG" \
             "$ARCHIVE" "$CHECKSUM" "$MANIFEST" \
             --verify-tag --target "$RELEASE_SHA" --draft --latest=false \
-            --title "GalaxyQuest $VERSION" --notes-file release-notes.md "${OPTIONS[@]}"
-          LATEST=true
-          if [ "$PRERELEASE" = true ]; then LATEST=false; fi
-          gh release edit "$RELEASE_TAG" --draft=false --prerelease="$PRERELEASE" --latest="$LATEST"
+            --title "GalaxyQuest $VERSION (native candidate, not deployable)" \
+            --notes-file release-notes.md "${OPTIONS[@]}"
+          echo "::notice::Native candidate draft created; deployment and final release publication remain blocked."

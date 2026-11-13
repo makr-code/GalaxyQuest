@@ -11,7 +11,6 @@
     maxEntries: 6,
     entries: [],
     wm: null,
-    esc: (value) => String(value || ''),
     showToast: null,
     documentRef: (typeof document !== 'undefined' ? document : null),
     navigatorRef: (typeof navigator !== 'undefined' ? navigator : null),
@@ -20,7 +19,6 @@
   function configureGalaxyDebugLogRuntime(opts = {}) {
     const {
       wm = null,
-      esc = null,
       showToast = null,
       documentRef = (typeof document !== 'undefined' ? document : null),
       navigatorRef = (typeof navigator !== 'undefined' ? navigator : null),
@@ -28,7 +26,6 @@
     } = opts;
 
     state.wm = wm || null;
-    state.esc = typeof esc === 'function' ? esc : ((value) => String(value || ''));
     state.showToast = typeof showToast === 'function' ? showToast : null;
     state.documentRef = documentRef || null;
     state.navigatorRef = navigatorRef || null;
@@ -56,19 +53,44 @@
     if (!log) return;
 
     if (!state.entries.length) {
-      log.innerHTML = '<div class="galaxy-debug-empty">Keine aktuellen Lade-/Renderfehler.</div>';
+      const empty = log.ownerDocument.createElement('div');
+      empty.className = 'galaxy-debug-empty';
+      empty.textContent = 'Keine aktuellen Lade-/Renderfehler.';
+      log.replaceChildren(empty);
       return;
     }
 
-    log.innerHTML = state.entries.map((entry) => {
+    const documentRef = log.ownerDocument;
+    const entries = state.entries.map((entry) => {
       const time = new Date(entry.ts).toLocaleTimeString();
-      const extra = entry.extra ? `<div class="galaxy-debug-extra">${state.esc(entry.extra)}</div>` : '';
-      return `<div class="galaxy-debug-item">
-        <div class="galaxy-debug-head"><span class="galaxy-debug-time">${state.esc(time)}</span><span class="galaxy-debug-source">${state.esc(entry.source)}</span></div>
-        <div class="galaxy-debug-msg">${state.esc(entry.message)}</div>
-        ${extra}
-      </div>`;
-    }).join('');
+      const item = documentRef.createElement('div');
+      item.className = 'galaxy-debug-item';
+
+      const head = documentRef.createElement('div');
+      head.className = 'galaxy-debug-head';
+      const timeElement = documentRef.createElement('span');
+      timeElement.className = 'galaxy-debug-time';
+      timeElement.textContent = time;
+      const sourceElement = documentRef.createElement('span');
+      sourceElement.className = 'galaxy-debug-source';
+      sourceElement.textContent = entry.source;
+      head.append(timeElement, sourceElement);
+      item.append(head);
+
+      const message = documentRef.createElement('div');
+      message.className = 'galaxy-debug-msg';
+      message.textContent = entry.message;
+      item.append(message);
+
+      if (entry.extra) {
+        const extra = documentRef.createElement('div');
+        extra.className = 'galaxy-debug-extra';
+        extra.textContent = entry.extra;
+        item.append(extra);
+      }
+      return item;
+    });
+    log.replaceChildren(...entries);
   }
 
   async function copyLastGalaxyDebugError() {

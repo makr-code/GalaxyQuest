@@ -6041,15 +6041,6 @@
             "lineHash": "e1e31d9f80ab09ec68ece174795d157de03e2a802b10c7981e612954683921f8",
             "count": 1
         },
-        "272bab1537000ff06b096320cbc97bf5bdaf7a95e951c011237e339638b4c7b7": {
-            "path": "lib/GithubReleaseChecker.php",
-            "source": "PSR12.ControlStructures.ControlStructureSpacing.LineIndent",
-            "type": "ERROR",
-            "message": "Each line in a multi-line control structure must be indented at least once; expected at least 12 spaces, but found 8",
-            "column": 1,
-            "lineHash": "a1b5ad71eb03c3aa5e4d0e9e5d8217c56ae0703e99cf52b1ef8f7ad3ccba566a",
-            "count": 1
-        },
         "27414618119c7a45f38b6ef0c589f20267a5d89e60e90d42d3faf93804080bfa": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceBefore",
@@ -13142,15 +13133,6 @@
             "lineHash": "1a0f564ddc6039457b2fb26b3d6a316c15eba20a886449847c3210c35821a693",
             "count": 45
         },
-        "5705ba55d9a5245ab4782b2ec96ec476b8db8a96355f0b3e4eb8c0906bb23fa6": {
-            "path": "lib/GithubReleaseChecker.php",
-            "source": "PSR12.ControlStructures.ControlStructureSpacing.CloseParenthesisLine",
-            "type": "ERROR",
-            "message": "The closing parenthesis of a multi-line control structure must be on the line after the last expression",
-            "column": 10,
-            "lineHash": "a1b5ad71eb03c3aa5e4d0e9e5d8217c56ae0703e99cf52b1ef8f7ad3ccba566a",
-            "count": 1
-        },
         "57124da31f8f98e81c974d936790924d838b3900822ce28e58652e496896c93e": {
             "path": "api/llm.php",
             "source": "Generic.WhiteSpace.DisallowTabIndent.TabsUsed",
@@ -13888,15 +13870,6 @@
             "column": 1,
             "lineHash": "1a0f564ddc6039457b2fb26b3d6a316c15eba20a886449847c3210c35821a693",
             "count": 2
-        },
-        "5b74ed2c2d44ff105326f42518d89579c4659918190dfad62d26f6780a4d0c02": {
-            "path": "lib/UpdateManager.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 126 characters",
-            "column": 126,
-            "lineHash": "aa04a46774b1a721bb062cd6ed021f114a52e152d18341d12fee48619631fe94",
-            "count": 1
         },
         "5b7c6781121f8f1527b4d8909bb656b628ad9fa84cba70b0faabe4a2dc789375": {
             "path": "api/npc_ai.php",
@@ -15680,15 +15653,6 @@
             "lineHash": "1b496f3b7f43050f81c8d938859d1f0e1e12be18d08eb497e555fea0e811a900",
             "count": 1
         },
-        "6800e182c4d9bd5139c706a9a24b4ec553996478a0f89e346a104e3e835da085": {
-            "path": "lib/GithubReleaseChecker.php",
-            "source": "PSR12.ControlStructures.ControlStructureSpacing.FirstExpressionLine",
-            "type": "ERROR",
-            "message": "The first expression of a multi-line control structure must be on the line after the opening parenthesis",
-            "column": 13,
-            "lineHash": "745f93e967138c661f648c327beb9be5125b4711a17fb3d4433a71ee9f53650d",
-            "count": 1
-        },
         "680ce93756d902ab3e822b7d83a68d4c5497199ab1bc2b04721f9e5031621bca": {
             "path": "api/trellis2_generator.php",
             "source": "PSR1.Classes.ClassDeclaration.MissingNamespace",
@@ -16218,15 +16182,6 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 27,
             "lineHash": "5aa20ba507c35e4782372d2f69393b1b4dcbacdfc4e8ea27195f6dc2d1b8f187",
-            "count": 1
-        },
-        "6b553969af1d5ca69d9d5fa3dbf47482c771703ccbdf57133ec5fb686fad9a0c": {
-            "path": "lib/UpdateManager.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 136 characters",
-            "column": 136,
-            "lineHash": "b2b7bebfa730d82b77a6a91d98a5f46f942da64b0cb05dcbec1ccb90ba272061",
             "count": 1
         },
         "6b5b83b3e4857da66a778e256ad18b3c56eb3de513c0a3f7ca55ed32da872d79": {
@@ -23499,7 +23454,7 @@
             "message": "Whitespace found at end of line",
             "column": 1,
             "lineHash": "8b6fa01313ce51afc09e610f819250da501778ad363cba4f9e312a6ec823d42a",
-            "count": 5
+            "count": 3
         },
         "9d65b8b65327d249c943ebde922e392b494d95d7bf5f3926f3e579e95f305a85": {
             "path": "api/ship_designer_enhanced.php",
@@ -34056,7 +34011,7 @@
             "message": "Whitespace found at end of line",
             "column": 1,
             "lineHash": "8b6fa01313ce51afc09e610f819250da501778ad363cba4f9e312a6ec823d42a",
-            "count": 3
+            "count": 2
         },
         "e3e5de8f8da8e877d03eaab22e60d78f2b5ae273180907709a06b736e64c63a8": {
             "path": "api/galaxy.php",

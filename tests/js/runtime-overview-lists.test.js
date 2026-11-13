@@ -10,22 +10,14 @@ function renderFleet(fleet) {
 
   const root = document.createElement('div');
   root.innerHTML = '<div id="fleet-list-wm"></div>';
-  let rows = [];
   const controller = window.GQRuntimeOverviewLists.createOverviewLists({
     windowRef: { _GQ_fleets: [fleet] },
-    esc: String,
     fmtName: String,
     countdown: () => '',
     api: {},
   });
-  controller.renderFleetList({
-    root,
-    renderTemplateList: (_template, renderedRows) => {
-      rows = renderedRows;
-      return '';
-    },
-  });
-  return rows[0];
+  controller.renderFleetList({ root });
+  return root;
 }
 
 describe('RuntimeOverviewLists fleet transit progress', () => {
@@ -35,25 +27,24 @@ describe('RuntimeOverviewLists fleet transit progress', () => {
   });
 
   it('omits transit progress when the timestamps are invalid', () => {
-    const row = renderFleet({
+    const root = renderFleet({
       id: 1,
       departure_time: 'not-a-date',
       arrival_time: 'also-not-a-date',
     });
 
-    expect(row.progressHtml).toBe('');
-    expect(row.progressPct).toBe('');
+    expect(root.querySelector('.entity-bar-row[title^="Fleet transit progress"]')).toBeNull();
   });
 
   it('renders progress for a valid transit interval', () => {
-    const row = renderFleet({
+    const root = renderFleet({
       id: 2,
       departure_time: '2026-01-01T00:00:00Z',
       arrival_time: '2026-01-01T00:10:00Z',
     });
 
-    expect(row.progressHtml).toContain('Fleet transit progress 50%');
-    expect(row.progressPct).toBe('50');
+    expect(root.querySelector('.entity-bar-row[title="Fleet transit progress 50%"]')).not.toBeNull();
+    expect(root.querySelector('.bar-integrity')?.style.width).toBe('50%');
   });
 
   it('escapes fleet values internally and omits mutation controls for invalid IDs', () => {
@@ -71,25 +62,20 @@ describe('RuntimeOverviewLists fleet transit progress', () => {
     };
     const controller = window.GQRuntimeOverviewLists.createOverviewLists({
       windowRef: { _GQ_fleets: [fleet], document },
-      esc: String,
       fmtName: () => '<i onclick=alert(6)>',
       countdown: () => '<u onmouseover=alert(7)>',
       api: {},
     });
 
-    controller.renderFleetList({
-      root,
-      renderTemplateList: (_template, rows) => rows.map((row) => `
-        <div class="fleet-row" data-fleet-id="${row.fleetId}">
-          ${row.fleetLabelHtml}${row.mission}${row.targetSystemName}
-          ${row.positionHtml}${row.vesselListHtml}${row.arrivalCountdown}${row.recallButtonHtml}
-        </div>`).join(''),
-    });
+    controller.renderFleetList({ root });
 
     expect(root.querySelector('img, svg, iframe, b, i, u')).toBeNull();
     expect(root.querySelector('[onclick], [onerror], [onload], [onmouseover]')).toBeNull();
     expect(root.querySelector('.fleet-label-edit-btn, .recall-btn')).toBeNull();
     expect(root.querySelector('.fleet-pos')?.textContent).toContain('1, 2, 3');
+    expect(root.querySelector('.fleet-label-text')?.textContent).toBe(fleet.fleet_label);
+    expect(root.querySelector('.fleet-vessel-chip')?.textContent).toContain('<i onclick=alert(6)>');
+    expect(root.querySelector('.fleet-timer')?.textContent).toBe('<u onmouseover=alert(7)>');
   });
 
   it('escapes battle API values and number formatter output', () => {
@@ -109,18 +95,12 @@ describe('RuntimeOverviewLists fleet transit progress', () => {
       fmt: () => '<svg onload=alert(2)>',
     });
 
-    controller.renderBattleLog({
-      root,
-      renderTemplateList: (_template, rows) => rows.map((row) => `
-        <div class="battle-row ${row.battleClass}">
-          ${row.resultLabel}${row.defenderName}${row.createdAt}${row.lootHtml}
-        </div>`).join(''),
-    });
+    controller.renderBattleLog({ root });
 
     expect(root.querySelector('img, svg')).toBeNull();
     expect(root.querySelector('[onerror], [onload]')).toBeNull();
-    expect(root.textContent).toContain('<img src=x onerror=alert(1)>');
-    expect(root.textContent).toContain('<svg onload=alert(2)>');
+    expect(root.querySelector('.battle-vs')?.textContent).toContain('<img src=x onerror=alert(1)>');
+    expect(root.querySelector('.battle-loot')?.textContent).toContain('<svg onload=alert(2)>');
   });
 
   it('rejects tampered fleet IDs before recall and rename requests', async () => {
@@ -134,11 +114,7 @@ describe('RuntimeOverviewLists fleet transit progress', () => {
       api,
     });
 
-    controller.renderFleetList({
-      root,
-      renderTemplateList: (_template, rows) => rows.map((row) => `
-        <div class="fleet-row">${row.fleetLabelHtml}${row.recallButtonHtml}</div>`).join(''),
-    });
+    controller.renderFleetList({ root });
     root.querySelector('.recall-btn').dataset.fid = '8junk';
     root.querySelector('.fleet-label-edit-btn').dataset.fid = '8.5';
     root.querySelector('.recall-btn').click();
