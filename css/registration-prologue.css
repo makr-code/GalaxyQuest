@@ -10,6 +10,8 @@ body.draft-playing #boot-terminal { visibility: hidden; pointer-events: none; }
 .draft-world input, .draft-world select, .draft-world button { max-width: 100%; min-width: 0; box-sizing: border-box; padding: 10px; background: #102536; color: #e3efff; border: 1px solid #a7dfff66; font: inherit; }
 .draft-world p { line-height: 1.6; overflow-wrap: anywhere; }
 .draft-world button:disabled { opacity: .5; cursor: not-allowed; }
+.draft-portrait { display: flex; align-items: center; gap: 12px; }
+.draft-portrait p { margin: 0; }
 #draft-error { color: #ffb4a1; }
 body.registration-active #auth-status-section,
 body.registration-active #auth-preload-section,
@@ -107,11 +109,28 @@ body.registration-active #auth-section {
 .registration-opening-source p { position: absolute; right: 0; bottom: calc(100% + 8px); width: min(270px, 80vw); margin: 0; padding: 10px; background: #04101bed; border: 1px solid #a7dfff55; color: #ddecff; text-align: left; }
 .registration-opening-source a { color: #bce6ff; text-underline-offset: 3px; }
 #registration-character, .registration-review { box-sizing: border-box; width: min(520px, 100%); max-height: 46svh; overflow: auto; margin: 0 auto 12px; padding: 12px; background: #04101bd9; border: 1px solid #a7dfff33; text-shadow: none; }
-#registration-character-form { display: grid; text-align: left; gap: 10px; max-width: 520px; margin: 12px auto; }
+.registration-id-heading { display: flex; justify-content: space-between; gap: 8px; margin: 0; color: #e3efff; text-align: left; font-size: .95rem; letter-spacing: .08em; }
+.registration-id-heading span { color: #9dc6e3; font-size: .7rem; font-weight: 400; letter-spacing: normal; }
+.registration-id-layout { display: grid; grid-template-columns: minmax(110px, .75fr) minmax(0, 1.6fr); gap: 14px; align-items: start; }
+#registration-character-form { display: grid; text-align: left; gap: 8px; min-width: 0; margin: 12px 0; }
 #registration-character-form input, #registration-character-form textarea { width: 100%; box-sizing: border-box; background: #0c2032dd; color: #e3efff; border: 1px solid #a7dfff77; padding: 12px; font: inherit; }
+#registration-character-form input::placeholder, #registration-character-form textarea::placeholder { color: #9cb1c1; opacity: 1; }
+#registration-suggestion-status { margin: 0; color: #b6cadd; font-size: .8rem; line-height: 1.4; }
+#registration-suggestion-status.is-error { color: #ffc1b1; }
 #registration-error { color: #ffb4a1; }
-.registration-portrait { max-width: 520px; margin: 20px auto; }
-.registration-portrait img { display: block; margin: 0 auto; object-fit: contain; border: 1px solid #a7dfff44; }
+.registration-portrait { min-width: 0; margin: 12px 0; font-size: .75rem; line-height: 1.4; }
+.registration-portrait-frame { position: relative; display: grid; place-items: center; aspect-ratio: 3 / 4; overflow: hidden; border: 1px solid #a7dfff55; background: linear-gradient(155deg, #17344b, #071522); }
+.registration-portrait-frame img { width: 100%; height: 100%; object-fit: cover; }
+.registration-portrait-placeholder { display: grid; gap: 8px; justify-items: center; padding: 8px; color: #aac7da; }
+.registration-portrait-placeholder svg { width: 48px; height: 48px; opacity: .7; }
+.registration-portrait .wm-modal-nav-btn { max-width: 100%; margin-top: 5px; font-size: .72rem; }
+.registration-identity-flight { position: fixed; top: 16px; right: 16px; z-index: 3; display: flex; align-items: center; gap: 10px; max-width: min(240px, 40vw); padding: 8px; border: 1px solid #a7dfff55; background: #04101bd9; text-shadow: none; pointer-events: none; }
+.registration-identity-flight-photo { display: grid; place-items: center; flex: none; width: 54px; aspect-ratio: 3 / 4; overflow: hidden; background: #17344b; }
+.registration-identity-flight-photo img { width: 100%; height: 100%; object-fit: cover; }
+.registration-identity-flight-photo span { padding: 3px; color: #b6cadd; font-size: .55rem; text-align: center; }
+.registration-identity-flight p { display: grid; gap: 4px; min-width: 0; margin: 0; text-align: left; }
+.registration-identity-flight p span { color: #9dc6e3; font-size: .65rem; }
+.registration-identity-flight strong { overflow-wrap: anywhere; font-size: .8rem; }
 .registration-draft-summary, #registration-character-form p { font-size: .85rem; line-height: 1.7; color: #b6cadd; }
 #registration-status, #registration-flight-status:not(.is-error), #registration-narration-status:not(.is-error):not(.is-loading) {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
@@ -131,6 +150,8 @@ body.start-reduced-motion .registration-prologue::before { transition-duration: 
   .registration-story { font-size: clamp(1.1rem, 4.5vw, 1.4rem); }
   .registration-review dl > div { grid-template-columns: 1fr; gap: 3px; }
   .registration-choice { flex-basis: calc(33.333% - 8px); min-width: 0; padding: 7px 5px; font-size: .75rem; }
+  .registration-id-layout { grid-template-columns: minmax(90px, .7fr) minmax(0, 1.3fr); gap: 8px; }
+  .registration-identity-flight { top: 8px; right: 8px; }
 }
 @media (max-height: 500px) {
   .registration-stage { padding-block: 8px; }

@@ -6,6 +6,13 @@ final class RegistrationPortraitService {
 
     public function __construct(private PDO $db) {}
 
+    public static function identityHash(array $snapshot): string {
+        return hash('sha256', json_encode([
+            $snapshot['species_code'], $snapshot['character']['name'], $snapshot['character']['background'],
+            $snapshot['character_revision'] ?? null,
+        ], JSON_THROW_ON_ERROR));
+    }
+
     private function draft(string $owner, ?string $token = null, bool $lock = false): array {
         $stmt = $this->db->prepare(
             'SELECT token, snapshot_json FROM registration_drafts WHERE session_hash = ? AND expires_at > UTC_TIMESTAMP()'
@@ -22,10 +29,7 @@ final class RegistrationPortraitService {
         }
         return [
             'token' => $row['token'], 'snapshot' => $snapshot,
-            'hash' => hash('sha256', json_encode([
-                $snapshot['species_code'], $snapshot['character']['name'], $snapshot['character']['background'],
-                $snapshot['character_revision'] ?? null,
-            ], JSON_THROW_ON_ERROR)),
+            'hash' => self::identityHash($snapshot),
         ];
     }
 

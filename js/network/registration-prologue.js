@@ -46,6 +46,12 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
   let busy = false;
   let portraitTimer = null;
   let portraitRevision = 0;
+  let portraitRequest = null;
+  let portraitSubmitting = null;
+  let portraitStatus = null;
+  let readyPortraitUrl = '';
+  let pendingIdentityComment = null;
+  let lastIdentityCommentKey = '';
   let heraldStage = null;
   let openingTimer = null;
   let openingRemaining = 0;
@@ -216,6 +222,7 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     element('opening-pause').setAttribute('aria-pressed', String(paused));
     if (!paused && pendingNarrationTransition) flushNarrationTransition();
     else if (!paused && timedPhase()) scheduleOpening();
+    if (!paused) flushIdentityComment();
   }
 
   function cometVoice() {
@@ -355,22 +362,68 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
   function resetPortrait() {
     clearTimeout(portraitTimer);
     portraitRevision++;
+    portraitRequest = null;
+    portraitSubmitting = null;
+    portraitStatus = null;
+    readyPortraitUrl = '';
+    pendingIdentityComment = null;
     const image = element('portrait-image');
     image.hidden = true;
     image.removeAttribute('src');
+    element('portrait-placeholder').hidden = false;
+    const flightImage = element('identity-flight-image');
+    flightImage.hidden = true;
+    flightImage.removeAttribute('src');
+    element('identity-flight-placeholder').hidden = false;
+    element('identity-flight').hidden = true;
     element('portrait-generate').disabled = true;
     element('portrait-refresh').hidden = true;
     element('portrait-status').textContent = 'Speichere zuerst deinen Charakter-Draft.';
   }
 
+  function updateFlightIdentity() {
+    const visible = active && cinematicCampaign && ['journey', 'surface'].includes(phase) && draft?.character;
+    element('identity-flight').hidden = !visible;
+    if (visible) element('identity-flight-name').textContent = draft.character.name;
+  }
+
+  function queueIdentityComment() {
+    if (!active || !cinematicCampaign || !['character', 'journey', 'surface'].includes(phase)
+      || !readyPortraitUrl || !characterSaved()) return;
+    const key = `${readyPortraitUrl}\n${draft.character.name}`;
+    if (key === lastIdentityCommentKey) return;
+    pendingIdentityComment = { key, revision: portraitRevision, token: draft.prolog_token };
+    flushIdentityComment();
+  }
+
+  function flushIdentityComment() {
+    const pending = pendingIdentityComment;
+    if (!pending) return;
+    if (!active || pending.revision !== portraitRevision || pending.token !== draft?.prolog_token
+      || !['character', 'journey', 'surface'].includes(phase) || !characterSaved() || !readyPortraitUrl) {
+      pendingIdentityComment = null;
+      return;
+    }
+    if (pendingNarrationTransition || currentClip?.loading || currentClip?.playing || currentClip?.reading
+      || (openingPaused && pausablePhase())) return;
+    pendingIdentityComment = null;
+    lastIdentityCommentKey = pending.key;
+    const clip = cometMoment('identity-ready');
+    element('story').textContent = clip.text;
+    void narrate(clip, () => {});
+  }
+
   function showPortrait(portrait) {
     clearTimeout(portraitTimer);
+    if (!portrait || !['not_generated', 'pending', 'generated', 'failed'].includes(portrait.status)) {
+      throw new Error('Der Portraitstatus des Servers ist ungültig.');
+    }
+    portraitStatus = portrait.status;
     const image = element('portrait-image');
-    image.hidden = true;
-    image.removeAttribute('src');
+    const flightImage = element('identity-flight-image');
     const button = element('portrait-generate');
     button.textContent = portrait.status === 'failed' ? 'KI-Portrait erneut versuchen' : 'KI-Portrait erzeugen';
-    button.disabled = busy || portrait.status === 'pending' || portrait.status === 'generated'
+    button.disabled = busy || !!portraitSubmitting || portrait.status === 'pending' || portrait.status === 'generated'
       || portrait.attempts_remaining === 0 || portrait.retry_after > 0;
     element('portrait-refresh').hidden = false;
     if (portrait.status === 'generated') {
@@ -378,60 +431,98 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
         throw new Error('Der Server hat keine gültige private Portraitadresse geliefert.');
       }
       element('portrait-status').textContent = 'Dein KI-Portrait ist erzeugt und bleibt an deinen privaten Draft gebunden.';
-      image.src = portrait.image_url;
+      if (image.getAttribute('src') !== portrait.image_url) {
+        readyPortraitUrl = '';
+        image.hidden = true;
+        element('portrait-placeholder').hidden = false;
+        image.src = portrait.image_url;
+      }
+      if (flightImage.getAttribute('src') !== portrait.image_url) {
+        flightImage.hidden = true;
+        element('identity-flight-placeholder').hidden = false;
+        flightImage.src = portrait.image_url;
+      }
+      queueIdentityComment();
     } else if (portrait.status === 'pending') {
-      element('portrait-status').textContent = 'Dein KI-Portrait wird erzeugt. Du kannst zurückgehen; der Auftrag bleibt privat am Draft gespeichert.';
+      element('portrait-status').textContent = 'Dein Portrait wartet in der ComfyUI-Warteschlange. Die Reise kann weitergehen.';
     } else {
       element('portrait-status').textContent = portrait.status === 'failed'
         ? `Kein KI-Portrait erzeugt: ${portrait.error}` : 'Noch kein KI-Portrait erzeugt. Die gewählte Spezies bestimmt das Aussehen.';
       if (portrait.attempts_remaining === 0) element('portrait-status').textContent += ' Die drei Versuche für diesen Draft sind aufgebraucht.';
       else if (portrait.retry_after > 0) element('portrait-status').textContent += ` Erneut möglich in ${portrait.retry_after} Sekunden.`;
     }
+    if (portrait.status !== 'generated') {
+      readyPortraitUrl = '';
+      pendingIdentityComment = null;
+      image.hidden = true;
+      image.removeAttribute('src');
+      element('portrait-placeholder').hidden = false;
+      flightImage.hidden = true;
+      flightImage.removeAttribute('src');
+      element('identity-flight-placeholder').hidden = false;
+    }
+    updateFlightIdentity();
     if (portrait.status === 'pending' || (portrait.retry_after > 0 && portrait.attempts_remaining > 0)) {
       portraitTimer = setTimeout(() => { void refreshPortrait(); }, portrait.status === 'pending' ? 3000 : Math.min(portrait.retry_after * 1000, 30000));
     }
   }
 
-  async function refreshPortrait() {
-    if (!active || phase !== 'character' || busy || !characterSaved()) return;
-    const version = revision;
-    const identity = ++portraitRevision;
+  function currentPortraitRequest(state) {
+    return active && state.revision === portraitRevision && state.token === draft?.prolog_token && characterSaved();
+  }
+
+  async function refreshPortrait({ autoQueue = false } = {}) {
+    if (!active || portraitRequest || portraitSubmitting || !characterSaved()) return;
+    const state = { revision: portraitRevision, token: draft.prolog_token };
+    portraitRequest = state;
+    let enqueue = false;
     try {
-      const data = await request('register_portrait_status');
-      if (active && version === revision && identity === portraitRevision) showPortrait(data.portrait);
+      let data = await request('register_portrait_status');
+      if (!currentPortraitRequest(state)) return;
+      if (data.portrait?.status === 'pending') {
+        portraitStatus = 'pending';
+        data = await request('register_portrait_progress', { prolog_token: state.token });
+        if (!currentPortraitRequest(state)) return;
+      }
+      showPortrait(data.portrait);
+      enqueue = autoQueue && data.portrait.status === 'not_generated'
+        && data.portrait.attempts_remaining === 3 && data.portrait.retry_after === 0;
     } catch (error) {
-      if (!active || version !== revision || identity !== portraitRevision) return;
+      if (!currentPortraitRequest(state)) return;
       element('portrait-status').textContent = `Portraitstatus nicht verfügbar: ${error.message}`;
       element('portrait-refresh').hidden = false;
       element('portrait-generate').disabled = true;
       window.GQLog?.warn?.('[registration-portrait]', error.message);
+      if (portraitStatus === 'pending') portraitTimer = setTimeout(() => { void refreshPortrait(); }, 10000);
+    } finally {
+      if (portraitRequest === state) portraitRequest = null;
     }
+    if (enqueue && currentPortraitRequest(state)) void generatePortrait();
   }
 
   async function generatePortrait() {
-    if (busy || !characterSaved()) return;
-    busy = true;
-    const version = revision;
-    const identity = ++portraitRevision;
+    if (!active || portraitSubmitting || !characterSaved()) return;
+    const state = { revision: ++portraitRevision, token: draft.prolog_token };
+    portraitSubmitting = state;
+    portraitRequest = null;
     clearTimeout(portraitTimer);
-    element('character-form').inert = true;
     element('portrait-generate').disabled = true;
-    element('portrait-status').textContent = 'Dein KI-Portrait wird erzeugt. Das kann einige Minuten dauern.';
+    element('portrait-status').textContent = 'Dein Portrait wird in die ComfyUI-Warteschlange eingereiht.';
+    let refresh = false;
     try {
-      const data = await request('register_portrait', { prolog_token: draft.prolog_token });
-      if (!active || version !== revision || identity !== portraitRevision) return;
-      busy = false;
+      const data = await request('register_portrait', { prolog_token: state.token });
+      if (!currentPortraitRequest(state)) return;
       showPortrait(data.portrait);
     } catch (error) {
-      if (!active || version !== revision || identity !== portraitRevision) return;
-      busy = false;
+      if (!currentPortraitRequest(state)) return;
       element('portrait-status').textContent = `Kein KI-Portrait erzeugt: ${error.message}`;
       element('portrait-refresh').hidden = false;
       window.GQLog?.warn?.('[registration-portrait]', error.message);
-      void refreshPortrait();
+      refresh = true;
     } finally {
-      if (active && version === revision) { busy = false; element('character-form').inert = false; }
+      if (portraitSubmitting === state) portraitSubmitting = null;
     }
+    if (refresh && currentPortraitRequest(state)) void refreshPortrait();
   }
 
   function matchesPrefetchedNarration(clip) {
@@ -522,7 +613,7 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
 
   async function narrate(clip, done, nextClip = null) {
     stopNarration({ keepPrefetch: matchesPrefetchedNarration(clip) });
-    const clipState = { clip, done, nextClip, loading: false, playing: false };
+    const clipState = { clip, done, nextClip, loading: false, playing: false, reading: false };
     currentClip = clipState;
     const version = revision;
     const narration = ++narrationRevision;
@@ -535,8 +626,14 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     const finishByReading = () => {
       if (reading) return;
       reading = true;
+      clipState.reading = true;
       timer = setTimeout(() => {
-        if (isCurrent()) done();
+        if (isCurrent()) {
+          clipState.reading = false;
+          done();
+          flushNarrationTransition();
+          flushIdentityComment();
+        }
       }, Math.max(8000, clip.text.split(/\s+/).length * 430));
     };
     const unavailable = (message) => {
@@ -584,6 +681,7 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
           setStatus('narration-status', '');
           done();
           flushNarrationTransition();
+          flushIdentityComment();
         }
       };
       audio.onerror = () => unavailable('Der Sprachclip konnte nicht abgespielt werden.');
@@ -630,7 +728,7 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     element('opening-source').open = false;
     updateProgress(title);
     heraldStage?.setVisible(active && phase === 'mentor-room');
-    resetPortrait();
+    if (!['character', 'journey', 'surface', 'landing'].includes(phase)) resetPortrait();
     revision++;
     stopNarration({ keepPrefetch: matchesPrefetchedNarration(narration) });
     currentClip = null;
@@ -642,6 +740,7 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     element('surface').hidden = true;
     element('review').hidden = true;
     element('draft-summary').hidden = true;
+    updateFlightIdentity();
     element('error').textContent = '';
     element('status').textContent = '';
     setStatus('flight-status', '');
@@ -1164,7 +1263,10 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     const preserveCamera = cinematicCampaign && phase === 'mentor-room'
       && homeworldCameraCode === selectedSpecies;
     phase = 'character';
-    frame('Wer übernimmt das Kommando?', 'Deine Identität entsteht in einem privaten Draft. Noch keine E-Mail, kein Passwort und keine aktive Welt.', 'Schritt 4 / Commander', { preserveCamera });
+    const identityPrompt = cinematicCampaign ? cometMoment('commander-name') : null;
+    frame('Wer übernimmt das Kommando?',
+      identityPrompt?.text || 'Deine Identität entsteht in einem privaten Draft. Noch keine E-Mail, kein Passwort und keine aktive Welt.',
+      'Schritt 4 / Commander', { preserveCamera, narration: identityPrompt });
     element('character').hidden = false;
     element('character-form').inert = false;
     element('character-form').querySelector('button').disabled = false;
@@ -1173,6 +1275,8 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     element('name').value = savedCharacter?.name || suggestion?.name || '';
     element('background').value = savedCharacter?.background || suggestion?.background || '';
     element('character-suggest').disabled = characterSuggestionRequest?.revision === revision;
+    element('suggestion-status').textContent = savedCharacter ? 'Deine Angaben bleiben bearbeitbar.' : '';
+    element('suggestion-status').classList.remove('is-error', 'is-loading');
     element('draft-summary').hidden = false;
     element('draft-summary').textContent = `${draft.colony_name} [${draft.position.galaxy}:${draft.position.system}:${draft.position.position}] · Privat reserviert bis ${new Date(draft.expires_at).toLocaleString()}.`;
     if (cinematicCampaign && !preserveCamera) previewHomeworld(catalog.species.find((item) => item.code === selectedSpecies));
@@ -1181,10 +1285,10 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     next.hidden = !draft.character;
     root.dataset.beat = 'character-dossier';
     const narration = content.registration_steps?.find((clip) => clip.id === 'character-dossier');
-    if (cinematicCampaign) void narrate(cometMoment('commander-name'), () => {});
+    if (identityPrompt) void narrate(identityPrompt, () => {});
     else if (narration) void narrate(narration, () => {});
     if (!savedCharacter && !suggestion) queueMicrotask(() => { void suggestCharacter(); });
-    void refreshPortrait();
+    void refreshPortrait({ autoQueue: true });
   }
 
   async function suggestCharacter(force = false) {
@@ -1200,9 +1304,9 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     characterSuggestionRequest = requestState;
     const button = element('character-suggest');
     button.disabled = true;
-    element('status').classList.remove('is-error');
-    element('status').classList.add('is-loading');
-    element('status').textContent = 'Die Lore erstellt einen Commander-Vorschlag...';
+    element('suggestion-status').classList.remove('is-error');
+    element('suggestion-status').classList.add('is-loading');
+    element('suggestion-status').textContent = 'Die Lore erstellt einen Commander-Vorschlag. Du kannst auch selbst schreiben.';
 
     try {
       const data = await request('register_character_suggest', { prolog_token: draft.prolog_token });
@@ -1219,18 +1323,18 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
       if (element('background').value === initialBackground && (force || !initialBackground.trim())) {
         element('background').value = suggestion.background;
       }
-      next.hidden = true;
+      next.hidden = !characterSaved();
       characterSuggestion = {
         name: element('name').value,
         background: element('background').value,
       };
       characterSuggestionSpecies = selectedSpecies;
-      element('status').classList.remove('is-error');
-      element('status').textContent = 'Lore-Vorschlag eingefügt. Name und Hintergrund kannst du frei bearbeiten.';
+      element('suggestion-status').classList.remove('is-error');
+      element('suggestion-status').textContent = 'Lore-Vorschlag eingefügt. Name und Hintergrund kannst du frei bearbeiten.';
     } catch (error) {
       if (active && version === revision && phase === 'character') {
-        element('status').classList.add('is-error');
-        element('status').textContent = 'Lore-Vorschlag nicht verfügbar. Name und Hintergrund können manuell eingegeben werden.';
+        element('suggestion-status').classList.add('is-error');
+        element('suggestion-status').textContent = 'Lore-Vorschlag nicht verfügbar. Name und Hintergrund können manuell eingegeben werden.';
         window.GQLog?.warn?.('[registration-character-suggestion]', String(error?.message || error));
       }
     } finally {
@@ -1238,7 +1342,7 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
         characterSuggestionRequest = null;
         if (active && version === revision && phase === 'character') {
           button.disabled = false;
-          element('status').classList.remove('is-loading');
+          element('suggestion-status').classList.remove('is-loading');
         }
       }
     }
@@ -1263,7 +1367,7 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
       busy = false;
       setControlLabel(next, cinematicCampaign ? 'Shuttle starten' : 'Startwelt-Vorschau anzeigen');
       next.hidden = false;
-      void refreshPortrait();
+      void refreshPortrait({ autoQueue: true });
       element('status').textContent = 'Charakter-Draft gespeichert. Deine private Welt ist reserviert und noch nicht aktiviert; du kannst die Reise starten.';
     } catch (error) {
       if (active && version === revision) fail(error);
@@ -1407,11 +1511,27 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
   element('portrait-generate').addEventListener('click', generatePortrait);
   element('portrait-refresh').addEventListener('click', () => { void refreshPortrait(); });
   element('portrait-image').addEventListener('load', () => {
-    if (active && phase === 'character' && characterSaved() && element('portrait-image').hasAttribute('src')) element('portrait-image').hidden = false;
+    const image = element('portrait-image');
+    if (!active || !characterSaved() || !image.hasAttribute('src')) return;
+    image.hidden = false;
+    element('portrait-placeholder').hidden = true;
+    readyPortraitUrl = image.getAttribute('src');
+    queueIdentityComment();
   });
   element('portrait-image').addEventListener('error', () => {
     element('portrait-image').hidden = true;
+    element('portrait-placeholder').hidden = false;
+    readyPortraitUrl = '';
     element('portrait-status').textContent = 'Das private Portrait konnte nicht geladen werden. Prüfe den Portraitstatus erneut.';
+  });
+  element('identity-flight-image').addEventListener('load', () => {
+    if (!active || !characterSaved() || !element('identity-flight-image').hasAttribute('src')) return;
+    element('identity-flight-image').hidden = false;
+    element('identity-flight-placeholder').hidden = true;
+  });
+  element('identity-flight-image').addEventListener('error', () => {
+    element('identity-flight-image').hidden = true;
+    element('identity-flight-placeholder').hidden = false;
   });
   element('narration-retry').addEventListener('click', () => {
     if (currentClip) void narrate(currentClip.clip, currentClip.done, currentClip.nextClip);
@@ -1450,6 +1570,7 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
       characterSuggestion = null;
       characterSuggestionSpecies = '';
       characterSuggestionRequest = null;
+      lastIdentityCommentKey = '';
       mentorDrafts = [];
       selectedMentorDraft = null;
       selectedTutorialPlanet = null;

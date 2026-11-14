@@ -130,6 +130,10 @@ final class RegistrationPlayTest extends TestCase {
         finally { $setSnapshot->execute([$snapshot, $draft['prolog_token']]); }
         self::assertSame($beforeUsers, (int)$db->query('SELECT COUNT(*) FROM users')->fetchColumn(), 'User creation must roll back with the colony write.');
         self::assertNotNull($play->status($owner), 'Failed promotion must restore the playable draft and its reservation.');
+        $db->prepare(
+            "INSERT INTO registration_portraits (draft_token, identity_hash, attempt_id, status, image)
+             VALUES (?, ?, ?, 'generated', ?)"
+        )->execute([$draft['prolog_token'], str_repeat('0', 64), str_repeat('1', 32), 'stale portrait']);
         $result = $play->confirm($token);
         $uid = $result['user']['id'];
         $cid = $result['colony_id'];
@@ -151,7 +155,34 @@ final class RegistrationPlayTest extends TestCase {
         self::assertSame(1, (int)$db->query("SELECT count FROM ships WHERE colony_id = $cid AND type = 'espionage_probe'")->fetchColumn(), 'The travelling probe must not be duplicated.');
         $archive = json_decode($db->query("SELECT state_json FROM user_draft_progress WHERE user_id = $uid")->fetchColumn(), true, 512, JSON_THROW_ON_ERROR);
         self::assertSame('Private frontier explorer', $archive['world']['character']['background']);
+        self::assertNull($db->query("SELECT portrait FROM user_draft_progress WHERE user_id = $uid")->fetchColumn(),
+            'A portrait from an outdated identity must not be promoted.');
         self::assertEqualsWithDelta($archive['progress']['economy']['stock']['metal'], (float)$db->query("SELECT metal FROM colonies WHERE id = $cid")->fetchColumn(), 0.001);
         self::assertSame($draft['position']['system'], (int)$db->query("SELECT cb.system_index FROM colonies c JOIN celestial_bodies cb ON cb.id=c.body_id WHERE c.id=$cid")->fetchColumn());
+
+        $portraitOwner = hash('sha256', 'play-portrait-browser');
+        $portraitDraft = $drafts->prepare($portraitOwner, 'kernrat', hash('sha256', 'portrait-play-ip'));
+        $drafts->saveProfile($portraitOwner, ['prolog_token' => $portraitDraft['prolog_token'], 'species_code' => 'aereth']);
+        $drafts->saveCharacter($portraitOwner, [
+            'prolog_token' => $portraitDraft['prolog_token'], 'name' => 'PortraitCommander', 'background' => 'Private pilot',
+        ]);
+        $chunk = static fn(string $type, string $data): string =>
+            pack('N', strlen($data)) . $type . $data . pack('N', crc32($type . $data));
+        $png = "\x89PNG\r\n\x1a\n"
+            . $chunk('IHDR', pack('NNCCCCC', 768, 1024, 8, 2, 0, 0, 0))
+            . $chunk('IDAT', gzcompress(str_repeat("\0" . str_repeat("\x40\x80\xc0", 768), 1024)))
+            . $chunk('IEND', '');
+        $portraits = new RegistrationPortraitService($db);
+        $portraits->generate($portraitOwner, $portraitDraft['prolog_token'], hash('sha256', 'portrait-ip'), static function (): void {});
+        $portraits->progress($portraitOwner, $portraitDraft['prolog_token'], static fn(): array => ['status' => 'generated', 'image' => $png]);
+        $play->enter($portraitOwner, $portraitDraft['prolog_token']);
+        $portraitToken = '';
+        $play->sendConfirmation($portraitOwner,
+            ['username' => 'PortraitLogin', 'email' => 'portrait@example.test', 'password' => 'test-only-long-password'],
+            static function (string $email, string $value) use (&$portraitToken): void { $portraitToken = $value; });
+        $portraitUser = $play->confirm($portraitToken)['user']['id'];
+        $stored = $db->prepare('SELECT portrait FROM user_draft_progress WHERE user_id = ?');
+        $stored->execute([$portraitUser]);
+        self::assertSame($png, $stored->fetchColumn(), 'A portrait matching the confirmed identity must be retained.');
     }
 }

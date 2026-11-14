@@ -1,8 +1,95 @@
 const { test, expect } = require('@playwright/test');
 const content = require('../../config/onboarding_prologue.json');
+const narration = require('../../config/onboarding_narration.json');
 
 const api = process.env.GQ_REGISTRATION_API_URL;
 test.skip(!api, 'Requires an explicitly supplied disposable PHP/MySQL API (GQ_REGISTRATION_API_URL).');
+
+test('the comet identity comment is synthesized for all four configured voices', async ({ playwright }) => {
+  test.skip(process.env.GQ_REGISTRATION_TTS_TEST !== '1', 'Requires an explicitly supplied TTS test backend.');
+  test.setTimeout(300_000);
+  const context = await playwright.request.newContext({ baseURL: api });
+  try {
+    const csrf = await (await context.get('/api/auth.php?action=csrf')).json();
+    for (const [voice, language] of Object.entries(narration.voices)) {
+      const response = await context.post('/api/registration_narration.php', {
+        data: { clip: 'comet-moment-identity-ready', voice }, headers: { 'X-CSRF-Token': csrf.token }, timeout: 240_000,
+      });
+      expect(response.ok(), await response.text()).toBe(true);
+      const clip = await response.json();
+      expect(clip.voice).toBe(voice);
+      expect(clip.language).toBe(language);
+      expect(clip.text).toBe(narration.moments['identity-ready'][language]);
+      const audio = await context.get(`/${clip.audio_url}`);
+      expect(audio.ok()).toBe(true);
+      expect(audio.headers()['content-type']).toContain('audio/mpeg');
+      expect((await audio.body()).length).toBeGreaterThan(0);
+    }
+  } finally {
+    await context.dispose();
+  }
+});
+
+test('a queued ComfyUI portrait completes in the playable private draft', async ({ playwright }) => {
+  test.skip(process.env.GQ_REGISTRATION_COMFY_TEST !== '1', 'Requires an explicitly supplied ComfyUI test backend.');
+  test.setTimeout(600_000);
+  const context = await playwright.request.newContext({ baseURL: api });
+  const other = await playwright.request.newContext({ baseURL: api });
+  const endpoint = (action) => `/api/auth.php?action=${action}`;
+  try {
+    const csrf = await (await context.get(endpoint('csrf'))).json();
+    const post = (action, data) => context.post(endpoint(action), { data, headers: { 'X-CSRF-Token': csrf.token } });
+    const prepared = await post('register_prepare', { faction_id: 'kernrat' });
+    expect(prepared.ok(), await prepared.text()).toBe(true);
+    const token = (await prepared.json()).draft.prolog_token;
+    const profile = await post('register_profile', { prolog_token: token, species_code: 'aereth' });
+    expect(profile.ok(), await profile.text()).toBe(true);
+    if (process.env.GQ_REGISTRATION_OLLAMA_TEST === '1') {
+      const suggestion = await context.post(endpoint('register_character_suggest'), {
+        data: { prolog_token: token }, headers: { 'X-CSRF-Token': csrf.token }, timeout: 310_000,
+      });
+      expect(suggestion.ok(), await suggestion.text()).toBe(true);
+      const proposed = (await suggestion.json()).suggestion;
+      expect(proposed.name).toMatch(/^[A-Za-z0-9_]{3,32}$/);
+      expect(proposed.background.length).toBeGreaterThan(0);
+      expect(proposed.background.length).toBeLessThanOrEqual(500);
+    }
+    const character = await post('register_character', {
+      prolog_token: token, name: 'ComfyTestCommander', background: 'Synthetic private test character',
+    });
+    expect(character.ok(), await character.text()).toBe(true);
+    const queued = await post('register_portrait', { prolog_token: token });
+    expect(queued.ok(), await queued.text()).toBe(true);
+    expect((await queued.json()).portrait.status).toBe('pending');
+    const entered = await context.post('/api/registration_play.php?action=enter', {
+      data: { prolog_token: token }, headers: { 'X-CSRF-Token': csrf.token },
+    });
+    expect(entered.ok(), await entered.text()).toBe(true);
+    expect((await entered.json()).draft.draft_mode).toBe(true);
+
+    let portrait;
+    await expect.poll(async () => {
+      const progress = await post('register_portrait_progress', { prolog_token: token });
+      expect(progress.ok(), await progress.text()).toBe(true);
+      portrait = (await progress.json()).portrait;
+      if (portrait.status === 'failed') throw new Error(portrait.error);
+      return portrait.status;
+    }, { timeout: 240_000, intervals: [3000] }).toBe('generated');
+
+    const image = await context.get(`/${portrait.image_url}`);
+    expect(image.ok()).toBe(true);
+    expect(image.headers()['content-type']).toContain('image/png');
+    const bytes = await image.body();
+    expect(bytes.length).toBeLessThanOrEqual(2 * 1024 * 1024);
+    expect(bytes.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+    expect(bytes.readUInt32BE(16)).toBe(768);
+    expect(bytes.readUInt32BE(20)).toBe(1024);
+    expect((await other.get(`/${portrait.image_url}`)).ok()).toBe(false);
+  } finally {
+    await context.dispose();
+    await other.dispose();
+  }
+});
 
 test('real API persists a private political and character draft but refuses unverified activation', async ({ playwright }) => {
   const browserOne = await playwright.request.newContext({ baseURL: api });
@@ -48,7 +135,7 @@ test('real API persists a private political and character draft but refuses unve
     for (const action of ['register', 'register_complete']) {
       const blocked = await post(browserOne, action, { ...character, email: 'draft@example.invalid', password: 'valid-password' });
       expect(blocked.status()).toBe(503);
-      expect((await blocked.json()).error).toContain('email verification');
+      expect((await blocked.json()).error).toContain('confirm your email');
     }
     expect((await (await browserOne.get(endpoint('me'))).json()).authenticated).toBe(false);
     expect((await (await browserOne.get(endpoint('register_status'))).json()).draft.character.name).toBe('ApiCommander');
@@ -196,6 +283,7 @@ test('cinematic UI saves a commander through the actual isolated PHP/MySQL backe
   await expect(page.locator('#registration-character')).toBeVisible();
   await page.locator('#registration-name').fill('BrowserCommander');
   await page.locator('#registration-background').fill('Explorer from the frontier');
+  const portraitSubmission = page.waitForResponse('**/auth.php?action=register_portrait');
   await page.locator('#registration-character-form [type="submit"]').click();
   await expect(page.locator('#registration-status')).toContainText('nicht aktiviert');
   const saved = await page.evaluate(async () => (await fetch('api/auth.php?action=register_status')).json());
@@ -204,10 +292,7 @@ test('cinematic UI saves a commander through the actual isolated PHP/MySQL backe
   expect(saved.draft.species_code).toBe('vor_tak');
   const session = await page.evaluate(async () => (await fetch('api/auth.php?action=me&quiet=1')).json());
   expect(session.authenticated).toBe(false);
-  await expect(page.locator('#registration-portrait-generate')).toBeEnabled();
-  const failedPortraitStatus = page.waitForResponse('**/auth.php?action=register_portrait_status');
-  await page.locator('#registration-portrait-generate').click();
-  await failedPortraitStatus;
+  await portraitSubmission;
   await expect(page.locator('#registration-portrait-status')).toContainText('Kein KI-Portrait erzeugt');
   await expect(page.locator('#registration-portrait-image')).toBeHidden();
   await page.locator('#registration-continue').click();
@@ -222,9 +307,9 @@ test('cinematic UI saves a commander through the actual isolated PHP/MySQL backe
   await page.unrouteAll({ behavior: 'wait' });
 });
 
-test('private portrait pipeline downloads and serves a validated PNG from an isolated SwarmUI fixture', async ({ playwright }) => {
-  const fixtureApi = process.env.GQ_REGISTRATION_PORTRAIT_FIXTURE_URL;
-  test.skip(!fixtureApi, 'Requires a separate disposable API configured against the synthetic SwarmUI fixture.');
+test('private portrait pipeline queues and serves a validated PNG from an isolated ComfyUI fixture', async ({ playwright }) => {
+  const fixtureApi = process.env.GQ_REGISTRATION_COMFYUI_FIXTURE_URL;
+  test.skip(!fixtureApi, 'Requires a separate disposable API configured against a synthetic ComfyUI fixture.');
   const owner = await playwright.request.newContext({ baseURL: fixtureApi });
   const other = await playwright.request.newContext({ baseURL: fixtureApi });
   const endpoint = (action) => `/api/auth.php?action=${action}`;
@@ -236,7 +321,10 @@ test('private portrait pipeline downloads and serves a validated PNG from an iso
     await post('register_profile', { prolog_token: draft.prolog_token, species_code: 'vor_tak' });
     const character = { prolog_token: draft.prolog_token, name: 'FixtureCommander', background: 'Local test only' };
     await post('register_character', character);
-    const generated = await post('register_portrait', { prolog_token: draft.prolog_token });
+    const queued = await post('register_portrait', { prolog_token: draft.prolog_token });
+    expect(queued.status(), await queued.text()).toBe(200);
+    expect((await queued.json()).portrait.status).toBe('pending');
+    const generated = await post('register_portrait_progress', { prolog_token: draft.prolog_token });
     expect(generated.status(), await generated.text()).toBe(200);
     const { portrait } = await generated.json();
     expect(portrait.status).toBe('generated');

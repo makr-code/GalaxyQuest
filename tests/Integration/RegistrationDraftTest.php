@@ -129,24 +129,40 @@ final class RegistrationDraftTest extends TestCase {
         $portraitIp = hash('sha256', 'portrait-test');
         self::assertSame('not_generated', $portraits->status($owner)['status']);
         try {
-            $portraits->generate($other, $draft['prolog_token'], $portraitIp, static fn(): string => $png);
+            $portraits->generate($other, $draft['prolog_token'], $portraitIp, static function (): void {});
             self::fail('Another browser generated a portrait.');
         } catch (RuntimeException $error) {
             self::assertSame(410, $error->getCode());
         }
         $result = $portraits->generate($owner, $draft['prolog_token'], $portraitIp,
-            function (array $snapshot) use ($portraits, $owner, $draft, $portraitIp, $png): string {
+            function (array $snapshot, string $attempt) use ($portraits, $owner, $draft, $portraitIp): void {
                 self::assertSame('vor_tak', $snapshot['species_code']);
                 self::assertSame('DraftCommander', $snapshot['character']['name']);
+                self::assertMatchesRegularExpression('/^[a-f0-9]{32}$/', $attempt);
                 self::assertSame('pending', $portraits->status($owner)['status']);
-                try {
-                    $portraits->generate($owner, $draft['prolog_token'], $portraitIp, static fn(): string => $png);
-                    self::fail('Concurrent duplicate generation was accepted.');
-                } catch (RuntimeException $error) {
-                    self::assertSame(409, $error->getCode());
-                }
-                return $png;
+                $duplicate = $portraits->generate($owner, $draft['prolog_token'], $portraitIp,
+                    static function (): never { throw new LogicException('A pending job must not be queued twice.'); });
+                self::assertSame('pending', $duplicate['status']);
             });
+        self::assertSame('pending', $result['status']);
+        self::assertSame('pending', $portraits->progress($owner, $draft['prolog_token'],
+            static fn(): array => ['status' => 'pending'])['status']);
+        try {
+            $portraits->progress($other, $draft['prolog_token'], static fn(): array => ['status' => 'pending']);
+            self::fail('Another browser checked the portrait job.');
+        } catch (RuntimeException $error) {
+            self::assertSame(410, $error->getCode());
+        }
+        try {
+            $portraits->progress($owner, $draft['prolog_token'],
+                static function (): never { throw new RuntimeException('ComfyUI temporarily unavailable', 503); });
+            self::fail('A failed status request was reported as successful.');
+        } catch (RuntimeException $error) {
+            self::assertSame(503, $error->getCode());
+        }
+        self::assertSame('pending', $portraits->status($owner)['status']);
+        $result = $portraits->progress($owner, $draft['prolog_token'],
+            static fn(): array => ['status' => 'generated', 'image' => $png]);
         self::assertSame('generated', $result['status']);
         parse_str(parse_url($result['image_url'], PHP_URL_QUERY), $query);
         self::assertSame($png, $portraits->image($owner, $query['revision']));
@@ -177,17 +193,18 @@ final class RegistrationDraftTest extends TestCase {
         self::assertSame('failed', $portraits->status($owner)['status']);
         self::assertStringContainsString('unavailable', $portraits->status($owner)['error']);
         try {
-            $portraits->generate($owner, $draft['prolog_token'], $portraitIp, static fn(): string => $png);
+            $portraits->generate($owner, $draft['prolog_token'], $portraitIp, static function (): void {});
             self::fail('Retry cooldown was ignored.');
         } catch (RuntimeException $error) {
             self::assertSame(429, $error->getCode());
         }
         $db->exec('UPDATE registration_portraits SET started_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 31 SECOND)');
+        $portraits->generate($owner, $draft['prolog_token'], $portraitIp, static function (): void {});
         try {
-            $portraits->generate($owner, $draft['prolog_token'], $portraitIp,
-                function () use ($service, $owner, $character, $png): string {
+            $portraits->progress($owner, $draft['prolog_token'],
+                function () use ($service, $owner, $character, $png): array {
                     $service->saveCharacter($owner, array_replace($character, ['name' => 'NewCommander']));
-                    return $png;
+                    return ['status' => 'generated', 'image' => $png];
                 });
             self::fail('Stale generation was published after a character edit.');
         } catch (RuntimeException $error) {
@@ -200,25 +217,28 @@ final class RegistrationDraftTest extends TestCase {
         $service->saveCharacter($other, array_replace($character, ['prolog_token' => $draft2['prolog_token']]));
         foreach (['not a PNG', str_repeat('x', RegistrationPortraitService::MAX_BYTES + 1)] as $invalidImage) {
             $db->exec('UPDATE registration_portraits SET started_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 31 SECOND)');
-            try {
-                $portraits->generate($other, $draft2['prolog_token'], $portraitIp, static fn(): string => $invalidImage);
-                self::fail('Invalid or oversized portrait was published.');
-            } catch (RuntimeException $error) {
-                self::assertSame(503, $error->getCode());
-            }
+            $portraits->generate($other, $draft2['prolog_token'], $portraitIp, static function (): void {});
+            $failed = $portraits->progress($other, $draft2['prolog_token'],
+                static fn(): array => ['status' => 'generated', 'image' => $invalidImage]);
+            self::assertSame('failed', $failed['status']);
             self::assertNull($portraits->status($other)['image_url']);
         }
-        $db->exec("UPDATE registration_portraits SET status = 'pending', started_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 301 SECOND)");
-        self::assertSame('failed', $portraits->status($other)['status']);
-        self::assertSame(0, $portraits->status($other)['retry_after']);
+        $db->exec('UPDATE registration_portraits SET started_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 31 SECOND)');
         $quota = hash('sha256', 'portrait-quota');
         $db->prepare('INSERT INTO registration_limits (ip_hash, attempts) VALUES (?, 10)')->execute([$quota]);
         try {
-            $portraits->generate($other, $draft2['prolog_token'], $quota, static fn(): string => $png);
+            $portraits->generate($other, $draft2['prolog_token'], $quota, static function (): void {});
             self::fail('Portrait IP quota was ignored.');
         } catch (RuntimeException $error) {
             self::assertSame(429, $error->getCode());
         }
+        $portraits->generate($other, $draft2['prolog_token'], $portraitIp, static function (): void {});
+        $db->prepare('UPDATE registration_portraits SET started_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 301 SECOND) WHERE draft_token = ?')
+            ->execute([$draft2['prolog_token']]);
+        self::assertSame('pending', $portraits->status($other)['status']);
+        self::assertSame(0, $portraits->status($other)['retry_after']);
+        self::assertSame('pending', $portraits->progress($other, $draft2['prolog_token'],
+            static fn(): array => ['status' => 'pending'])['status']);
         self::assertSame($saved['character'], $service->saveProfile($owner, $input)['character'], 'Unchanged species must preserve the character.');
         $changed = $service->saveProfile($owner, array_replace($input, ['species_code' => 'syl_nar']));
         self::assertArrayNotHasKey('character', $changed, 'Changing species invalidates the dependent character draft.');
@@ -245,7 +265,7 @@ final class RegistrationDraftTest extends TestCase {
                 self::fail('Unverified draft activated a world.');
             } catch (RuntimeException $error) {
                 self::assertSame(503, $error->getCode());
-                self::assertStringContainsString('email verification', $error->getMessage());
+                self::assertStringContainsString('confirm your email', $error->getMessage());
             }
         }
         self::assertSame($before, $this->counts($db), 'Neither saving the character nor blocked activation may create real gameplay objects.');

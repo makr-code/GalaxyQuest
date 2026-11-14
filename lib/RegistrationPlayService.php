@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/DraftWorldSimulation.php';
 require_once __DIR__ . '/RegistrationDraftService.php';
+require_once __DIR__ . '/RegistrationPortraitService.php';
 
 final class RegistrationPlayService
 {
@@ -149,9 +150,10 @@ final class RegistrationPlayService
                     ->execute([$username, $row['email'], $row['password_hash'], $draft['species_code']]);
                     $uid = (int)$this->db->lastInsertId();
                     $portrait = $this->db->prepare(
-                        "SELECT image FROM registration_portraits WHERE draft_token = ? AND status = 'generated'"
+                        "SELECT image FROM registration_portraits
+                         WHERE draft_token = ? AND identity_hash = ? AND status = 'generated'"
                     );
-                    $portrait->execute([$row['token']]);
+                    $portrait->execute([$row['token'], RegistrationPortraitService::identityHash($draft)]);
                     $image = $portrait->fetchColumn();
                     $this->db->prepare(
                         'INSERT INTO user_draft_progress (user_id, state_json, email_verified_at, portrait)

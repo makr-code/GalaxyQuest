@@ -176,6 +176,7 @@
     "tour-complete": { "de": "Sechs Herkünfte stehen euch offen. Andere Mächte begegnen euch unterwegs. Und nun?", "en": "Six origins are open to you. Other powers await you along the way. And now?" },
     "choose-origin": { "de": "Welche Geschichte möchtet ihr weiterschreiben? Wählt eure Herkunft. Ich kann gut warten.", "en": "Whose story will you carry forward? Choose your origin. I'm very good at waiting." },
     "commander-name": { "de": "Und wie darf ich euch nennen? Namen bleiben mir besser im Gedächtnis als Katalognummern.", "en": "And what shall I call you? I remember names much better than catalog numbers." },
+    "identity-ready": { "de": "Ein Name und ein Gesicht – ausgezeichnet. Auf meinem Ausweis wäre vermutlich nur ein sehr langer Streifen zu sehen.", "en": "A name and a face. Excellent! My own identity card would probably show a very long streak." },
     "shuttle-handoff": { "de": "Euer Shuttle kreuzt gleich meinen Kurs. Es hat Sitze. Ich bin ein bisschen neidisch.", "en": "Your shuttle is about to cross my path. It has seats. I'm a little jealous." },
     "destination-orbit": { "de": "Da liegt eure neue Heimat. Nehmt euch Zeit und bestätigt die Landung erst, wenn ihr bereit seid.", "en": "There's your new home. Take your time, and confirm the landing only when you're ready." },
     "landing-confirmed": { "de": "Dann ist es entschieden. Das Shuttle setzt zur Landung an. Eure Geschichte beginnt hier.", "en": "Then it's decided. The shuttle begins its descent. Your story starts here." }
@@ -272,6 +273,7 @@
     "comet-moment-tour-complete": { "de": "Sechs Herkünfte stehen euch offen. Andere Mächte begegnen euch unterwegs. Und nun?", "en": "Six origins are open to you. Other powers await you along the way. And now?" },
     "comet-moment-choose-origin": { "de": "Welche Geschichte möchtet ihr weiterschreiben? Wählt eure Herkunft. Ich kann gut warten.", "en": "Whose story will you carry forward? Choose your origin. I'm very good at waiting." },
     "comet-moment-commander-name": { "de": "Und wie darf ich euch nennen? Namen bleiben mir besser im Gedächtnis als Katalognummern.", "en": "And what shall I call you? I remember names much better than catalog numbers." },
+    "comet-moment-identity-ready": { "de": "Ein Name und ein Gesicht – ausgezeichnet. Auf meinem Ausweis wäre vermutlich nur ein sehr langer Streifen zu sehen.", "en": "A name and a face. Excellent! My own identity card would probably show a very long streak." },
     "comet-moment-shuttle-handoff": { "de": "Euer Shuttle kreuzt gleich meinen Kurs. Es hat Sitze. Ich bin ein bisschen neidisch.", "en": "Your shuttle is about to cross my path. It has seats. I'm a little jealous." },
     "comet-moment-destination-orbit": { "de": "Da liegt eure neue Heimat. Nehmt euch Zeit und bestätigt die Landung erst, wenn ihr bereit seid.", "en": "There's your new home. Take your time, and confirm the landing only when you're ready." },
     "comet-moment-landing-confirmed": { "de": "Dann ist es entschieden. Das Shuttle setzt zur Landung an. Eure Geschichte beginnt hier.", "en": "Then it's decided. The shuttle begins its descent. Your story starts here." }

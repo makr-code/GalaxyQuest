@@ -44,11 +44,14 @@ Zwischenstand fuer **Begin a new campaign**:
    Zurueck, Pause und Ueberspringen bleiben bedienbar. Reise und Massstab sind
    filmisch, keine Simulation realer Kometengeschwindigkeiten.
 3. Nach der Tour werden die bestehenden privaten Herkunfts-Drafts vorbereitet.
-   Der Spieler waehlt seine Spezies und seinen Commander-Namen. Ollama erstellt
-   auf Basis der gewaehlten Spezies-Lore einen editierbaren Namens- und
-   Hintergrundvorschlag. Die Eingaben bleiben manuell aenderbar und werden erst
-   nach dem ausdruecklichen Speichern Teil des privaten Drafts; wenn Ollama
-   nicht verfuegbar ist, kann der Spieler beide Felder selbst ausfuellen.
+   Der Spieler waehlt seine Spezies. Eine Commander-ID zeigt Platzhalter,
+   waehrend Ollama aus der Spezies-Lore einen editierbaren Namens- und
+   Hintergrundvorschlag erstellt. Die Eingaben werden erst nach ausdruecklichem
+   Speichern Teil des privaten Drafts; bei Ausfall von Ollama sind sie manuell
+   ausfuellbar. Danach wird das Portrait asynchron in ComfyUI eingereiht.
+   Die Reise wartet nicht auf das Bild; die kleine ID bleibt beim Shuttleflug
+   sichtbar. Sobald das geladene Bild und der gespeicherte Name vorliegen,
+   kommentiert der Komet die ID zwischen den laufenden Erzaehlbeats.
    Die Darstellung bleibt bis zum Abflug bei der gewaehlten Heimatwelt.
 4. Ein Shuttle startet von dieser Heimatwelt und kreuzt den Kometen mit
    sicherem Abstand. Die Kamera wechselt im Vorbeiflug vom Kometen auf das
@@ -195,24 +198,35 @@ Die allgemeinen TTS-Endpunkte und ihre Freigaben bleiben davon getrennt.
 - Die NPC-Hauptwelten bleiben bestehen; politische Codes verweisen explizit
   auf geografische Anker. Charakterdaten werden noch nicht in User-Tabellen
   publiziert. Eine Speziesaenderung verwirft den abhaengigen Charakter.
-- Nach dem Speichern kann ein KI-Portrait ueber den vorhandenen lokalen
-  SwarmUI-Client angefordert werden. Die kanonische Spezies-Spezifikation
-  bestimmt Morphologie und Palette; ein LLM darf die Spezies nicht neu erfinden.
+- Nach dem Speichern wird ein KI-Portrait an die lokale ComfyUI-Queue gesendet.
+  Die kanonische Spezies-Spezifikation bestimmt Morphologie und Palette; ein LLM
+  darf die Spezies nicht neu erfinden. Name und Hintergrund werden nicht an
+  ComfyUI uebermittelt.
   Aktueller Name/Spezies/Hintergrund und eine Identitaetsrevision binden das Bild
   an genau diesen Draft. Geaenderte Identitaeten verwerfen alte Antworten.
   PNGs (768 x 1024, maximal 2 MiB) liegen in `registration_portraits`, nicht
   unter oeffentlichen `generated/characters/u_*`-Pfaden. Der Bildabruf verlangt
   dieselbe Session und einen gueltigen, nicht abgelaufenen Draft.
   Die neue Migration [migrate_registration_portraits_v1.sql](../../sql/migrate_registration_portraits_v1.sql)
-  ist dafuer erforderlich; bestehende Installationen wurden nicht migriert.
+  ist dafuer erforderlich und muss auf bestehenden Installationen angewendet sein.
   Status, Fehler und Wiederholung stehen im Charakterbildschirm. Drei Versuche
   pro Draft, 30 Sekunden Mindestabstand und zehn Auftraege pro IP/Stunde
   begrenzen Gastgenerierung. Erfolg wird erst nach Bildvalidierung gespeichert.
-  Der lange HTTP-Auftrag laesst die PHP-Session frei; Back beendet die Anzeige,
-  nicht notwendigerweise eine bereits gestartete SwarmUI-Berechnung.
-  Nach Wiederoeffnen kann der Status erneut geladen werden. Ohne fertiges
-  Ergebnis nach fuenf Minuten wird ein wiederholbarer Timeout gemeldet;
-  dies ist keine dauerhafte Hintergrund-Jobqueue.
+  Die Anfragen geben die PHP-Session frei; ein ausstehender Auftrag wird
+  waehrend des Flugs und im privaten Draft-Spiel weiter abgefragt und beim
+  Wiederoeffnen des Draft-Spiels fortgesetzt. Waehrend alle Seiten geschlossen
+  sind, importiert kein Worker das Ergebnis. Wird die E-Mail vor Abschluss
+  bestaetigt, wird ein noch ausstehendes Bild nicht in den aktiven Account
+  uebernommen; das Draft-Spiel weist darauf hin. Ein aus der ComfyUI-Queue und
+  -Historie verschwundener Auftrag wird als Fehler gemeldet, nicht nach einer
+  festen Wartezeit abgebrochen.
+  `COMFYUI_PORTRAIT_ENABLED` ist ausserhalb von `dev` standardmaessig aus;
+  `COMFYUI_BASE_URL`, `COMFYUI_LOCAL_ONLY` und `COMFYUI_PORTRAIT_MODEL`
+  konfigurieren den Dienst und das installierte Modell. Die Session schuetzt
+  nur den Anwendungsabruf: ComfyUI-Queue, Historie und temporaere Preview-Bilder
+  sind ueber die ComfyUI-API erreichbar und muessen durch Netzwerkbindung oder
+  Firewall auf vertrauenswuerdige Clients begrenzt werden. `COMFYUI_LOCAL_ONLY`
+  beschraenkt lediglich die vom PHP-Client erlaubten Ziel-Hostnamen.
 - `register` und `register_complete` sind serverseitig gesperrt (HTTP 503).
   **Noch kein** Oberflaechen-Tutorial, Mailversand, Verifikationslink
   oder Einmal-Startpasswort. Es gibt keinen vorzeitigen Login oder aktiven

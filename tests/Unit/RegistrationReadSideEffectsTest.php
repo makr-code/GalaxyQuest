@@ -78,14 +78,13 @@ final class RegistrationReadSideEffectsTest extends TestCase
         }
     }
 
-    public function testPortraitStatusProjectsExpiredPendingLeaseWithoutUpdatingStoredState(): void
+    public function testPortraitStatusDoesNotExpireAQueuedJobByAgeOrUpdateStoredState(): void
     {
         $source = file_get_contents(__DIR__ . '/../../lib/RegistrationPortraitService.php');
         self::assertIsString($source);
         $status = $this->methodBody($source, 'status');
 
-        self::assertStringContainsString("\$state = 'failed';", $status);
-        self::assertStringContainsString('Portrait generation timed out.', $status);
+        self::assertStringNotContainsString('Portrait generation timed out.', $status);
         self::assertDoesNotMatchRegularExpression('/\\bUPDATE\\s+registration_portraits\\b/i', $status);
     }
 

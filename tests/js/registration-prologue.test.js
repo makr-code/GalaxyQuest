@@ -132,6 +132,9 @@ describe('Cinematic draft registration', () => {
       };
       if (action === 'register_character') return { draft: { ...draft, species_code: 'vor_tak', character: input } };
       if (action === 'register_portrait_status') return { portrait: { status: 'not_generated', error: '', attempts_remaining: 3, retry_after: 0, image_url: null } };
+      if (action === 'register_portrait' || action === 'register_portrait_progress') {
+        return { portrait: { status: 'pending', error: '', attempts_remaining: 2, retry_after: 0, image_url: null } };
+      }
       return { draft };
     });
     preview = vi.fn();
@@ -723,6 +726,60 @@ describe('Cinematic draft registration', () => {
     expect(onEnterDraft).toHaveBeenCalledOnce();
   });
 
+  it('keeps the shuttle narration and flight running while the ID portrait is queued, then lets the comet comment', async () => {
+    vi.useFakeTimers();
+    const url = `api/auth.php?action=register_portrait_image&revision=${'d'.repeat(32)}`;
+    const baseRequest = request.getMockImplementation();
+    let portrait = { status: 'not_generated', error: '', attempts_remaining: 3, retry_after: 0, image_url: null };
+    request.mockImplementation((action, input) => {
+      if (action === 'register_portrait_status') return Promise.resolve({ portrait });
+      if (action === 'register_portrait') {
+        portrait = { status: 'pending', error: '', attempts_remaining: 2, retry_after: 0, image_url: null };
+        return Promise.resolve({ portrait });
+      }
+      if (action === 'register_portrait_progress') {
+        portrait = { status: 'generated', error: '', attempts_remaining: 2, retry_after: 0, image_url: url };
+        return Promise.resolve({ portrait });
+      }
+      return baseRequest(action, input);
+    });
+    camera.play.mockImplementation((shot) => shot.kind === 'journey' ? new Promise(() => {}) : true);
+    prologue.open({ opening: true, campaign: true });
+    el('opening-skip').click();
+    await vi.advanceTimersByTimeAsync(0);
+    el('opening-skip').click();
+    await vi.advanceTimersByTimeAsync(0);
+    el('choices').querySelector('[data-choice="vor_tak"]').click();
+    el('continue').click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el('portrait-placeholder').hidden).toBe(false);
+    expect(el('story').textContent).toBe(cometNarration.moments['commander-name'].de);
+    el('name').value = 'NewCommander';
+    el('background').value = 'Explorer';
+    el('character-form').dispatchEvent(new Event('submit', { cancelable: true }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el('continue').hidden).toBe(false);
+    el('continue').click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el('prologue').dataset.phase).toBe('journey');
+    expect(el('identity-flight').hidden).toBe(false);
+    expect(el('identity-flight-placeholder').hidden).toBe(false);
+    expect(el('story').textContent).toBe(cometNarration.moments['shuttle-handoff'].de);
+
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(el('portrait-image').getAttribute('src')).toBe(url);
+    el('portrait-image').dispatchEvent(new Event('load'));
+    el('identity-flight-image').dispatchEvent(new Event('load'));
+    expect(el('story').textContent).toBe(cometNarration.moments['shuttle-handoff'].de);
+    expect(el('identity-flight-placeholder').hidden).toBe(true);
+    audio.onended();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el('story').textContent).toBe(cometNarration.moments['identity-ready'].de);
+    expect(el('prologue').dataset.phase).toBe('journey');
+    expect(fetch).toHaveBeenCalledWith('api/registration_narration.php',
+      expect.objectContaining({ body: JSON.stringify({ clip: 'comet-moment-identity-ready', voice: 'de_DE-kerstin-low' }) }));
+  });
+
   it('finishes every transit cue after camera arrival without interrupting speech', async () => {
     vi.useFakeTimers();
     let arrive;
@@ -1063,7 +1120,7 @@ describe('Cinematic draft registration', () => {
       ? Promise.reject(new Error('Ollama is unavailable.'))
       : original(action, input));
     await reachCharacter();
-    await vi.waitFor(() => expect(el('status').textContent).toContain('manuell eingegeben'));
+    await vi.waitFor(() => expect(el('suggestion-status').textContent).toContain('manuell eingegeben'));
     expect(el('name').value).toBe('');
     expect(el('background').value).toBe('');
     expect(el('character-suggest').disabled).toBe(false);
@@ -1206,58 +1263,87 @@ describe('Cinematic draft registration', () => {
     expect(el('character').hidden).toBe(false);
   });
 
-  it('generates a private portrait only for the saved character and invalidates the displayed image on edits', async () => {
+  it('queues a saved character portrait without blocking the form and invalidates it on edits', async () => {
+    const baseRequest = request.getMockImplementation();
+    const url = `api/auth.php?action=register_portrait_image&revision=${'c'.repeat(32)}`;
+    let portrait = { status: 'not_generated', error: '', attempts_remaining: 3, retry_after: 0, image_url: null };
+    request.mockImplementation((action, input) => {
+      if (action === 'register_portrait_status') return Promise.resolve({ portrait });
+      if (action === 'register_portrait') {
+        portrait = { status: 'pending', error: '', attempts_remaining: 2, retry_after: 0, image_url: null };
+        return Promise.resolve({ portrait });
+      }
+      if (action === 'register_portrait_progress') {
+        portrait = { status: 'generated', error: '', attempts_remaining: 2, retry_after: 0, image_url: url };
+        return Promise.resolve({ portrait });
+      }
+      return baseRequest(action, input);
+    });
     await reachCharacter();
     expect(el('portrait-generate').disabled).toBe(true);
+    expect(el('portrait-placeholder').hidden).toBe(false);
     el('name').value = 'Commander';
     el('background').value = 'Explorer';
     el('character-form').dispatchEvent(new Event('submit', { cancelable: true }));
-    await vi.waitFor(() => expect(el('portrait-generate').disabled).toBe(false));
-    const url = `api/auth.php?action=register_portrait_image&revision=${'c'.repeat(32)}`;
-    request.mockResolvedValueOnce({ portrait: { status: 'generated', attempts_remaining: 2, retry_after: 0, image_url: url } });
-    el('portrait-generate').click();
+    await vi.waitFor(() => expect(request).toHaveBeenCalledWith('register_portrait', { prolog_token: draft.prolog_token }));
+    expect(el('character-form').inert).not.toBe(true);
+    expect(el('continue').hidden).toBe(false);
+    await vi.waitFor(() => expect(el('portrait-status').textContent).toContain('Warteschlange'));
+    el('portrait-refresh').click();
     await vi.waitFor(() => expect(el('portrait-image').getAttribute('src')).toBe(url));
-    expect(request).toHaveBeenCalledWith('register_portrait', { prolog_token: draft.prolog_token });
     expect(el('portrait-image').hidden).toBe(true);
     el('portrait-image').dispatchEvent(new Event('load'));
     expect(el('portrait-image').hidden).toBe(false);
+    expect(el('portrait-placeholder').hidden).toBe(true);
     el('background').value = 'Changed';
     el('background').dispatchEvent(new Event('input', { bubbles: true }));
     expect(el('portrait-image').hasAttribute('src')).toBe(false);
     expect(el('portrait-image').hidden).toBe(true);
+    expect(el('portrait-placeholder').hidden).toBe(false);
     expect(el('portrait-generate').disabled).toBe(true);
   });
 
   it('reports a portrait backend failure without displaying a successful placeholder', async () => {
+    const baseRequest = request.getMockImplementation();
+    let failed = false;
+    request.mockImplementation((action, input) => {
+      if (action === 'register_portrait') {
+        failed = true;
+        return Promise.reject(new Error('ComfyUI unavailable'));
+      }
+      if (action === 'register_portrait_status' && failed) {
+        return Promise.resolve({ portrait: { status: 'failed', error: 'ComfyUI unavailable', attempts_remaining: 2, retry_after: 30, image_url: null } });
+      }
+      return baseRequest(action, input);
+    });
     await reachCharacter();
     el('name').value = 'Commander';
     el('background').value = 'Frontier explorer';
     el('character-form').dispatchEvent(new Event('submit', { cancelable: true }));
-    await vi.waitFor(() => expect(el('portrait-generate').disabled).toBe(false));
-    request.mockRejectedValueOnce(new Error('SwarmUI unavailable'));
-    request.mockResolvedValueOnce({ portrait: { status: 'failed', error: 'SwarmUI unavailable', attempts_remaining: 2, retry_after: 30, image_url: null } });
-    el('portrait-generate').click();
-    await vi.waitFor(() => expect(el('portrait-status').textContent).toContain('SwarmUI unavailable'));
+    await vi.waitFor(() => expect(el('portrait-status').textContent).toContain('ComfyUI unavailable'));
     expect(el('portrait-image').hidden).toBe(true);
+    expect(el('portrait-placeholder').hidden).toBe(false);
     expect(el('portrait-generate').disabled).toBe(true);
     expect(el('portrait-refresh').hidden).toBe(false);
   });
 
-  it('ignores a late generated portrait after Back exits the pending flow', async () => {
+  it('allows Back during queue submission and ignores its late response', async () => {
+    const baseRequest = request.getMockImplementation();
+    let resolve;
+    request.mockImplementation((action, input) => action === 'register_portrait'
+      ? new Promise((done) => { resolve = done; }) : baseRequest(action, input));
     await reachCharacter();
     el('name').value = 'Commander';
     el('background').value = 'Frontier explorer';
     el('character-form').dispatchEvent(new Event('submit', { cancelable: true }));
-    await vi.waitFor(() => expect(el('portrait-generate').disabled).toBe(false));
-    let resolve;
-    request.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
-    el('portrait-generate').click();
-    expect(el('character-form').inert).toBe(true);
+    await vi.waitFor(() => expect(resolve).toBeTypeOf('function'));
+    expect(el('character-form').inert).not.toBe(true);
     el('back').click();
     resolve({ portrait: { status: 'generated', attempts_remaining: 2, retry_after: 0, image_url: `api/auth.php?action=register_portrait_image&revision=${'c'.repeat(32)}` } });
     await Promise.resolve();
     await Promise.resolve();
-    expect(prologue.isActive()).toBe(false);
+    expect(prologue.isActive()).toBe(true);
+    expect(el('character').hidden).toBe(true);
     expect(el('portrait-image').hasAttribute('src')).toBe(false);
   });
 });

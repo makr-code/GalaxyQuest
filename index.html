@@ -439,20 +439,30 @@
         <p id="registration-flight-status" role="status" aria-live="polite"></p>
         <div id="registration-choices" class="registration-choices"></div>
         <section id="registration-character" hidden>
+          <h3 class="registration-id-heading">Commander-ID <span>Privater Entwurf</span></h3>
           <p id="registration-draft-summary" class="registration-draft-summary" hidden></p>
-          <form id="registration-character-form">
-            <label for="registration-name">Commander-Name</label>
-            <input id="registration-name" name="name" type="text" minlength="3" maxlength="32" required autocomplete="off" />
-            <label for="registration-background">Hintergrund</label>
-            <textarea id="registration-background" name="background" rows="3" maxlength="500" required></textarea>
-            <button class="wm-modal-nav-btn wm-modal-nav-btn-primary" type="submit" disabled>Charakter-Draft speichern</button>
-            <button id="registration-character-suggest" class="wm-modal-nav-btn" type="button">Lore-Vorschlag neu erstellen</button>
-          </form>
-          <div class="registration-portrait">
-            <img id="registration-portrait-image" alt="Privates Commander-Portrait" hidden />
-            <p id="registration-portrait-status" role="status" aria-live="polite">Speichere zuerst deinen Charakter-Draft.</p>
-            <button id="registration-portrait-generate" class="wm-modal-nav-btn" type="button" disabled>KI-Portrait erzeugen</button>
-            <button id="registration-portrait-refresh" class="wm-modal-nav-btn" type="button" hidden>Status aktualisieren</button>
+          <div class="registration-id-layout">
+            <div class="registration-portrait">
+              <div class="registration-portrait-frame">
+                <img id="registration-portrait-image" alt="Privates Commander-Portrait" hidden />
+                <span id="registration-portrait-placeholder" class="registration-portrait-placeholder">
+                  <svg aria-hidden="true" focusable="false"><use href="gfx/icons/mono/population.svg#icon-population"></use></svg>
+                  <span>Portrait wird vorbereitet</span>
+                </span>
+              </div>
+              <p id="registration-portrait-status" role="status" aria-live="polite">Speichere zuerst deinen Charakter-Draft.</p>
+              <button id="registration-portrait-generate" class="wm-modal-nav-btn" type="button" disabled>KI-Portrait erzeugen</button>
+              <button id="registration-portrait-refresh" class="wm-modal-nav-btn" type="button" hidden>Status aktualisieren</button>
+            </div>
+            <form id="registration-character-form">
+              <label for="registration-name">Commander-Name</label>
+              <input id="registration-name" name="name" type="text" minlength="3" maxlength="32" required autocomplete="off" placeholder="Name wird vorgeschlagen – oder selbst eingeben" />
+              <label for="registration-background">Hintergrund</label>
+              <textarea id="registration-background" name="background" rows="3" maxlength="500" required placeholder="Deine Geschichte entsteht hier"></textarea>
+              <p id="registration-suggestion-status" role="status" aria-live="polite"></p>
+              <button class="wm-modal-nav-btn wm-modal-nav-btn-primary" type="submit" disabled>Charakter-Draft speichern</button>
+              <button id="registration-character-suggest" class="wm-modal-nav-btn" type="button">Lore-Vorschlag neu erstellen</button>
+            </form>
           </div>
         </section>
         <section id="registration-surface" hidden aria-label="Planetenoberfläche"></section>
@@ -487,6 +497,13 @@
           </details>
         </div>
       </main>
+      <aside id="registration-identity-flight" class="registration-identity-flight" aria-label="Commander-ID" hidden>
+        <div class="registration-identity-flight-photo">
+          <img id="registration-identity-flight-image" alt="Privates Commander-Portrait" hidden />
+          <span id="registration-identity-flight-placeholder">Portrait in Arbeit</span>
+        </div>
+        <p><span>Commander-ID</span><strong id="registration-identity-flight-name"></strong></p>
+      </aside>
     </section>
 
     <section id="draft-world" class="draft-world" aria-labelledby="draft-world-title" hidden>
@@ -501,6 +518,13 @@
       <p id="draft-resources" aria-live="polite"></p>
       <p id="draft-population"></p>
       <p id="draft-status" role="status" aria-live="polite"></p>
+      <div class="draft-portrait">
+        <div class="registration-identity-flight-photo">
+          <img id="draft-portrait-image" alt="Privates Commander-Portrait" hidden />
+          <span id="draft-portrait-placeholder">Portrait in Arbeit</span>
+        </div>
+        <p id="draft-portrait-status" role="status" aria-live="polite"></p>
+      </div>
       <p id="draft-error" role="alert"></p>
       <section aria-labelledby="draft-orders-title">
         <h3 id="draft-orders-title">Lokale Aufträge</h3>

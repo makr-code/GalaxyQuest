@@ -164,6 +164,7 @@ import '../ui/prolog.js';
   });
   const draftWorld = initializeDraftWorld({
     request: (action, body) => registrationRequest(action, body, 'api/registration_play.php'),
+    portraitRequest: registrationRequest,
     onPreview: (preview) => {
       window.GQAuthGalaxyBackgroundControl?.setFlightTourEnabled?.(false);
       return window.GQAuthGalaxyBackgroundControl?.setRegistrationPreview?.(preview);

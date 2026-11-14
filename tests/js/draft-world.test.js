@@ -22,12 +22,16 @@ const data = {
 describe('Playable isolated draft world', () => {
   let world;
   let request;
+  let portraitRequest;
   let onActivate;
   beforeEach(() => {
     document.body.innerHTML = new DOMParser().parseFromString(html, 'text/html').getElementById('draft-world').outerHTML;
     request = vi.fn(async () => ({ draft: structuredClone(data) }));
+    portraitRequest = vi.fn(async () => ({
+      portrait: { status: 'not_generated', attempts_remaining: 0, retry_after: 0 },
+    }));
     onActivate = vi.fn(async () => {});
-    world = initializeDraftWorld({ request, onActivate, onPreview: vi.fn(), onLeave: vi.fn() });
+    world = initializeDraftWorld({ request, portraitRequest, onActivate, onPreview: vi.fn(), onLeave: vi.fn() });
   });
   afterEach(() => {
     world.close();
@@ -110,5 +114,58 @@ describe('Playable isolated draft world', () => {
     expect(await world.restore()).toBe(true);
     expect(onActivate).toHaveBeenCalledOnce();
     expect(world.hasDraft()).toBe(false);
+  });
+  it('queues and imports a portrait without delaying entry into the draft', async () => {
+    let finishQueue;
+    portraitRequest.mockImplementation(async (action) => {
+      if (action === 'register_portrait_status') return { portrait: { status: 'not_generated', attempts_remaining: 3, retry_after: 0 } };
+      if (action === 'register_status') return { draft: { prolog_token: 'a'.repeat(64) } };
+      if (action === 'register_portrait') return new Promise((resolve) => { finishQueue = resolve; });
+      if (action === 'register_portrait_progress') return {
+        portrait: { status: 'generated', image_url: `api/auth.php?action=register_portrait_image&revision=${'b'.repeat(32)}` },
+      };
+      throw new Error(`Unexpected action ${action}`);
+    });
+
+    await world.enter('a'.repeat(64));
+    await vi.waitFor(() => expect(finishQueue).toBeTypeOf('function'));
+    expect(world.isActive()).toBe(true);
+    expect(document.getElementById('draft-portrait-status').textContent).toContain('Warte vor der E-Mail-Bestätigung');
+    finishQueue({ portrait: { status: 'pending' } });
+    await vi.waitFor(() => expect(document.getElementById('draft-portrait-status').textContent).toContain('ist fertig'));
+    expect(portraitRequest).toHaveBeenCalledWith('register_portrait_progress', { prolog_token: 'a'.repeat(64) });
+    const image = document.getElementById('draft-portrait-image');
+    expect(image.getAttribute('src')).toContain(`revision=${'b'.repeat(32)}`);
+    image.dispatchEvent(new Event('load'));
+    expect(image.hidden).toBe(false);
+    expect(document.getElementById('draft-portrait-placeholder').hidden).toBe(true);
+  });
+  it('resumes a pending portrait when the private draft is reopened', async () => {
+    let progress = 0;
+    portraitRequest.mockImplementation(async (action) => {
+      if (action === 'register_portrait_status') return { portrait: { status: 'pending' } };
+      if (action === 'register_status') return { draft: { prolog_token: 'a'.repeat(64) } };
+      if (action === 'register_portrait_progress') {
+        return { portrait: ++progress === 1 ? { status: 'pending' } : {
+          status: 'generated', image_url: `api/auth.php?action=register_portrait_image&revision=${'b'.repeat(32)}`,
+        } };
+      }
+      throw new Error(`Unexpected action ${action}`);
+    });
+
+    await world.enter('a'.repeat(64));
+    await vi.waitFor(() => expect(progress).toBe(1));
+    world.close();
+    await world.restore();
+    await vi.waitFor(() => expect(progress).toBe(2));
+    expect(document.getElementById('draft-portrait-status').textContent).toContain('ist fertig');
+    expect(portraitRequest).not.toHaveBeenCalledWith('register_portrait', expect.anything());
+  });
+  it('shows portrait service failures without interrupting gameplay', async () => {
+    portraitRequest.mockRejectedValue(Object.assign(new Error('ComfyUI nicht erreichbar'), { status: 503 }));
+    await world.enter('a'.repeat(64));
+    await vi.waitFor(() => expect(document.getElementById('draft-portrait-status').textContent).toContain('ComfyUI nicht erreichbar'));
+    expect(world.isActive()).toBe(true);
+    expect(request).toHaveBeenCalledWith('play', { kind: 'settle' });
   });
 });

@@ -17,6 +17,7 @@ async function installDraftApi(page) {
   let selected = candidates[1];
   let playable = null;
   let authenticated = false;
+  let portrait = { status: 'not_generated', image_url: null, attempts_remaining: 3, retry_after: 0 };
   const orders = [];
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
@@ -66,15 +67,26 @@ async function installDraftApi(page) {
     } else if (action === 'csrf') result.token = 'draft-e2e-csrf';
     else if (action === 'me') result = { success: true, authenticated, user: authenticated ? { id: 123, username: 'DraftCommander' } : null };
     else if (action === 'overview') result = { success: true, colonies: [], fleets: [], user_meta: { dark_matter: 0 } };
-    else if (action === 'register_catalog') result = { success: true, factions: content.factions, species: species.map((code, index) => {
-      const target = { galaxy_index: 1, system_index: index + 100, position: 2, x_ly: -400 - index * 100, y_ly: 0, z_ly: 0 };
-      return { code, name: code, description: 'Homeworld origin', homeworld: `${code} home`, target, stars: [target],
-        homeworld_scene: { scene_key: `homeworld:${index}`, target, system_name: `${code} home system`,
-          position: { galaxy: 1, system: index + 100, position: 2 }, star: { temperature_k: 5500, radius_solar: 1 },
+    else if (action === 'register_catalog') result = {
+      success: true, factions: content.factions,
+      species: species.map((code, index) => {
+        const target = { galaxy_index: 1, system_index: index + 100, position: 2, x_ly: -400 - index * 100, y_ly: 0, z_ly: 0 };
+        return { code, name: code, description: 'Homeworld origin', homeworld: `${code} home`, target, stars: [target],
+          homeworld_scene: { scene_key: `homeworld:${index}`, target, system_name: `${code} home system`,
+            position: { galaxy: 1, system: index + 100, position: 2 }, star: { temperature_k: 5500, radius_solar: 1 },
+            planets: [{ position: 2, diameter_km: 12000, semi_major_axis_au: 1, inhabited: true }],
+          },
+        };
+      }),
+      npc_homeworlds: content.npc_tour.map((entry, index) => {
+        const target = { galaxy_index: 1, system_index: index + 200, position: 2, x_ly: 400 + index * 100, y_ly: 0, z_ly: 0 };
+        return { ...entry, target, stars: [target], homeworld_scene: {
+          scene_key: `npc:${entry.code}`, target, system_name: entry.homeworld,
+          position: { galaxy: 1, system: index + 200, position: 2 }, star: { temperature_k: 5500, radius_solar: 1 },
           planets: [{ position: 2, diameter_km: 12000, semi_major_axis_au: 1, inhabited: true }],
-        },
-      };
-    }) };
+        } };
+      }),
+    };
     else if (action === 'register_mentor_drafts') result.drafts = candidates;
     else if (action === 'register_select_mentor') { selected = candidates.find((entry) => entry.mentor_code === body.mentor_code); result.draft = selected; }
     else if (action === 'register_profile') result.draft = selected;
@@ -82,7 +94,17 @@ async function installDraftApi(page) {
       result.suggestion = { name: 'LoreCommander', background: 'A new commander inspired by the selected species lore.' };
     }
     else if (action === 'register_character') { selected.character = { name: body.name, background: body.background }; result.draft = selected; }
-    else if (action === 'register_portrait_status') result.portrait = { status: 'not_generated', image_url: null, attempts_remaining: 3, retry_after: 0 };
+    else if (action === 'register_status') result.draft = selected;
+    else if (action === 'register_portrait_status') result.portrait = portrait;
+    else if (action === 'register_portrait') { portrait = { ...portrait, status: 'pending' }; result.portrait = portrait; }
+    else if (action === 'register_portrait_progress') result.portrait = portrait;
+    else if (action === 'register_portrait_image') {
+      await route.fulfill({
+        contentType: 'image/png',
+        body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aXcAAAAASUVORK5CYII=', 'base64'),
+      });
+      return;
+    }
     else if (action === 'list') result.tracks = [];
     else if (action === 'list_sfx') result.sfx = [];
     else if (action === 'auth_stars') result.stars = [];
@@ -90,7 +112,12 @@ async function installDraftApi(page) {
     else if (url.pathname.endsWith('/server_announcements.php')) result.announcements = [];
     await route.fulfill({ json: result });
   });
-  return { orders };
+  return {
+    orders,
+    completePortrait() {
+      portrait = { ...portrait, status: 'generated', image_url: `api/auth.php?action=register_portrait_image&revision=${'b'.repeat(32)}` };
+    },
+  };
 }
 
 async function registerIntoDraft(page) {
@@ -103,7 +130,7 @@ async function registerIntoDraft(page) {
   await page.locator('#registration-continue').click();
   await page.locator('#registration-name').fill('DraftCommander');
   await page.locator('#registration-background').fill('Private frontier explorer');
-  await page.locator('#registration-character-form button').click();
+  await page.locator('#registration-character-form button[type="submit"]').click();
   await expect(page.locator('#registration-continue')).toHaveText('Shuttle starten');
   await page.locator('#registration-continue').click();
   await expect(page.locator('#registration-prologue')).toHaveAttribute('data-phase', 'journey');
@@ -117,9 +144,12 @@ async function registerIntoDraft(page) {
 }
 
 test('registration enters a playable persistent draft, not the start menu or shared galaxy', async ({ page }) => {
-  const { orders } = await installDraftApi(page);
+  const { orders, completePortrait } = await installDraftApi(page);
   await registerIntoDraft(page);
   await expect(page.locator('body')).toHaveClass(/draft-playing/);
+  await expect(page.locator('#draft-portrait-placeholder')).toBeVisible();
+  completePortrait();
+  await expect(page.locator('#draft-portrait-image')).toBeVisible({ timeout: 10000 });
   await expect(page.locator('#draft-location')).toContainText('Kein Ablaufdatum');
   await page.locator('#draft-building-form button').click();
   await expect(page.locator('#draft-resources')).toContainText('metal: 2365');

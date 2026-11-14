@@ -1,4 +1,4 @@
-export function initializeDraftWorld({ request, onPreview, onActivate, onLeave }) {
+export function initializeDraftWorld({ request, portraitRequest = null, onPreview, onActivate, onLeave }) {
   const root = document.getElementById('draft-world');
   if (!root) throw new Error('Draft-world HTML is missing.');
   const el = (id) => root.querySelector(`#draft-${id}`);
@@ -7,6 +7,78 @@ export function initializeDraftWorld({ request, onPreview, onActivate, onLeave }
   let active = false;
   let confirmed = false;
   let confirmationToken = null;
+  let portraitRevision = 0;
+  let portraitTimer = null;
+  let portraitToken = null;
+
+  function showPortrait(portrait) {
+    if (!portrait || !['not_generated', 'pending', 'generated', 'failed'].includes(portrait.status)) {
+      throw new Error('Der Portraitstatus des Servers ist ungültig.');
+    }
+    const image = el('portrait-image');
+    const placeholder = el('portrait-placeholder');
+    if (portrait.status === 'generated') {
+      if (!/^api\/auth\.php\?action=register_portrait_image&revision=[a-f0-9]{32}$/.test(portrait.image_url)) {
+        throw new Error('Der Server hat keine gültige private Portraitadresse geliefert.');
+      }
+      el('portrait-status').textContent = 'Dein KI-Portrait ist fertig und im privaten Draft gespeichert.';
+      if (image.getAttribute('src') !== portrait.image_url) {
+        image.hidden = true;
+        placeholder.hidden = false;
+        placeholder.textContent = 'Portrait wird geladen';
+        image.src = portrait.image_url;
+      }
+      return;
+    }
+    image.hidden = true;
+    image.removeAttribute('src');
+    placeholder.hidden = false;
+    placeholder.textContent = portrait.status === 'pending' ? 'Portrait in Arbeit' : 'Kein Portrait';
+    el('portrait-status').textContent = portrait.status === 'pending'
+      ? 'Dein Portrait entsteht weiter. Warte vor der E-Mail-Bestätigung auf das fertige Bild, damit es übernommen wird.'
+      : portrait.status === 'failed' ? `Kein KI-Portrait erzeugt: ${portrait.error}` : 'Noch kein KI-Portrait erzeugt.';
+  }
+
+  async function refreshPortrait(version) {
+    const current = () => active && version === portraitRevision;
+    try {
+      let data = await portraitRequest('register_portrait_status');
+      if (!current()) return;
+      const needsQueue = data.portrait?.status === 'not_generated'
+        && data.portrait.attempts_remaining === 3 && data.portrait.retry_after === 0;
+      if (data.portrait?.status === 'pending' || needsQueue) {
+        showPortrait(needsQueue ? { status: 'pending' } : data.portrait);
+        if (!portraitToken) {
+          const result = await portraitRequest('register_status');
+          if (!current()) return;
+          if (!/^[a-f0-9]{64}$/.test(result.draft?.prolog_token || '')) {
+            throw new Error('Der private Charakter-Draft ist nicht verfügbar.');
+          }
+          portraitToken = result.draft.prolog_token;
+        }
+        if (needsQueue) {
+          data = await portraitRequest('register_portrait', { prolog_token: portraitToken });
+          if (!current()) return;
+        }
+        if (data.portrait?.status === 'pending') {
+          data = await portraitRequest('register_portrait_progress', { prolog_token: portraitToken });
+          if (!current()) return;
+        }
+      }
+      showPortrait(data.portrait);
+      if (data.portrait.status === 'pending') {
+        portraitTimer = setTimeout(() => { void refreshPortrait(version); }, 3000);
+      }
+    } catch (error) {
+      if (!current()) return;
+      el('portrait-status').textContent = `Portraitstatus nicht verfügbar: ${error.message}`;
+      window.GQLog?.warn?.('[draft-portrait]', error.message);
+      const status = Number(error?.status || 0);
+      if (status === 0 || status === 429 || status >= 500) {
+        portraitTimer = setTimeout(() => { void refreshPortrait(version); }, 10000);
+      }
+    }
+  }
 
   function label(value) { return String(value).replaceAll('_', ' '); }
   function cost(value) {
@@ -79,12 +151,20 @@ export function initializeDraftWorld({ request, onPreview, onActivate, onLeave }
     active = true;
     root.hidden = false;
     document.body.classList.add('draft-playing');
+    if (portraitRequest) {
+      portraitToken = null;
+      clearTimeout(portraitTimer);
+      void refreshPortrait(++portraitRevision);
+    }
     onPreview({ stage: 'planet', target: data.world.target, stars: data.world.stars, draft: data.world });
     el('world-title').focus();
     render((await request('play', { kind: 'settle' })).draft);
   }
   function close() {
     active = false;
+    portraitRevision++;
+    portraitToken = null;
+    clearTimeout(portraitTimer);
     root.hidden = true;
     document.body.classList.remove('draft-playing');
     onPreview(null);
@@ -138,6 +218,16 @@ export function initializeDraftWorld({ request, onPreview, onActivate, onLeave }
   el('activate-retry').addEventListener('click', () => { void act(activate); });
   window.addEventListener('gq:draft-entered', () => {
     if (active && current) onPreview({ stage: 'planet', target: current.world.target, stars: current.world.stars, draft: current.world });
+  });
+  el('portrait-image').addEventListener('load', () => {
+    if (!active || !el('portrait-image').hasAttribute('src')) return;
+    el('portrait-image').hidden = false;
+    el('portrait-placeholder').hidden = true;
+  });
+  el('portrait-image').addEventListener('error', () => {
+    if (!active || !el('portrait-image').hasAttribute('src')) return;
+    el('portrait-status').textContent = 'Das fertige Portrait konnte nicht geladen werden.';
+    window.GQLog?.warn?.('[draft-portrait]', 'Portrait image could not be loaded.');
   });
   return {
     confirmLink,
