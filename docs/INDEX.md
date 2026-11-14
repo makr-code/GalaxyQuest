@@ -35,6 +35,7 @@
 | [../SECURITY.md](../SECURITY.md) | Private vulnerability reporting policy |
 | [technical/REALITY_CHECK_2026-10-29.md](technical/REALITY_CHECK_2026-10-29.md) | **Reality Check** — evidenzbasierter Implementierungsstand, Stand 29.10.2026 |
 | [technical/ARCHITECTURE.md](technical/ARCHITECTURE.md) | **Main technical reference** — backend, frontend, engine, DB, security |
+| [technical/MOTION_INTEGRATION.md](technical/MOTION_INTEGRATION.md) | Motion im Startmenue: Ein-/Ausflug, Controller-Vertrag, Barrierefreiheit, Faehigkeiten und Grenzen |
 | [../SHIP_DESIGNER_README.md](../SHIP_DESIGNER_README.md) | Ship Designer prompt/UI prototype — REST generation route and standalone page are currently unavailable; not production-ready |
 | [technical/DOCUMENTATION_GUIDE.md](technical/DOCUMENTATION_GUIDE.md) | How to navigate and contribute to docs |
 | [technical/IMPLEMENTATION_AUDIT.md](technical/IMPLEMENTATION_AUDIT.md) | Implementierungs-Audit — historischer Snapshot vom 31.07.2026; alte Prozent- und Stack-Angaben zurückgezogen |
@@ -132,6 +133,7 @@
 | Document | Content |
 |---|---|
 | [gamedesign/GAMEDESIGN.md](gamedesign/GAMEDESIGN.md) | **Authoritative faction lore** — Rassen, Biologie, Kultur, Nebenfraktionen |
+| [lore/COMET_NARRATED_INTRO.md](lore/COMET_NARRATED_INTRO.md) | **Geschwätziger Komet** — bilinguale Untertitel- und TTS-Cues für neun Heimatweltstationen, Shuttlewechsel und Landung; Lore, Wikipedia-Belege und Entwickler-Credits |
 | [lore/gamedesign_fractions.md](lore/gamedesign_fractions.md) | ⚠️ Deprecated tombstone — redirects to GAMEDESIGN.md |
 | [lore/gamedesign_fractions_backup.md](lore/gamedesign_fractions_backup.md) | Full legacy archive (8200 lines) — reference only |
 | [lore/ART_PROMPTS_SDXL.md](lore/ART_PROMPTS_SDXL.md) | SDXL image generation prompts (portraits, environments) |
@@ -146,6 +148,7 @@ Reports, completed experiments, and superseded proposals are kept in the [docume
 - **Advanced 3D feature snapshot:** [feature guide](archive/ADVANCED_3D_FEATURES_GUIDE.md), [integration examples](archive/INTEGRATION_EXAMPLES.md), [quick start](archive/QUICK_START.md), and [superseded implementation roadmap](archive/IMPLEMENTATION_ROADMAP.md).
 - **Visual-effects snapshots:** [implementation report](archive/VISUAL_EFFECTS_COMPLETE_GUIDE.md), [integration guide](archive/VISUAL_EFFECTS_INTEGRATION.md), [Phase 4 performance guide](archive/VISUAL_EFFECTS_PHASE4_PERFORMANCE.md), [visual-feedback guide](archive/VISUAL_FEEDBACK_GUIDE.md), [integration example](archive/INTEGRATION_EXAMPLE_VISUAL_FEEDBACK.md), and [historical testing guide](archive/TESTING_AND_PROFILING.md).
 - **JavaScript architecture proposals:** [transformation options](archive/JS_TRANSFORMATION_OPTIONS.md) and [refactoring roadmap](archive/REFACTORING_ROADMAP.md) (both historical, August 2026).
+- **Client-side economy domain migration guide:** [archived proposal](archive/MIGRATION_GUIDE_ECONOMY_DOMAIN.md); historical and not current. The JS economy/market domain, `RuntimeEconomyController`, `EconomySimulation`, and WebGPU economy compute it references were removed; the economy is server-authoritative in PHP.
 - **Post-launch AI asset-generation guides:** [ComfyUI integration](archive/COMFYUI_INTEGRATION_API.md) and [TRELLIS2 prompt-enhancement quick start](archive/TRELLIS2_PROMPT_ENHANCEMENT_QUICKSTART.md); neither is production approval.
 - **Historical updater implementation snapshot:** [MVP integration guide](archive/INTEGRATION_GUIDE_UPDATES.md); use the maintained [update-system guide](UPDATE_SYSTEM.md) for current operations.
 - **Unimplemented NPC API proposal:** [NPC game consequences endpoint sketch](archive/API_NPC_GAME_INTEGRATION_GUIDE.md); the proposed handler is not available in the current endpoint.

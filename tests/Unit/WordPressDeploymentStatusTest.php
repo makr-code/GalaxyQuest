@@ -13,12 +13,14 @@ if (!function_exists('add_action')) {
     function add_action(string $hook, callable $callback, int $priority = 10, int $acceptedArgs = 1): void
     {
         $GLOBALS['gq_wp_hooks'][$hook] = [$callback, $priority, $acceptedArgs];
+        $GLOBALS['gq_wp_hook_callbacks'][$hook][] = [$callback, $priority, $acceptedArgs];
     }
 }
 if (!function_exists('add_filter')) {
     function add_filter(string $hook, callable $callback, int $priority = 10, int $acceptedArgs = 1): void
     {
         $GLOBALS['gq_wp_hooks'][$hook] = [$callback, $priority, $acceptedArgs];
+        $GLOBALS['gq_wp_hook_callbacks'][$hook][] = [$callback, $priority, $acceptedArgs];
     }
 }
 if (!function_exists('add_menu_page')) {
@@ -44,6 +46,79 @@ if (!function_exists('esc_url')) {
     function esc_url(string $url): string
     {
         return htmlspecialchars($url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+}
+if (!function_exists('esc_html__')) {
+    function esc_html__(string $text, ?string $domain = null): string
+    {
+        return esc_html($text);
+    }
+}
+if (!function_exists('esc_html_e')) {
+    function esc_html_e(string $text, ?string $domain = null): void
+    {
+        echo esc_html__($text, $domain);
+    }
+}
+if (!function_exists('esc_attr')) {
+    function esc_attr(string $text): string
+    {
+        return esc_html($text);
+    }
+}
+if (!function_exists('admin_url')) {
+    function admin_url(string $path): string
+    {
+        return 'https://wordpress.test/wp-admin/' . $path;
+    }
+}
+if (!function_exists('current_user_can')) {
+    function current_user_can(string $capability): bool
+    {
+        return $GLOBALS['gq_game_admin_test_can_manage'] ?? false;
+    }
+}
+if (!function_exists('wp_die')) {
+    function wp_die(string $message, string $title = '', array $options = []): never
+    {
+        throw new RuntimeException($message);
+    }
+}
+if (!function_exists('get_current_user_id')) {
+    function get_current_user_id(): int
+    {
+        return 42;
+    }
+}
+if (!function_exists('wp_nonce_url')) {
+    function wp_nonce_url(string $url, string $action): string
+    {
+        return $url . '&_wpnonce=fixture-' . $action;
+    }
+}
+if (!function_exists('check_admin_referer')) {
+    function check_admin_referer(string $action): int
+    {
+        $GLOBALS['gq_wp_nonce_action'] = $action;
+        return 1;
+    }
+}
+if (!function_exists('wp_safe_redirect')) {
+    function wp_safe_redirect(string $url): bool
+    {
+        throw new RuntimeException('Redirect: ' . $url);
+    }
+}
+if (!function_exists('wp_unslash')) {
+    function wp_unslash(string $text): string
+    {
+        return stripslashes($text);
+    }
+}
+if (!function_exists('sanitize_key')) {
+    function sanitize_key(string $text): string
+    {
+        return preg_replace('/[^a-z0-9_-]/', '', strtolower($text));
     }
 }
 if (!function_exists('sanitize_text_field')) {
@@ -80,7 +155,8 @@ if (!function_exists('is_wp_error')) {
 if (!function_exists('plugin_basename')) {
     function plugin_basename(string $file): string
     {
-        return $GLOBALS['gq_wp_basename'] ?? 'gq-deployment-status/gq-deployment-status.php';
+        return $GLOBALS['gq_wp_basenames'][$file]
+            ?? $GLOBALS['gq_wp_basename'] ?? 'gq-deployment-status/gq-deployment-status.php';
     }
 }
 if (!function_exists('plugin_dir_path')) {
@@ -152,9 +228,13 @@ final class WordPressDeploymentStatusTest extends TestCase
 {
     private string $root;
     private string $gitDirectory;
+    private array $query;
 
     protected function setUp(): void
     {
+        $this->query = $_GET;
+        $_GET = [];
+        $GLOBALS['gq_game_admin_test_can_manage'] = true;
         $this->root = sys_get_temp_dir() . '/gq-wp-deploy-status-' . bin2hex(random_bytes(8));
         $this->gitDirectory = $this->root . '/mirror.git';
         self::assertTrue(mkdir($this->gitDirectory, 0700, true));
@@ -164,6 +244,7 @@ final class WordPressDeploymentStatusTest extends TestCase
         ));
         $GLOBALS['gq_wp_installed_dir'] = $this->root;
         $GLOBALS['gq_wp_basename'] = 'gq-deployment-status/gq-deployment-status.php';
+        $GLOBALS['gq_wp_basenames'] = [];
         $GLOBALS['gq_wp_transients'] = [];
         $GLOBALS['gq_wp_ttls'] = [];
         $GLOBALS['gq_wp_requests'] = [];
@@ -174,10 +255,12 @@ final class WordPressDeploymentStatusTest extends TestCase
             $this->root . '/gq-deployment-status.php',
             '<?php // installed fixture'
         ));
+        self::assertNotFalse(file_put_contents($this->root . '/gq-game-admin.php', '<?php // installed fixture'));
     }
 
     protected function tearDown(): void
     {
+        $_GET = $this->query;
         foreach ($GLOBALS['gq_wp_temporary_files'] as $file) {
             if (is_file($file)) {
                 unlink($file);
@@ -186,6 +269,7 @@ final class WordPressDeploymentStatusTest extends TestCase
         foreach (
             [
             '/gq-deployment-status.php',
+            '/gq-game-admin.php',
             '/mirror.git/config',
             '/mirror.git/HEAD',
             '/mirror.git/packed-refs',
@@ -431,9 +515,9 @@ final class WordPressDeploymentStatusTest extends TestCase
 
     public function testIntegratesWordPressUpdateHookWithoutOptingIntoAutomaticInstallation(): void
     {
-        self::assertSame(
+        self::assertContains(
             ['gq_deployment_status_plugin_update', 10, 4],
-            $GLOBALS['gq_wp_hooks']['update_plugins_github.com']
+            $GLOBALS['gq_wp_hook_callbacks']['update_plugins_github.com']
         );
         $this->respond('releases?per_page=100&page=1', [$this->pluginRelease('0.3.0')]);
         $update = gq_deployment_status_plugin_update(false, [], plugin_basename(''), []);
@@ -564,6 +648,181 @@ final class WordPressDeploymentStatusTest extends TestCase
         self::assertFalse(get_transient(GQ_DEPLOYMENT_STATUS_PLUGIN_RELEASE_CACHE));
     }
 
+    public function testAdministrationChannelAndCacheAreIndependentOfDeploymentAndGameReleases(): void
+    {
+        $admin = $this->administrationUpdater();
+        $this->respond('releases?per_page=100&page=1', [
+            $this->pluginRelease('9.9.9'),
+            $this->pluginRelease('0.2.0', 'fixture', 'gq-game-admin'),
+            ['tag_name' => 'v99.0.0', 'draft' => false, 'prerelease' => false],
+        ]);
+        $update = $admin->update(false, [], 'gq-game-admin/gq-game-admin.php', []);
+        self::assertIsArray($update);
+        self::assertSame('gq-game-admin', $update['slug']);
+        self::assertSame('0.2.0', $update['version']);
+        self::assertArrayNotHasKey('autoupdate', $update);
+        self::assertSame('unchanged', $admin->update('unchanged', [], plugin_basename(''), []));
+        self::assertSame('9.9.9', gq_deployment_status_get_plugin_release()['version']);
+        self::assertSame('0.2.0', $admin->getRelease()['version']);
+        self::assertCount(2, $GLOBALS['gq_wp_requests']);
+        $options = ['type' => 'plugin', 'action' => 'update', 'plugins' => [plugin_basename('')]];
+        $admin->updated(new stdClass(), $options);
+        gq_deployment_status_plugin_updated(new stdClass(), $options);
+        self::assertFalse(get_transient(GQ_DEPLOYMENT_STATUS_PLUGIN_RELEASE_CACHE));
+        self::assertIsArray(get_transient('gq_game_admin_plugin_release'));
+        $admin->updated(new stdClass(), [
+            'type' => 'plugin', 'action' => 'update', 'plugins' => ['gq-game-admin/gq-game-admin.php'],
+        ]);
+        self::assertFalse(get_transient('gq_game_admin_plugin_release'));
+    }
+
+    public function testAdministrationDownloadsRequireOwnZipRootAndMatchingDigest(): void
+    {
+        $admin = $this->administrationUpdater();
+        $valid = $this->pluginZip('0.2.0', null, 'gq-game-admin');
+        $foreign = $this->pluginZip('0.2.0');
+        $cases = [[$valid, $valid, null], [$foreign, $foreign, 'gq_plugin_zip'],
+            [$valid, str_repeat('x', strlen($valid)), 'gq_plugin_digest']];
+        foreach ($cases as [$expected, $download, $error]) {
+            $release = $this->pluginRelease('0.2.0', $expected, 'gq-game-admin');
+            $this->respond('releases/tags/gq-game-admin-v0.2.0', $release);
+            $GLOBALS['gq_wp_download_bytes'] = $download;
+            $result = $admin->download(false, $release['assets'][0]['browser_download_url'], new stdClass(), [
+                'plugin' => 'gq-game-admin/gq-game-admin.php',
+            ]);
+            if ($error === null) {
+                self::assertIsString($result);
+                self::assertSame($valid, file_get_contents($result));
+            } else {
+                self::assertInstanceOf(WP_Error::class, $result);
+                self::assertSame($error, $result->get_error_code());
+                self::assertFileDoesNotExist($GLOBALS['gq_wp_download_request'][1]['filename']);
+            }
+            self::assertArrayNotHasKey('headers', $GLOBALS['gq_wp_download_request'][1]);
+        }
+    }
+
+    public function testRejectsPackagesMissingBundledUpdater(): void
+    {
+        $bytes = $this->pluginZip('0.3.0', null, 'gq-deployment-status', false);
+        $file = $this->root . '/fixture.zip';
+        try {
+            file_put_contents($file, $bytes);
+            self::assertNotNull(gq_deployment_status_plugin_zip_error($file, '0.3.0'));
+        } finally {
+            unlink($file);
+        }
+    }
+
+    public function testAdministrationFlatFileInstallationDoesNotCheckForUpdates(): void
+    {
+        $admin = $this->administrationUpdater();
+        $GLOBALS['gq_wp_basenames'][$this->root . '/gq-game-admin.php'] = 'gq-game-admin.php';
+        self::assertNotNull($admin->blocker());
+        self::assertFalse($admin->update(false, [], 'gq-game-admin.php', []));
+        self::assertSame([], $GLOBALS['gq_wp_requests']);
+    }
+
+    public function testEnvironmentTabsDefaultToStagingAndRenderOnlyItsReport(): void
+    {
+        $html = $this->renderPage();
+        self::assertStringContainsString('id="gq-deployment-status-staging"', $html);
+        self::assertStringNotContainsString('id="gq-deployment-status-production"', $html);
+        self::assertStringContainsString('staging-evidence', $html);
+        self::assertStringNotContainsString('production-evidence', $html);
+        self::assertSame(1, substr_count($html, 'aria-current="page"'));
+        self::assertSame([], $GLOBALS['gq_wp_requests']);
+    }
+
+    public function testProductionTabRendersOnlyProductionAndKeepsRefreshSelection(): void
+    {
+        $_GET['environment'] = 'production';
+        $html = $this->renderPage();
+        self::assertStringContainsString('id="gq-deployment-status-production"', $html);
+        self::assertStringNotContainsString('id="gq-deployment-status-staging"', $html);
+        self::assertStringContainsString('production-evidence', $html);
+        self::assertStringNotContainsString('staging-evidence', $html);
+        self::assertStringContainsString('gq_refresh=1&amp;environment=production', $html);
+        self::assertSame(1, substr_count($html, 'nav-tab-active'));
+    }
+
+    public function testRefreshingProductionDoesNotFetchInactiveStagingReport(): void
+    {
+        $_GET = ['environment' => 'production', 'gq_refresh' => '1'];
+        $this->renderPage();
+        $urls = array_column($GLOBALS['gq_wp_requests'], 0);
+        self::assertContains('https://api.github.com/repos/makr-code/GalaxyQuest/commits/main', $urls);
+        self::assertNotContains('https://api.github.com/repos/makr-code/GalaxyQuest/commits/develop', $urls);
+        self::assertSame('gq_deployment_status_refresh', $GLOBALS['gq_wp_nonce_action']);
+    }
+
+    public function testRejectsUnknownOrArrayEnvironmentBeforeReadingDeploymentReports(): void
+    {
+        foreach (['other', ['production']] as $environment) {
+            $_GET['environment'] = $environment;
+            try {
+                gq_deployment_status_render_page();
+                self::fail('Invalid deployment tab was accepted.');
+            } catch (RuntimeException $error) {
+                self::assertStringContainsString('Unknown deployment environment', $error->getMessage());
+            }
+        }
+        self::assertSame([], $GLOBALS['gq_wp_requests']);
+    }
+
+    public function testPleskFetchRedirectReturnsToProductionTab(): void
+    {
+        $post = $_POST;
+        $_POST = ['environment' => 'production'];
+        try {
+            gq_deployment_status_handle_plesk_fetch();
+            self::fail('Expected redirect interception.');
+        } catch (RuntimeException $error) {
+            self::assertSame(
+                'Redirect: https://wordpress.test/wp-admin/admin.php?page=gq-deployment-status&environment=production',
+                $error->getMessage()
+            );
+        } finally {
+            $_POST = $post;
+        }
+        self::assertSame([], $GLOBALS['gq_wp_requests']);
+    }
+
+    private function renderPage(): string
+    {
+        foreach (['staging', 'production'] as $environment) {
+            $GLOBALS['gq_wp_transients']['gq_deployment_status_' . $environment] = [
+                'github' => ['error' => $environment . '-evidence'], 'mirror' => [], 'web' => [],
+                'mirror_match' => null, 'web_match' => null,
+            ];
+        }
+        $GLOBALS['gq_wp_transients'][GQ_DEPLOYMENT_STATUS_PLUGIN_RELEASE_CACHE] = ['release' => null];
+        ob_start();
+        try {
+            gq_deployment_status_render_page();
+            $html = ob_get_contents();
+            self::assertIsString($html);
+            return $html;
+        } finally {
+            ob_end_clean();
+        }
+    }
+
+    private function administrationUpdater(): \GalaxyQuest\WordPress\GitHubPluginUpdaterV1
+    {
+        $file = $this->root . '/gq-game-admin.php';
+        $GLOBALS['gq_wp_basenames'][$file] = 'gq-game-admin/gq-game-admin.php';
+        return new \GalaxyQuest\WordPress\GitHubPluginUpdaterV1(
+            $file,
+            'gq-game-admin',
+            'GalaxyQuest Administration',
+            '0.1.0',
+            'https://github.com/makr-code/GalaxyQuest/tree/main/wordpress-integration/gq-game-admin.php',
+            'gq_game_admin_plugin_release',
+            'GQ_GAME_ADMIN_GITHUB_TOKEN'
+        );
+    }
+
     private function respond(string $endpoint, array $data): void
     {
         $GLOBALS['gq_wp_responses']['https://api.github.com/repos/makr-code/GalaxyQuest/' . $endpoint] = [
@@ -571,10 +830,13 @@ final class WordPressDeploymentStatusTest extends TestCase
         ];
     }
 
-    private function pluginRelease(string $version, string $bytes = 'fixture'): array
-    {
-        $tag = 'gq-deployment-status-v' . $version;
-        $name = 'gq-deployment-status-' . $version . '.zip';
+    private function pluginRelease(
+        string $version,
+        string $bytes = 'fixture',
+        string $slug = 'gq-deployment-status'
+    ): array {
+        $tag = $slug . '-v' . $version;
+        $name = $slug . '-' . $version . '.zip';
         return [
             'tag_name' => $tag, 'draft' => false, 'prerelease' => false,
             'assets' => [[
@@ -586,15 +848,24 @@ final class WordPressDeploymentStatusTest extends TestCase
         ];
     }
 
-    private function pluginZip(string $version, string $entry = 'gq-deployment-status/gq-deployment-status.php'): string
-    {
+    private function pluginZip(
+        string $version,
+        ?string $entry = null,
+        string $slug = 'gq-deployment-status',
+        bool $includeUpdater = true
+    ): string {
+        $entry ??= $slug . '/' . $slug . '.php';
+        $name = $slug === 'gq-game-admin' ? 'GalaxyQuest Administration' : 'GalaxyQuest Deployment Status';
         $file = $this->root . '/fixture.zip';
         $zip = new ZipArchive();
         self::assertTrue($zip->open($file, ZipArchive::CREATE | ZipArchive::OVERWRITE));
         self::assertTrue($zip->addFromString(
             $entry,
-            "<?php\n/**\n * Plugin Name: GalaxyQuest Deployment Status\n * Version: " . $version . "\n */\n"
+            "<?php\n/**\n * Plugin Name: " . $name . "\n * Version: " . $version . "\n */\n"
         ));
+        if ($includeUpdater) {
+            self::assertTrue($zip->addFromString($slug . '/gq-github-plugin-updater.php', '<?php // updater fixture'));
+        }
         self::assertTrue($zip->close());
         $bytes = file_get_contents($file);
         self::assertIsString($bytes);

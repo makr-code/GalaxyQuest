@@ -61,6 +61,13 @@ final class ColonyEconomySimulation
         return [2 => 'energy_tech', 3 => 'computer_tech', 4 => 'quantum_computing', 5 => 'dark_energy_tap'][$tier];
     }
 
+    /** Gross next-step demand, including unmet recipe inputs; never persists or grants output. */
+    public static function reserveRates(array $state, array $context): array
+    {
+        $state['stock'] = array_replace(array_fill_keys(array_keys(self::PRICES), 0.0), $state['stock']);
+        return self::step($state, $context, self::STEP_SECONDS)['consumption'];
+    }
+
     /**
      * Reads process full steps only; mutations additionally settle the sub-step
      * before changing rates. Unprocessed offline time stays in the cursor.
@@ -70,7 +77,8 @@ final class ColonyEconomySimulation
         array $context,
         int $now,
         bool $mutation = false,
-        ?int &$populationPeak = null
+        ?int &$populationPeak = null,
+        ?array &$flows = null
     ): array
     {
         $cursor = (int)$state['settled_at'];
@@ -82,14 +90,14 @@ final class ColonyEconomySimulation
         }
         $steps = min(self::MAX_STEPS, intdiv($now - $cursor, self::STEP_SECONDS));
         for ($i = 0; $i < $steps; $i++) {
-            $state = self::step($state, $context, self::STEP_SECONDS);
+            $state = self::step($state, $context, self::STEP_SECONDS, $flows);
             if ($populationPeak !== null) {
                 $populationPeak = self::retainPopulationPeak($state, $populationPeak);
             }
         }
         $remaining = $now - (int)$state['settled_at'];
         if ($mutation && $remaining < self::STEP_SECONDS && $remaining > 0) {
-            $state = self::step($state, $context, $remaining);
+            $state = self::step($state, $context, $remaining, $flows);
             if ($populationPeak !== null) {
                 $populationPeak = self::retainPopulationPeak($state, $populationPeak);
             }
@@ -107,7 +115,27 @@ final class ColonyEconomySimulation
         return max($peak, $population);
     }
 
-    private static function step(array $state, array $context, int $seconds): array
+    /**
+     * Time-weighted world-event production factor for [$start, $start + $seconds).
+     * Depends only on the step interval, never on when settlement runs.
+     */
+    public static function eventFactor(array $context, string $good, int $start, int $seconds): float
+    {
+        $factor = 1.0;
+        $end = $start + $seconds;
+        foreach ($context['event_production'] ?? [] as $window) {
+            if ($window['good'] !== '' && $window['good'] !== $good) {
+                continue;
+            }
+            $overlap = min($end, $window['ends_at']) - max($start, $window['starts_at']);
+            if ($overlap > 0 && $seconds > 0) {
+                $factor *= 1 + ($window['factor'] - 1) * $overlap / $seconds;
+            }
+        }
+        return $factor;
+    }
+
+    private static function step(array $state, array $context, int $seconds, ?array &$flows = null): array
     {
         $hours = $seconds / 3600;
         $stock = $state['stock'];
@@ -126,6 +154,7 @@ final class ColonyEconomySimulation
         $employment = $jobs > 0 ? min(1.0, $population * 0.6 / $jobs) : 1.0;
         foreach ($context['raw_production'] as $good => $rate) {
             $rate *= $context['good_multipliers'][$good] ?? 1.0;
+            $rate *= self::eventFactor($context, $good, (int)$state['settled_at'], $seconds);
             if ($good !== 'food') {
                 $happiness = $state['satisfaction'];
                 $rate *= $happiness >= 70 ? 1 + ($happiness - 70) / 120 : max(0.5, 0.5 + $happiness / 140);
@@ -135,10 +164,13 @@ final class ColonyEconomySimulation
                 $amount = min($amount, $state['deposits'][$good]);
             }
             $accepted = min($amount, max(0.0, ($caps[$good] ?? 5000) - ($stock[$good] ?? 0)));
+            self::flow($flows, 'raw_output', $good, $amount);
+            self::flow($flows, 'capacity_loss', $good, $amount - $accepted);
             if (isset($state['deposits'][$good]) && $state['deposits'][$good] >= 0) {
                 $state['deposits'][$good] -= $accepted;
             }
             $tax = $accepted * ($context['production_tax'] ?? 0);
+            self::flow($flows, 'production_tax', $good, $tax);
             $state['credit_delta'] = ($state['credit_delta'] ?? 0) + $tax * self::PRICES[$good];
             $accepted -= $tax;
             $stock[$good] = ($stock[$good] ?? 0) + $accepted;
@@ -149,6 +181,8 @@ final class ColonyEconomySimulation
         $foodRequired = $population * 0.01 * $hours;
         $foodCoverage = $foodRequired > 0 ? min(1.0, ($stock['food'] ?? 0) / $foodRequired) : 1.0;
         $foodUsed = min($foodRequired, $stock['food'] ?? 0);
+        self::flow($flows, 'population_used', 'food', $foodUsed);
+        self::flow($flows, 'unmet_population', 'food', $foodRequired - $foodUsed);
         $stock['food'] = ($stock['food'] ?? 0) - $foodUsed;
         $consumption['food'] = $population * 0.01;
         if ($foodCoverage < 1) {
@@ -172,7 +206,9 @@ final class ColonyEconomySimulation
             $policyMultiplier = $context['good_multipliers'][$good] ?? $policyMultiplier;
             $wanted = $rate * $level * $employment * $methodMultiplier * $policyMultiplier * $hours;
             $wanted *= 0.5 + $state['satisfaction'] / 100;
+            $wanted *= self::eventFactor($context, $good, (int)$state['settled_at'], $seconds);
             $amount = min($wanted, max(0.0, ($caps[$good] ?? 5000) - ($stock[$good] ?? 0)));
+            self::flow($flows, 'processing_capacity_blocked', $good, $wanted - $amount);
             // Efficient production uses less input per output; premium uses more
             // energy and rare earths instead of being a free output multiplier.
             $inputMultiplier = $method === 'efficient' ? 0.85 : 1.0;
@@ -186,12 +222,16 @@ final class ColonyEconomySimulation
             $amount = min($amount, $energy * $hours / $energyCost);
             foreach ($inputs as $input => $ratio) {
                 $used = $amount * $ratio * $inputMultiplier;
+                self::flow($flows, 'processing_used', $input, $used);
                 $stock[$input] -= $used;
                 $consumption[$input] = ($consumption[$input] ?? 0)
                     + $wanted * $ratio * $inputMultiplier / $hours;
             }
             $energy -= $amount * $energyCost / $hours;
             $tax = $amount * ($context['production_tax'] ?? 0);
+            self::flow($flows, 'processed_output', $good, $amount);
+            self::flow($flows, 'unmet_processing', $good, $wanted - $amount);
+            self::flow($flows, 'production_tax', $good, $tax);
             $state['credit_delta'] = ($state['credit_delta'] ?? 0) + $tax * self::PRICES[$good];
             $stock[$good] = ($stock[$good] ?? 0) + $amount - $tax;
             $production[$good] = ($amount - $tax) / $hours;
@@ -211,6 +251,8 @@ final class ColonyEconomySimulation
                 $required = $demand * $hours;
                 $available = $stock[$good] ?? 0.0;
                 $used = min($available, $required);
+                self::flow($flows, 'population_used', $good, $used);
+                self::flow($flows, 'unmet_population', $good, $required - $used);
                 $stock[$good] = $available - $used;
                 $consumption[$good] = ($consumption[$good] ?? 0) + $demand;
                 if ($required > 0) {
@@ -295,5 +337,13 @@ final class ColonyEconomySimulation
         $state['employment'] = $employment;
         $state['population_growth_per_hour'] = $growth;
         return $state;
+    }
+
+    /** Optional gross quantities from the actual step, not demand-rate estimates. */
+    private static function flow(?array &$flows, string $component, string $good, float $quantity): void
+    {
+        if ($flows !== null) {
+            $flows[$component][$good] = ($flows[$component][$good] ?? 0.0) + $quantity;
+        }
     }
 }

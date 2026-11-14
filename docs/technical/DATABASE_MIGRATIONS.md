@@ -1127,25 +1127,23 @@ retry window and rejection of expired identities.
 
 ### On-demand colony economy rollout
 
-Keep `ON_DEMAND_ECONOMY_ENABLED=0` while applying and verifying the canonical
-manifest. Its final `migrate_economy_on_demand_v1.sql` migration adds the durable
-settlement cursor, spatial construction mappings and indexed system/galaxy
+The on-demand ledger is the only economy path (the former
+`ON_DEMAND_ECONOMY_ENABLED` flag has been removed), so the canonical manifest
+**must be applied and verified before deploying** the runtime. Its final
+`migrate_economy_on_demand_v1.sql` migration adds the durable settlement cursor, spatial construction mappings and indexed system/galaxy
 market projections. It also adds `users.credits` only if absent (1,000 initial
 credits); existing credit balances are preserved.
 
-After `up` and `verify` succeed, enable the flag in the PHP runtime environment.
-The first visit initializes each colony without granting historical economic
-output; existing primary stocks, class counts and spatial building levels are
+After `up` and `verify` succeed, deploy the PHP runtime. The first visit
+initializes each colony without granting historical economic output; existing primary stocks, class counts and spatial building levels are
 retained/reconciled. More than one offline day requires additional snapshot
 requests; HTTP 409 on mutations means catch-up is still needed. Macro reads expose
 projection age and coverage and never settle every colony.
 
-There is deliberately no destructive down migration. To stop the new path,
-disable the flag; do not delete settlement state or reset cursors. This pauses
-the new model but is not a semantic rollback of accrued production or spent
-credits. Back up before activation and restore that backup if economic effects
-must be reversed. Re-enabling after a legacy-mode interval requires an operator
-decision about the retained cursor; it is not an automatic model conversion.
+There is deliberately no destructive down migration and no runtime switch back
+to a legacy economy. Do not delete settlement state or reset cursors. Back up
+before the upgrade and restore that backup (together with the previous release)
+if economic effects must be reversed.
 
 ```bash
 # Show which migrations are applied / pending
@@ -2152,6 +2150,24 @@ regression invokes the standalone SQL against populated design, queue and asset
 tables and confirms all definitions and rows survive the explicit SQL error.
 No migration was added because the conflicting storage contract has not been
 resolved.
+
+### World events and mail outbox (`migrate_world_events_v1.sql`)
+
+Creates `world_events` (hourly world-event rows; `good_key` is `''` rather than
+`NULL` for "all goods" so `UNIQUE(window_id, event_type, scope_type, scope_id,
+good_key)` deduplicates reliably on MySQL) and `mail_outbox` (transactional
+outbox, `dedupe_key` unique, FK to `users` with `ON DELETE CASCADE`), and adds
+`users.email_notifications TINYINT(1) NOT NULL DEFAULT 1` idempotently via
+`information_schema`. The `_down` file drops both tables and the column. Events
+are not purged automatically because lagging colony settle cursors still apply
+expired events to their elapsed interval.
+
+### WordPress mail templates (`migrate_mail_templates_v1.sql`)
+
+Appends nullable HTML body, WordPress template ID and revision fields to
+`mail_outbox`. Existing text-only entries remain unchanged. Apply the canonical
+migration before deploying the updated mail worker; it is not applied by the
+template queue command. Queued bodies are snapshots, not live WordPress reads.
 
 ## Writing a New Migration
 

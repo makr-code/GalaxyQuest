@@ -111,6 +111,7 @@
       pixelSize : vec2<f32>,
       aspect : f32,
       menuGalaxy : f32,
+      horizontalOffset : f32,
     };
     @group(0) @binding(0) var<uniform> uView : ViewUniform;
 
@@ -141,7 +142,7 @@
         let s = sin(uView.rotation);
         let rotated = vec2<f32>(inPos.x * c - inPos.y * s, inPos.x * s + inPos.y * c);
         p = vec2<f32>(
-          (rotated.x + uView.pan.x) * uView.zoom * 1.6 / max(uView.aspect, 0.1) + 0.4,
+          (rotated.x + uView.pan.x) * uView.zoom * 1.6 / max(uView.aspect, 0.1) + uView.horizontalOffset,
           (rotated.y + uView.pan.y) * uView.zoom * 0.85
         );
       }
@@ -284,7 +285,9 @@
       this._lastRenderTs = 0;
       this._lastCameraDriverTime = 0;
       this._galaxyRotation = 0;
+      this._galaxyHorizontalOffset = 0.4;
       this._registrationScene = null;
+      this._flightInitialization = null;
       this._sceneStage = 0;
       this._sceneTarget = 0;
       this._sceneTime = 0;
@@ -460,6 +463,7 @@
       return true;
     }
     setRegistrationScene(scene) {
+      this._cancelRegistrationTransition();
       const stage = scene?.stage || (scene ? 'region' : 'galaxy');
       const stages = { galaxy: 0, region: 0, system: 1, planet: 2, moon: 2.5, surface: 3 };
       if (!(stage in stages)) return false;
@@ -467,6 +471,7 @@
         || !scene.draft.planets.some((planet) => planet.position === scene.draft.position?.position))) return false;
       if ((!scene || (!scene.flightTour && scene.stage !== 'galaxy')) && this._perspectiveFlight) {
         this._perspectiveFlight.dispose();
+        if (this._flightInitialization?.flight === this._perspectiveFlight) this._flightInitialization = null;
         this._perspectiveFlight = null;
         this._flightSceneGraph = null;
         this.camera = { position: { x: 0, y: 0, z: 1 } };
@@ -481,7 +486,23 @@
       }
       return true;
     }
-    setFlightScene(scene) {
+    _initializePerspectiveFlight(flight) {
+      if (!this._device || !flight) return Promise.resolve(false);
+      if (this._flightInitialization?.flight === flight) return this._flightInitialization.promise;
+      const promise = Promise.resolve(flight.initialize(
+        this._device, this._sceneFormat || navigator.gpu.getPreferredCanvasFormat(),
+      )).then(() => true).catch((error) => {
+        emitRenderTelemetry('spatial-label-init-error', {
+          message: String(error?.message || error),
+        });
+        throw error;
+      });
+      this._flightInitialization = { flight, promise };
+      promise.catch(() => {});
+      return promise;
+    }
+    setFlightScene(scene, { preserveRegistrationTransition = false } = {}) {
+      if (!preserveRegistrationTransition) this._cancelRegistrationTransition();
       if (window.GQPerspectiveSpaceFlight) {
         if (scene?.target) {
           this._currentTarget = scene.target;
@@ -494,17 +515,12 @@
           });
           this._perspectiveFlight.setGalaxyLabelStars(this._spatialLabelStars || []);
           this.camera = this._perspectiveFlight.camera;
-          if (this._device) {
-            void this._perspectiveFlight.initialize(this._device, this._sceneFormat || navigator.gpu.getPreferredCanvasFormat())
-              .catch((error) => emitRenderTelemetry('spatial-label-init-error', {
-                message: String(error?.message || error),
-              }));
-          }
         }
         if (!scene) {
           this._perspectiveFlight?.stop();
           return true;
         }
+        if (this._device) void this._initializePerspectiveFlight(this._perspectiveFlight).catch(() => {});
         if (scene.sceneGraph && scene.sceneGraph !== this._flightSceneGraph) {
           if (!this._perspectiveFlight.setSystem(scene)) return false;
           this._flightSceneGraph = scene.sceneGraph;
@@ -533,6 +549,7 @@
       this._perspectiveFlight?.setSpatialLabelCallbacks(callbacks);
     }
     navigateTo(target, options = {}) {
+      if (this._registrationTransition) return false;
       if (!this._perspectiveFlight) return false;
       return this._perspectiveFlight.navigate(target, {
         durationSec: (Number(options.durationMs) || 18000) / 1000,
@@ -540,6 +557,79 @@
         orbitRevolutions: Number(options.orbitRevolutions) || 0.65,
         signal: options.signal,
       });
+    }
+    async playRegistrationShot(shot) {
+      this.cancelRegistrationShot();
+      if (this._disposed || !this.ready || !this._device || this._registrationTransition) return false;
+      const state = this._registrationCameraShot = { paused: false, finish: this._reducedMotion };
+      const snapshot = !this._perspectiveFlight ? this.captureRegistrationView() : null;
+      if (!this.setFlightScene({ stage: 'galaxy', flightTour: true })) return false;
+      const flight = this._perspectiveFlight;
+      const cancelled = new Promise((resolve, reject) => {
+        state.cancel = () => resolve(false);
+        state.timer = setTimeout(() => reject(new Error('Die 3D-Kamera konnte nicht rechtzeitig vorbereitet werden.')), 10000);
+      });
+      let ready;
+      try {
+        ready = await Promise.race([this._initializePerspectiveFlight(flight), cancelled]);
+      } finally {
+        clearTimeout(state.timer);
+        state.cancel = null;
+      }
+      if (!ready) return false;
+      if (this._disposed || this._registrationCameraShot !== state || this._perspectiveFlight !== flight) return false;
+      if (snapshot) this._setSpatialCameraFromGalaxyView(snapshot, flight);
+      if (shot.kind === 'comet' || shot.kind === 'comet-world') {
+        let entity = flight.spaceEntities.get('onboarding-comet');
+        if (!entity) {
+          const radius = flight.radius;
+          const loaded = flight.registerSpaceEntity({
+            id: 'onboarding-comet', space_entity: 'comet', model_url: 'procedural:comet',
+            route: [[-0.4 * radius, -0.55 * radius, 0.18 * radius], [0.25 * radius, 0.25 * radius, 0.04 * radius]],
+            visual_scale_ly: radius * 0.003, segment_duration_seconds: 60,
+          });
+          entity = flight.spaceEntities.get('onboarding-comet');
+          if (!await loaded) return false;
+        } else if (entity.assetLoadPromise) await entity.assetLoadPromise;
+        if (this._registrationCameraShot !== state) return false;
+        if (shot.kind === 'comet') shot = { ...shot, kind: 'follow', target: { kind: 'comet', id: entity.id } };
+      }
+      if (shot.kind === 'comet-world') {
+        flight.cancelCameraShot();
+        flight.cameraShot = { kind: shot.kind, paused: state.paused, finishRequested: state.finish };
+        return flight.beginRegistrationCometTour({ ...shot, reducedMotion: state.finish });
+      }
+      if (shot.kind === 'journey' || shot.kind === 'landing') {
+        flight.cancelCameraShot();
+        flight.cameraShot = { kind: shot.kind, paused: state.paused };
+        return flight.beginRegistrationVoyage({ ...shot, landing: shot.kind === 'landing', reducedMotion: state.finish });
+      }
+      if (shot.kind === 'galaxy') {
+        flight.clearSystem();
+        this._flightSceneGraph = null;
+      }
+      if (!flight.setCameraShot(shot, { reducedMotion: state.finish })) return false;
+      flight.setCameraShotPaused(state.paused);
+      return true;
+    }
+    pauseRegistrationShot(paused) {
+      if (!this._registrationCameraShot) return false;
+      this._registrationCameraShot.paused = paused;
+      this._perspectiveFlight?.setCameraShotPaused(paused);
+      return true;
+    }
+    finishRegistrationShot() {
+      if (!this._registrationCameraShot) return false;
+      this._registrationCameraShot.finish = true;
+      this._perspectiveFlight?.finishCameraShot();
+      return true;
+    }
+    cancelRegistrationShot() {
+      if (!this._registrationCameraShot) return;
+      this._registrationCameraShot.cancel?.();
+      clearTimeout(this._registrationCameraShot.timer);
+      this._registrationCameraShot = null;
+      this._perspectiveFlight?.cancelCameraShot();
     }
     fitCameraToStars() {
       this._viewState.targetPanX = 0;
@@ -555,9 +645,12 @@
     setClusterBoundsVisible(flag) { this._clusterBoundsVisible = !!flag; }
     setGalacticCoreFxEnabled(flag) { this._galacticCoreFxEnabled = !!flag; }
     setEmpireHeartbeatSystems() {}
-    setCameraDriver(driver) { this._cameraDriver = driver || null; }
+    setCameraDriver(driver) {
+      if (!this._registrationTransition) this._cameraDriver = driver || null;
+    }
     clearCameraDriver() { this._cameraDriver = null; }
     flyToStar(target, durationMs = 6000) {
+      if (this._registrationTransition) return false;
       const position = toStarPosition(target);
       if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return false;
       const c = Math.cos(this._galaxyRotation);
@@ -583,6 +676,333 @@
     cancelCameraFlight() {
       this._perspectiveFlight?.stop();
       this._flightMotion = null;
+    }
+    captureRegistrationView() {
+      if (this._disposed) return null;
+      const flight = this._perspectiveFlight;
+      return {
+        renderer: this,
+        viewState: { ...this._viewState },
+        rotation: this._galaxyRotation,
+        horizontalOffset: this._galaxyHorizontalOffset,
+        regionTarget: this._regionPreviewTarget,
+        currentTarget: this._currentTarget,
+        sceneStage: this._sceneStage,
+        sceneTarget: this._sceneTarget,
+        sceneTime: this._sceneTime,
+        registrationScene: this._registrationScene,
+        lastSceneDraft: this._lastSceneDraft,
+        sceneGraph: this._flightSceneGraph || null,
+        stars: this.stars,
+        starScale: this._starScale,
+        labelStars: this._spatialLabelStars,
+        flight,
+        entityIds: flight ? new Set(flight.spaceEntities.keys()) : null,
+        spatial: flight ? {
+          position: flight.camera.position.toArray(),
+          quaternion: flight.camera.quaternion.toArray(),
+          up: flight.camera.up.toArray(),
+          fov: flight.camera.fov,
+          origin: flight.origin.toArray(),
+        } : null,
+      };
+    }
+    restoreRegistrationView(snapshot, { preserveVessel = false } = {}) {
+      if (this._disposed || !snapshot || snapshot.renderer !== this) return false;
+      this.cancelRegistrationShot();
+      this._cancelRegistrationTransition();
+      if (!preserveVessel) {
+        this._clearRegistrationTransfer();
+        this._registrationArrivalFallback = false;
+      }
+      this.cancelCameraFlight();
+      this._cameraDriver = null;
+      this._currentTarget = snapshot.currentTarget;
+      this._regionPreviewTarget = snapshot.regionTarget;
+      if (this.stars !== snapshot.stars || this._starScale !== snapshot.starScale) {
+        this._starScale = snapshot.starScale;
+        this.setStars(snapshot.stars, { preserveScale: true });
+      } else {
+        this._prepareFlightStars(this.stars);
+      }
+      if (this._spatialLabelStars !== snapshot.labelStars) this.setSpatialLabelStars(snapshot.labelStars);
+      if (snapshot.spatial) {
+        if (!this._perspectiveFlight && !this.setFlightScene({ flightTour: true, stage: 'galaxy' })) return false;
+        const flight = this._perspectiveFlight;
+        if (!flight) return false;
+        if (!preserveVessel) {
+          const vessel = flight.spaceEntities.get('registration-transfer');
+          if (vessel && !snapshot.entityIds?.has(vessel.id)) flight._removeSpaceEntity(vessel);
+        }
+        flight.cameraFollowEntity = null;
+        flight.vesselCameraPose = null;
+        if (snapshot.sceneGraph) {
+          if (snapshot.sceneGraph !== this._flightSceneGraph
+            && !flight.setSystem({ flightTour: true, sceneGraph: snapshot.sceneGraph })) return false;
+        } else if (this._flightSceneGraph) {
+          flight.clearSystem();
+        }
+        this._flightSceneGraph = snapshot.sceneGraph || null;
+        flight.origin.fromArray(snapshot.spatial.origin);
+        flight.camera.position.fromArray(snapshot.spatial.position);
+        flight.camera.quaternion.fromArray(snapshot.spatial.quaternion);
+        flight.camera.up.fromArray(snapshot.spatial.up);
+        flight.camera.fov = snapshot.spatial.fov;
+        flight.camera.updateProjectionMatrix();
+        flight.camera.updateMatrixWorld(true);
+        flight.previousView = null;
+      } else if (this._perspectiveFlight) {
+        this._perspectiveFlight.dispose();
+        if (this._flightInitialization?.flight === this._perspectiveFlight) this._flightInitialization = null;
+        this._perspectiveFlight = null;
+        this._flightSceneGraph = null;
+        this.camera = { position: { x: 0, y: 0, z: 1 } };
+      }
+      this._viewState = { ...snapshot.viewState };
+      this._galaxyRotation = snapshot.rotation;
+      this._galaxyHorizontalOffset = snapshot.horizontalOffset;
+      this._regionPreviewTarget = snapshot.regionTarget;
+      this._currentTarget = snapshot.currentTarget;
+      this._sceneStage = snapshot.sceneStage;
+      this._sceneTarget = snapshot.sceneTarget;
+      this._sceneTime = snapshot.sceneTime;
+      this._registrationScene = snapshot.registrationScene;
+      this._lastSceneDraft = snapshot.lastSceneDraft;
+      return true;
+    }
+    beginRegistrationTransition({ snapshot, reducedMotion = false, onReady = () => {} } = {}) {
+      this.cancelRegistrationShot();
+      this._cancelRegistrationTransition();
+      this._clearRegistrationTransfer();
+      this._registrationArrivalFallback = true;
+      if (!this.restoreRegistrationView(snapshot, { preserveVessel: true })) return Promise.resolve(false);
+      this._viewState.targetPanX = this._viewState.panX;
+      this._viewState.targetPanY = this._viewState.panY;
+      this._viewState.targetZoom = this._viewState.zoom;
+      return new Promise((resolve, reject) => {
+        const transition = this._registrationTransition = {
+          flight: null, resolve, reject, phase: 'initializing', elapsed: 0, duration: 2.8,
+          onReady: typeof onReady === 'function' ? onReady : () => {}, snapshot,
+        };
+        transition.timer = setTimeout(() => {
+          if (this._registrationTransition === transition) this._failRegistrationTransition(transition, snapshot);
+        }, 10000);
+        void this._startRegistrationArrival(transition, snapshot, reducedMotion || this._reducedMotion)
+          .catch((error) => this._failRegistrationTransition(transition, snapshot, error, reject));
+      });
+    }
+    async _startRegistrationArrival(transition, snapshot, reducedMotion) {
+      if (!snapshot.spatial) {
+        const sceneReady = this._device && this.setFlightScene(
+          { flightTour: true, stage: 'galaxy', stars: snapshot.stars },
+          { preserveRegistrationTransition: true },
+        );
+        if (!sceneReady) {
+          this._failRegistrationTransition(transition, snapshot);
+          return;
+        }
+        transition.flight = this._perspectiveFlight;
+        if (!await this._initializePerspectiveFlight(transition.flight)) {
+          this._failRegistrationTransition(transition, snapshot);
+          return;
+        }
+        if (this._registrationTransition !== transition) {
+          if (this._perspectiveFlight !== transition.flight) transition.flight.dispose();
+          return;
+        }
+        this._setSpatialCameraFromGalaxyView(snapshot, transition.flight);
+      } else {
+        transition.flight = this._perspectiveFlight;
+        if (!transition.flight) {
+          this._failRegistrationTransition(transition, snapshot);
+          return;
+        }
+      }
+
+      if (this._registrationTransition !== transition) return;
+      if (reducedMotion) {
+        this._registrationArrivalFallback = false;
+        transition.onReady();
+        this._settleRegistrationTransition(transition, true);
+        return;
+      }
+
+      const { flight } = transition;
+      const camera = flight.camera;
+      const direction = camera.getWorldDirection(camera.position.clone());
+      const clearance = flight.bodies.reduce((nearest, body) => {
+        const center = body.getWorldPosition(camera.position.clone());
+        const radius = body.userData.radius * (body.userData.type === 'star' ? 2.6 : 1.08);
+        return Math.min(nearest, center.distanceTo(camera.position) - radius);
+      }, Infinity);
+      const reference = Number.isFinite(clearance) ? clearance
+        : Math.max(camera.position.length(), 1 / Math.max(this._starScale, 1e-30));
+      const distance = reference * 0.04;
+      const precision = Math.max(1, flight.origin.length(), camera.position.length()) * Number.EPSILON * 256;
+      if (!Number.isFinite(distance) || distance <= Math.max(precision, camera.near * 100)) {
+        this._failRegistrationTransition(transition, snapshot);
+        return;
+      }
+      const scale = distance * Math.tan(camera.fov * Math.PI / 360) * 0.08;
+      const anchor = camera.position.clone().addScaledVector(direction, distance).add(flight.origin);
+      const id = `registration-transition-${(this._registrationTransferSerial = (this._registrationTransferSerial || 0) + 1)}`;
+      const load = flight.registerSpaceEntity({
+        id, space_entity: 'vessel',
+        model_url: '/generated/trellis2/imported/ship/ship_generic_teaser_transfer_organic_lod0_dev.glb',
+        route: [anchor.toArray(), anchor.clone().addScaledVector(direction, scale).toArray()],
+        visual_scale_ly: scale, color: [0.62, 0.82, 0.98, 1],
+      });
+      const entity = flight.spaceEntities.get(id);
+      this._registrationTransfer = { flight, entity, anchor, direction, scale };
+      transition.phase = 'loading';
+      let ready;
+      try {
+        ready = await load;
+      } catch (error) {
+        emitRenderTelemetry('registration-transition-asset-error', {
+          message: String(error?.message || error),
+        });
+        this._failRegistrationTransition(transition, snapshot);
+        return;
+      }
+      if (this._registrationTransition !== transition) return;
+      if (!ready || flight.spaceEntities.get(id) !== entity) {
+        this._failRegistrationTransition(transition, snapshot);
+        return;
+      }
+      const target = flight.resolveTarget({ kind: 'ship', id }, { safeFraming: true });
+      if (!target) {
+        this._failRegistrationTransition(transition, snapshot);
+        return;
+      }
+      const destinationCamera = camera.clone();
+      destinationCamera.position.copy(target.destination);
+      destinationCamera.lookAt(target.focus);
+      Object.assign(transition, {
+        phase: 'moving', elapsed: 0,
+        position: camera.position.clone(), quaternion: camera.quaternion.clone(),
+        destination: destinationCamera.position.clone(), orientation: destinationCamera.quaternion.clone(),
+      });
+      transition.onReady();
+      clearTimeout(transition.timer);
+      transition.timer = setTimeout(() => {
+        if (this._registrationTransition === transition) this._advanceRegistrationTransition(0, true);
+      }, 4000);
+    }
+    _setSpatialCameraFromGalaxyView(snapshot, flight) {
+      const aspect = Math.max(0.1, this._canvas.clientWidth / Math.max(1, this._canvas.clientHeight));
+      const zoom = Math.max(0.45, Number(snapshot.viewState.zoom) || 1);
+      const scale = Math.max(1e-30, snapshot.starScale || 1);
+      const rotation = Number(snapshot.rotation) || 0;
+      const cos = Math.cos(rotation);
+      const sin = Math.sin(rotation);
+      const rotatedX = -snapshot.viewState.panX / scale - (aspect * 0.25) / (zoom * 1.6 * scale);
+      const rotatedY = -snapshot.viewState.panY / scale;
+      const targetX = rotatedX * cos + rotatedY * sin;
+      const targetY = -rotatedX * sin + rotatedY * cos;
+      const camera = flight.camera;
+      camera.aspect = aspect;
+      const distance = 1 / (scale * zoom * 0.85 * Math.tan(camera.fov * Math.PI / 360));
+      camera.up.set(-sin, cos, 0);
+      camera.position.set(targetX, targetY, distance);
+      camera.lookAt(targetX, targetY, 0);
+      camera.updateProjectionMatrix();
+      camera.updateMatrixWorld(true);
+      flight.origin.set(0, 0, 0);
+      flight.previousView = null;
+    }
+    _settleRegistrationTransition(transition, result) {
+      if (this._registrationTransition !== transition) return false;
+      this._registrationTransition = null;
+      clearTimeout(transition.timer);
+      transition.resolve(result);
+      return true;
+    }
+    _failRegistrationTransition(transition, snapshot, error = null, reject = null) {
+      if (this._registrationTransition !== transition) return false;
+      this._registrationTransition = null;
+      clearTimeout(transition.timer);
+      this._clearRegistrationTransfer();
+      if (error) emitRenderTelemetry('registration-transition-error', {
+        message: String(error?.message || error),
+      });
+      try {
+        this.restoreRegistrationView(snapshot);
+      } catch (restoreError) {
+        emitRenderTelemetry('registration-transition-restore-error', {
+          message: String(restoreError?.message || restoreError),
+        });
+      }
+      this._registrationArrivalFallback = true;
+      if (reject && error) reject(error);
+      else transition.resolve(false);
+      return true;
+    }
+    _clearRegistrationTransfer() {
+      const transfer = this._registrationTransfer;
+      this._registrationTransfer = null;
+      if (transfer?.entity && transfer.flight.spaceEntities.get(transfer.entity.id) === transfer.entity) {
+        transfer.flight._removeSpaceEntity(transfer.entity);
+      }
+    }
+    getRegistrationTransferInfo() {
+      const transfer = this._registrationTransfer;
+      if (!transfer?.entity || transfer.flight !== this._perspectiveFlight
+        || transfer.flight.spaceEntities.get(transfer.entity.id) !== transfer.entity
+        || !transfer.flight.vesselRenderPass.resources.has(transfer.entity.id)) return null;
+      return { id: transfer.entity.id, anchor: transfer.anchor.toArray(),
+        direction: transfer.direction.toArray(), scale: transfer.scale };
+    }
+    registrationArrivalFellBack() {
+      return this._registrationArrivalFallback === true;
+    }
+    updateRegistrationTransfer(descriptor) {
+      const info = this.getRegistrationTransferInfo();
+      if (!info) return false;
+      const flight = this._perspectiveFlight;
+      flight.cameraFollowEntity = flight.spaceEntities.get(info.id);
+      void flight.registerSpaceEntity({ ...descriptor, id: info.id, registration_vessel: true,
+        follow_camera: true, smooth_camera_handoff: true }).catch((error) => {
+        emitRenderTelemetry('space-entity-load-error', { message: String(error?.message || error) });
+      });
+      return true;
+    }
+    _advanceRegistrationTransition(dt, finish = false) {
+      const transition = this._registrationTransition;
+      if (!transition) return false;
+      if (transition.phase === 'loading') {
+        if (finish) this._cancelRegistrationTransition();
+        return true;
+      }
+      try {
+        transition.elapsed = finish ? transition.duration : Math.min(transition.duration, transition.elapsed + dt);
+        const progress = transition.elapsed / transition.duration;
+        const eased = progress * progress * (3 - 2 * progress);
+        const camera = transition.flight.camera;
+        camera.position.copy(transition.position).lerp(transition.destination, eased);
+        camera.quaternion.copy(transition.quaternion).slerp(transition.orientation, eased);
+        camera.updateMatrixWorld(true);
+        if (progress !== 1) return true;
+        this._registrationTransition = null;
+        this._registrationArrivalFallback = false;
+        clearTimeout(transition.timer);
+        transition.resolve(true);
+      } catch (error) {
+        this._failRegistrationTransition(transition, transition.snapshot, error, transition.reject);
+      }
+      return true;
+    }
+    _cancelRegistrationTransition() {
+      const transition = this._registrationTransition;
+      if (!transition) return false;
+      this._registrationTransition = null;
+      clearTimeout(transition.timer);
+      this._clearRegistrationTransfer();
+      transition.resolve(false);
+      return true;
+    }
+    skipRegistrationTransition() {
+      return this._advanceRegistrationTransition(0, true);
     }
     getFlightTelemetry() {
       if (this._perspectiveFlight) return { ...this._perspectiveFlight.telemetry, spatial: true,
@@ -633,6 +1053,7 @@
     setClusterDensityMode() {}
     setClusterAuras() {}
     setSpaceEntities(entities = []) {
+      this._cancelRegistrationTransition();
       if (!this._perspectiveFlight) return false;
       const result = this._perspectiveFlight.setSpaceEntities(entities);
       if (result && typeof result.then === 'function') {
@@ -644,6 +1065,7 @@
     }
     setSpaceVessels(vessels = []) { return this.setSpaceEntities(vessels); }
     setGalaxyFleets(fleets = []) {
+      this._cancelRegistrationTransition();
       if (!this._perspectiveFlight) return false;
       const result = this._perspectiveFlight.setGalaxyFleets(fleets);
       if (result && typeof result.then === 'function') {
@@ -748,6 +1170,7 @@
     }
 
     stop() {
+      this._cancelRegistrationTransition();
       this._running = false;
       if (this._rafId) {
         cancelAnimationFrame(this._rafId);
@@ -756,9 +1179,11 @@
     }
 
     dispose() {
+      this.cancelRegistrationShot();
       this._disposed = true;
       this.stop();
       this._perspectiveFlight?.dispose();
+      this._flightInitialization = null;
       this._bloom?.dispose();
       this._bloom = null;
       this._lensFlare?.dispose();
@@ -854,7 +1279,7 @@
       });
 
       this._viewUniformBuffer = this._device.createBuffer({
-        size: 32,
+        size: 48,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
       this._viewBindGroup = this._device.createBindGroup({
@@ -975,8 +1400,9 @@
         return;
       }
       if (this._perspectiveFlight) {
-        if (!this._reducedMotion) this._perspectiveFlight.update(dt);
-        this._perspectiveFlight.renderFrame(this._device, this._context, this._flightStars,
+        if (this._registrationTransition) this._advanceRegistrationTransition(dt);
+        else if (!this._reducedMotion) this._perspectiveFlight.update(dt);
+        this._perspectiveFlight?.renderFrame(this._device, this._context, this._flightStars,
           this._canvas.width, this._canvas.height, this._nebulaField,
           this._canvas.width / Math.max(1, this._canvas.clientWidth));
         this._frameTick++;
@@ -1060,6 +1486,10 @@
       this._sceneStage += this._reducedMotion ? difference : Math.sign(difference) * Math.min(Math.abs(difference), dt * 0.55);
       if (!this._reducedMotion) this._sceneTime += dt;
 
+      const horizontalTarget = this._registrationScene && !this._registrationScene.flightTour ? 0 : 0.4;
+      const horizontalDifference = horizontalTarget - this._galaxyHorizontalOffset;
+      this._galaxyHorizontalOffset += this._reducedMotion || Math.abs(horizontalDifference) < 0.0001
+        ? horizontalDifference : horizontalDifference * (1 - Math.exp(-dt * 6));
       const viewUniform = new Float32Array([
         this._viewState.panX,
         this._viewState.panY,
@@ -1069,6 +1499,7 @@
         2 / Math.max(1, this._canvas.height),
         this._canvas.width / Math.max(1, this._canvas.height),
         this._opts.menuGalaxy ? 1 : 0,
+        this._galaxyHorizontalOffset, 0, 0, 0,
       ]);
       this._device.queue.writeBuffer(this._viewUniformBuffer, 0, viewUniform.buffer, 0, viewUniform.byteLength);
 
@@ -1087,6 +1518,7 @@
           scale: this._starScale, zoom: this._viewState.zoom, rotation: this._galaxyRotation,
           panX: this._viewState.panX, panY: this._viewState.panY,
           aspect: this._canvas.width / Math.max(1, this._canvas.height),
+          horizontalOffset: this._galaxyHorizontalOffset,
         });
         this._nebulaField.render(pass, this._device, projection, {
           width: this._canvas.width, height: this._canvas.height, time: this._sceneTime,

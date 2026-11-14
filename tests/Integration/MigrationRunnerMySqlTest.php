@@ -39,7 +39,7 @@ final class MigrationRunnerMySqlTest extends TestCase
             'SELECT DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=DATABASE()'
         )->fetchColumn();
         $this->assertSame('utf8mb4_unicode_ci', $collation);
-        $this->sqlDir = sys_get_temp_dir() . '/' . $this->database;
+        $this->sqlDir = __DIR__ . '/.fixtures_' . $this->database;
         mkdir($this->sqlDir, 0700);
         copy(__DIR__ . '/../../sql/schema_migrations.sql', $this->sqlDir . '/schema_migrations.sql');
     }

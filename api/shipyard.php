@@ -7,14 +7,12 @@
  */
 
 use GalaxyQuest\Economy\OnDemandEconomy;
-use GalaxyQuest\Economy\ResourceLedger;
 
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/cache.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/buildings.php';
 require_once __DIR__ . '/shipyard_queue.php';
-require_once __DIR__ . '/../src/Economy/ResourceLedger.php';
 
 // Build-queue status constants (must match ship_build_queue.status enum/values)
 const SBQ_STATUS_QUEUED  = 'queued';
@@ -154,29 +152,12 @@ if (PHP_SAPI !== 'cli') {
                 ]);
                 return (int)$db->lastInsertId();
             };
-            if (ON_DEMAND_ECONOMY_ENABLED) {
-                try {
-                    $queueId = (new OnDemandEconomy($db))->spend($cid, $uid, $totalCost, $enqueue);
-                } catch (DomainException $error) {
-                    json_error($error->getMessage(), $error->getCode() ?: 400);
-                }
-                start_next_ship_build_queue($db, $cid);
-            } else {
-                try {
-                    $queueId = (new ResourceLedger($db))->spend(
-                        $cid,
-                        $uid,
-                        $totalCost,
-                        function () use ($enqueue, $db, $cid): int {
-                            $queueId = $enqueue();
-                            start_next_ship_build_queue($db, $cid);
-                            return $queueId;
-                        }
-                    );
-                } catch (DomainException $error) {
-                    json_error($error->getMessage(), $error->getCode() ?: 400);
-                }
+            try {
+                $queueId = (new OnDemandEconomy($db))->spend($cid, $uid, $totalCost, $enqueue);
+            } catch (DomainException $error) {
+                json_error($error->getMessage(), $error->getCode() ?: 400);
             }
+            start_next_ship_build_queue($db, $cid);
 
             gq_cache_delete('shipyard_list', ['uid' => $uid, 'cid' => $cid]);
             gq_cache_delete('buildings_list', ['uid' => $uid, 'cid' => $cid]);

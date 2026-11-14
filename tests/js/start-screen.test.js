@@ -1,9 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { animate } from 'motion/mini';
 import { initializeStartScreen } from '../../js/network/start-screen.js';
 
 const html = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf8');
+
+vi.mock('motion/mini', () => ({
+  animate: vi.fn(() => ({
+    then: (resolve) => Promise.resolve().then(resolve),
+    stop: vi.fn(),
+    complete: vi.fn(),
+    pause: vi.fn(),
+    play: vi.fn(),
+  })),
+}));
+
+async function startCampaign() {
+  document.getElementById('start-register').click();
+  await vi.waitFor(() => {
+    expect(document.getElementById('registration-prologue').hidden).toBe(false);
+    expect(document.getElementById('registration-prologue').dataset.phase).toBe('opening');
+  });
+}
 
 describe('Start-screen menu', () => {
   beforeEach(() => {
@@ -80,7 +99,7 @@ describe('Start-screen menu', () => {
     expect(submit).toHaveBeenCalledOnce();
   });
 
-  it('toggles the cascade and closes it on outside interaction', () => {
+  it('toggles the cascade and closes it on outside interaction', async () => {
     initializeStartScreen();
     const button = document.getElementById('start-login');
     button.click();
@@ -90,20 +109,20 @@ describe('Start-screen menu', () => {
     document.getElementById('start-menu').dispatchEvent(new Event('pointerdown', { bubbles: true }));
     expect(document.getElementById('start-auth-dialog')).toBeNull();
     button.click();
-    document.getElementById('start-register').click();
+    await startCampaign();
     expect(document.querySelector('#start-auth-dialog')).toBeNull();
     expect(document.getElementById('registration-prologue').hidden).toBe(false);
     expect(HTMLDialogElement.prototype.showModal).not.toHaveBeenCalled();
     expect(button.getAttribute('aria-expanded')).toBe('false');
   });
 
-  it('opens the lore without credentials or allocation and restores the menu on Back', () => {
+  it('opens the lore without credentials or allocation and restores the menu on Back', async () => {
     const request = vi.fn();
     const preview = vi.fn();
     const screen = initializeStartScreen({ onRegistrationRequest: request, onRegistrationPreview: preview });
-    document.getElementById('start-register').click();
+    await startCampaign();
     expect(document.body.classList.contains('registration-active')).toBe(true);
-    expect(document.getElementById('registration-title').textContent).toContain('Sterne');
+    expect(document.getElementById('registration-title').textContent).toBe('Eine Galaxie');
     expect(document.getElementById('register-form')).toBeNull();
     expect(request).not.toHaveBeenCalled();
     document.getElementById('registration-back').click();
@@ -113,19 +132,206 @@ describe('Start-screen menu', () => {
     expect(preview).toHaveBeenCalledWith(null);
   });
 
-  it('pauses the automatic galaxy tour during registration and resumes it without changing its preference', () => {
+  it('starts the cinematic only on a new campaign and restores the captured view on early exit', async () => {
+    const snapshot = { camera: 'before-opening' };
+    const transition = {
+      capture: vi.fn(() => snapshot),
+      begin: vi.fn(),
+      restore: vi.fn(() => true),
+    };
+    const request = vi.fn();
+    const screen = initializeStartScreen({ onRegistrationTransition: transition, onRegistrationRequest: request });
+    expect(screen.registration.isActive()).toBe(false);
+    document.getElementById('start-login').click();
+    expect(screen.registration.isActive()).toBe(false);
+    document.getElementById('start-register').click();
+    await vi.waitFor(() => expect(screen.registration.isActive()).toBe(true));
+    expect(document.getElementById('registration-prologue').dataset.phase).toBe('opening');
+    expect(transition.capture).toHaveBeenCalledOnce();
+    expect(transition.begin).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+    document.getElementById('registration-back').click();
+    expect(transition.restore).toHaveBeenCalledWith(snapshot);
+    expect(screen.registration.isActive()).toBe(false);
+    expect(document.getElementById('start-register')).toBe(document.activeElement);
+  });
+
+  it('guards repeated campaign clicks and cancels an unfinished exit with Escape', async () => {
+    const transition = { capture: vi.fn(() => ({})), restore: vi.fn(() => true), begin: vi.fn() };
+    const screen = initializeStartScreen({ onRegistrationTransition: transition });
+    await vi.waitFor(() => expect(document.getElementById('start-menu').dataset.motionState).toBe('visible'));
+    let finish;
+    const finished = new Promise((resolve) => { finish = resolve; });
+    animate.mockImplementationOnce(() => ({
+      then: finished.then.bind(finished), stop: vi.fn(), complete: vi.fn(finish),
+    }));
+    document.getElementById('start-register').click();
+    document.getElementById('start-register').click();
+    expect(transition.capture).toHaveBeenCalledOnce();
+    expect(screen.registration.isActive()).toBe(false);
+    expect(document.getElementById('start-menu').inert).toBe(true);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(transition.restore).toHaveBeenCalledOnce();
+    expect(document.getElementById('start-menu').inert).toBe(false);
+    finish();
+    await vi.waitFor(() => expect(document.getElementById('start-menu').dataset.motionState).toBe('visible'));
+    expect(screen.registration.isActive()).toBe(false);
+    expect(transition.begin).not.toHaveBeenCalled();
+  });
+
+  it('pauses the automatic galaxy tour during registration and resumes it without changing its preference', async () => {
     localStorage.setItem('gq_start_flight_tour', '1');
     const onFlightTour = vi.fn(() => true);
     initializeStartScreen({ onFlightTour });
     expect(onFlightTour).toHaveBeenNthCalledWith(1, true);
 
-    document.getElementById('start-register').click();
+    await startCampaign();
     expect(onFlightTour).toHaveBeenNthCalledWith(2, false);
     expect(localStorage.getItem('gq_start_flight_tour')).toBe('1');
 
     document.getElementById('registration-back').click();
     expect(onFlightTour).toHaveBeenNthCalledWith(3, true);
     expect(localStorage.getItem('gq_start_flight_tour')).toBe('1');
+  });
+
+  it('captures the current view before pausing and restores it when the opening is cancelled', async () => {
+    localStorage.setItem('gq_start_flight_tour', '1');
+    const calls = [];
+    const snapshot = { camera: 'current-view' };
+    const onRegistrationTransition = {
+      capture: vi.fn(() => { calls.push('capture'); return snapshot; }),
+      begin: vi.fn(),
+      skip: vi.fn(),
+      restore: vi.fn(() => calls.push('restore')),
+    };
+    const onFlightTour = vi.fn((enabled) => { calls.push(enabled ? 'tour-start' : 'tour-stop'); return true; });
+    const preview = vi.fn();
+    initializeStartScreen({ onFlightTour, onRegistrationTransition, onRegistrationPreview: preview });
+
+    await startCampaign();
+    expect(calls.slice(0, 3)).toEqual(['tour-start', 'capture', 'tour-stop']);
+    expect(onRegistrationTransition.begin).not.toHaveBeenCalled();
+    expect(document.getElementById('registration-prologue').dataset.phase).toBe('opening');
+    expect(document.getElementById('registration-prologue').dataset.transitionReady).toBe('true');
+    expect(preview).toHaveBeenCalledWith({ stage: 'opening', beat: 'opening-galaxy' });
+
+    document.getElementById('registration-back').click();
+    expect(onRegistrationTransition.restore).toHaveBeenCalledWith(snapshot);
+    expect(calls.slice(-2)).toEqual(['restore', 'tour-start']);
+    await Promise.resolve();
+    expect(document.getElementById('registration-prologue').hidden).toBe(true);
+    expect(preview).toHaveBeenCalledTimes(2);
+    expect(preview).toHaveBeenCalledWith(null);
+  });
+
+  it('skips the comet into the public homeland tour without allocating drafts', async () => {
+    const snapshot = { camera: 'current-view' };
+    const onRegistrationTransition = {
+      capture: vi.fn(() => snapshot),
+      begin: vi.fn(),
+      skip: vi.fn(),
+      restore: vi.fn(),
+    };
+    const preview = vi.fn();
+    const request = vi.fn(async () => ({
+      species: ['aereth', 'kryl_tha', 'syl_nar', 'vel_ar', 'vor_tak', 'zhareen'].map((code, index) => ({
+        code, name: `Species ${index}`, homeworld: `Home ${index}`, description: 'Homeworld',
+        target: { position: 1 }, stars: [{}], homeworld_scene: { scene_key: `home:${index}` },
+      })),
+      npc_homeworlds: ['iron_fleet', 'helion_confederation', 'ketzer_von_verath'].map((code) => ({ code })),
+    }));
+    initializeStartScreen({ onRegistrationTransition, onRegistrationPreview: preview, onRegistrationRequest: request });
+    await startCampaign();
+    document.getElementById('registration-opening-skip').click();
+    await vi.waitFor(() => expect(document.getElementById('registration-title').textContent).toBe('Home 0'));
+    expect(request).toHaveBeenCalledExactlyOnceWith('register_catalog');
+    expect(onRegistrationTransition.begin).not.toHaveBeenCalled();
+    expect(preview).toHaveBeenLastCalledWith(expect.objectContaining({ stage: 'planet' }));
+  });
+
+  it('uses the reduced-motion preference for the comet opening', async () => {
+    localStorage.setItem('gq_start_reduced_motion', '1');
+    const onRegistrationTransition = {
+      capture: vi.fn(() => ({})),
+      begin: vi.fn(() => true),
+      skip: vi.fn(),
+      restore: vi.fn(),
+    };
+    const camera = { play: vi.fn(() => true), pause: vi.fn(), finish: vi.fn(), cancel: vi.fn() };
+    initializeStartScreen({ onRegistrationTransition, onRegistrationCamera: camera });
+    await startCampaign();
+    expect(document.body.dataset.startReducedMotion).toBe('true');
+    expect(camera.play).toHaveBeenCalledWith(expect.objectContaining({ kind: 'comet' }));
+  });
+
+  it('restarts the comet instead of invoking the obsolete teaser arrival', async () => {
+    const pending = [];
+    const onRegistrationTransition = {
+      capture: vi.fn(() => ({})),
+      begin: vi.fn(() => new Promise((resolve) => pending.push(resolve))),
+      skip: vi.fn(),
+      restore: vi.fn(),
+    };
+    const preview = vi.fn();
+    initializeStartScreen({ onRegistrationTransition, onRegistrationPreview: preview });
+    await startCampaign();
+    document.getElementById('registration-back').click();
+    await startCampaign();
+    expect(pending).toHaveLength(0);
+    expect(document.getElementById('registration-prologue').dataset.phase).toBe('opening');
+    expect(preview).toHaveBeenLastCalledWith({ stage: 'opening', beat: 'opening-galaxy' });
+  });
+
+  it('keeps the comet opening navigable when its camera fails', async () => {
+    const warn = vi.fn();
+    window.GQLog = { warn };
+    const onRegistrationTransition = {
+      capture: vi.fn(() => ({})),
+      begin: vi.fn(() => Promise.reject(new Error('camera unavailable'))),
+      skip: vi.fn(),
+      restore: vi.fn(),
+    };
+    const camera = { play: vi.fn(() => Promise.reject(new Error('camera unavailable'))), pause: vi.fn(), finish: vi.fn(), cancel: vi.fn() };
+    initializeStartScreen({ onRegistrationTransition, onRegistrationCamera: camera });
+    await startCampaign();
+    await Promise.resolve();
+    expect(document.getElementById('registration-title').textContent).toBe('Eine Galaxie');
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledWith('[registration-camera]', 'camera unavailable'));
+    expect(document.getElementById('registration-flight-status').textContent).toContain('nicht verfügbar');
+    delete window.GQLog;
+  });
+
+  it('reports an unavailable camera transition and keeps the prologue usable', async () => {
+    const onRegistrationTransition = {
+      capture: vi.fn(() => ({})),
+      begin: vi.fn(() => false),
+      skip: vi.fn(),
+      restore: vi.fn(() => false),
+    };
+    const camera = { play: vi.fn(() => false), pause: vi.fn(), finish: vi.fn(), cancel: vi.fn() };
+    initializeStartScreen({ onRegistrationTransition, onRegistrationCamera: camera });
+    await startCampaign();
+    await Promise.resolve();
+    expect(document.getElementById('registration-title').textContent).toBe('Eine Galaxie');
+    expect(document.getElementById('registration-flight-status').textContent).toContain('nicht verfügbar');
+    document.getElementById('registration-back').click();
+    expect(document.getElementById('start-session-status').textContent).toContain('nicht wiederhergestellt');
+  });
+
+  it('reports the fallback after the opening when no current view can be captured', async () => {
+    const onRegistrationTransition = {
+      capture: vi.fn(() => null),
+      begin: vi.fn(),
+      skip: vi.fn(),
+      restore: vi.fn(),
+    };
+    const camera = { play: vi.fn(() => false), pause: vi.fn(), finish: vi.fn(), cancel: vi.fn() };
+    initializeStartScreen({ onRegistrationTransition, onRegistrationCamera: camera });
+    await startCampaign();
+    await Promise.resolve();
+    expect(onRegistrationTransition.begin).not.toHaveBeenCalled();
+    expect(document.getElementById('registration-title').textContent).toBe('Eine Galaxie');
+    expect(document.getElementById('registration-flight-status').textContent).toContain('nicht verfügbar');
   });
 
   it('shows Fortsetzen instead of login only for a server-confirmed session without auto-resuming', async () => {
@@ -190,6 +396,23 @@ describe('Start-screen menu', () => {
     document.getElementById('start-reduced-motion').click();
     expect(localStorage.getItem('gq_start_reduced_motion')).toBe('1');
     expect(document.body.classList.contains('start-reduced-motion')).toBe(true);
+  });
+
+  it('defaults to the female German TTS voice and saves voice changes from the start menu', () => {
+    initializeStartScreen();
+    const voice = document.getElementById('start-tts-voice');
+    expect(voice.value).toBe('de_DE-kerstin-low');
+    expect([...voice.options].map((option) => option.value)).toEqual([
+      'de_DE-kerstin-low',
+      'de_DE-thorsten-high',
+      'en_US-lessac-high',
+      'en_US-ryan-high',
+    ]);
+    document.querySelector('[data-start-panel="settings"]').click();
+    voice.value = 'en_US-ryan-high';
+    voice.dispatchEvent(new Event('change'));
+    expect(localStorage.getItem('gq_tts_voice')).toBe('en_US-ryan-high');
+    expect(document.getElementById('start-settings-status').textContent).toContain('saved');
   });
 
   it('reports Resume errors instead of entering the game', async () => {

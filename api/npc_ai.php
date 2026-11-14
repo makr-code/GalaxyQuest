@@ -10,6 +10,16 @@ require_once __DIR__ . '/npc_behavior_script_executor.php';
 require_once __DIR__ . '/character_profile_generator.php';
 require_once __DIR__ . '/../lib/MiniYamlParser.php';
 require_once __DIR__ . '/llm_soc/ScenarioEngine.php';
+require_once __DIR__ . '/../src/Simulation/DeterministicRandom.php';
+require_once __DIR__ . '/../src/Simulation/HourlyWindow.php';
+require_once __DIR__ . '/../src/Simulation/ElapsedTime.php';
+require_once __DIR__ . '/../src/Economy/NpcStandingOrders.php';
+
+/** Nominal NPC account decision cadence; catch-up rounds are capped per global tick. */
+const NPC_PLAYER_DECISION_PERIOD_SECONDS = 900;
+const NPC_PLAYER_MAX_ROUNDS_PER_TICK = 4;
+/** Elapsed-time cap for probability catch-up of global random event subsystems. */
+const WORLD_RANDOM_EVENT_ELAPSED_CAP_SECONDS = 7200;
 
 /**
  * Run the NPC AI tick for a specific user.
@@ -465,12 +475,12 @@ function maybe_pirate_raid(PDO $db, int $userId, array $faction): void {
 
 /**
  * Run strategic AI for all NPC player accounts.
- * Cooldown defaults to 3 minutes and is stored in app_state.
+ * Gated by the NPC decision period; each account catches up elapsed rounds.
  */
 function npc_player_accounts_tick_global(PDO $db, bool $force = false): void {
     $now = time();
     $stateKey = 'npc_player_tick:last_unix';
-    $cooldown = 180;
+    $cooldown = NPC_PLAYER_DECISION_PERIOD_SECONDS;
 
     if (function_exists('app_state_get_int') && function_exists('app_state_set_int')) {
         $last = app_state_get_int($db, $stateKey, 0);
@@ -479,7 +489,13 @@ function npc_player_accounts_tick_global(PDO $db, bool $force = false): void {
         }
     }
 
-    $stmt = $db->query("SELECT id FROM users WHERE control_type = 'npc_engine' ORDER BY id ASC LIMIT 64");
+    $economyAvailable = \GalaxyQuest\Economy\NpcStandingOrders::available($db);
+    $stmt = $db->query($economyAvailable
+        ? "SELECT u.id FROM users u LEFT JOIN economy_npc_profiles p ON p.user_id=u.id "
+            . "WHERE u.control_type='npc_engine' AND u.auth_enabled=0 AND u.deleted_at IS NULL "
+            . 'ORDER BY CASE WHEN p.user_id IS NULL THEN 1 ELSE 0 END,COALESCE(p.last_window,0),u.id LIMIT 64'
+        : "SELECT id FROM users WHERE control_type='npc_engine' AND auth_enabled=0 AND deleted_at IS NULL "
+            . 'ORDER BY id ASC LIMIT 64');
     if (!$stmt) {
         throw new RuntimeException('Failed to load NPC player accounts for the global tick.');
     }
@@ -499,20 +515,47 @@ function npc_player_accounts_tick_global(PDO $db, bool $force = false): void {
 }
 
 /**
- * Single NPC account tick: one build action, one research action, one ship action.
+ * Single NPC account tick: one build/research/ship decision round per elapsed
+ * decision period (capped), so NPC pace does not depend on tick frequency.
  */
-function npc_player_account_tick(PDO $db, int $npcUserId, bool $force = false): void
+function npc_player_account_tick(PDO $db, int $npcUserId, bool $force = false, ?int $now = null): void
 {
     if ($npcUserId <= 0) {
         throw new InvalidArgumentException('NPC user ID must be positive.');
     }
 
-    $now = time();
-    $stateKey = 'npc_player_tick:user:' . $npcUserId . ':last_unix';
-    $lastTick = app_state_get_int($db, $stateKey, 0);
-    if (!$force && ($now - $lastTick) < 180) {
+    $decisionClock = $now;
+    $now ??= time();
+    $actor = $db->prepare("SELECT id FROM users WHERE id=? AND control_type='npc_engine' "
+        . 'AND auth_enabled=0 AND deleted_at IS NULL');
+    $actor->execute([$npcUserId]);
+    if (!$actor->fetchColumn()) {
         return;
     }
+    $economicController = new \GalaxyQuest\Economy\NpcStandingOrders($db);
+    if (\GalaxyQuest\Economy\NpcStandingOrders::available($db) && $economicController->isBound($npcUserId)) {
+        // Opted-in actors use this sole economic controller, not legacy multi-round
+        // building/research/ship/LLM actions that could consume the same reserves.
+        try {
+            $summary = $economicController->decide($npcUserId, $decisionClock);
+            error_log('npc_economy_decision ' . json_encode($summary, JSON_THROW_ON_ERROR));
+        } catch (Throwable $error) {
+            error_log('npc_economy_error actor=' . $npcUserId . ' window='
+                . \GalaxyQuest\Simulation\HourlyWindow::id($now) . ' error=' . $error->getMessage());
+            throw $error;
+        }
+        return;
+    }
+    $stateKey = 'npc_player_tick:user:' . $npcUserId . ':last_unix';
+    $lastTick = app_state_get_int($db, $stateKey, 0);
+    if (!$force && ($now - $lastTick) < NPC_PLAYER_DECISION_PERIOD_SECONDS) {
+        return;
+    }
+    $rounds = max(1, \GalaxyQuest\Simulation\ElapsedTime::rounds(
+        NPC_PLAYER_DECISION_PERIOD_SECONDS,
+        $now - $lastTick,
+        NPC_PLAYER_MAX_ROUNDS_PER_TICK
+    ));
 
     try {
         ensure_user_character_profile($db, $npcUserId, true);
@@ -525,7 +568,9 @@ function npc_player_account_tick(PDO $db, int $npcUserId, bool $force = false): 
     $savepoint = 'npc_player_account_' . $npcUserId;
     $ownsTransaction = game_engine_begin_tick_transaction($db, $savepoint);
     try {
-        npc_player_account_tick_actions($db, $npcUserId);
+        for ($round = 0; $round < $rounds; $round++) {
+            npc_player_account_tick_actions($db, $npcUserId);
+        }
         app_state_set_int($db, $stateKey, time());
         game_engine_commit_tick_transaction($db, $savepoint, $ownsTransaction);
     } catch (Throwable $error) {
@@ -1057,13 +1102,28 @@ function faction_events_tick_global_run(PDO $db): void
         return;
     }
 
-    // 20 % chance per tick to actually fire
-    if (mt_rand(1, 100) > 20) {
+    // 20 % chance per 15 min of eligible time (capped), independent of tick frequency.
+    $lastRoll = app_state_get_int($db, 'faction_event:last_roll_unix', 0);
+    $eligibleSince = max($lastRoll, $lastEventEnd + 1800);
+    app_state_set_int($db, 'faction_event:last_roll_unix', $now);
+    $probability = \GalaxyQuest\Simulation\ElapsedTime::probability(
+        0.2,
+        900,
+        $now - $eligibleSince,
+        WORLD_RANDOM_EVENT_ELAPSED_CAP_SECONDS
+    );
+    $rng = \GalaxyQuest\Simulation\HourlyWindow::random(
+        \GalaxyQuest\Simulation\HourlyWindow::id($now),
+        'faction_event',
+        'global',
+        'trigger'
+    );
+    if (!$rng->chance($probability)) {
         return;
     }
 
     // Pick random event (1=galactic_war 2=trade_boom 3=pirate_surge)
-    $eventType = mt_rand(1, 3);
+    $eventType = $rng->int(1, 3);
 
     $durations = [1 => 7200, 2 => 10800, 3 => 5400]; // seconds
     $duration  = $durations[$eventType];
@@ -1182,7 +1242,8 @@ function npc_spend_colony_resources(PDO $db, int $colonyId, array &$resources, a
 /**
  * Per-colony random event tick.
  * Rate-limited to once every 15 minutes (via app_state).
- * Each colony without an active event has a 10 % chance per tick to receive one.
+ * Each colony without an active event has a 10 % chance per elapsed 15 minutes
+ * (capped catch-up), rolled with a deterministic per-window colony seed.
  *
  * Event types & effects (applied in update_colony_resources):
  *   solar_flare         – 2 h  – energy production −30 %
@@ -1220,10 +1281,17 @@ function colony_events_tick_global(PDO $db): void {
          FROM colonies c
          JOIN users u ON u.id = c.user_id
             WHERE u.control_type = \'human\' AND u.auth_enabled = 1 AND u.deleted_at IS NULL
-         ORDER BY RAND()'
+         ORDER BY c.id'
     );
     $stmt->execute();
     $colonies = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $triggerProbability = \GalaxyQuest\Simulation\ElapsedTime::probability(
+        0.1,
+        900,
+        $lastTick > 0 ? $now - $lastTick : 900,
+        WORLD_RANDOM_EVENT_ELAPSED_CAP_SECONDS
+    );
+    $window = \GalaxyQuest\Simulation\HourlyWindow::id($now);
 
     if (empty($colonies)) {
         app_state_set_int($db, 'colony_events:last_tick', $now);
@@ -1267,8 +1335,9 @@ function colony_events_tick_global(PDO $db): void {
         if (isset($activeSet[$cid])) {
             continue; // already has an active event
         }
-        if (mt_rand(1, 100) > 10) {
-            continue; // 10 % trigger chance
+        $rng = \GalaxyQuest\Simulation\HourlyWindow::random($window, 'colony', $cid, 'colony_event');
+        if (!$rng->chance($triggerProbability)) {
+            continue;
         }
 
         $eligibleEventKeys = $eventKeys;
@@ -1292,7 +1361,7 @@ function colony_events_tick_global(PDO $db): void {
             continue;
         }
 
-        $type   = $eligibleEventKeys[array_rand($eligibleEventKeys)];
+        $type   = $rng->pick($eligibleEventKeys);
         $meta   = $eventMeta[$type];
         $expiry = $now + $meta['duration'];
 
@@ -1363,7 +1432,14 @@ function wormhole_regeneration_tick_global(PDO $db): void {
     }
 
     try {
-        $db->exec(
+        // +2 stability per 10 min of elapsed time (capped at 24 h), independent of tick frequency.
+        $regen = (int)\GalaxyQuest\Simulation\ElapsedTime::amount(
+            2.0,
+            600,
+            $lastTick > 0 ? $now - $lastTick : 600,
+            86400
+        );
+        $stmt = $db->prepare(
             'UPDATE wormholes
              SET
                 cooldown_until = CASE
@@ -1373,13 +1449,14 @@ function wormhole_regeneration_tick_global(PDO $db): void {
                 stability = LEAST(
                     100,
                     stability + CASE
-                        WHEN cooldown_until IS NULL OR cooldown_until <= NOW() THEN 2
+                        WHEN cooldown_until IS NULL OR cooldown_until <= NOW() THEN ?
                         ELSE 0
                     END
                 )
              WHERE is_active = 1
                AND (stability < 100 OR cooldown_until IS NOT NULL)'
         );
+        $stmt->execute([$regen]);
 
         app_state_set_int($db, 'wormholes:regen:last_tick', $now);
 

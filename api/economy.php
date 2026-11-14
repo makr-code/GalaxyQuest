@@ -15,7 +15,6 @@ use GalaxyQuest\Economy\OnDemandEconomy;
 
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
-require_once __DIR__ . '/economy_flush.php';
 require_once __DIR__ . '/economy_runtime.php';
 require_once __DIR__ . '/economy_cache.php';
 
@@ -25,52 +24,45 @@ $uid    = require_auth();
 $db     = get_db();
 $action = $_GET['action'] ?? '';
 
-const VALID_METHODS = ['standard', 'efficient', 'premium'];
 const VALID_POLICIES = ['free_market', 'subsidies', 'mercantilism', 'autarky', 'war_economy'];
-const TAX_MAX = ['income' => 0.40, 'production' => 0.30, 'trade' => 0.25];
-const VALID_SUBSIDIES = ['agriculture', 'research', 'military'];
-const VALID_POP_CLASSES = ['colonist', 'citizen', 'specialist', 'elite', 'transcendent'];
 
-if (ON_DEMAND_ECONOMY_ENABLED) {
-    $economy = new OnDemandEconomy($db);
+/**
+ * Tier-3+ input requirements used for the production chain status projection:
+ * good_type → [[input_good, units of input per unit of output], ...].
+ */
+const ECONOMY_TIER3_INPUT_RATIOS = [
+    // Tier 3
+    'consumer_goods'     => [['steel_alloy', 1.0], ['electronics_components', 1.0]],
+    'luxury_goods'       => [['focus_crystals', 1.0], ['biocompost', 1.0]],
+    'military_equipment' => [['steel_alloy', 2.0], ['focus_crystals', 1.0]],
+    'research_kits'      => [['focus_crystals', 1.0], ['electronics_components', 1.0]],
+    'colonization_packs' => [['steel_alloy', 1.0], ['biocompost', 1.0], ['reactor_fuel', 1.0]],
+    // Tier 4
+    'neural_implants'    => [['focus_crystals', 1.0], ['electronics_components', 1.0]],
+    'quantum_circuits'   => [['electronics_components', 1.0], ['reactor_fuel', 1.0]],
+    'bio_supplements'    => [['biocompost', 1.0], ['focus_crystals', 0.5]],
+    'stellar_art'        => [['luxury_goods', 1.0], ['focus_crystals', 1.0]],
+    'advanced_propulsion' => [['reactor_fuel', 1.0], ['steel_alloy', 1.0]],
+    // Tier 5
+    'void_crystals'           => [['quantum_circuits', 1.0], ['focus_crystals', 1.0]],
+    'synthetic_consciousness' => [['neural_implants', 1.0], ['quantum_circuits', 1.0]],
+    'temporal_luxuries'       => [['stellar_art', 1.0], ['void_crystals', 1.0]],
+];
+
+/**
+ * Applies one on-demand ledger mutation to the JSON request body and maps
+ * domain failures to JSON errors.
+ *
+ * @param callable(OnDemandEconomy, array): void $mutation
+ */
+function economy_ledger_mutation(PDO $db, callable $mutation): array {
+    $body = get_json_body();
     try {
-        if (in_array($action, ['set_production_method', 'set_policy', 'set_tax', 'set_subsidy'], true)) {
-            only_method('POST');
-            verify_csrf();
-            $body = get_json_body();
-            if ($action === 'set_production_method') {
-                $economy->method(
-                    (int)($body['colony_id'] ?? 0),
-                    $uid,
-                    (string)($body['building_type'] ?? ''),
-                    (string)($body['method'] ?? '')
-                );
-            } elseif ($action === 'set_policy') {
-                $economy->configure($uid, 'global_policy', (string)($body['policy'] ?? ''));
-            } elseif ($action === 'set_tax') {
-                $economy->configure($uid, 'tax_' . ($body['type'] ?? ''), (float)($body['rate'] ?? 0));
-            } else {
-                $economy->configure($uid, 'subsidy_' . ($body['sector'] ?? ''), (bool)($body['enabled'] ?? false));
-            }
-            invalidate_economy_views($db, $uid, $action === 'set_production_method' ? (int)$body['colony_id'] : null);
-            json_ok($body);
-        }
-        if ($action === 'get_pop_classes') {
-            only_method('GET');
-            $stmt = $db->prepare('SELECT id FROM colonies WHERE user_id=? AND (? IS NULL OR id=?) ORDER BY id');
-            $cid = isset($_GET['colony_id']) ? (int)$_GET['colony_id'] : null;
-            $stmt->execute([$uid, $cid, $cid]);
-            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $owned) {
-                $economy->settle((int)$owned, $uid);
-            }
-        }
+        $mutation(new OnDemandEconomy($db), $body);
     } catch (DomainException $error) {
         json_error($error->getMessage(), $error->getCode() ?: 400);
     }
-}
-
-function ensure_policy_row(PDO $db, int $uid): void {
-    $db->prepare('INSERT IGNORE INTO economy_policies (user_id) VALUES (?)')->execute([$uid]);
+    return $body;
 }
 
 function policy_key_from_mixed(mixed $raw): string {
@@ -80,22 +72,6 @@ function policy_key_from_mixed(mixed $raw): string {
     }
     $key = (string)$raw;
     return in_array($key, VALID_POLICIES, true) ? $key : 'free_market';
-}
-
-function policy_storage_value(array $policyRow, string $policy): int|string {
-    $current = $policyRow['global_policy'] ?? 'free_market';
-    if (is_numeric($current)) {
-        $idx = array_search($policy, VALID_POLICIES, true);
-        return $idx === false ? 0 : (int)$idx;
-    }
-    return $policy;
-}
-
-function normalize_tax_value(mixed $v): float {
-    $n = (float)$v;
-    // Legacy schema stores percentages as ints (e.g. 20), newer schema as 0..1
-    if ($n > 1.0) $n /= 100.0;
-    return max(0.0, min(1.0, $n));
 }
 
 /**
@@ -241,13 +217,9 @@ function fetch_pop_classes(PDO $db, int $colonyId): array {
     return $out;
 }
 
-function settled_economy_runtime(PDO $db, int $cid, array $runtime, ?array $settlement = null): array
+function settled_economy_runtime(array $runtime, array $settlement): array
 {
-    if (!ON_DEMAND_ECONOMY_ENABLED) {
-        return $runtime;
-    }
-    $snapshot = $settlement ?? (new OnDemandEconomy($db))->settle($cid);
-    $state = $snapshot['economy'];
+    $state = $settlement['economy'];
     foreach (['metal', 'crystal', 'deuterium', 'rare_earth', 'food'] as $good) {
         $runtime['production'][$good . '_per_hour'] = $state['production'][$good] ?? 0;
     }
@@ -287,17 +259,9 @@ function action_get_overview(PDO $db, int $uid): never {
     $result = [];
     foreach ($colonies as $c) {
         $cid  = (int)$c['id'];
-        $settlement = null;
-        if (ON_DEMAND_ECONOMY_ENABLED) {
-            $settlement = (new OnDemandEconomy($db))->settle($cid, $uid);
-        } else {
-            update_colony_resources($db, $cid);
-            flush_colony_production($db, $cid);
-        }
+        $settlement = (new OnDemandEconomy($db))->settle($cid, $uid);
         $runtimeRow = fetch_colony_runtime_row($db, $cid);
         $runtime = settled_economy_runtime(
-            $db,
-            $cid,
             $runtimeRow ? build_colony_consumption_snapshot($db, $runtimeRow) : [],
             $settlement
         );
@@ -348,19 +312,11 @@ function action_get_production(PDO $db, int $uid): never {
     $stmt->execute([$colonyId, $uid]);
     if (!$stmt->fetch()) json_error('Colony not found or access denied', 403);
 
-    $settlement = null;
-    if (ON_DEMAND_ECONOMY_ENABLED) {
-        $settlement = (new OnDemandEconomy($db))->settle($colonyId, $uid);
-    } else {
-        update_colony_resources($db, $colonyId);
-        flush_colony_production($db, $colonyId);
-    }
+    $settlement = (new OnDemandEconomy($db))->settle($colonyId, $uid);
     $methods = fetch_production_methods($db, $colonyId);
     $goods   = fetch_colony_goods($db, $colonyId);
     $runtimeRow = fetch_colony_runtime_row($db, $colonyId);
     $runtime = settled_economy_runtime(
-        $db,
-        $colonyId,
         $runtimeRow ? build_colony_consumption_snapshot($db, $runtimeRow) : [],
         $settlement
     );
@@ -434,51 +390,16 @@ function action_get_production(PDO $db, int $uid): never {
 function action_set_production_method(PDO $db, int $uid): never {
     only_method('POST');
     verify_csrf();
-    $body        = json_decode(file_get_contents('php://input'), true) ?? [];
-    $colonyId    = (int)($body['colony_id']    ?? 0);
-    $buildingType = trim($body['building_type'] ?? '');
-    $method      = trim($body['method']         ?? '');
-
-    if (!$colonyId)    json_error('colony_id required', 400);
-    if (!$buildingType) json_error('building_type required', 400);
-    if (!in_array($method, VALID_METHODS, true)) {
-        json_error('Invalid method. Must be: ' . implode(', ', VALID_METHODS), 400);
-    }
-
-    // Verify ownership
-    $stmt = $db->prepare('SELECT id FROM colonies WHERE id = ? AND user_id = ?');
-    $stmt->execute([$colonyId, $uid]);
-    if (!$stmt->fetch()) json_error('Colony not found or access denied', 403);
-
-    // PREMIUM method requires research unlock — check via user's completed research
-    if ($method === 'premium') {
-        // Find the research prereq for this building + premium combo
-        // We store it by convention as economy.<building_type>_ii or similar
-        // The full check is done server-side by looking at completed research
-        $stmt = $db->prepare(<<<SQL
-            SELECT 1 FROM research_completed
-            WHERE user_id = ? AND tech_id LIKE 'economy.%'
-            LIMIT 1
-        SQL);
-        $stmt->execute([$uid]);
-        // Simplified: premium requires at least one economy research completed
-        if (!$stmt->fetch()) {
-            json_error('Premium method requires economy research unlock', 403);
-        }
-    }
-
-    $db->prepare(<<<SQL
-        INSERT INTO economy_production_methods (colony_id, building_type, method)
-        VALUES (?, ?, ?)
-        ON DUPLICATE KEY UPDATE method = VALUES(method), updated_at = CURRENT_TIMESTAMP
-    SQL)->execute([$colonyId, $buildingType, $method]);
-
-    invalidate_economy_views($db, $uid, $colonyId);
-    json_ok([
-        'colony_id'     => $colonyId,
-        'building_type' => $buildingType,
-        'method'        => $method,
-    ]);
+    $body = economy_ledger_mutation($db, static function (OnDemandEconomy $economy, array $body) use ($uid): void {
+        $economy->method(
+            (int)($body['colony_id'] ?? 0),
+            $uid,
+            (string)($body['building_type'] ?? ''),
+            (string)($body['method'] ?? '')
+        );
+    });
+    invalidate_economy_views($db, $uid, (int)$body['colony_id']);
+    json_ok($body);
 }
 
 /**
@@ -488,90 +409,39 @@ function action_set_production_method(PDO $db, int $uid): never {
  */
 function action_get_policy(PDO $db, int $uid): never {
     only_method('GET');
-    if (ON_DEMAND_ECONOMY_ENABLED) {
-        json_ok((new OnDemandEconomy($db))->policy($uid));
-    }
-    $policy = fetch_policy($db, $uid);
-    $globalPolicy = policy_key_from_mixed($policy['global_policy'] ?? 'free_market');
-    $taxProductionRaw = $policy['tax_production'] ?? ($policy['tax_resources'] ?? 0);
-    json_ok([
-        'global_policy'       => $globalPolicy,
-        'taxes'               => [
-            'income'      => normalize_tax_value($policy['tax_income'] ?? 0),
-            'production'  => normalize_tax_value($taxProductionRaw),
-            'trade'       => normalize_tax_value($policy['tax_trade'] ?? 0),
-        ],
-        'subsidies'           => [
-            'agriculture' => ((int)($policy['subsidy_agriculture'] ?? 0)) > 0,
-            'research'    => ((int)($policy['subsidy_research'] ?? 0)) > 0,
-            'military'    => ((int)($policy['subsidy_military'] ?? 0)) > 0,
-        ],
-    ]);
+    json_ok((new OnDemandEconomy($db))->policy($uid));
 }
 
 /**
  * POST economy.php?action=set_policy
  * Body: { policy }
  *
- * Changes the global economic policy. Switching policies has a 10-tick cooldown.
+ * Changes the global economic policy.
  */
 function action_set_policy(PDO $db, int $uid): never {
     only_method('POST');
     verify_csrf();
-    $body   = json_decode(file_get_contents('php://input'), true) ?? [];
-    $policy = trim($body['policy'] ?? '');
-
-    if (!in_array($policy, VALID_POLICIES, true)) {
-        json_error('Invalid policy. Must be one of: ' . implode(', ', VALID_POLICIES), 400);
-    }
-
-    ensure_policy_row($db, $uid);
-    $row = fetch_policy($db, $uid);
-    $storage = policy_storage_value($row, $policy);
-    $db->prepare('UPDATE economy_policies SET global_policy = ? WHERE user_id = ?')
-       ->execute([$storage, $uid]);
-
+    $body = economy_ledger_mutation($db, static function (OnDemandEconomy $economy, array $body) use ($uid): void {
+        $economy->configure($uid, 'global_policy', (string)($body['policy'] ?? ''));
+    });
     invalidate_economy_views($db, $uid);
-    json_ok(['global_policy' => $policy]);
+    json_ok($body);
 }
 
 /**
  * POST economy.php?action=set_tax
  * Body: { type, rate }
  *
- * Sets a tax rate (income | production | trade). Clamped to allowed maximum.
+ * Sets a tax rate (income | production | trade) within its allowed maximum.
  */
 function action_set_tax(PDO $db, int $uid): never {
     only_method('POST');
     verify_csrf();
-    $body = json_decode(file_get_contents('php://input'), true) ?? [];
-    $type = trim($body['type'] ?? '');
-    $rate = (float)($body['rate'] ?? 0);
-
-    if (!isset(TAX_MAX[$type])) {
-        json_error('Invalid tax type. Must be: ' . implode(', ', array_keys(TAX_MAX)), 400);
-    }
-
-    ensure_policy_row($db, $uid);
-    $row = fetch_policy($db, $uid);
-
-    $clamped = max(0.0, min((float)TAX_MAX[$type], $rate));
-    $storeRate = $clamped;
-
-    $col = 'tax_' . $type;
-    if ($type === 'production' && !array_key_exists('tax_production', $row) && array_key_exists('tax_resources', $row)) {
-        $col = 'tax_resources';
-    }
-    // Legacy schema stores percentages in whole numbers.
-    if (isset($row[$col]) && is_numeric($row[$col]) && (float)$row[$col] > 1.0) {
-        $storeRate = round($clamped * 100, 2);
-    }
-
-    $db->prepare("UPDATE economy_policies SET {$col} = ? WHERE user_id = ?")
-       ->execute([$storeRate, $uid]);
-
+    $body = economy_ledger_mutation($db, static function (OnDemandEconomy $economy, array $body) use ($uid): void {
+        $economy->configure($uid, 'tax_' . ($body['type'] ?? ''), (float)($body['rate'] ?? 0));
+    });
     invalidate_economy_views($db, $uid);
-    json_ok(['type' => $type, 'rate' => $clamped]);
+    json_ok($body);
 }
 
 /**
@@ -583,21 +453,11 @@ function action_set_tax(PDO $db, int $uid): never {
 function action_set_subsidy(PDO $db, int $uid): never {
     only_method('POST');
     verify_csrf();
-    $body    = json_decode(file_get_contents('php://input'), true) ?? [];
-    $sector  = trim($body['sector']  ?? '');
-    $enabled = (bool)($body['enabled'] ?? false);
-
-    if (!in_array($sector, VALID_SUBSIDIES, true)) {
-        json_error('Invalid subsidy sector. Must be: ' . implode(', ', VALID_SUBSIDIES), 400);
-    }
-
-    $col = 'subsidy_' . $sector;
-    ensure_policy_row($db, $uid);
-    $db->prepare("UPDATE economy_policies SET {$col} = ? WHERE user_id = ?")
-       ->execute([$enabled ? 1 : 0, $uid]);
-
+    $body = economy_ledger_mutation($db, static function (OnDemandEconomy $economy, array $body) use ($uid): void {
+        $economy->configure($uid, 'subsidy_' . ($body['sector'] ?? ''), (bool)($body['enabled'] ?? false));
+    });
     invalidate_economy_views($db, $uid);
-    json_ok(['sector' => $sector, 'enabled' => $enabled]);
+    json_ok($body);
 }
 
 /**
@@ -610,6 +470,16 @@ function action_get_pop_classes(PDO $db, int $uid): never {
     only_method('GET');
 
     $colonyId = isset($_GET['colony_id']) ? (int)$_GET['colony_id'] : null;
+    $economy = new OnDemandEconomy($db);
+    $owned = $db->prepare('SELECT id FROM colonies WHERE user_id=? AND (? IS NULL OR id=?) ORDER BY id');
+    $owned->execute([$uid, $colonyId, $colonyId]);
+    try {
+        foreach ($owned->fetchAll(PDO::FETCH_COLUMN) as $ownedColonyId) {
+            $economy->settle((int)$ownedColonyId, $uid);
+        }
+    } catch (DomainException $error) {
+        json_error($error->getMessage(), $error->getCode() ?: 400);
+    }
 
     if ($colonyId !== null) {
         // Single colony
@@ -742,50 +612,12 @@ function action_get_pop_status(PDO $db, int $uid): never {
 /**
  * POST economy.php?action=set_pop_policy
  *
- * Set satisfaction drivers like wage_adjustment, culture_spending, safety_budget.
- * Legacy tick-based policy. Unavailable when the on-demand economy is active.
+ * Population policy controls are not part of the on-demand ledger.
  */
 function action_set_pop_policy(PDO $db, int $uid): never {
-    if (ON_DEMAND_ECONOMY_ENABLED) {
-        json_error('Population policy controls are unavailable in the on-demand economy.', 503);
-    }
-
     only_method('POST');
     verify_csrf();
-
-    $body = get_json_body();
-    $colonyId = (int)($body['colony_id'] ?? 0);
-    $wageAdjustment = (float)($body['wage_adjustment'] ?? 1.0);  // 0.5–2.0x multiplier
-    $cultureSpending = (float)($body['culture_spending'] ?? 0.0); // 0–1000 credits/tick
-    $safetyBudget = (float)($body['safety_budget'] ?? 0.0);       // 0–100% budget
-    
-    // Validate
-    if ($colonyId <= 0) json_error('Invalid colony_id', 400);
-    if ($wageAdjustment < 0.5 || $wageAdjustment > 2.0) json_error('wage_adjustment must be 0.5–2.0', 400);
-    if ($cultureSpending < 0 || $cultureSpending > 1000) json_error('culture_spending must be 0–1000', 400);
-    if ($safetyBudget < 0 || $safetyBudget > 100) json_error('safety_budget must be 0–100%', 400);
-
-    // Verify colony ownership
-    $stmt = $db->prepare('SELECT id FROM colonies WHERE id = ? AND user_id = ?');
-    $stmt->execute([$colonyId, $uid]);
-    if (!$stmt->fetch()) json_error('Colony not found or access denied', 403);
-
-    // Update all pop classes in this colony
-    $stmt = $db->prepare(<<<SQL
-        UPDATE economy_pop_classes
-        SET wage_requirement = wage_requirement * ?,
-            last_satisfaction_calc = CURRENT_TIMESTAMP
-        WHERE colony_id = ?
-    SQL);
-    $stmt->execute([$wageAdjustment, $colonyId]);
-
-    json_ok([
-        'colony_id'        => $colonyId,
-        'wage_adjustment'  => $wageAdjustment,
-        'culture_spending' => $cultureSpending,
-        'safety_budget'    => $safetyBudget,
-        'message'          => 'Pop policy updated; satisfaction recalculated on next tick',
-    ]);
+    json_error('Population policy controls are unavailable in the on-demand economy.', 503);
 }
 
 /**
@@ -814,7 +646,7 @@ function action_get_bottleneck(PDO $db, int $uid): never {
     $bottlenecks = [];
     foreach ($colonies as $c) {
         $cid = (int)$c['id'];
-        flush_colony_production($db, $cid);
+        (new OnDemandEconomy($db))->settle($cid, $uid);
 
         $warnings = [];
 

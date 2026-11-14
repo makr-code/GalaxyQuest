@@ -4,18 +4,28 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/game_engine.php';
 
-// Keep runtime calculations resilient when economy_flush.php is not part of the
-// current include chain (e.g. overview read path).
-if (!defined('ECONOMY_POP_CONSUMPTION_RATES')) {
-    define('ECONOMY_POP_CONSUMPTION_RATES', [
-        'consumer_goods'        => 0.20,
-        'biocompost'            => 0.05,
-        'research_kits'         => 0.02,
-        'military_equipment'    => 0.01,
-        'luxury_goods'          => 0.03,
-        'neural_implants'       => 0.005,
-    ]);
-}
+/**
+ * Per-1000-population consumption rates per hour, by pop-class tier.
+ * Only covers goods that pops actively consume; others accumulate freely.
+ */
+const ECONOMY_POP_CONSUMPTION_RATES = [
+    // Tier 3 — basic and intermediate finished goods
+    'consumer_goods'          => 0.20,
+    'biocompost'              => 0.05,
+    'research_kits'           => 0.02,
+    'military_equipment'      => 0.01,
+    'luxury_goods'            => 0.03,
+    // Tier 4 — specialist-class needs (engineers, artisans)
+    'neural_implants'         => 0.005,
+    'quantum_circuits'        => 0.003,
+    'bio_supplements'         => 0.008,
+    'stellar_art'             => 0.004,
+    'advanced_propulsion'     => 0.001,
+    // Tier 5 — elite-class needs (investors, transcendents)
+    'void_crystals'           => 0.001,
+    'synthetic_consciousness' => 0.0005,
+    'temporal_luxuries'       => 0.0005,
+];
 
 if (!function_exists('fetch_colony_runtime_row')) {
     function fetch_colony_runtime_row(PDO $db, int $colonyId, bool $lock = false): ?array
@@ -307,5 +317,74 @@ if (!function_exists('build_colony_consumption_snapshot')) {
                 'security_post' => $securityLevel,
             ],
         ];
+    }
+}
+
+if (!function_exists('get_policy_good_multipliers')) {
+    /**
+     * Policy-aware per-good production multipliers.
+     *
+     * war_economy: military_equipment +30%, consumer_goods −20%
+     * autarky:     all domestic production +10% (import-substitution bonus)
+     * subsidies:   agriculture/research/military +20% on relevant goods and their derivatives
+     */
+    function get_policy_good_multipliers(PDO $db, int $owner_id): array
+    {
+        /** @var array<string, float> $mult */
+        $mult = [];
+        $stmt = $db->prepare(
+            'SELECT global_policy, subsidy_agriculture, subsidy_research, subsidy_military '
+            . 'FROM economy_policies WHERE user_id = ?'
+        );
+        $stmt->execute([$owner_id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return $mult;
+        }
+
+        $policyNames = ['free_market', 'subsidies', 'mercantilism', 'autarky', 'war_economy'];
+        $policy = is_numeric($row['global_policy'])
+            ? ($policyNames[(int)$row['global_policy']] ?? 'free_market')
+            : (string)$row['global_policy'];
+
+        if ($policy === 'war_economy') {
+            $mult['military_equipment'] = ($mult['military_equipment'] ?? 1.0) * 1.30;
+            $mult['consumer_goods']     = ($mult['consumer_goods']     ?? 1.0) * 0.80;
+        }
+
+        if ($policy === 'autarky') {
+            // Domestic production bonus — all goods +10%
+            $goods = [
+                'steel_alloy', 'focus_crystals', 'reactor_fuel', 'biocompost', 'electronics_components',
+                'consumer_goods', 'luxury_goods', 'military_equipment', 'research_kits', 'colonization_packs',
+                'neural_implants', 'quantum_circuits', 'bio_supplements', 'stellar_art', 'advanced_propulsion',
+                'void_crystals', 'synthetic_consciousness', 'temporal_luxuries',
+            ];
+            foreach ($goods as $g) {
+                $mult[$g] = ($mult[$g] ?? 1.0) * 1.10;
+            }
+        }
+
+        if ((int)($row['subsidy_agriculture'] ?? 0)) {
+            $mult['biocompost']  = ($mult['biocompost']  ?? 1.0) * 1.20;
+            $mult['food']        = ($mult['food']        ?? 1.0) * 1.20;
+            // Biocompost is an input to luxury_goods and bio_supplements
+            $mult['luxury_goods']    = ($mult['luxury_goods']    ?? 1.0) * 1.10;
+            $mult['bio_supplements'] = ($mult['bio_supplements'] ?? 1.0) * 1.10;
+        }
+        if ((int)($row['subsidy_research'] ?? 0)) {
+            $mult['research_kits']     = ($mult['research_kits']     ?? 1.0) * 1.20;
+            $mult['quantum_circuits']  = ($mult['quantum_circuits']  ?? 1.0) * 1.15;
+            // Also boost the tech-dependent Tier-4 goods
+            $mult['neural_implants']   = ($mult['neural_implants']   ?? 1.0) * 1.10;
+            $mult['void_crystals']     = ($mult['void_crystals']     ?? 1.0) * 1.10;
+        }
+        if ((int)($row['subsidy_military'] ?? 0)) {
+            $mult['military_equipment'] = ($mult['military_equipment'] ?? 1.0) * 1.20;
+            // Tier-4 military applications
+            $mult['advanced_propulsion'] = ($mult['advanced_propulsion'] ?? 1.0) * 1.15;
+        }
+
+        return $mult;
     }
 }

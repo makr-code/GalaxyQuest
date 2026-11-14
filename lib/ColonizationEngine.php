@@ -382,7 +382,7 @@ class ColonizationEngine
      * Economy-Tick-Integration: zieht Edikt-Kosten vom Spieler ab und
      * aktualisiert den Sprawl-Cache.
      *
-     * Muss von api/economy_flush.php oder game_engine.php aufgerufen werden.
+     * Derzeit ohne Aufrufer; die Kolonie-Wirtschaft wird on demand abgerechnet.
      */
     public static function tick(PDO $db, int $userId): void
     {
@@ -396,7 +396,7 @@ class ColonizationEngine
 
         if ($totalCost > 0) {
             // Credits werden in der Tabelle app_state als JSON gespeichert (bestehende Konvention)
-            // Hier nur Sprawl-Refresh; der Credits-Abzug erfolgt über economy_flush.php
+            // Hier nur Sprawl-Refresh; ein Credits-Abzug ist hier nicht implementiert
         }
 
         // Sprawl-Cache aktualisieren

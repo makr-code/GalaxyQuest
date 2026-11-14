@@ -58,6 +58,18 @@ The rehearsal deliberately uses an unready candidate and preserves its
 `not-deployable` manifest. It is not a production activation command or proof
 of zero-downtime switching.
 
+On 2026-11-14, the current local working tree was exercised in disposable
+fixtures. A MySQL-backed CI web image applied and verified 93 migrations and
+completed a real test-user login without the previously observed `WMCore` boot
+error. Two view-flow tests passed; the third was skipped because its zoom
+orchestrator was not ready, and one passing flow used a navigation fallback.
+Separately, the native database fixture passed on PHP 8.4.27 and MariaDB
+11.8.6, including migration verification, schema isolation and a scoped
+fixture backup/restore. These results are not GitHub CI evidence, a test of
+the actual Plesk host or an approval to deploy. The working tree was not a
+released immutable candidate, and the full view-flow and target-host
+acceptance remain outstanding.
+
 For versioned distribution, use protected version tags (for example `v1.2.0`)
 and GitHub Releases containing the native package plus a commit/digest manifest.
 The existing GitHub Release Publication workflow now reuses the native archive
@@ -295,6 +307,55 @@ does not verify that all document roots were supplied, PHP-FPM, Apache/nginx,
 WordPress, TLS, databases or backup/recovery. The Plesk chroot's missing-tool
 and path-permission checks remain pending until this diagnostic is run there.
 
+#### Separate, read-only Plesk PHP CLI preflight
+
+The shell preflight does not select or inspect PHP. From a trusted operations
+copy **outside every document root**, explicitly invoke the intended Plesk PHP
+CLI as the non-root subscription account, for example:
+
+```sh
+/opt/plesk/php/8.4/bin/php /ABSOLUTE_PRIVATE_OPERATIONS_COPY/deploy/preflight-native-php.php
+```
+
+Both paths are operator-verified examples/placeholders, not discovered host
+settings. Use the actual installed binary and trusted script location; do not
+silently substitute the default `php` on `PATH`. No wrapper accepts an executable
+path, and the script accepts **no arguments** (including `--help`). Never expose
+this diagnostic as a web endpoint or pass web-request paths to a PHP launcher.
+Non-CLI execution is denied before argument inspection or application loading.
+
+The diagnostic reads only the current process's version, SAPI and selected
+loaded-extension names. It emits one JSON object and exits 0 only for CLI,
+the tested **8.4.x** line and all required extensions; unexpected arguments,
+other PHP lines (including newer ones) or missing extensions exit 1. This is
+a tested-line gate, not a PHP security-patch assessment. The runtime baseline
+is PDO plus `pdo_mysql`, `mysqli`, `curl`, `mbstring`, `gd`, `json`, `session`
+and `hash`. The Dockerfile provides `pdo_mysql`, `mysqli`, `curl`, `mbstring`
+and `gd`; application evidence includes `config/db.php` (PDO MySQL),
+`api/comfyui_job_executor.php` (curl), `api/colonization.php` (mbstring),
+`api/textures.php` (GD), `api/helpers.php` (sessions), and `api/totp.php`
+(hash). `mysqli` is retained from the Docker baseline, also used by the
+separate `wordpress-integration/gq-game-admin.php` tooling; it does not mean
+WordPress is booted or verified. JSON is used throughout the API and by this
+diagnostic itself. This is not a complete dependency audit of optional workers
+or integrations.
+
+No application/configuration is booted; no database, network, download,
+migration, file write, activation, backup or rollback is attempted. The JSON
+does not enumerate secrets, environment variables, configuration paths or
+`phpinfo()` output. PHP's own startup warnings or operator-installed startup
+hooks are outside the script's control: use a trusted binary/configuration
+and do not publish raw process diagnostics without review.
+
+**CLI success is not PHP-FPM success:** FPM can use a different binary,
+configuration and extensions. The result explicitly remains `cli-only` and
+`not-deployable`; it does not verify FPM/OPcache, Apache/nginx/Plesk routing,
+WordPress isolation, database connectivity, backups/recovery or approve
+deployment. Dockerfile OPcache installation is not treated as a CLI minimum
+or evidence that FPM cache/symlink switching is safe. Run and validate those
+separate host checks before any future promotion. No activation/backup/rollback
+runner or deployment approval is introduced.
+
 To unpack a verified ZIP into quarantine, run
 `bash deploy/stage-native-candidate.sh ABSOLUTE_CANDIDATE_ZIP sha256:DIGEST
 FULL_COMMIT_SHA ABSOLUTE_PRIVATE_CANDIDATE_ROOT`. The destination must already
@@ -383,7 +444,10 @@ published. On 2026-11-12, a fresh local production build still measured
 experimental broad chunk regrouping was discarded: although it reduced the
 measured total to 819,159 bytes, it combined independently loaded modules
 with global side effects and left only 41 bytes of headroom. It is not an
-accepted fix. A Vite preview alone does not reproduce the native package's
+accepted fix. The later start-page fix keeps these modules separate and raises
+the total gzip budget to 825 KiB; the resulting local build measures 811.4 KiB.
+This does not make an earlier build or deployment candidate acceptable.
+A Vite preview alone does not reproduce the native package's
 complete runtime file layout, so browser tests against it cannot establish
 native deployment acceptance. Four selected start/login, logger and resume
 browser tests passed against the existing local Apache stack with the original
@@ -495,12 +559,16 @@ use a changed schema simply by ignoring a pin mismatch.
 diagnostic requiring explicit `DB_HOST`, `DB_NAME`, `DB_USER`, and `DB_PASS`
 environment variables; `DB_PORT` is optional. It checks the selected database
 and authenticated account and reports visible table, view, routine, event and
-trigger counts as JSON. It never writes or grants access. Visibility depends on
-database privileges; `empty_visible: true` is **not proof** that the schema is
-empty, is owned by GalaxyQuest, or is safe to initialize. Concurrent changes,
-server identity, permissions and verified backup still require independent
-checks. Run it only with an operator-provided environment, never command-line
-passwords, and do not use it as an authorization to initialize.
+trigger counts as JSON. `visible_base_table_engines` groups visible `BASE TABLE`
+entries by engine and count; views and other table types are not included, and
+a null engine remains unknown. It never writes or grants access. Visibility
+depends on database privileges: an InnoDB-only result does not prove that all
+tables are transactional or that a consistent backup can be taken.
+`empty_visible: true` is **not proof** that the schema is empty, is owned by
+GalaxyQuest, or is safe to initialize. Concurrent changes, server identity,
+permissions and verified backup still require independent checks. Run it only
+with an operator-provided environment, never command-line passwords, and do
+not use it as an authorization to initialize.
 
 CI prepares a **non-deployable candidate** after the web image passes its
 existing acceptance checks, using `package-native-release.sh`. It combines
@@ -824,6 +892,19 @@ deployment, backup and rollback operations. App writers are stopped before the
 database/asset recovery point; do not add independent writers without extending
 this lifecycle. External cron/projector/generation workers, if enabled later,
 must also be stopped by the operator before maintenance.
+
+The hourly world tick (world events, digest mail outbox) is **not enabled** on
+Plesk; production workers remain disabled. When it is accepted, the documented
+schedule is a cron job every 5 minutes; the aligned 3600-s global cooldown and
+the MySQL scope lock make it run once per hour and stay restart-safe:
+
+```cron
+*/5 * * * * cd /path/to/galaxyquest && php scripts/run_simulation_tick.php --scope=global
+```
+
+It requires the `SMTP_*` settings above for mail delivery (without them due
+mails are marked `skipped`) and must be stopped together with the other writers
+before maintenance. See [Headless simulation engine](HEADLESS_SIMULATION_ENGINE.md#hourly-world-tick-flat-tick-engine).
 
 Every app deployment:
 

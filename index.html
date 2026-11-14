@@ -11,9 +11,9 @@
   <link rel="stylesheet" href="css/design-tokens.css?v=20260730p1" />
   <link rel="stylesheet" href="css/animations.css?v=20260730p1" />
   <link rel="stylesheet" href="css/utilities.css?v=20260730p1" />
-  <link rel="stylesheet" href="css/start-screen.css?v=20261108p8" />
+  <link rel="stylesheet" href="css/start-screen.css?v=20261114p1" />
   <link rel="stylesheet" href="css/developer-blog.css?v=20261108p1" />
-  <link rel="stylesheet" href="css/registration-prologue.css?v=20261031p3" />
+  <link rel="stylesheet" href="css/registration-prologue.css?v=20261114p7" />
   <!-- Core Stylesheets -->
   <link rel="stylesheet" href="css/style.css?v=20261106p55" />
   <link rel="stylesheet" href="css/wm.css?v=20261106p15" />
@@ -246,6 +246,43 @@
             <p id="start-news-body"></p>
             <a id="start-news-original" hidden target="_blank" rel="noopener noreferrer">Vollständigen Beitrag im Blog lesen</a>
           </article>
+          <details id="start-chronology">
+            <summary>Galaktische Chronik</summary>
+            <form id="start-chronology-filter">
+              <label>Thema
+                <select name="topic">
+                  <option value="">Alle Themen</option>
+                  <option value="galaxiegeschichte">Galaxiegeschichte</option>
+                  <option value="spielentwicklung">Spielentwicklung</option>
+                  <option value="diplomatie">Diplomatie</option>
+                </select>
+              </label>
+              <label>Lesereihenfolge
+                <select name="order">
+                  <option value="desc">Neueste zuerst</option>
+                  <option value="asc">Geschichtsbuch (älteste zuerst)</option>
+                </select>
+              </label>
+              <label>Von <input name="from" type="date"></label>
+              <label>Bis <input name="to" type="date"></label>
+              <button type="submit">Filtern</button>
+            </form>
+            <p id="start-chronology-status" role="status" aria-live="polite"></p>
+            <ol id="start-chronology-posts"></ol>
+            <nav aria-label="Chronikseiten">
+              <button id="start-chronology-previous" type="button" disabled>Zurück</button>
+              <span id="start-chronology-page"></span>
+              <button id="start-chronology-next" type="button" disabled>Weiter</button>
+            </nav>
+          </details>
+          <details id="start-radio">
+            <summary>Galaxy News Radio</summary>
+            <p>Sendung aus WordPress-Beiträgen der Kategorie „galaxy-news-radio“.</p>
+            <button id="start-radio-play" type="button">Sendung starten</button>
+            <button id="start-radio-stop" type="button" disabled>Stopp</button>
+            <p id="start-radio-status" role="status" aria-live="polite"></p>
+            <ol id="start-radio-posts"></ol>
+          </details>
           <p id="server-announcements-status"></p>
         </section>
         <section id="start-panel-settings" hidden>
@@ -253,6 +290,14 @@
           <label class="start-setting"><input id="start-flight-tour" type="checkbox" /> Automatic galaxy flight</label>
           <p id="start-flight-status" class="start-session-status" role="status" aria-live="polite">Off. Read-only database flight demo.</p>
           <label class="start-setting"><input id="start-mute" type="checkbox" /> Mute audio</label>
+          <label class="start-setting" for="start-tts-voice">TTS voice
+            <select id="start-tts-voice">
+              <option value="de_DE-kerstin-low">Female — Kerstin (German)</option>
+              <option value="de_DE-thorsten-high">Male — Thorsten (German)</option>
+              <option value="en_US-lessac-high">Female — Lessac (English, US)</option>
+              <option value="en_US-ryan-high">Male — Ryan (English, US)</option>
+            </select>
+          </label>
           <p id="start-settings-status" class="start-session-status" role="status" aria-live="polite"></p>
         </section>
       </dialog>
@@ -384,14 +429,13 @@
     </dialog>
 
     <section id="registration-prologue" class="registration-prologue" aria-label="Registration prologue" hidden>
-      <button id="registration-back" class="registration-back" type="button">Zurück</button>
       <main class="registration-stage">
-        <p id="registration-chapter" class="registration-chapter"></p>
-        <progress id="registration-progress" class="registration-progress" max="10" value="1" aria-label="Fortschritt im Registrierungsintro"></progress>
-        <h2 id="registration-title" tabindex="-1"></h2>
-        <p id="registration-story" class="registration-story"></p>
+        <div id="registration-opening-hud" class="sr-only" aria-hidden="true" hidden>
+          <span>GQ / DEEP SPACE ARCHIVE</span><span id="registration-opening-counter"></span>
+        </div>
+        <p id="registration-chapter" class="sr-only"></p>
+        <h2 id="registration-title" class="sr-only" tabindex="-1"></h2>
         <p id="registration-narration-status" role="status" aria-live="polite"></p>
-        <button id="registration-narration-retry" class="wm-modal-nav-btn" type="button" hidden>Sprachausgabe erneut versuchen</button>
         <p id="registration-flight-status" role="status" aria-live="polite"></p>
         <div id="registration-choices" class="registration-choices"></div>
         <section id="registration-character" hidden>
@@ -424,9 +468,22 @@
         </section>
         <p id="registration-status" role="status" aria-live="polite"></p>
         <p id="registration-error" role="alert" aria-live="assertive"></p>
-        <div class="registration-stage-actions">
-          <button id="registration-retry" class="wm-modal-nav-btn" type="button" hidden>Erneut versuchen</button>
-          <button id="registration-continue" class="wm-modal-nav-btn wm-modal-nav-btn-primary" type="button" hidden>Weiter</button>
+        <p id="registration-story" class="registration-story" aria-live="polite" aria-atomic="true"></p>
+        <progress id="registration-progress" class="registration-progress" max="10" value="1" aria-label="Fortschritt der Registrierung"></progress>
+        <div class="registration-stage-actions" role="group" aria-label="Steuerung der Registrierung">
+          <button id="registration-back" class="wm-modal-nav-btn" type="button" aria-label="Zurück" title="Zurück"><svg aria-hidden="true" focusable="false"><use href="gfx/icons/mono/back.svg#icon-back"></use></svg><span class="sr-only">Zurück</span></button>
+          <button id="registration-opening-pause" class="wm-modal-nav-btn" type="button" aria-label="Pause" title="Pause" aria-pressed="false" hidden><svg class="registration-icon-pause" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/pause.svg#icon-pause"></use></svg><svg class="registration-icon-play" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/play.svg#icon-play"></use></svg><span class="sr-only">Pause</span></button>
+          <button id="registration-opening-skip" class="wm-modal-nav-btn" type="button" aria-label="Vorspann überspringen" title="Vorspann überspringen" hidden><svg aria-hidden="true" focusable="false"><use href="gfx/icons/mono/next.svg#icon-next"></use></svg><span class="sr-only">Vorspann überspringen</span></button>
+          <button id="registration-narration-retry" class="wm-modal-nav-btn" type="button" aria-label="Sprachausgabe erneut versuchen" title="Sprachausgabe erneut versuchen" hidden><svg aria-hidden="true" focusable="false"><use href="gfx/icons/mono/refresh.svg#icon-refresh"></use></svg><span class="sr-only">Sprachausgabe erneut versuchen</span></button>
+          <button id="registration-retry" class="wm-modal-nav-btn" type="button" aria-label="Erneut versuchen" title="Erneut versuchen" hidden><svg aria-hidden="true" focusable="false"><use href="gfx/icons/mono/refresh.svg#icon-refresh"></use></svg><span class="sr-only">Erneut versuchen</span></button>
+          <button id="registration-continue" class="wm-modal-nav-btn" type="button" aria-label="Weiter" title="Weiter" hidden><svg class="registration-icon-forward" aria-hidden="true" focusable="false"><use href="gfx/icons/mono/back.svg#icon-back"></use></svg><span class="sr-only">Weiter</span></button>
+          <details id="registration-opening-source" class="registration-opening-source" hidden>
+            <summary aria-label="Quelle / Astronomie" title="Quelle / Astronomie">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8"></circle><path d="M12 11v5m0-8h.01" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>
+              <span class="sr-only">Quelle / Astronomie</span>
+            </summary>
+            <p>Faktenvorlage: <a href="https://de.wikipedia.org/wiki/Galaxie" target="_blank" rel="noopener noreferrer">Wikipedia: Galaxie</a>. Text eigenständig formuliert. Die Konvergenz ist Fiktion.</p>
+          </details>
         </div>
       </main>
     </section>

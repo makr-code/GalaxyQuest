@@ -27,7 +27,7 @@ final class WordPressBlogSource
         $this->transport = $transport ?? self::http(...);
     }
 
-    public function latest(array $flightTargets): array
+    public function latest(array $flightTargets, ?string $category = null): array
     {
         $tag = $this->startTag();
         if ($tag === null) {
@@ -52,7 +52,7 @@ final class WordPressBlogSource
             [$b['date_gmt'] ?? '', $b['id'] ?? 0] <=> [$a['date_gmt'] ?? '', $a['id'] ?? 0]);
         $result = [];
         foreach ($posts as $post) {
-            $mapped = $this->map($post, $tag, $flightTargets);
+            $mapped = $this->map($post, $tag, $flightTargets, $category);
             if ($mapped !== null) {
                 $result[] = $mapped;
             }
@@ -82,6 +82,39 @@ final class WordPressBlogSource
         return $this->map($post, $tag, $flightTargets);
     }
 
+    public function chronology(int $page, string $topic, string $from, string $to, string $order = 'desc'): array
+    {
+        $data = $this->request('/gq/v1/chronology', [
+            'page' => $page, 'topic' => $topic, 'from' => $from, 'to' => $to,
+            'order' => $order === 'asc' ? 'asc' : 'desc',
+        ]);
+        if (!is_bool($data['has_more'] ?? null) || !is_array($data['posts'] ?? null)
+            || !array_is_list($data['posts']) || count($data['posts']) > 10) {
+            throw new RuntimeException('Ungültige WordPress-Chronik.');
+        }
+        foreach ($data['posts'] as $post) {
+            if (!is_array($post) || !is_int($post['id'] ?? null) || $post['id'] < 1
+                || !is_string($post['title'] ?? null) || trim($post['title']) === ''
+                || mb_strlen($post['title']) > DeveloperBlogRepository::MAX_TITLE_CHARS
+                || !is_string($post['summary'] ?? null) || trim($post['summary']) === ''
+                || strip_tags($post['summary']) !== $post['summary']
+                || mb_strlen($post['summary']) > DeveloperBlogRepository::MAX_BODY_CHARS
+                || !is_string($post['event_date'] ?? null)
+                || !self::validDate($post['event_date'] . 'T00:00:00')
+                || !self::validDate($post['published_at'] ?? null)
+                || !in_array($post['origin'] ?? null, ['editorial', 'game-event'], true)
+                || !is_bool($post['is_correction'] ?? null)
+                || !is_array($post['categories'] ?? null) || !array_is_list($post['categories'])
+                || count($post['categories']) > 20
+                || array_filter($post['categories'], static fn($term): bool =>
+                    !is_string($term) || mb_strlen($term) > 200) !== []
+                || !is_string($post['url'] ?? null) || !$this->sameSite($post['url'])) {
+                throw new RuntimeException('Ungültiger WordPress-Chronikbeitrag.');
+            }
+        }
+        return ['posts' => $data['posts'], 'has_more' => $data['has_more']];
+    }
+
     private function startTag(): ?int
     {
         $tags = $this->request('/wp/v2/tags', ['slug' => 'game-start']);
@@ -99,7 +132,7 @@ final class WordPressBlogSource
         return null;
     }
 
-    private function map(mixed $post, int $tag, array $flightTargets): ?array
+    private function map(mixed $post, int $tag, array $flightTargets, ?string $requiredCategory = null): ?array
     {
         if (!is_array($post) || !is_string($post['status'] ?? null) || !is_string($post['type'] ?? null)) {
             throw new RuntimeException('Ungültiger WordPress-Beitrag.');
@@ -180,6 +213,9 @@ final class WordPressBlogSource
             static fn(int $id): string => mb_substr($termsByTaxonomy['category'][$id], 0, 32),
             $post['categories']
         );
+        if ($requiredCategory !== null && !in_array($requiredCategory, $categories, true)) {
+            return null;
+        }
         $tags = array_map(
             static fn(int $id): string => mb_substr($termsByTaxonomy['post_tag'][$id], 0, 32),
             $post['tags']

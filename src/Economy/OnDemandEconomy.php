@@ -12,6 +12,7 @@ use RuntimeException;
 use Throwable;
 
 require_once __DIR__ . '/../../lib/BodyDevelopment.php';
+require_once __DIR__ . '/WorldEvents.php';
 
 /**
  * One ledger for primary resources, manufactured goods, population and market
@@ -35,6 +36,11 @@ final class OnDemandEconomy
         if ($outer) {
             $this->db->exec('SAVEPOINT ' . $savepoint);
         } else {
+            if ($this->mysql) {
+                // Guards run after the user/colony locks; they must see rows committed while waiting,
+                // not a REPEATABLE READ snapshot taken by the first ownership lookup.
+                $this->db->exec('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+            }
             $this->db->beginTransaction();
         }
         try {
@@ -46,7 +52,7 @@ final class OnDemandEconomy
             }
             return $result;
         } catch (Throwable $error) {
-            if ($outer) {
+            if ($outer && $this->db->inTransaction()) {
                 $this->db->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
                 $this->db->exec('RELEASE SAVEPOINT ' . $savepoint);
             } elseif ($this->db->inTransaction()) {
@@ -56,16 +62,27 @@ final class OnDemandEconomy
         }
     }
 
-    public function settle(int $colonyId, ?int $owner = null, ?int $now = null, bool $mutation = false): array
+    public function settle(
+        int $colonyId,
+        ?int $owner = null,
+        ?int $now = null,
+        bool $mutation = false,
+        bool $diagnostics = false
+    ): array
     {
         $now ??= time();
-        return $this->transaction(function () use ($colonyId, $owner, $now, $mutation): array {
-            $lookup = $this->query('SELECT user_id FROM colonies WHERE id = ?', [$colonyId])->fetch();
+        return $this->transaction(function () use ($colonyId, $owner, $now, $mutation, $diagnostics): array {
+            $flows = $diagnostics ? [] : null;
+            $lookup = $this->query('SELECT user_id FROM colonies WHERE id = ?', [$colonyId], false)->fetch();
             if (!$lookup || ($owner !== null && (int)$lookup['user_id'] !== $owner)) {
                 throw new DomainException('Colony not found.', 404);
             }
             $this->query('SELECT id FROM users WHERE id = ?' . $this->lock(), [$lookup['user_id']]);
             $colony = $this->query('SELECT * FROM colonies WHERE id = ?' . $this->lock(), [$colonyId])->fetch();
+            if (!$colony || (int)$colony['user_id'] !== (int)$lookup['user_id']
+                || ($owner !== null && (int)$colony['user_id'] !== $owner)) {
+                throw new DomainException('Colony ownership changed.', 409);
+            }
             $developmentPeak = (int)$colony['population'];
             $saved = $this->query('SELECT * FROM colony_economy_state WHERE colony_id = ?', [$colonyId])->fetch();
             $state = $saved ? json_decode($saved['state_json'], true, 512, JSON_THROW_ON_ERROR) : [
@@ -107,7 +124,7 @@ final class OnDemandEconomy
                     $difference += $take;
                 }
             }
-            $context = $this->context($colony, $goods, !$saved);
+            $context = $this->context($colony, $goods, !$saved, (int)$state['settled_at']);
             $state['deposits'] = $context['deposits'];
             $previousCursor = (int)$state['settled_at'];
             // A request catches up at most one simulated day, regardless of queue size.
@@ -126,7 +143,7 @@ final class OnDemandEconomy
                     break;
                 }
                 $state = ColonyEconomySimulation::advance(
-                    $state, $context, max($end, (int)$state['settled_at']), true, $developmentPeak
+                    $state, $context, max($end, (int)$state['settled_at']), true, $developmentPeak, $flows
                 );
                 $this->query(
                     'UPDATE buildings SET level = ?, upgrade_end = NULL WHERE colony_id = ? AND type = ?',
@@ -143,13 +160,13 @@ final class OnDemandEconomy
                         [$placement['target_level'], $placement['slot_id']]
                     );
                 }
-                $context = $this->context($colony, $goods);
+                $context = $this->context($colony, $goods, false, (int)$state['settled_at']);
             }
             if ($events === 32) {
                 // Never skip an unprocessed construction event when catching up.
                 $target = (int)$state['settled_at'];
             }
-            $state = ColonyEconomySimulation::advance($state, $context, $target, $mutation, $developmentPeak);
+            $state = ColonyEconomySimulation::advance($state, $context, $target, $mutation, $developmentPeak, $flows);
             $state['pending_seconds'] = $now - (int)$state['settled_at'];
             if (!$saved || $previousCursor !== (int)$state['settled_at']) {
                 $this->persist($colony, $state, $context);
@@ -161,6 +178,7 @@ final class OnDemandEconomy
                 'energy' => $context['energy_available'],
             ], array_intersect_key($state['stock'], array_flip(ColonyEconomySimulation::PRIMARY)));
             return [
+                'material_flows' => $flows,
                 'body_development' => BodyDevelopment::enabled()
                     ? BodyDevelopment::observe($this->db, $colony, $developmentPeak, $now) : null,
                 'colony' => $colony,
@@ -175,6 +193,8 @@ final class OnDemandEconomy
                     [$colonyId]
                 )->fetchAll(),
                 'pop_classes' => $state['classes'],
+                'reserve_rates' => ColonyEconomySimulation::reserveRates($state, $context),
+                'market_scope' => ['galaxy' => $context['galaxy_index'], 'system' => $context['system_index']],
                 'catalog' => self::catalog(),
                 'methods' => array_replace(
                     array_fill_keys(array_keys(self::catalog()), 'standard'),
@@ -186,10 +206,13 @@ final class OnDemandEconomy
         });
     }
 
-    private function context(array $colony, array $goods, bool $seed = false): array
+    /**
+     * @param int|null $since settle cursor; when given, world-event production windows
+     *                        ending after it are loaded for deterministic catch-up.
+     */
+    private function context(array $colony, array $goods, bool $seed = false, ?int $since = null): array
     {
         require_once __DIR__ . '/../../api/economy_runtime.php';
-        require_once __DIR__ . '/../../api/economy_flush.php';
         $cid = (int)$colony['id'];
         $buildings = [];
         $insert = $this->mysql ? 'INSERT IGNORE' : 'INSERT OR IGNORE';
@@ -214,7 +237,7 @@ final class OnDemandEconomy
         foreach ($this->query('SELECT type, level FROM buildings WHERE colony_id = ?', [$cid]) as $building) {
             $buildings[$building['type']] = (int)$building['level'];
         }
-        $runtime = fetch_colony_runtime_row($this->db, $cid);
+        $runtime = fetch_colony_runtime_row($this->db, $cid, true);
         if (!$runtime) {
             throw new RuntimeException('Colony has no celestial body.');
         }
@@ -277,6 +300,13 @@ final class OnDemandEconomy
                 get_policy_good_multipliers($this->db, (int)$colony['user_id'])
             ),
             'deposits' => $deposits,
+            'event_production' => $since === null ? [] : WorldEvents::productionWindows(
+                (new WorldEvents($this->db))->forScope(
+                    (int)$runtime['galaxy_index'],
+                    (int)$runtime['system_index'],
+                    $since
+                )
+            ),
             'galaxy_index' => (int)$runtime['galaxy_index'],
             'system_index' => (int)$runtime['system_index'],
             'layout' => colony_layout_profile($planet ?? []),
@@ -377,113 +407,19 @@ final class OnDemandEconomy
         return $catalog;
     }
 
-    public function queue(int $cid, int $uid, string $type, ?array $slot = null): array
+    public function queue(int $cid, int $uid, string $type, ?array $slot = null, ?int $now = null): array
     {
-        return $this->transaction(function () use ($cid, $uid, $type, $slot): array {
-            $snapshot = $this->settle($cid, $uid, null, true);
+        $now ??= time();
+        return $this->transaction(function () use ($cid, $uid, $type, $slot, $now): array {
+            $snapshot = $this->settle($cid, $uid, $now, true);
             $this->assertCaughtUp($snapshot);
-            $catalog = building_definitions() + self::catalog();
-            if (!isset($catalog[$type])) {
-                throw new DomainException('Unknown building type.', 400);
-            }
-            if (isset(self::catalog()[$type])) {
-                $tech = self::catalog()[$type]['research'];
-                $row = $this->query('SELECT level FROM research WHERE user_id=? AND type=?', [$uid, $tech])->fetch();
-                if (!$row || (int)$row['level'] < 1) {
-                    throw new DomainException('Required research: ' . $tech . ' level 1.', 409);
-                }
-            }
-            $building = $this->query(
-                'SELECT level FROM buildings WHERE colony_id=? AND type=?',
-                [$cid, $type]
-            )->fetch();
-            if (!$building) {
-                throw new DomainException('Building not available on this colony.', 409);
-            }
-            $pending = $this->query(
-                "SELECT * FROM building_upgrade_queue WHERE colony_id=? AND status IN ('queued','running')",
-                [$cid]
-            )->fetchAll();
-            if (count($pending) >= 32) {
-                throw new DomainException('Construction queue is full.', 409);
-            }
-            $next = (int)$building['level'] + 1;
-            foreach ($pending as $entry) {
-                if ($entry['building_type'] === $type) {
-                    $next++;
-                }
-            }
-            $cost = isset(ColonyEconomySimulation::RECIPES[$type])
-                ? self::processingCost($type, $next) : building_cost($type, $next);
-            if (
-                $type === 'terraformer' && (int)$this->query(
-                    "SELECT level FROM research WHERE user_id=? AND type='terraforming_tech'",
-                    [$uid]
-                )->fetchColumn() < 1
-            ) {
-                throw new DomainException('Terraformer requires Terraforming Tech level 1.', 409);
-            }
-            if (
-                (int)$this->query(
-                    "SELECT level FROM research WHERE user_id=? AND type='nano_materials'",
-                    [$uid]
-                )->fetchColumn() >= 1
-            ) {
-                $cost = array_map(static fn(int $amount): int => (int)round($amount * 0.85), $cost);
-            }
-            foreach (['metal', 'crystal', 'deuterium'] as $good) {
-                if ($snapshot['colony'][$good] < $cost[$good]) {
-                    throw new DomainException('Insufficient ' . $good . '.', 409);
-                }
+            $plan = $this->constructionPlan($snapshot, $uid, $type, $slot);
+            ['cost' => $cost, 'target_level' => $next, 'pending' => $pending, 'occupied' => $occupied] = $plan;
+            if ($plan['missing_resources'] !== []) {
+                throw new DomainException('Insufficient ' . $plan['missing_resources'][0] . '.', 409);
             }
             if ($slot !== null) {
                 [$x, $y] = $slot;
-                $layout = $snapshot['layout'];
-                if (($catalog[$type]['zone'] ?? 'surface') !== 'surface') {
-                    throw new DomainException('This building cannot be placed on the surface.', 400);
-                }
-                if ($x < 0 || $y < 0 || $x >= $layout['grid']['cols'] || $y >= $layout['grid']['rows']) {
-                    throw new DomainException('Slot outside colony surface.', 400);
-                }
-                $occupied = $this->query(
-                    'SELECT * FROM colony_building_slots WHERE colony_id=? AND slot_x=? AND slot_y=?',
-                    [$cid, $x, $y]
-                )->fetch();
-                if ($occupied && $occupied['building_type'] !== $type) {
-                    throw new DomainException('Slot already occupied.', 409);
-                }
-                if ($occupied && (int)$occupied['level'] === 0) {
-                    throw new DomainException('Slot construction already pending.', 409);
-                }
-                if ($occupied && (int)$occupied['level'] >= 255) {
-                    throw new DomainException('Slot level limit reached.', 409);
-                }
-                if (
-                    $occupied && $this->query(
-                        'SELECT q.id FROM building_upgrade_queue q '
-                            . 'JOIN economy_construction_slots s ON s.queue_id=q.id '
-                        . "WHERE s.slot_id=? AND q.status IN ('queued','running')",
-                        [$occupied['id']]
-                    )->fetch()
-                ) {
-                    throw new DomainException('Slot upgrade already pending.', 409);
-                }
-                if (!$occupied) {
-                    $counts = [];
-                    foreach ($snapshot['slots'] as $placed) {
-                        $class = $catalog[$placed['building_type']]['class_key'] ?? 'industrial';
-                        $counts[$class] = ($counts[$class] ?? 0) + 1;
-                    }
-                    $class = $catalog[$type]['class_key'] ?? 'industrial';
-                    $counts[$class] = ($counts[$class] ?? 0) + 1;
-                    $overflow = 0;
-                    foreach ($counts as $class => $count) {
-                        $overflow += max(0, $count - ($layout['class_caps'][$class] ?? 0));
-                    }
-                    if ($overflow > $layout['class_caps']['flex']) {
-                        throw new DomainException('Building class capacity reached.', 409);
-                    }
-                }
                 $this->upsert('colony_building_slots', ['colony_id', 'slot_x', 'slot_y'], [
                     'colony_id' => $cid, 'slot_x' => $x, 'slot_y' => $y, 'building_type' => $type,
                     'level' => $occupied ? (int)$occupied['level'] : 0,
@@ -501,7 +437,7 @@ final class OnDemandEconomy
             if ($snapshot['colony']['colony_type'] === 'industrial') {
                 $duration = max(1, (int)round($duration * 0.9));
             }
-            $this->spend($cid, $uid, $cost, static fn(): null => null);
+            $this->spend($cid, $uid, $cost, static fn(): null => null, $now);
             $this->query(
                 'INSERT INTO building_upgrade_queue '
                     . '(colony_id,building_type,target_level,cost_metal,cost_crystal,cost_deuterium,'
@@ -509,7 +445,7 @@ final class OnDemandEconomy
                     . "VALUES (?,?,?,?,?,?,?,?,'queued')",
                 [
                     $cid, $type, $next, $cost['metal'], $cost['crystal'], $cost['deuterium'],
-                    $duration, gmdate('Y-m-d H:i:s'),
+                    $duration, gmdate('Y-m-d H:i:s', $now),
                 ]
             );
             $id = (int)$this->db->lastInsertId();
@@ -523,7 +459,7 @@ final class OnDemandEconomy
                     [$id, $placement['id'], (int)$placement['level'] + 1]
                 );
             }
-            $this->startNext($cid, time());
+            $this->startNext($cid, $now);
             $active = $this->query(
                 "SELECT building_type,eta FROM building_upgrade_queue WHERE colony_id=? AND status='running'",
                 [$cid]
@@ -536,6 +472,121 @@ final class OnDemandEconomy
         });
     }
 
+    /** Read-only authoritative construction guards, also used by the player mutation. */
+    public function constructionPlan(array $snapshot, int $uid, string $type, ?array $slot = null): array
+    {
+        $cid = (int)$snapshot['colony']['id'];
+        $catalog = building_definitions() + self::catalog();
+        if (!isset($catalog[$type])) {
+            throw new DomainException('Unknown building type.', 400);
+        }
+        if (isset(self::catalog()[$type])) {
+            $tech = self::catalog()[$type]['research'];
+            $row = $this->query('SELECT level FROM research WHERE user_id=? AND type=?', [$uid, $tech])->fetch();
+            if (!$row || (int)$row['level'] < 1) {
+                throw new DomainException('Required research: ' . $tech . ' level 1.', 409);
+            }
+        }
+        $building = $this->query(
+            'SELECT level FROM buildings WHERE colony_id=? AND type=?', [$cid, $type]
+        )->fetch();
+        if (!$building) {
+            throw new DomainException('Building not available on this colony.', 409);
+        }
+        $pending = $this->query(
+            "SELECT * FROM building_upgrade_queue WHERE colony_id=? AND status IN ('queued','running')", [$cid]
+        )->fetchAll();
+        if (count($pending) >= 32) {
+            throw new DomainException('Construction queue is full.', 409);
+        }
+        $next = (int)$building['level'] + 1;
+        foreach ($pending as $entry) {
+            if ($entry['building_type'] === $type) {
+                $next++;
+            }
+        }
+        $cost = $this->constructionCost($uid, $type, $next);
+        if (
+            $type === 'terraformer' && (int)$this->query(
+                "SELECT level FROM research WHERE user_id=? AND type='terraforming_tech'", [$uid]
+            )->fetchColumn() < 1
+        ) {
+            throw new DomainException('Terraformer requires Terraforming Tech level 1.', 409);
+        }
+        $missing = [];
+        foreach (['metal', 'crystal', 'deuterium'] as $good) {
+            if ($snapshot['colony'][$good] < $cost[$good]) {
+                $missing[] = $good;
+            }
+        }
+        $occupied = false;
+        if ($slot !== null) {
+            [$x, $y] = $slot;
+            $layout = $snapshot['layout'];
+            if (($catalog[$type]['zone'] ?? 'surface') !== 'surface') {
+                throw new DomainException('This building cannot be placed on the surface.', 400);
+            }
+            if ($x < 0 || $y < 0 || $x >= $layout['grid']['cols'] || $y >= $layout['grid']['rows']) {
+                throw new DomainException('Slot outside colony surface.', 400);
+            }
+            $occupied = $this->query(
+                'SELECT * FROM colony_building_slots WHERE colony_id=? AND slot_x=? AND slot_y=?', [$cid, $x, $y]
+            )->fetch();
+            if ($occupied && $occupied['building_type'] !== $type) {
+                throw new DomainException('Slot already occupied.', 409);
+            }
+            if ($occupied && (int)$occupied['level'] === 0) {
+                throw new DomainException('Slot construction already pending.', 409);
+            }
+            if ($occupied && (int)$occupied['level'] >= 255) {
+                throw new DomainException('Slot level limit reached.', 409);
+            }
+            if (
+                $occupied && $this->query(
+                    'SELECT q.id FROM building_upgrade_queue q '
+                        . 'JOIN economy_construction_slots s ON s.queue_id=q.id '
+                    . "WHERE s.slot_id=? AND q.status IN ('queued','running')", [$occupied['id']]
+                )->fetch()
+            ) {
+                throw new DomainException('Slot upgrade already pending.', 409);
+            }
+            if (!$occupied) {
+                $counts = [];
+                foreach ($snapshot['slots'] as $placed) {
+                    $class = $catalog[$placed['building_type']]['class_key'] ?? 'industrial';
+                    $counts[$class] = ($counts[$class] ?? 0) + 1;
+                }
+                $class = $catalog[$type]['class_key'] ?? 'industrial';
+                $counts[$class] = ($counts[$class] ?? 0) + 1;
+                $overflow = 0;
+                foreach ($counts as $class => $count) {
+                    $overflow += max(0, $count - ($layout['class_caps'][$class] ?? 0));
+                }
+                if ($overflow > $layout['class_caps']['flex']) {
+                    throw new DomainException('Building class capacity reached.', 409);
+                }
+            }
+        }
+        return ['cost' => $cost, 'target_level' => $next, 'pending' => $pending,
+            'occupied' => $occupied, 'missing_resources' => $missing];
+    }
+
+    /** A quote is not construction permission; constructionPlan/queue still validate all guards. */
+    public function constructionCost(int $uid, string $type, int $next): array
+    {
+        if (!isset(building_definitions()[$type]) || $next < 1) {
+            throw new DomainException('Invalid construction quote.', 400);
+        }
+        $cost = isset(ColonyEconomySimulation::RECIPES[$type])
+            ? self::processingCost($type, $next) : building_cost($type, $next);
+        if ((int)$this->query(
+            "SELECT level FROM research WHERE user_id=? AND type='nano_materials'", [$uid]
+        )->fetchColumn() >= 1) {
+            $cost = array_map(static fn(int $amount): int => (int)round($amount * 0.85), $cost);
+        }
+        return $cost;
+    }
+
     private function level(array $snapshot, string $type): int
     {
         foreach ($snapshot['buildings'] as $building) {
@@ -544,6 +595,86 @@ final class OnDemandEconomy
             }
         }
         return 0;
+    }
+
+    /** No settlement, queue completion, initialization, or population-history observation. */
+    public function inspect(int $cid, int $uid, int $now): array
+    {
+        $colony = $this->query('SELECT * FROM colonies WHERE id=? AND user_id=?', [$cid, $uid])->fetch();
+        $saved = $this->query('SELECT state_json FROM colony_economy_state WHERE colony_id=?', [$cid])->fetch();
+        if (!$colony || !$saved) {
+            throw new DomainException('Economy requires on-demand initialization.', 409);
+        }
+        $goods = $this->query('SELECT * FROM economy_processed_goods WHERE colony_id=?', [$cid])->fetchAll();
+        $state = json_decode($saved['state_json'], true, 512, JSON_THROW_ON_ERROR);
+        foreach (ColonyEconomySimulation::PRIMARY as $good) {
+            $state['stock'][$good] = (float)$colony[$good];
+        }
+        foreach ($goods as $row) {
+            if (!in_array($row['good_type'], ColonyEconomySimulation::PRIMARY, true)) {
+                $state['stock'][$row['good_type']] = (float)$row['quantity'];
+            }
+        }
+        $difference = (int)$colony['population'] - array_sum($state['classes']);
+        if ($difference >= 0) {
+            $state['classes']['colonist'] += $difference;
+        } else {
+            foreach (array_reverse(ColonyEconomySimulation::CLASSES) as $class) {
+                $take = min(-$difference, $state['classes'][$class]);
+                $state['classes'][$class] -= $take;
+                $difference += $take;
+            }
+        }
+        $state['pending_seconds'] = max(0, $now - (int)$state['settled_at']);
+        $context = $this->context($colony, $goods, false, (int)$state['settled_at']);
+        return [
+            'colony' => $colony, 'economy' => $state, 'production_context' => $context,
+            'buildings' => array_map(
+                static fn(string $type, int $level): array => ['type' => $type, 'level' => $level],
+                array_keys($context['buildings']), array_values($context['buildings'])
+            ),
+            'slots' => $this->query(
+                'SELECT slot_x,slot_y,building_type,level FROM colony_building_slots WHERE colony_id=?', [$cid]
+            )->fetchAll(),
+            'reserve_rates' => ColonyEconomySimulation::reserveRates($state, $context),
+            'pop_classes' => $state['classes'], 'methods' => array_replace(
+                array_fill_keys(array_keys(self::catalog()), 'standard'), $context['methods']
+            ),
+            'layout' => $context['layout'],
+            'market_scope' => ['galaxy' => $context['galaxy_index'], 'system' => $context['system_index']],
+        ];
+    }
+
+    /** Counterfactual next-hour output uses the same simulation and raw-production calculator. */
+    public function productionForecast(array $snapshot, ?string $building = null, ?string $method = null): array
+    {
+        $context = $snapshot['production_context'];
+        if ($building !== null && $method !== null) {
+            $context['methods'][$building] = $method;
+        } elseif ($building !== null) {
+            $context['buildings'][$building] = ($context['buildings'][$building] ?? 0) + 1;
+            $rawLevels = [
+                'metal_mine' => 'metal_mine_level', 'crystal_mine' => 'crystal_mine_level',
+                'deuterium_synth' => 'deuterium_synth_level', 'rare_earth_drill' => 'rare_earth_drill_level',
+                'hydroponic_farm' => 'hydroponic_farm_level', 'solar_plant' => 'solar_plant_level',
+            ];
+            if (isset($rawLevels[$building])) {
+                $runtime = fetch_colony_runtime_row($this->db, (int)$snapshot['colony']['id']);
+                $runtime['simulation_now'] = gmdate('Y-m-d H:i:s', $snapshot['economy']['settled_at']);
+                $runtime[$rawLevels[$building]] = $context['buildings'][$building];
+                $raw = build_colony_consumption_snapshot($this->db, $runtime);
+                foreach (ColonyEconomySimulation::PRIMARY as $good) {
+                    $context['raw_production'][$good] = (float)$raw['production'][$good . '_per_hour'];
+                    if ($good !== 'food') {
+                        $context['raw_production'][$good] /= happiness_productivity((int)$runtime['happiness']);
+                    }
+                }
+                $context['energy_available'] = max(0, $raw['welfare']['energy_balance']);
+            }
+        }
+        return ColonyEconomySimulation::advance(
+            $snapshot['economy'], $context, (int)$snapshot['economy']['settled_at'] + 3600, true
+        );
     }
 
     public function remove(int $cid, int $uid, int $x, int $y): void
@@ -583,50 +714,10 @@ final class OnDemandEconomy
 
     public function exchange(int $cid, int $uid, string $good, float $quantity, bool $buy): array
     {
-        if (!isset(ColonyEconomySimulation::PRICES[$good]) || !is_finite($quantity) || $quantity <= 0) {
-            throw new DomainException('Invalid good or quantity.', 400);
-        }
-        return $this->transaction(function () use ($cid, $uid, $good, $quantity, $buy): array {
-            $snapshot = $this->settle($cid, $uid, null, true);
-            $this->assertCaughtUp($snapshot);
-            $context = $this->context($snapshot['colony'], $this->query(
-                'SELECT * FROM economy_processed_goods WHERE colony_id=?',
-                [$cid]
-            )->fetchAll());
-            if ($buy && $context['policy'] === 'autarky') {
-                throw new DomainException('Autarky blocks imports.', 409);
-            }
-            $state = $snapshot['economy'];
-            $market = $this->market($context['galaxy_index'], $context['system_index']);
-            $price = $market['goods'][$good]['price'] ?? (float)ColonyEconomySimulation::PRICES[$good];
-            $policy = $this->query('SELECT tax_trade FROM economy_policies WHERE user_id=?', [$uid])->fetch();
-            $tax = min(0.25, max(0, $this->taxRate($policy ?: [], 'tax_trade', 0.05)));
-            $credits = (float)$this->query('SELECT credits FROM users WHERE id=?', [$uid])->fetchColumn();
-            $total = round($quantity * $price * ($buy ? 1 + $tax : 1 - $tax), 4);
-            $available = $state['stock'][$good] ?? 0;
-            if ($buy && ($credits < $total || $available + $quantity > ($context['capacity'][$good] ?? 5000))) {
-                throw new DomainException('Insufficient credits or storage capacity.', 409);
-            }
-            if (!$buy && $available < $quantity) {
-                throw new DomainException('Insufficient stock.', 409);
-            }
-            $state['stock'][$good] = $available + ($buy ? $quantity : -$quantity);
-            $state['credit_delta'] = $buy ? -$total : $total;
-            $this->persist($snapshot['colony'], $state, $context);
-            $this->query(
-                'INSERT INTO economy_market_transactions '
-                    . '(user_id,colony_id,good_type,direction,quantity,price_per_unit,'
-                    . 'total_credits,trade_tax_rate,net_credits) '
-                    . 'VALUES (?,?,?,?,?,?,?,?,?)',
-                [$uid, $cid, $good, $buy ? 'buy' : 'sell', $quantity, $price, $total, $tax, $total]
-            );
-            return [
-                'good_type' => $good, 'quantity' => $quantity, 'price_per_unit' => $price, 'total_credits' => $total,
-            ];
-        });
+        throw new DomainException('Instant exchange is unavailable. Use funded orders and physical transport.', 409);
     }
 
-    public function method(int $cid, int $uid, string $building, string $method): void
+    public function method(int $cid, int $uid, string $building, string $method, ?int $now = null): void
     {
         if (
             !isset(ColonyEconomySimulation::RECIPES[$building])
@@ -634,8 +725,8 @@ final class OnDemandEconomy
         ) {
             throw new DomainException('Invalid production method.', 400);
         }
-        $this->transaction(function () use ($cid, $uid, $building, $method): void {
-            $snapshot = $this->settle($cid, $uid, null, true);
+        $this->transaction(function () use ($cid, $uid, $building, $method, $now): void {
+            $snapshot = $this->settle($cid, $uid, $now, true);
             $this->assertCaughtUp($snapshot);
             $tech = $method === 'premium' ? 'quantum_computing' : self::catalog()[$building]['research'];
             $level = $this->query(
@@ -767,10 +858,10 @@ final class OnDemandEconomy
         return $this->policyColumnTypes;
     }
 
-    public function spend(int $cid, int $uid, array $cost, callable $commit): mixed
+    public function spend(int $cid, int $uid, array $cost, callable $commit, ?int $now = null): mixed
     {
-        return $this->transaction(function () use ($cid, $uid, $cost, $commit): mixed {
-            $snapshot = $this->settle($cid, $uid, null, true);
+        return $this->transaction(function () use ($cid, $uid, $cost, $commit, $now): mixed {
+            $snapshot = $this->settle($cid, $uid, $now, true);
             $this->assertCaughtUp($snapshot);
             $state = $snapshot['economy'];
             foreach ($cost as $good => $quantity) {
@@ -808,10 +899,10 @@ final class OnDemandEconomy
         });
     }
 
-    public function receive(int $cid, array $payload): void
+    public function receive(int $cid, array $payload, ?int $now = null): void
     {
-        $this->transaction(function () use ($cid, $payload): void {
-            $snapshot = $this->settle($cid, null, null, true);
+        $this->transaction(function () use ($cid, $payload, $now): void {
+            $snapshot = $this->settle($cid, null, $now, true);
             $this->assertCaughtUp($snapshot);
             $state = $snapshot['economy'];
             foreach ($payload as $good => $quantity) {
@@ -861,11 +952,13 @@ final class OnDemandEconomy
         return $row;
     }
 
-    public function market(?int $galaxy = null, ?int $system = null): array
+    public function market(?int $galaxy = null, ?int $system = null, ?int $at = null, bool $current = true): array
     {
         if ($system !== null && $galaxy === null) {
             throw new DomainException('A system requires a galaxy.', 400);
         }
+        $at ??= time();
+        $events = (new WorldEvents($this->db))->forScope($galaxy, $system, $at, $at);
         $where = $galaxy === null ? '' : ' WHERE galaxy_index = ?';
         $params = $galaxy === null ? [] : [$galaxy];
         if ($system !== null) {
@@ -876,31 +969,49 @@ final class OnDemandEconomy
             'SELECT good_type, SUM(quantity) AS quantity, SUM(production) AS production, '
                 . 'SUM(consumption) AS consumption, MIN(settled_at) AS oldest, MAX(settled_at) AS newest, '
                 . 'COUNT(*) AS colonies FROM economy_colony_market' . $where . ' GROUP BY good_type',
-            $params
+            $params,
+            $current
         )->fetchAll();
         $goods = [];
         foreach ($rows as $row) {
+            $modifiers = WorldEvents::priceModifiers($events, $row['good_type']);
             $price = self::price(
                 $row['good_type'],
                 (float)$row['quantity'],
                 (float)$row['production'],
-                (float)$row['consumption']
+                (float)$row['consumption'],
+                $modifiers['price'],
+                $modifiers['demand']
             );
             $goods[$row['good_type']] = [
                 'quantity' => (float)$row['quantity'], 'production_per_hour' => (float)$row['production'],
                 'consumption_per_hour' => (float)$row['consumption'], 'price' => $price,
                 'oldest_settled_at' => (int)$row['oldest'], 'newest_settled_at' => (int)$row['newest'],
                 'represented_colonies' => (int)$row['colonies'],
+                'event_price_modifier' => round($modifiers['price'], 3),
+                'event_demand_modifier' => round($modifiers['demand'], 3),
             ];
         }
-        return ['galaxy' => $galaxy, 'system' => $system, 'goods' => $goods, 'mode' => 'last_settled_projection'];
+        return [
+            'galaxy' => $galaxy, 'system' => $system, 'goods' => $goods, 'mode' => 'last_settled_projection',
+            'world_events' => array_map([WorldEvents::class, 'describe'], $events),
+        ];
     }
 
-    public static function price(string $good, float $stock, float $production, float $consumption): float
-    {
+    public static function price(
+        string $good,
+        float $stock,
+        float $production,
+        float $consumption,
+        float $priceModifier = 1.0,
+        float $demandModifier = 1.0
+    ): float {
         $supply = max(1.0, $stock / 24 + $production);
-        $demand = max(1.0, $consumption);
-        return round(ColonyEconomySimulation::PRICES[$good] * max(0.3, min(3.5, ($demand / $supply) ** 0.4)), 2);
+        $demand = max(1.0, $consumption) * $demandModifier;
+        return round(
+            ColonyEconomySimulation::PRICES[$good] * max(0.3, min(3.5, ($demand / $supply) ** 0.4 * $priceModifier)),
+            2
+        );
     }
 
     private function lock(): string
@@ -908,8 +1019,15 @@ final class OnDemandEconomy
         return $this->mysql ? ' FOR UPDATE' : '';
     }
 
-    private function query(string $sql, array $params = []): PDOStatement
+    private function query(string $sql, array $params = [], bool $current = true): PDOStatement
     {
+        // Savepoints cannot change an outer REPEATABLE READ snapshot. Ledger
+        // reads after participant locks must therefore be current reads too.
+        if ($current && $this->mysql && $this->db->inTransaction()
+            && str_starts_with($sql, 'SELECT ') && !str_contains($sql, 'information_schema.')
+            && !str_ends_with($sql, ' FOR UPDATE')) {
+            $sql .= ' FOR UPDATE';
+        }
         $statement = $this->db->prepare($sql);
         $statement->execute($params);
         return $statement;

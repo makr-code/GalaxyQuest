@@ -6,14 +6,12 @@
  * POST /api/buildings.php?action=finish   body: {colony_id}
  */
 use GalaxyQuest\Economy\OnDemandEconomy;
-use GalaxyQuest\Economy\ResourceLedger;
 use GalaxyQuest\Terrain\BodyDevelopment;
 
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/cache.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/achievements.php';
-require_once __DIR__ . '/../src/Economy/ResourceLedger.php';
 require_once __DIR__ . '/../lib/BodyDevelopment.php';
 
 if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
@@ -26,12 +24,6 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             $cid = (int)($_GET['colony_id'] ?? 0);
             $db  = get_db();
             verify_colony_ownership($db, $cid, $uid);
-            $cacheKeyParams = ['uid' => $uid, 'cid' => $cid];
-            $cached = ON_DEMAND_ECONOMY_ENABLED || BodyDevelopment::enabled()
-                ? null : gq_cache_get('buildings_list', $cacheKeyParams);
-            if (is_array($cached) && isset($cached['buildings'])) {
-                json_ok($cached);
-            }
             ensure_building_upgrade_queue_table($db);
             update_colony_resources($db, $cid);
 
@@ -132,9 +124,6 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
                 'orbital_facilities' => summarize_orbital_facilities($buildings, $ships),
                 'upgrade_queue' => $queueRows,
             ];
-            if (!BodyDevelopment::enabled()) {
-                gq_cache_set('buildings_list', $cacheKeyParams, $payload, CACHE_TTL_DEFAULT);
-            }
             json_ok($payload);
             break;
 
@@ -145,159 +134,11 @@ if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
             $cid  = (int)($body['colony_id'] ?? 0);
             $type = (string)($body['type'] ?? '');
             $db   = get_db();
-            if (ON_DEMAND_ECONOMY_ENABLED) {
-                try {
-                    $queued = (new OnDemandEconomy($db))->queue($cid, $uid, $type);
-                    gq_cache_delete('buildings_list', ['uid' => $uid, 'cid' => $cid]);
-                    gq_cache_delete('game_overview', ['uid' => $uid]);
-                    gq_cache_delete('game_resources', ['uid' => $uid, 'cid' => $cid]);
-                    json_ok($queued);
-                } catch (DomainException $error) {
-                    json_error($error->getMessage(), $error->getCode() ?: 400);
-                }
-            }
-            verify_colony_ownership($db, $cid, $uid);
-            ensure_building_upgrade_queue_table($db);
-            complete_upgrades($db, $cid);
-            update_colony_resources($db, $cid);
-
-            $bRow = $db->prepare('SELECT level FROM buildings WHERE colony_id = ? AND type = ?');
-            $bRow->execute([$cid, $type]);
-            $building = $bRow->fetch();
-            if (!$building) {
-                json_error('Building not found.');
-            }
-
-            $pendingCountStmt = $db->prepare(
-                'SELECT COUNT(*) FROM building_upgrade_queue
-                 WHERE colony_id = ? AND building_type = ? AND status IN (\'queued\', \'running\')'
-            );
-            $pendingCountStmt->execute([$cid, $type]);
-            $pendingCount = (int)$pendingCountStmt->fetchColumn();
-
-            $nextLevel = (int)$building['level'] + $pendingCount + 1;
-            $cost      = building_cost($type, $nextLevel);
-
-            // Terraformer requires terraforming_tech level >= 1
-            if ($type === 'terraformer') {
-                $tStmt = $db->prepare('SELECT level FROM research WHERE user_id = ? AND type = "terraforming_tech" LIMIT 1');
-                $tStmt->execute([$uid]);
-                $terraformLevel = (int)($tStmt->fetchColumn() ?: 0);
-                if ($terraformLevel < 1) {
-                    json_error('Terraformer requires Terraforming Tech Lv1.');
-                }
-            }
-
-            // Nano Materials reduces building material costs by 15%
-            $nanoStmt = $db->prepare('SELECT level FROM research WHERE user_id = ? AND type = "nano_materials" LIMIT 1');
-            $nanoStmt->execute([$uid]);
-            $nanoLevel = (int)($nanoStmt->fetchColumn() ?: 0);
-            if ($nanoLevel >= 1) {
-                $cost['metal'] = (int)round($cost['metal'] * 0.85);
-                $cost['crystal'] = (int)round($cost['crystal'] * 0.85);
-                $cost['deuterium'] = (int)round($cost['deuterium'] * 0.85);
-            }
-
-            $colony = $db->prepare('SELECT metal, crystal, deuterium FROM colonies WHERE id = ?');
-            $colony->execute([$cid]);
-            $res = $colony->fetch();
-
-            if ($res['metal'] < $cost['metal']
-                || $res['crystal'] < $cost['crystal']
-                || $res['deuterium'] < $cost['deuterium']) {
-                json_error('Insufficient resources.');
-            }
-
-            $rLevel = (int)(get_building_level($db, $cid, 'robotics_factory') ?? 0);
-            $nLevel = (int)(get_building_level($db, $cid, 'nanite_factory') ?? 0);
-            $secs   = building_build_time($cost, $rLevel, $nLevel);
-
-            $manager = get_colony_leader($db, $cid, 'colony_manager');
-            if ($manager) {
-                $secs = leader_build_time($secs, (int)$manager['skill_construction']);
-            }
-            
-            // Apply colony-type building time bonus (industrial colony −10%)
-            $colonyStmt = $db->prepare('SELECT colony_type FROM colonies WHERE id = ?');
-            $colonyStmt->execute([$cid]);
-            $colonyRow = $colonyStmt->fetch();
-            if ($colonyRow && $colonyRow['colony_type'] === 'industrial') {
-                $secs = max(1, (int)round($secs * 0.9));
-            }
-
             try {
-                $queued = (new ResourceLedger($db))->spend(
-                    $cid,
-                    $uid,
-                    $cost,
-                    function () use ($db, $cid, $type, $nextLevel, $cost, $secs): array {
-                        $currentLevel = $db->prepare(
-                            'SELECT level FROM buildings WHERE colony_id = ? AND type = ?'
-                        );
-                        $currentLevel->execute([$cid, $type]);
-                        $level = $currentLevel->fetchColumn();
-                        $pending = $db->prepare(
-                            'SELECT COUNT(*) FROM building_upgrade_queue
-                             WHERE colony_id = ? AND building_type = ? AND status IN (\'queued\', \'running\')'
-                        );
-                        $pending->execute([$cid, $type]);
-                        if ($level === false || (int)$level + (int)$pending->fetchColumn() + 1 !== $nextLevel) {
-                            throw new DomainException('Building upgrade state changed. Refresh and retry.', 409);
-                        }
-
-                        $db->prepare(
-                            'INSERT INTO building_upgrade_queue
-                             (colony_id, building_type, target_level, cost_metal, cost_crystal, cost_deuterium,
-                              duration_secs, queued_at, status)
-                             VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), \'queued\')'
-                        )->execute([
-                            $cid,
-                            $type,
-                            $nextLevel,
-                            (int)$cost['metal'],
-                            (int)$cost['crystal'],
-                            (int)$cost['deuterium'],
-                            $secs,
-                        ]);
-                        $queueId = (int)$db->lastInsertId();
-
-                        start_next_building_upgrade($db, $cid);
-
-                        $activeStmt = $db->prepare(
-                            'SELECT building_type, eta FROM building_upgrade_queue
-                             WHERE colony_id = ? AND status = \'running\'
-                             ORDER BY id ASC LIMIT 1'
-                        );
-                        $activeStmt->execute([$cid]);
-                        $active = $activeStmt->fetch() ?: null;
-
-                        $positionStmt = $db->prepare(
-                            'SELECT COUNT(*) FROM building_upgrade_queue
-                             WHERE colony_id = ? AND status IN (\'queued\', \'running\') AND id <= ?'
-                        );
-                        $positionStmt->execute([$cid, $queueId]);
-                        $queuePosition = (int)$positionStmt->fetchColumn();
-
-                        $db->prepare(
-                            'UPDATE buildings SET upgrade_end=? WHERE colony_id=? AND type=?'
-                        )->execute([$active['eta'] ?? null, $cid, $active['building_type'] ?? $type]);
-
-                        return [
-                            'queued' => true,
-                            'queue_id' => $queueId,
-                            'queue_position' => $queuePosition,
-                            'type' => $type,
-                            'target_level' => $nextLevel,
-                            'duration_secs' => $secs,
-                            'upgrade_end' => $active['eta'] ?? null,
-                            'active_type' => $active['building_type'] ?? null,
-                        ];
-                    }
-                );
+                $queued = (new OnDemandEconomy($db))->queue($cid, $uid, $type);
             } catch (DomainException $error) {
                 json_error($error->getMessage(), $error->getCode() ?: 400);
             }
-
             gq_cache_delete('buildings_list', ['uid' => $uid, 'cid' => $cid]);
             gq_cache_delete('game_overview', ['uid' => $uid]);
             gq_cache_delete('game_resources', ['uid' => $uid, 'cid' => $cid]);
@@ -346,99 +187,8 @@ function ensure_building_upgrade_queue_table(PDO $db): void
     \GalaxyQuest\Schema\GalaxySchema::assertBuildingQueue($db);
 }
 
-function start_next_building_upgrade(PDO $db, int $colonyId): ?array {
-    $busyStmt = $db->prepare(
-        'SELECT id FROM buildings WHERE colony_id = ? AND upgrade_end IS NOT NULL LIMIT 1'
-    );
-    $busyStmt->execute([$colonyId]);
-    if ($busyStmt->fetch()) {
-        return null;
-    }
-
-    $nextStmt = $db->prepare(
-        'SELECT id, building_type, duration_secs
-         FROM building_upgrade_queue
-         WHERE colony_id = ? AND status = \'queued\'
-         ORDER BY id ASC LIMIT 1'
-    );
-    $nextStmt->execute([$colonyId]);
-    $next = $nextStmt->fetch();
-    if (!$next) {
-        return null;
-    }
-
-    $buildingExistsStmt = $db->prepare(
-        'SELECT id FROM buildings WHERE colony_id = ? AND type = ? LIMIT 1'
-    );
-    $buildingExistsStmt->execute([$colonyId, $next['building_type']]);
-    if (!$buildingExistsStmt->fetch()) {
-        $db->prepare('UPDATE building_upgrade_queue SET status=\'cancelled\' WHERE id=?')
-            ->execute([(int)$next['id']]);
-        return start_next_building_upgrade($db, $colonyId);
-    }
-
-    $etaTs = time() + max(1, (int)$next['duration_secs']);
-    $eta = date('Y-m-d H:i:s', $etaTs);
-
-    $db->prepare(
-        'UPDATE building_upgrade_queue
-         SET status=\'running\', started_at=NOW(), eta=?
-         WHERE id=?'
-    )->execute([$eta, (int)$next['id']]);
-
-    $db->prepare(
-        'UPDATE buildings SET upgrade_end=? WHERE colony_id=? AND type=?'
-    )->execute([$eta, $colonyId, $next['building_type']]);
-
-    return [
-        'queue_id' => (int)$next['id'],
-        'building_type' => (string)$next['building_type'],
-        'eta' => $eta,
-        'duration_secs' => (int)$next['duration_secs'],
-    ];
-}
-
 function complete_upgrades(PDO $db, int $colonyId): void {
-    if (ON_DEMAND_ECONOMY_ENABLED) {
-        (new OnDemandEconomy($db))->settle($colonyId);
-        return;
-    }
-    ensure_building_upgrade_queue_table($db);
-
-    $due = $db->prepare(
-        'SELECT type, level FROM buildings
-         WHERE colony_id = ? AND upgrade_end IS NOT NULL AND upgrade_end <= NOW()'
-    );
-    $due->execute([$colonyId]);
-
-    $completedTypes = [];
-
-    foreach ($due->fetchAll() as $row) {
-        $db->prepare(
-            'UPDATE buildings SET level=level+1, upgrade_end=NULL WHERE colony_id=? AND type=?'
-        )->execute([$colonyId, $row['type']]);
-        $completedTypes[] = (string)$row['type'];
-    }
-
-    if (!empty($completedTypes)) {
-        foreach ($completedTypes as $completedType) {
-            $db->prepare(
-                'UPDATE building_upgrade_queue
-                 SET status=\'done\'
-                 WHERE colony_id=? AND building_type=? AND status=\'running\'
-                 ORDER BY id ASC LIMIT 1'
-            )->execute([$colonyId, $completedType]);
-        }
-    }
-
-    start_next_building_upgrade($db, $colonyId);
-
-    $owner = $db->prepare('SELECT user_id FROM colonies WHERE id = ?');
-    $owner->execute([$colonyId]);
-    $uid = $owner->fetchColumn();
-    if ($uid) {
-        check_and_update_achievements($db, (int)$uid);
-    }
+    (new OnDemandEconomy($db))->settle($colonyId);
 }
 
 function fmt_name(string $type): string {

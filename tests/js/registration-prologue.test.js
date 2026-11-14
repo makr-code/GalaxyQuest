@@ -2,15 +2,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import content from '../../config/onboarding_prologue.json';
+import cometNarration from '../../config/onboarding_narration.json';
 import { initializeRegistrationPrologue } from '../../js/network/registration-prologue.js';
+import { animate } from 'motion/mini';
+
+vi.mock('motion/mini', () => ({
+  animate: vi.fn(() => ({
+    then: (resolve) => Promise.resolve().then(resolve),
+    stop: vi.fn(), complete: vi.fn(), pause: vi.fn(), play: vi.fn(),
+  })),
+}));
 
 const html = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf8');
 const target = { galaxy_index: 1, system_index: 2, position: 3, x_ly: 40, y_ly: 60, z_ly: 0 };
 const species = ['aereth', 'vor_tak', 'syl_nar', 'vel_ar', 'kryl_tha', 'zhareen']
-  .map((code) => ({ code, name: code, description: `${code} habitat`, homeworld: `${code} home` }));
+  .map((code) => ({ code, name: code, description: `${code} habitat`, homeworld: `${code} home`,
+    target, stars: [target], homeworld_scene: { scene_key: `homeworld:${code}`, target,
+      position: { galaxy: 1, system: 2, position: 3 }, system_name: `${code} home system`,
+      star: { temperature_k: 5500, radius_solar: 1 },
+      planets: [{ position: 3, name: `${code} home`, diameter_km: 12000, semi_major_axis_au: 1, inhabited: true }],
+    } }));
+const npcHomeworlds = content.npc_tour.map((entry, index) => ({
+  ...entry, target, stars: [target], homeworld_scene: { ...species[index].homeworld_scene,
+    scene_key: `homeworld:${entry.code}` },
+}));
 const catalog = {
   factions: content.factions.map((entry) => ({ ...entry, homeworld: 'Capital', target, stars: [target] })),
-  species,
+  species, npc_homeworlds: npcHomeworlds,
 };
 const mentorDrafts = species.map((entry, index) => {
   const mentorTarget = { ...target, system_index: index + 10, position: index + 1, x_ly: target.x_ly + index * 10 };
@@ -32,10 +50,18 @@ let prologue;
 let request;
 let preview;
 let onEnterDraft;
+let onClose;
+let camera;
 
 async function endClip() {
   await vi.waitFor(() => expect(audio.onended).toBeTypeOf('function'));
   audio.onended();
+}
+
+async function finishTimedTransit(code) {
+  const stop = cometNarration.stops.find((entry) => entry.code === code);
+  const duration = stop.transit.reduce((total, cue) => total + cue.duration_ms, 2500);
+  await vi.advanceTimersByTimeAsync(duration);
 }
 
 async function reachMentorRoom() {
@@ -74,8 +100,10 @@ describe('Cinematic draft registration', () => {
       if (parsedUrl.pathname.endsWith('/auth.php')) {
         return { ok: true, json: async () => ({ token: 'registration-test-csrf' }) };
       }
-      const clipId = parsedUrl.searchParams.get('clip')
-        || JSON.parse(options.body || '{}').clip;
+      const requestBody = JSON.parse(options.body || '{}');
+      const clipId = parsedUrl.searchParams.get('clip') || requestBody.clip;
+      const voice = requestBody.voice || 'de_DE-kerstin-low';
+      const language = cometNarration.voices[voice];
       const staticClip = [...content.teaser, ...(content.registration_steps || [])].find((entry) => entry.id === clipId)
         || content.factions.find((entry) => entry.code === clipId);
       const mentorCode = clipId?.match(/^mentor-(.+)$/)?.[1];
@@ -84,8 +112,10 @@ describe('Cinematic draft registration', () => {
       const mentorPlanet = mentorDraft?.planets.find((entry) => entry.position === mentorDraft.target.position);
       const text = staticClip?.text || (mentorSpecies && mentorDraft
         ? `Ich bin der Herold der ${mentorSpecies.name}. ${mentorSpecies.description}\n\nMein System heißt ${mentorDraft.system_name}. Die mögliche Heimatwelt ist ${mentorPlanet?.name || mentorDraft.colony_name}.`
-        : '');
-      return { ok: true, json: async () => ({ success: true, text, audio_url: `generated/tts/${'b'.repeat(64)}.mp3` }) };
+        : cometNarration.clips[clipId]?.[language] || '');
+      return { ok: true, json: async () => ({
+        success: true, text, voice, audio_url: `generated/tts/${'b'.repeat(64)}.mp3`,
+      }) };
     }));
     request = vi.fn(async (action, input) => {
       if (action === 'register_catalog') return catalog;
@@ -101,12 +131,15 @@ describe('Cinematic draft registration', () => {
     });
     preview = vi.fn();
     onEnterDraft = vi.fn(async () => {});
-    prologue = initializeRegistrationPrologue({ request, onPreview: preview, onEnterDraft });
+    onClose = vi.fn();
+    camera = { play: vi.fn(() => true), pause: vi.fn(), finish: vi.fn(), cancel: vi.fn() };
+    prologue = initializeRegistrationPrologue({ request, onPreview: preview, onCamera: camera, onEnterDraft, onClose });
   });
 
   afterEach(() => {
     prologue.close();
     delete window.__GQ_AUDIO_MANAGER;
+    delete window.GQTTS;
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -132,15 +165,676 @@ describe('Cinematic draft registration', () => {
     prologue.close();
     expect(releases[1]).toHaveBeenCalledOnce();
   });
+  it('clears the loading status and startup watchdog when speech resolves while paused', async () => {
+    vi.useFakeTimers();
+    let resolveNarration;
+    fetch.mockImplementation(async (url, options = {}) => {
+      if (new URL(url, 'http://localhost').pathname.endsWith('/auth.php')) {
+        return { ok: true, json: async () => ({ token: 'registration-test-csrf' }) };
+      }
+      const { clip, voice } = JSON.parse(options.body);
+      const selectedVoice = voice || 'de_DE-kerstin-low';
+      return new Promise((resolve) => {
+        resolveNarration = () => resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            text: cometNarration.clips[clip][cometNarration.voices[selectedVoice]],
+            voice: selectedVoice,
+            audio_url: `generated/tts/${'b'.repeat(64)}.mp3`,
+          }),
+        });
+      });
+    });
+
+    prologue.open({ opening: true, campaign: true });
+    await vi.waitFor(() => expect(resolveNarration).toBeTypeOf('function'));
+    el('opening-pause').click();
+    resolveNarration();
+    await vi.waitFor(() => expect(el('narration-status').textContent).toBe(''));
+    await vi.advanceTimersByTimeAsync(10000);
+
+    expect(el('narration-status').textContent).toBe('');
+    expect(el('narration-retry').hidden).toBe(true);
+  });
+  it('shows the opening before starting the arrival and allows manual slide navigation', () => {
+    const transition = vi.fn(() => new Promise(() => {}));
+    prologue.open({ opening: true, transition });
+    expect(el('title').textContent).toBe(content.opening[0].title);
+    expect(preview).toHaveBeenLastCalledWith({ stage: 'opening', beat: content.opening[0].id });
+    expect(transition).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+    el('continue').click();
+    expect(el('title').textContent).toBe('GalaxyQuest');
+    el('back').click();
+    expect(el('title').textContent).toBe(content.opening[0].title);
+    for (const slide of content.opening) {
+      expect(el('title').textContent).toBe(slide.title);
+      el('continue').click();
+    }
+    expect(transition).toHaveBeenCalledOnce();
+    expect(el('title').textContent).toBe('Deine Reise beginnt');
+    expect(el('opening-pause').hidden).toBe(true);
+    expect(el('progress').hidden).toBe(false);
+  });
+
+  it('tours real homelands before identity, departs by shuttle and requires confirmation before landing and handoff', async () => {
+    vi.useFakeTimers();
+    window.GQTTS = { isAutoVoiceEnabled: () => false };
+    let arrive;
+    let land;
+    camera.play.mockImplementation((shot) => {
+      if (shot.kind === 'journey') return new Promise((resolve) => { arrive = resolve; });
+      if (shot.kind === 'landing') return new Promise((resolve) => { land = resolve; });
+      return true;
+    });
+    prologue.open({ opening: true, campaign: true });
+    expect(camera.play).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'comet' }));
+    el('opening-skip').click();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.waitFor(() => expect(el('title').textContent).toBe(species[0].homeworld));
+    expect(request).toHaveBeenCalledExactlyOnceWith('register_catalog');
+    const destinations = [...species, ...npcHomeworlds];
+    for (const destination of destinations) {
+      await vi.waitFor(() => expect(el('title').textContent).toBe(destination.homeworld));
+      expect(preview).toHaveBeenLastCalledWith(expect.objectContaining({ draft: destination.homeworld_scene }));
+      await finishTimedTransit(destination.code);
+      expect(el('prologue').dataset.beat).toBe(`homeworld-${destination.code}-1`);
+      el('continue').click();
+      el('continue').click();
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    await vi.waitFor(() => expect(el('choices').querySelectorAll('button')).toHaveLength(6));
+    expect(el('choices').querySelector('[data-choice="iron_fleet"]')).toBeNull();
+    el('choices').querySelector('[data-choice="vor_tak"]').click();
+    el('continue').click();
+    await vi.waitFor(() => expect(el('character').hidden).toBe(false));
+    expect(camera.play.mock.calls.some(([shot]) => shot.kind === 'journey')).toBe(false);
+    el('name').value = 'New Commander';
+    el('background').value = 'Explorer';
+    el('character-form').dispatchEvent(new Event('submit', { cancelable: true }));
+    await vi.waitFor(() => expect(el('continue').hidden).toBe(false));
+    el('continue').click();
+    expect(camera.play).toHaveBeenLastCalledWith(expect.objectContaining({
+      kind: 'journey', origin: species[1].homeworld_scene,
+    }));
+    expect(onEnterDraft).not.toHaveBeenCalled();
+    arrive(true);
+    await vi.waitFor(() => expect(el('continue').textContent).toBe('Bestätigen und landen'));
+    expect(camera.play.mock.calls.some(([shot]) => shot.kind === 'landing')).toBe(false);
+    el('continue').click();
+    expect(camera.play).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'landing' }));
+    expect(onEnterDraft).not.toHaveBeenCalled();
+    land(true);
+    await vi.waitFor(() => expect(onEnterDraft).toHaveBeenCalledOnce());
+    expect(prologue.isActive()).toBe(false);
+  });
+
+  it('keeps the comet flight running through transit text until the homeworld is reached', async () => {
+    vi.useFakeTimers();
+    window.GQTTS = { isAutoVoiceEnabled: () => false };
+    let arrive;
+    camera.play.mockImplementation((shot) => shot.kind === 'comet-world'
+      ? new Promise((resolve) => { arrive = resolve; }) : true);
+    prologue.open({ opening: true, campaign: true });
+    el('opening-skip').click();
+    await vi.waitFor(() => expect(camera.play).toHaveBeenLastCalledWith(expect.objectContaining({
+      kind: 'comet-world', duration_ms: 45000,
+    })));
+    expect(el('title').textContent).toBe(species[0].homeworld);
+    const calls = camera.play.mock.calls.length;
+    const cancellations = camera.cancel.mock.calls.length;
+    el('continue').click();
+    el('continue').click();
+    el('continue').click();
+    el('continue').click();
+    expect(el('title').textContent).toContain(species[0].homeworld);
+    expect(el('prologue').dataset.beat).toBe('homeworld-transit-aereth-4');
+    expect(el('continue').hidden).toBe(true);
+    expect(camera.play).toHaveBeenCalledTimes(calls);
+    expect(camera.cancel).toHaveBeenCalledTimes(cancellations);
+    el('opening-pause').click();
+    expect(camera.pause).toHaveBeenLastCalledWith(true);
+    el('opening-pause').click();
+    expect(camera.pause).toHaveBeenLastCalledWith(false);
+    arrive(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el('prologue').dataset.beat).toBe('homeworld-transit-aereth-4');
+    await vi.advanceTimersByTimeAsync(20000);
+    expect(el('prologue').dataset.beat).toBe('homeworld-aereth-1');
+    expect(camera.cancel).toHaveBeenCalledTimes(cancellations);
+    el('continue').click();
+    el('continue').click();
+    expect(camera.play).toHaveBeenCalledTimes(calls + 1);
+    expect(camera.play).toHaveBeenLastCalledWith(expect.objectContaining({
+      kind: 'comet-world', destination: species[1].homeworld_scene, duration_ms: 45000,
+    }));
+  });
+
+  it('requires explicit continuation if a homeworld flight fails', async () => {
+    camera.play.mockImplementation((shot) => shot.kind === 'comet-world' ? false : true);
+    prologue.open({ opening: true, campaign: true });
+    el('opening-skip').click();
+    await vi.waitFor(() => expect(el('title').textContent).toBe(species[0].homeworld));
+    expect(el('flight-status').textContent).toContain('nicht verfügbar');
+    expect(el('continue').hidden).toBe(false);
+  });
+
+  it('reports an unavailable NPC destination instead of inventing a scene', async () => {
+    vi.useFakeTimers();
+    window.GQTTS = { isAutoVoiceEnabled: () => false };
+    const unavailable = { ...catalog, npc_homeworlds: [
+      { ...npcHomeworlds[0], homeworld_scene: null }, ...npcHomeworlds.slice(1),
+    ] };
+    request.mockImplementation(async (action) => action === 'register_catalog' ? unavailable : { drafts: mentorDrafts });
+    prologue.open({ opening: true, campaign: true });
+    el('opening-skip').click();
+    await vi.advanceTimersByTimeAsync(0);
+    for (const entry of species) {
+      await vi.waitFor(() => expect(el('title').textContent).toBe(entry.homeworld));
+      await finishTimedTransit(entry.code);
+      el('continue').click();
+      el('continue').click();
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    expect(el('title').textContent).toBe('Erde');
+    expect(el('flight-status').textContent).toContain('nicht verfügbar');
+    expect(el('continue').hidden).toBe(false);
+    el('continue').click();
+    await vi.waitFor(() => expect(el('title').textContent).toBe('Helion Prime'));
+  });
+
+  it('uses the selected English male profile for the opening narration and matching caption', async () => {
+    window.GQTTS = {
+      getVoice: () => 'en_US-ryan-high',
+      isAutoVoiceEnabled: () => true,
+    };
+    prologue.open({ opening: true, campaign: true });
+    expect(el('title').textContent).toBe(cometNarration.opening[0].title.en);
+    expect(el('chapter').textContent).toBe(cometNarration.opening[0].label.en);
+    expect(el('story').textContent).toBe(cometNarration.clips['comet-opening-o1'].en);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      'api/registration_narration.php',
+      expect.objectContaining({ body: JSON.stringify({ clip: 'comet-opening-o1', voice: 'en_US-ryan-high' }) }),
+    ));
+    await vi.waitFor(() => expect(audio.onended).toBeTypeOf('function'));
+    expect(JSON.parse(fetch.mock.calls.find(([url]) => url === 'api/registration_narration.php')[1].body).voice)
+      .toBe('en_US-ryan-high');
+  });
+
+  it('keeps icon controls labelled and advances the slideshow progress with its cues', async () => {
+    vi.useFakeTimers();
+    window.GQTTS = { isAutoVoiceEnabled: () => false };
+    prologue.open({ opening: true, campaign: true });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const progress = el('progress');
+    const totalCues = cometNarration.opening.reduce((total, slide) => total + slide.cues.length, 0)
+      + cometNarration.stops.reduce((total, stop) => total + stop.transit.length + stop.arrival.length, 0);
+    expect(progress.hidden).toBe(false);
+    expect(progress.max).toBe(totalCues + 5);
+    expect(progress.value).toBe(1);
+    expect(el('title').classList.contains('sr-only')).toBe(true);
+    expect(el('story').compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const id of ['back', 'opening-pause', 'opening-skip', 'continue']) {
+      expect(el(id).querySelector('svg')).not.toBeNull();
+      expect(el(id).getAttribute('aria-label')).toBeTruthy();
+    }
+
+    el('continue').click();
+    expect(progress.value).toBe(2);
+    expect(el('continue').querySelector('svg')).not.toBeNull();
+    el('opening-pause').click();
+    expect(el('opening-pause').getAttribute('aria-label')).toBe('Fortsetzen');
+    el('opening-pause').click();
+    expect(el('opening-pause').getAttribute('aria-label')).toBe('Pause');
+
+    el('opening-skip').click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(progress.value).toBe(cometNarration.opening.reduce((total, slide) => total + slide.cues.length, 0) + 1);
+    el('opening-skip').click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(progress.value).toBe(totalCues + 1);
+    expect(el('choices').querySelectorAll('button')).toHaveLength(6);
+    expect(el('choices').compareDocumentPosition(el('story')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    el('choices').querySelector('[data-choice="aereth"]').click();
+    expect(el('continue').getAttribute('aria-label')).toBe('Herkunft bestätigen und Namen wählen');
+    expect(el('continue').querySelector('svg')).not.toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps bilingual timed captions within the documented reading budget', () => {
+    const cues = [
+      ...cometNarration.opening.flatMap((slide) => slide.cues),
+      ...cometNarration.stops.flatMap((stop) => [...stop.transit, ...stop.arrival]),
+    ];
+    for (const cue of cues) {
+      for (const language of ['de', 'en']) {
+        const text = cometNarration.clips[cue.id]?.[language];
+        expect(text, `${cue.id} (${language})`).toBeTruthy();
+        expect([...text].length / (cue.duration_ms / 1000), `${cue.id} (${language})`).toBeLessThanOrEqual(18);
+      }
+    }
+    for (const [key, text] of Object.entries(cometNarration.moments)) {
+      expect(cometNarration.clips[`comet-moment-${key}`], key).toEqual(text);
+    }
+  });
+
+  it('lets a spoken cue finish after its display time and holds the transition while paused', async () => {
+    vi.useFakeTimers();
+    prologue.open({ opening: true, campaign: true });
+    await vi.advanceTimersByTimeAsync(0);
+    const first = cometNarration.clips['comet-opening-o1'].de;
+    const second = cometNarration.clips['comet-opening-o2'].de;
+    expect(el('story').textContent).toBe(first);
+    expect(audio.onended).toBeTypeOf('function');
+
+    await vi.advanceTimersByTimeAsync(cometNarration.opening[0].cues[0].duration_ms);
+    expect(el('story').textContent).toBe(first);
+    el('opening-pause').click();
+    audio.onended();
+    expect(el('story').textContent).toBe(first);
+    el('opening-pause').click();
+    expect(el('story').textContent).toBe(second);
+  });
+
+  it('prepares one following cue during playback and reuses an unfinished preparation', async () => {
+    vi.useFakeTimers();
+    const respond = fetch.getMockImplementation();
+    let release;
+    let signal;
+    fetch.mockImplementation((url, options = {}) => {
+      if (url.includes('registration_narration.php') && JSON.parse(options.body).clip === 'comet-opening-o2') {
+        signal = options.signal;
+        return new Promise((resolve) => { release = () => resolve(respond(url, options)); });
+      }
+      return respond(url, options);
+    });
+    const requestedClips = () => fetch.mock.calls
+      .filter(([url]) => url.includes('registration_narration.php'))
+      .map(([, options]) => JSON.parse(options.body).clip);
+
+    prologue.open({ opening: true, campaign: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(requestedClips()).toEqual(['comet-opening-o1', 'comet-opening-o2']);
+    expect(release).toBeTypeOf('function');
+    await vi.advanceTimersByTimeAsync(cometNarration.opening[0].cues[0].duration_ms);
+    audio.onended();
+    expect(el('story').textContent).toBe(cometNarration.clips['comet-opening-o2'].de);
+    expect(signal.aborted).toBe(false);
+    expect(audio.play).toHaveBeenCalledOnce();
+    expect(requestedClips()).toEqual(['comet-opening-o1', 'comet-opening-o2']);
+
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(audio.play).toHaveBeenCalledTimes(2);
+    expect(requestedClips()).toEqual(['comet-opening-o1', 'comet-opening-o2', 'comet-opening-o3']);
+  });
+
+  it('cancels a prepared cue when the voice changes and ignores its late response', async () => {
+    vi.useFakeTimers();
+    const respond = fetch.getMockImplementation();
+    let release;
+    let oldSignal;
+    let voice = 'de_DE-kerstin-low';
+    window.GQTTS = { getVoice: () => voice, isAutoVoiceEnabled: () => true };
+    fetch.mockImplementation((url, options = {}) => {
+      if (url.includes('registration_narration.php')) {
+        const body = JSON.parse(options.body);
+        if (body.clip === 'comet-opening-o2' && body.voice === 'de_DE-kerstin-low') {
+          oldSignal = options.signal;
+          return new Promise((resolve) => { release = () => resolve(respond(url, options)); });
+        }
+      }
+      return respond(url, options);
+    });
+
+    prologue.open({ opening: true, campaign: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(release).toBeTypeOf('function');
+    voice = 'en_US-ryan-high';
+    el('continue').click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(oldSignal.aborted).toBe(true);
+    expect(el('story').textContent).toBe(cometNarration.clips['comet-opening-o2'].en);
+    expect(audio.play).toHaveBeenCalledTimes(2);
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(audio.play).toHaveBeenCalledTimes(2);
+    expect(el('story').textContent).toBe(cometNarration.clips['comet-opening-o2'].en);
+  });
+
+  it('cancels preparation on mute and does not request the next muted cue', async () => {
+    vi.useFakeTimers();
+    const respond = fetch.getMockImplementation();
+    let preparedSignal;
+    let muted = false;
+    window.__GQ_AUDIO_MANAGER = { snapshot: () => ({ masterMuted: muted }) };
+    fetch.mockImplementation((url, options = {}) => {
+      if (url.includes('registration_narration.php') && JSON.parse(options.body).clip === 'comet-opening-o2') {
+        preparedSignal = options.signal;
+        return new Promise(() => {});
+      }
+      return respond(url, options);
+    });
+
+    prologue.open({ opening: true, campaign: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(preparedSignal.aborted).toBe(false);
+    muted = true;
+    window.dispatchEvent(new CustomEvent('gq:audio-state'));
+    expect(preparedSignal.aborted).toBe(true);
+    el('continue').click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(audio.play).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls.filter(([url]) => url.includes('registration_narration.php'))).toHaveLength(2);
+    expect(el('narration-status').textContent).toContain('stummgeschaltet');
+  });
+
+  it('reports a failed prepared cue and allows retrying it', async () => {
+    vi.useFakeTimers();
+    const respond = fetch.getMockImplementation();
+    let attempts = 0;
+    fetch.mockImplementation((url, options = {}) => {
+      if (url.includes('registration_narration.php') && JSON.parse(options.body).clip === 'comet-opening-o2'
+        && ++attempts === 1) return Promise.resolve({ ok: false, status: 503 });
+      return respond(url, options);
+    });
+
+    prologue.open({ opening: true, campaign: true });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(cometNarration.opening[0].cues[0].duration_ms);
+    audio.onended();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el('story').textContent).toBe(cometNarration.clips['comet-opening-o2'].de);
+    expect(el('narration-status').textContent).toContain('nicht verfügbar');
+    expect(el('narration-retry').hidden).toBe(false);
+    el('narration-retry').click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(attempts).toBe(2);
+    expect(audio.play).toHaveBeenCalledTimes(2);
+    expect(el('narration-status').textContent).toBe('');
+  });
+
+  it('waits for a slow narration request instead of skipping the spoken cue', async () => {
+    vi.useFakeTimers();
+    const respond = fetch.getMockImplementation();
+    let release;
+    fetch.mockImplementation((url, options = {}) => {
+      if (url.includes('registration_narration.php') && JSON.parse(options.body).clip === 'comet-opening-o1') {
+        return new Promise((resolve) => { release = () => resolve(respond(url, options)); });
+      }
+      return respond(url, options);
+    });
+
+    prologue.open({ opening: true, campaign: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(release).toBeTypeOf('function');
+    await vi.advanceTimersByTimeAsync(cometNarration.opening[0].cues[0].duration_ms + 2000);
+    expect(el('story').textContent).toBe(cometNarration.clips['comet-opening-o1'].de);
+    expect(el('narration-status').classList.contains('is-loading')).toBe(true);
+
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el('narration-status').classList.contains('is-loading')).toBe(false);
+    expect(audio.onended).toBeTypeOf('function');
+    audio.onended();
+    expect(el('story').textContent).toBe(cometNarration.clips['comet-opening-o2'].de);
+  });
+
+  it('ignores a delayed narration response after a manual skip', async () => {
+    vi.useFakeTimers();
+    const respond = fetch.getMockImplementation();
+    let release;
+    fetch.mockImplementation((url, options = {}) => {
+      if (url.includes('registration_narration.php') && JSON.parse(options.body).clip === 'comet-opening-o1') {
+        return new Promise((resolve) => { release = () => resolve(respond(url, options)); });
+      }
+      return respond(url, options);
+    });
+
+    prologue.open({ opening: true, campaign: true });
+    await vi.advanceTimersByTimeAsync(0);
+    el('continue').click();
+    await vi.advanceTimersByTimeAsync(0);
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el('story').textContent).toBe(cometNarration.clips['comet-opening-o2'].de);
+    expect(audio.play).toHaveBeenCalledOnce();
+  });
+
+  it('allows a manual cue skip while ignoring the previous speech completion', async () => {
+    vi.useFakeTimers();
+    prologue.open({ opening: true, campaign: true });
+    await vi.advanceTimersByTimeAsync(0);
+    const previousEnd = audio.onended;
+    expect(previousEnd).toBeTypeOf('function');
+    await vi.advanceTimersByTimeAsync(cometNarration.opening[0].cues[0].duration_ms);
+    el('continue').click();
+    expect(el('story').textContent).toBe(cometNarration.clips['comet-opening-o2'].de);
+    previousEnd();
+    expect(el('story').textContent).toBe(cometNarration.clips['comet-opening-o2'].de);
+  });
+
+  it('waits for shuttle and landing narration after the camera arrives', async () => {
+    vi.useFakeTimers();
+    let arrive;
+    let land;
+    camera.play.mockImplementation((shot) => {
+      if (shot.kind === 'journey') return new Promise((resolve) => { arrive = resolve; });
+      if (shot.kind === 'landing') return new Promise((resolve) => { land = resolve; });
+      return true;
+    });
+    prologue.open({ opening: true, campaign: true });
+    el('opening-skip').click();
+    await vi.advanceTimersByTimeAsync(0);
+    el('opening-skip').click();
+    await vi.advanceTimersByTimeAsync(0);
+    el('choices').querySelector('[data-choice="vor_tak"]').click();
+    el('continue').click();
+    await vi.advanceTimersByTimeAsync(0);
+    el('name').value = 'New Commander';
+    el('background').value = 'Explorer';
+    el('character-form').dispatchEvent(new Event('submit', { cancelable: true }));
+    await vi.advanceTimersByTimeAsync(0);
+    el('continue').click();
+    await vi.advanceTimersByTimeAsync(0);
+
+    arrive(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el('prologue').dataset.phase).toBe('journey');
+    audio.onended();
+    expect(el('prologue').dataset.phase).toBe('surface');
+    expect(onEnterDraft).not.toHaveBeenCalled();
+
+    el('continue').click();
+    await vi.advanceTimersByTimeAsync(0);
+    land(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el('prologue').dataset.phase).toBe('landing');
+    expect(onEnterDraft).not.toHaveBeenCalled();
+    audio.onended();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onEnterDraft).toHaveBeenCalledOnce();
+  });
+
+  it('finishes every transit cue after camera arrival without interrupting speech', async () => {
+    vi.useFakeTimers();
+    let arrive;
+    camera.play.mockImplementation((shot) => shot.kind === 'comet-world'
+      ? new Promise((resolve) => { arrive = resolve; }) : true);
+    prologue.open({ opening: true, campaign: true });
+    el('opening-skip').click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el('prologue').dataset.beat).toBe('homeworld-transit-aereth-1');
+    expect(audio.onended).toBeTypeOf('function');
+    await vi.advanceTimersByTimeAsync(cometNarration.stops[0].transit[0].duration_ms);
+    arrive(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el('prologue').dataset.beat).toBe('homeworld-transit-aereth-1');
+    audio.onended();
+    for (let i = 1; i < cometNarration.stops[0].transit.length; i++) {
+      expect(el('prologue').dataset.beat).toBe(`homeworld-transit-aereth-${i + 1}`);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(cometNarration.stops[0].transit[i].duration_ms);
+      expect(audio.onended).toBeTypeOf('function');
+      audio.onended();
+      if (i === 2) await vi.advanceTimersByTimeAsync(2500);
+    }
+    expect(el('prologue').dataset.beat).toBe('homeworld-aereth-1');
+  });
+
+  it('continues a waiting cue if speech playback fails', async () => {
+    vi.useFakeTimers();
+    prologue.open({ opening: true, campaign: true });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(cometNarration.opening[0].cues[0].duration_ms);
+    expect(audio.onerror).toBeTypeOf('function');
+    audio.onerror();
+    expect(el('story').textContent).toBe(cometNarration.clips['comet-opening-o2'].de);
+  });
+
+  it('continues a waiting cue if resuming paused speech fails', async () => {
+    vi.useFakeTimers();
+    prologue.open({ opening: true, campaign: true });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(cometNarration.opening[0].cues[0].duration_ms);
+    el('opening-pause').click();
+    audio.play.mockRejectedValueOnce(new Error('Playback blocked'));
+    el('opening-pause').click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el('story').textContent).toBe(cometNarration.clips['comet-opening-o2'].de);
+  });
+
+  it('defers a late camera arrival while the completed transit is paused', async () => {
+    vi.useFakeTimers();
+    window.GQTTS = { isAutoVoiceEnabled: () => false };
+    let arrive;
+    camera.play.mockImplementation((shot) => shot.kind === 'comet-world'
+      ? new Promise((resolve) => { arrive = resolve; }) : true);
+    prologue.open({ opening: true, campaign: true });
+    el('opening-skip').click();
+    await vi.advanceTimersByTimeAsync(0);
+    await finishTimedTransit('aereth');
+    expect(el('prologue').dataset.beat).toBe('homeworld-transit-aereth-6');
+    el('opening-pause').click();
+    arrive(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el('prologue').dataset.beat).toBe('homeworld-transit-aereth-6');
+    el('opening-pause').click();
+    expect(el('prologue').dataset.beat).toBe('homeworld-aereth-1');
+  });
+
+  it('times transit text independently and waits for arrival before advancing worlds', async () => {
+    vi.useFakeTimers();
+    window.GQTTS = { isAutoVoiceEnabled: () => false };
+    let arrive;
+    camera.play.mockImplementation((shot) => shot.kind === 'comet-world'
+      ? new Promise((resolve) => { arrive = resolve; }) : true);
+    prologue.open({ opening: true, campaign: true });
+    el('opening-skip').click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el('title').textContent).toBe(species[0].homeworld);
+    await vi.advanceTimersByTimeAsync(10000);
+    el('opening-pause').click();
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(el('title').textContent).toBe(species[0].homeworld);
+    el('opening-pause').click();
+    await vi.advanceTimersByTimeAsync(12500);
+    expect(el('title').textContent).toContain(species[0].homeworld);
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(camera.play.mock.calls.filter(([shot]) => shot.kind === 'comet-world')).toHaveLength(1);
+    arrive(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el('title').textContent).toBe(species[0].homeworld);
+    await vi.advanceTimersByTimeAsync(12000);
+    expect(camera.play.mock.calls.filter(([shot]) => shot.kind === 'comet-world')).toHaveLength(2);
+  });
+
+  it('directs the camera with each slide and shares pause, reduced motion and cancellation', async () => {
+    prologue.open({ opening: true });
+    expect(preview).toHaveBeenLastCalledWith({ stage: 'opening', beat: content.opening[0].id });
+    expect(camera.play).toHaveBeenLastCalledWith(content.opening[0].camera);
+    el('opening-pause').click();
+    expect(camera.pause).toHaveBeenLastCalledWith(true);
+    el('opening-pause').click();
+    expect(camera.pause).toHaveBeenLastCalledWith(false);
+    el('continue').click();
+    expect(camera.cancel).toHaveBeenCalled();
+    expect(camera.play).toHaveBeenLastCalledWith(content.opening[1].camera);
+    window.dispatchEvent(new CustomEvent('gq:start-motion', { detail: { reduced: true } }));
+    expect(camera.finish).toHaveBeenCalledOnce();
+    prologue.close();
+    expect(el('prologue').dataset.cameraState).toBe('idle');
+    const calls = camera.play.mock.calls.length;
+    await Promise.resolve();
+    expect(camera.play).toHaveBeenCalledTimes(calls);
+  });
+
+  it('ignores late camera failure after navigation and reports failure of the current shot', async () => {
+    let fail;
+    camera.play.mockImplementationOnce(() => new Promise((resolve, reject) => { fail = reject; }));
+    prologue.open({ opening: true });
+    el('continue').click();
+    fail(new Error('Old shot'));
+    await vi.waitFor(() => expect(el('prologue').dataset.cameraState).toBe('ready'));
+    expect(el('flight-status').textContent).not.toContain('Old shot');
+    camera.play.mockReturnValueOnce(false);
+    el('continue').click();
+    await vi.waitFor(() => expect(el('prologue').dataset.cameraState).toBe('unavailable'));
+    expect(el('flight-status').textContent).toContain('Kamera-Regie');
+    expect(el('continue').disabled).toBe(false);
+  });
+
+  it('pauses the opening with its remaining time and stops timers on skip and close', async () => {
+    vi.useFakeTimers();
+    prologue.open({ opening: true });
+    await vi.advanceTimersByTimeAsync(5000);
+    el('opening-pause').click();
+    expect(el('opening-pause').getAttribute('aria-pressed')).toBe('true');
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(el('title').textContent).toBe(content.opening[0].title);
+    el('opening-pause').click();
+    await vi.advanceTimersByTimeAsync(content.opening[0].duration_ms - 5001);
+    expect(el('title').textContent).toBe(content.opening[0].title);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(el('title').textContent).toBe('GalaxyQuest');
+    el('opening-skip').click();
+    expect(el('title').textContent).toBe(content.teaser[0].title);
+    prologue.close();
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(prologue.isActive()).toBe(false);
+    prologue.open({ opening: true });
+    el('back').click();
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(prologue.isActive()).toBe(false);
+  });
+
+  it('pauses a hidden opening and ignores its old timer after reopening', async () => {
+    vi.useFakeTimers();
+    prologue.open({ opening: true });
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(el('opening-pause').textContent).toBe('Fortsetzen');
+    expect(el('title').textContent).toBe(content.opening[0].title);
+    prologue.close();
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    prologue.open({ opening: true });
+    await vi.advanceTimersByTimeAsync(content.opening[0].duration_ms);
+    expect(el('title').textContent).toBe('GalaxyQuest');
+    expect(request).not.toHaveBeenCalled();
+  });
   it('offers Back and Next during the teaser while synchronizing chapters with speech', async () => {
     prologue.open();
     expect(el('back').hidden).toBe(false);
     expect(el('continue').hidden).toBe(false);
     expect(el('continue').disabled).toBe(false);
     expect(el('title').textContent).toBe(content.teaser[0].title);
-    expect(el('chapter').classList.contains('registration-reveal')).toBe(true);
-    expect(el('title').classList.contains('registration-reveal')).toBe(true);
-    expect(el('story').classList.contains('registration-reveal')).toBe(true);
+    await vi.waitFor(() => expect(animate).toHaveBeenCalledWith(
+      el('story'), expect.objectContaining({ opacity: [0, 1] }), expect.objectContaining({ duration: 0.5 }),
+    ));
     expect(el('progress').value).toBe(1);
     expect(preview).toHaveBeenLastCalledWith({ stage: 'galaxy', beat: content.teaser[0].id });
     await endClip();
@@ -164,6 +858,7 @@ describe('Cinematic draft registration', () => {
       el('continue').click();
     }
     expect(el('title').textContent).toBe('Die Heroldkammer');
+    expect(preview).toHaveBeenLastCalledWith({ stage: 'galaxy', beat: content.teaser.at(-1).id });
     await vi.waitFor(() => expect(el('choices').querySelectorAll('button')).toHaveLength(6));
     expect(request.mock.calls.some(([action]) => action === 'register_prepare')).toBe(false);
   });
@@ -208,6 +903,9 @@ describe('Cinematic draft registration', () => {
     });
     expect(el('continue').hidden).toBe(true);
     expect([...el('choices').querySelectorAll('[data-tutorial-planet]')]).toHaveLength(1);
+    expect(camera.play).toHaveBeenLastCalledWith({
+      kind: 'target', target: { kind: 'system', position: 2 }, duration_ms: 4500,
+    });
     el('choices').querySelector('[data-tutorial-planet="2"]').click();
     expect(el('continue').hidden).toBe(false);
     expect(el('continue').textContent).toBe('Planet scannen');
@@ -217,6 +915,10 @@ describe('Cinematic draft registration', () => {
     expect(el('story').textContent).toContain('Durchmesser: 12.000 km');
     expect(el('continue').textContent).toBe('Scan akzeptieren und Landeanflug starten');
     expect(request.mock.calls.some(([action]) => action === 'register_prepare')).toBe(false);
+    el('continue').click();
+    expect(camera.play).toHaveBeenLastCalledWith({
+      kind: 'target', target: { kind: 'colony', position: 2 }, duration_ms: 4500,
+    });
   });
 
   it('restores a previously selected mentor without narration leaving navigation busy', async () => {
@@ -296,6 +998,7 @@ describe('Cinematic draft registration', () => {
     await vi.waitFor(() => expect(prologue.isActive()).toBe(false));
     expect(onEnterDraft).toHaveBeenCalledWith(draft.prolog_token);
     expect(preview).toHaveBeenLastCalledWith(null);
+    expect(onClose).toHaveBeenCalledWith({ completed: true });
   });
 
   it('keeps API failures visible and does not advance to character', async () => {
@@ -389,7 +1092,7 @@ describe('Cinematic draft registration', () => {
     el('back').click();
     expect(preview).toHaveBeenLastCalledWith(expect.objectContaining({ stage: 'system' }));
     el('back').click();
-    expect(preview).toHaveBeenLastCalledWith(null);
+    expect(preview).toHaveBeenLastCalledWith({ stage: 'galaxy', beat: content.teaser.at(-1).id });
     expect(request.mock.calls.some(([action]) => /complete|^register$/.test(action))).toBe(false);
   });
 

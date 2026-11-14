@@ -100,6 +100,13 @@
         },
       },
       {
+        label: 'E-Mail-Benachrichtigungen umschalten',
+        onSelect: () => {
+          closeMenu();
+          runAction('toggle-email-notifications');
+        },
+      },
+      {
         label: 'Profildaten neu laden',
         onSelect: () => {
           closeMenu();

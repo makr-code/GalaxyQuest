@@ -98,6 +98,23 @@ describe('isAutoVoiceEnabled / setAutoVoice', () => {
   });
 });
 
+describe('getVoice / setVoice', () => {
+  it('defaults to the female German voice and persists the selected voice', () => {
+    const GQTTS = loadTtsScript();
+    expect(GQTTS.getVoice()).toBe('de_DE-kerstin-low');
+    GQTTS.setVoice('de_DE-thorsten-high');
+    expect(GQTTS.getVoice()).toBe('de_DE-thorsten-high');
+    expect(localStorage.getItem('gq_tts_voice')).toBe('de_DE-thorsten-high');
+    GQTTS.setVoice('en_US-ryan-high');
+    expect(GQTTS.getVoice()).toBe('en_US-ryan-high');
+  });
+
+  it('rejects voices that are not offered in the start menu', () => {
+    const GQTTS = loadTtsScript();
+    expect(() => GQTTS.setVoice('unknown-voice')).toThrow('Unsupported TTS voice');
+  });
+});
+
 // ── speak() ──────────────────────────────────────────────────────────────────
 
 describe('speak()', () => {
@@ -160,6 +177,13 @@ describe('speak()', () => {
     const [, init] = global.fetch.mock.calls[0];
     const body = JSON.parse(init.body);
     expect(body.voice).toBe('en_US-lessac-high');
+  });
+
+  it('uses the saved voice when no per-call voice is provided', async () => {
+    const GQTTS = loadTtsScript();
+    await GQTTS.speak('Default voice test');
+    const [, init] = global.fetch.mock.calls[0];
+    expect(JSON.parse(init.body).voice).toBe('de_DE-kerstin-low');
   });
 
   it('bypasses cache when noCache:true', async () => {

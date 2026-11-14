@@ -50,12 +50,21 @@ try {
     foreach ($queries as $name => $sql) {
         $objects[$name] = (int)$db->query($sql)->fetchColumn();
     }
+    $engines = [];
+    $rows = $db->query(
+        "SELECT ENGINE, COUNT(*) AS table_count FROM information_schema.TABLES "
+        . "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' GROUP BY ENGINE ORDER BY ENGINE"
+    );
+    foreach ($rows as $row) {
+        $engines[] = ['engine' => $row['ENGINE'], 'table_count' => (int)$row['table_count']];
+    }
     echo json_encode([
         'database' => $identity['db_name'],
         'account' => $identity['account'],
         'server_version' => $identity['version'],
         'visible_objects' => $objects,
         'empty_visible' => array_sum($objects) === 0,
+        'visible_base_table_engines' => $engines,
     ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . "\n";
 } catch (PDOException | RuntimeException | JsonException $error) {
     fwrite(STDERR, "[native-db-inspect] Failed: " . $error->getMessage() . "\n");

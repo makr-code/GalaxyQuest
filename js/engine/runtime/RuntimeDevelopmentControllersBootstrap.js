@@ -9,8 +9,6 @@
 (function () {
   function createDevelopmentControllersBootstrap(opts = {}) {
     const runtimeColonyViewControllerApi = opts.runtimeColonyViewControllerApi || {};
-    const runtimeEconomyFlowControllerApi = opts.runtimeEconomyFlowControllerApi || {};
-    const runtimeEconomyControllerApi = opts.runtimeEconomyControllerApi || {};
     const runtimeBuildingUpgradePreviewApi = opts.runtimeBuildingUpgradePreviewApi || {};
     const runtimeBuildingsControllerApi = opts.runtimeBuildingsControllerApi || {};
     const runtimeResearchControllerApi = opts.runtimeResearchControllerApi || {};
@@ -34,17 +32,6 @@
       fmtName: opts.fmtName,
       esc: opts.esc,
       showToast: opts.showToast,
-      gameLog: opts.gameLog,
-    });
-
-    const economyFlowController = runtimeEconomyFlowControllerApi.createEconomyFlowController({
-      wm: opts.wm,
-      getColonies: opts.getColonies,
-      resourceInsightConfig: opts.resourceInsightConfig,
-      fmtName: opts.fmtName,
-      esc: opts.esc,
-      fmt: opts.fmt,
-      selectColonyById: opts.selectColonyById,
       gameLog: opts.gameLog,
     });
 
@@ -117,21 +104,8 @@
       ShipHangarViewer: opts.windowRef?.GQShipHangarViewer?.ShipHangarViewer || null,
     });
 
-    const economyController = runtimeEconomyControllerApi.createEconomyController
-      ? runtimeEconomyControllerApi.createEconomyController({
-          wm: opts.wm,
-          api: opts.api,
-          esc: opts.esc,
-          showToast: opts.showToast,
-          gameLog: opts.gameLog,
-          invalidateGetCache: opts.invalidateGetCache,
-        })
-      : null;
-
     return {
       colonyViewController,
-      economyFlowController,
-      economyController,
       buildingsController,
       researchController,
       shipyardController,

@@ -1,0 +1,68 @@
+{
+  "schema": "gq.trellis-inspection.v2",
+  "status": "DEV_ONLY",
+  "source_sha256": "3affd15c3261ea084f4bc1e58895c7ee93c3b4abacfb0224a6e57483f028ebfc",
+  "size_bytes": 255388,
+  "asset_type": "ship",
+  "facility_kind": null,
+  "instances": 1,
+  "world_bounds": [
+    [
+      0.15421849489212036,
+      0.1932954639196396,
+      -0.9810401201248169
+    ],
+    [
+      0.8438134789466858,
+      0.8048042058944702,
+      0.0017349491827189922
+    ]
+  ],
+  "missing_normal_primitives": 1,
+  "meshes": [
+    {
+      "name": "geometry_0",
+      "triangles": 14086,
+      "vertices": 7129,
+      "zero_area_faces": 0,
+      "uv_valid": false,
+      "components": [
+        {
+          "triangles": 14086,
+          "area_fraction": 1.0,
+          "local_bounds": [
+            [
+              0.15421849489212036,
+              0.1932954639196396,
+              -0.9810401201248169
+            ],
+            [
+              0.8438134789466858,
+              0.8048042058944702,
+              0.0017349491827189922
+            ]
+          ]
+        }
+      ],
+      "base_color": null,
+      "metallic_roughness": null,
+      "base_color_factor": null,
+      "findings": [
+        "missing_or_invalid_uv",
+        "missing_pbr_material",
+        "missing_base_color_texture",
+        "missing_metallic_roughness_texture"
+      ]
+    }
+  ],
+  "findings": [
+    "missing_normal_attributes"
+  ],
+  "required_manual_checks": [
+    "visual_quality_and_materials",
+    "physical_scale",
+    "orientation_and_ground_contact",
+    "lod_and_render_budget",
+    "both_colony_views"
+  ]
+}

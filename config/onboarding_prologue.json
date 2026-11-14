@@ -1,11 +1,36 @@
 {
   "version": 1,
   "language": "de",
+  "opening": [
+    { "id": "opening-galaxy", "title": "Eine Galaxie", "label": "Sternenarchiv / Astronomie", "text": "Sterne, Gas und kosmischer Staub bilden gewaltige Systeme, zusammengehalten durch Gravitation. Zwischen ihren Sternen liegen Entfernungen, die wir in Lichtjahren messen.", "duration_ms": 12000,
+      "camera": { "kind": "comet", "distance": 13, "height": 1.2, "side": 0.3, "duration_ms": 6500 } },
+    { "id": "opening-title", "title": "GalaxyQuest", "label": "Jenseits des bekannten Himmels", "text": "Eine Galaxie ist mehr als die Summe ihrer Sterne.\nSie ist der Raum für ungeschriebene Geschichten.", "duration_ms": 8500,
+      "camera": { "kind": "comet", "distance": 9, "height": 2, "side": -2, "duration_ms": 4500 } },
+    { "id": "opening-convergence", "title": "Aus Sternen werden Welten", "label": "Sternenarchiv / Fiktion beginnt", "text": "In dieser Geschichte verbinden Transitkorridore die Welten von sechs Zivilisationen. Ihr Bündnis heißt Kalytherion-Konvergenz. An seinem Rand wartet eine Welt, deren Zukunft noch niemand geschrieben hat.", "duration_ms": 14000,
+      "camera": { "kind": "comet", "distance": 6, "height": 2, "side": 2, "duration_ms": 6000 } }
+  ],
+  "homeworld_transit": [
+    { "title": "Wege zwischen den Sternen", "text": "Sechs Zivilisationen begegnen einander in der Kalytherion-Konvergenz. Ihre Welten sind weit voneinander entfernt, ihre Geschichten dennoch miteinander verbunden." },
+    { "title": "Ein fragiles Bündnis", "text": "Stärke, Glaube, Wissen und Information halten die Konvergenz zusammen. Dieselben Kräfte können ihre Mitglieder aber auch entzweien." },
+    { "title": "An den Grenzen", "text": "Jenseits sicherer Welten bedroht die Eisenflotte die Konvergenz. Aus den Tiefen zwischen den Sternen dringt die Leerenbrut." },
+    { "title": "Wissen und Entdeckung", "text": "Forschung und Expeditionen führen an die Grenzen des Bekannten. Neue Erkenntnisse versprechen Energie und neue Wege zwischen den Sternen." },
+    { "title": "Verbindungen und Geheimnisse", "text": "Diplomatie, Schutz und Aufklärung verbinden die Welten. Nicht jede Absicht ist sichtbar, und Vertrauen muss immer wieder entstehen." },
+    { "title": "Eine ungeschriebene Zukunft", "text": "An alten Transitkorridoren warten Randwelten auf ihre Zukunft. Auch eine kleine Siedlung kann das Schicksal vieler Welten verändern." }
+  ],
+  "npc_tour": [
+    { "code": "iron_fleet", "name": "Eisenflotte der Menschen", "homeworld": "Erde", "description": "Die Menschen der Eisenflotte stammen aus dem Sonnensystem. Ihre expansionistische Militärmacht sieht in den anderen Zivilisationen Hindernisse für menschliche Vorherrschaft.", "transit_title": "Die Menschen und die Eisenflotte", "transit_text": "Auch außerhalb der Konvergenz haben Zivilisationen eigene Ziele. Die menschliche Eisenflotte setzt auf militärische Stärke und Expansion." },
+    { "code": "helion_confederation", "name": "Helion-Konföderation", "homeworld": "Helion Prime", "description": "Die Helion-Konföderation verbindet Welten durch Handel. Ihre Neutralität und ihre Verträge schaffen zugleich Chancen und wirtschaftliche Abhängigkeiten.", "transit_title": "Handel zwischen den Welten", "transit_text": "Wo Grenzen und Interessen aufeinandertreffen, können Handelsrouten Verbindungen schaffen – und neue Abhängigkeiten." },
+    { "code": "ketzer_von_verath", "name": "Ketzer von Verath", "homeworld": "Verath", "description": "Abtrünnige Syl'Nar suchen auf Verath nach Wahrheiten außerhalb der etablierten spirituellen Hierarchien der Konvergenz.", "transit_title": "Andere Wege", "transit_text": "Nicht alle Stimmen innerhalb der Zivilisationen folgen denselben Lehren. Auf Verath sucht eine Gemeinschaft nach eigenen Antworten." }
+  ],
   "teaser": [
-    { "id": "teaser-distance", "title": "Jenseits vertrauter Sterne", "text": "Weit hinter den Sternen deiner Heimat verbindet die Kalytherion-Konvergenz sechs Zivilisationen. Sechs Arten zu leben. Eine fragile Hoffnung auf eine gemeinsame Zukunft." },
-    { "id": "teaser-convergence", "title": "Ein Bündnis im Wandel", "text": "Stärke, Glaube, Wissen und Information halten die Konvergenz zusammen. Doch dieselben Kräfte ziehen sie auseinander. An ihren Grenzen wartet die Eisenflotte. Aus den Tiefen zwischen den Welten dringt die Leerenbrut." },
-    { "id": "teaser-frontier", "title": "Eine ungeschriebene Welt", "text": "An der Wegscheide alter Transitkorridore liegt eine unscheinbare Randwelt. Unter ihrem Boden ruht Vethisit: ein Mineral, das auf die Energie der Sprungfelder antwortet. Was gestern eine vergessene Siedlung war, könnte morgen das Schicksal ganzer Welten verändern." },
-    { "id": "teaser-commander", "title": "Deine Geschichte beginnt", "text": "Die Mächtigen haben die Signale empfangen. Ihre Gesandten suchen Verbündete. Und die Bewohner deiner neuen Kolonie brauchen jemanden, der entscheidet. Nicht über die Vergangenheit. Über das, was jetzt beginnt." }
+    { "id": "teaser-distance", "title": "Jenseits vertrauter Sterne", "text": "Weit hinter den Sternen deiner Heimat verbindet die Kalytherion-Konvergenz sechs Zivilisationen. Sechs Arten zu leben. Eine fragile Hoffnung auf eine gemeinsame Zukunft.",
+      "camera": { "kind": "follow", "target": { "kind": "ship", "id": "registration-transfer" }, "distance": 7, "height": 2.5, "side": 3, "duration_ms": 6000 } },
+    { "id": "teaser-convergence", "title": "Ein Bündnis im Wandel", "text": "Stärke, Glaube, Wissen und Information halten die Konvergenz zusammen. Doch dieselben Kräfte ziehen sie auseinander. An ihren Grenzen wartet die Eisenflotte. Aus den Tiefen zwischen den Welten dringt die Leerenbrut.",
+      "camera": { "kind": "follow", "target": { "kind": "ship", "id": "registration-transfer" }, "distance": 10, "height": 3, "side": -4, "duration_ms": 6000 } },
+    { "id": "teaser-frontier", "title": "Eine ungeschriebene Welt", "text": "An der Wegscheide alter Transitkorridore liegt eine unscheinbare Randwelt. Unter ihrem Boden ruht Vethisit: ein Mineral, das auf die Energie der Sprungfelder antwortet. Was gestern eine vergessene Siedlung war, könnte morgen das Schicksal ganzer Welten verändern.",
+      "camera": { "kind": "follow", "target": { "kind": "ship", "id": "registration-transfer" }, "distance": 5, "height": 1.8, "side": 2, "duration_ms": 6000 } },
+    { "id": "teaser-commander", "title": "Deine Geschichte beginnt", "text": "Die Mächtigen haben die Signale empfangen. Ihre Gesandten suchen Verbündete. Und die Bewohner deiner neuen Kolonie brauchen jemanden, der entscheidet. Nicht über die Vergangenheit. Über das, was jetzt beginnt.",
+      "camera": { "kind": "follow", "target": { "kind": "ship", "id": "registration-transfer" }, "distance": 4, "height": 2, "side": 0, "duration_ms": 6000 } }
   ],
   "registration_steps": [
     { "id": "character-dossier", "title": "Kommandantenakte", "text": "Jetzt folgt deine Kommandantenakte. Wähle einen Namen und beschreibe deinen Hintergrund. Beide Angaben bleiben in diesem privaten, befristeten Entwurf und lassen sich vor dem Abschluss noch ändern." },

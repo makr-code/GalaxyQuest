@@ -25,7 +25,7 @@ final class EconomyPolicyReadSideEffectsTest extends TestCase
         self::assertStringNotContainsString('UPDATE ', $helper);
     }
 
-    public function testPolicyMutationPathsKeepExplicitRowInitialization(): void
+    public function testPolicyMutationPathsDelegateRowInitializationToTheLedger(): void
     {
         $source = file_get_contents(__DIR__ . '/../../api/economy.php');
         self::assertIsString($source);
@@ -36,9 +36,9 @@ final class EconomyPolicyReadSideEffectsTest extends TestCase
             $end = strpos($source, "\nfunction ", $start + 1);
             self::assertNotFalse($end, $action . ' must have a bounded body.');
             $handler = substr($source, $start, $end - $start);
-            self::assertStringContainsString('ensure_policy_row($db, $uid);', $handler);
+            self::assertStringContainsString('economy_ledger_mutation($db,', $handler);
+            self::assertStringContainsString('$economy->configure($uid,', $handler);
         }
-
     }
 
     public function testEconomyControlsAreExplicitCsrfProtectedMutations(): void

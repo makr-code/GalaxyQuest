@@ -169,8 +169,13 @@ test('cinematic UI saves a commander through the actual isolated PHP/MySQL backe
     }
   });
   await page.goto('/');
-  await page.clock.install();
   await page.locator('#start-register').click();
+  await expect.poll(() => page.locator('#registration-title').textContent(), { timeout: 30_000 })
+    .toMatch(/^(Deine Reise beginnt|Jenseits vertrauter Sterne)$/);
+  if ((await page.locator('#registration-title').textContent()) !== content.teaser[0].title) {
+    await expect(page.locator('#registration-title')).toHaveText(content.teaser[0].title, { timeout: 30_000 });
+  }
+  await page.clock.install();
   for (const clip of content.teaser) {
     await expect(page.locator('#registration-title')).toHaveText(clip.title);
     await expect(page.locator('#registration-narration-status')).toContainText('nicht verfügbar');

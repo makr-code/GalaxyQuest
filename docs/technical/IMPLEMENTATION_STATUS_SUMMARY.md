@@ -98,7 +98,7 @@
 - `economy_market_events` — Active price modifiers
 - `trade_routes` — Recurring automated trades
 
-**Frontend** (`js/engine/runtime/RuntimeEconomyController.js`)
+**Frontend** (`js/ui/game-economy.js`)
 - Policy tab with policy selection + descriptions
 - Overview tab with colony goods + pop classes
 - Production method switching per building

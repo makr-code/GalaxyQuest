@@ -218,7 +218,7 @@ function get_themis(): ThemisDbClient {
 **Migration-Reihenfolge** (nach Kritikalität):
 1. `api/auth.php` – Login, Session, Register
 2. `api/fleet.php` – Fleet-Launch (Multi-Statement-Transaktion)
-3. `api/economy_flush.php` – Ressourcen-Tick
+3. `src/Economy/OnDemandEconomy.php` – On-Demand-Wirtschafts-Ledger (ersetzt das entfernte `api/economy_flush.php`)
 4. `api/game.php` – Allgemeine Spielaktionen
 5. Alle anderen Endpunkte
 

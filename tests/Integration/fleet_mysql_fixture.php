@@ -7,7 +7,6 @@ namespace GalaxyQuest\Tests\Integration\FleetMySql;
 use PDO;
 use RuntimeException;
 
-const ON_DEMAND_ECONOMY_ENABLED = 0;
 const BATTLE_ENCOUNTERS_ENABLED = 1;
 
 function load_fleet_functions(): void
@@ -48,7 +47,6 @@ function load_fleet_functions(): void
                 . 'use GalaxyQuest\\Combat\\FleetDispatchReceipt; '
                 . 'use GalaxyQuest\\Combat\\BattleEncounterService; '
                 . 'use GalaxyQuest\\Combat\\BattleResolver; use GalaxyQuest\\Economy\\ResourceLedger; '
-                . 'use GalaxyQuest\\Economy\\OnDemandEconomy; '
                 . str_replace('__DIR__', var_export(dirname($file), true), $body));
         }
     }
@@ -58,6 +56,20 @@ function load_fleet_functions(): void
 // the production launch, claim, combat, diplomacy, return SQL and ledger run unchanged.
 function update_colony_resources(PDO $db, int $colonyId): void
 {
+}
+
+// Fleet-focused double for the on-demand ledger: debits the colony row under the
+// same transactional ledger lock without requiring the economy schema.
+final class OnDemandEconomy
+{
+    public function __construct(private PDO $db)
+    {
+    }
+
+    public function spend(int $colonyId, int $userId, array $cost, callable $mutation): mixed
+    {
+        return (new \GalaxyQuest\Economy\ResourceLedger($this->db))->spend($colonyId, $userId, $cost, $mutation);
+    }
 }
 
 function complete_ship_build_queue(PDO $db, int $colonyId): void

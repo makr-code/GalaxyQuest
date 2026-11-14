@@ -1,0 +1,85 @@
+{
+  "schema": "gq.trellis-inspection.v2",
+  "status": "DEV_ONLY",
+  "source_sha256": "4f7561279d3ab44739fc668ea7c97505ec325aca461d602d281588587e885b09",
+  "size_bytes": 124878024,
+  "asset_type": "building",
+  "facility_kind": "industry",
+  "instances": 1,
+  "world_bounds": [
+    [
+      0.03146851062774658,
+      0.10750424861907959,
+      -0.9998924732208252
+    ],
+    [
+      0.9688317775726318,
+      0.8907086849212646,
+      0.001733630895614624
+    ]
+  ],
+  "missing_normal_primitives": 1,
+  "meshes": [
+    {
+      "name": "geometry_0",
+      "triangles": 6936802,
+      "vertices": 3469635,
+      "zero_area_faces": 0,
+      "uv_valid": false,
+      "components": [
+        {
+          "triangles": 6936672,
+          "area_fraction": 0.9999832626520385,
+          "local_bounds": [
+            [
+              0.03146851062774658,
+              0.10750424861907959,
+              -0.9998924732208252
+            ],
+            [
+              0.9688317775726318,
+              0.8907086849212646,
+              0.001733630895614624
+            ]
+          ]
+        },
+        {
+          "triangles": 130,
+          "area_fraction": 1.673734796144358e-05,
+          "local_bounds": [
+            [
+              0.4770314693450928,
+              0.1107877790927887,
+              -0.9968432188034058
+            ],
+            [
+              0.4877697229385376,
+              0.11518663167953491,
+              -0.9892871379852295
+            ]
+          ]
+        }
+      ],
+      "base_color": null,
+      "metallic_roughness": null,
+      "base_color_factor": null,
+      "findings": [
+        "multiple_face_components_review_required",
+        "missing_or_invalid_uv",
+        "missing_pbr_material",
+        "missing_base_color_texture",
+        "missing_metallic_roughness_texture"
+      ]
+    }
+  ],
+  "findings": [
+    "missing_normal_attributes"
+  ],
+  "required_manual_checks": [
+    "visual_quality_and_materials",
+    "physical_scale",
+    "orientation_and_ground_contact",
+    "lod_and_render_budget",
+    "both_colony_views"
+  ]
+}

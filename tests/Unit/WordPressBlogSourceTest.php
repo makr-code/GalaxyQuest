@@ -40,6 +40,53 @@ final class WordPressBlogSourceTest extends TestCase
         self::assertLessThanOrEqual(3000, mb_strlen($posts[0]['body']));
     }
 
+    public function testCategoryFilterKeepsOnlyPostsInThatCategory(): void
+    {
+        $posts = $this->source()->latest($this->targets, 'fraktionen');
+        self::assertNotSame([], $posts);
+        foreach ($posts as $post) {
+            self::assertContains('fraktionen', $post['categories']);
+        }
+        self::assertSame([], $this->source()->latest($this->targets, 'galaxy-news-radio'));
+    }
+
+    public function testChronologyPassesFiltersAndRejectsUnsafeOrInvalidData(): void
+    {
+        $entry = [
+            'id' => 4, 'title' => 'Chronik', 'summary' => 'Kurzfassung',
+            'event_date' => '2024-02-29', 'published_at' => '2026-11-14T08:20:00',
+            'origin' => 'editorial', 'is_correction' => false,
+            'categories' => ['diplomatie'], 'url' => 'http://blog.test/?p=4',
+        ];
+        $data = ['posts' => [$entry], 'has_more' => true];
+        $requested = '';
+        $source = new WordPressBlogSource('http://internal.test/index.php', 'http://blog.test',
+            static function (string $url) use (&$data, &$requested): array {
+                $requested = $url;
+                return ['status' => 200, 'body' => json_encode($data, JSON_THROW_ON_ERROR)];
+            });
+        self::assertSame($data, $source->chronology(2, 'diplomatie', '2024-01-01', '2025-01-01'));
+        parse_str(parse_url($requested, PHP_URL_QUERY), $query);
+        self::assertSame('/gq/v1/chronology', $query['rest_route']);
+        self::assertSame('2', $query['page']);
+        self::assertSame('diplomatie', $query['topic']);
+        foreach ([
+            ['event_date' => '2026-02-29'],
+            ['origin' => 'unknown'],
+            ['is_correction' => 'false'],
+            ['url' => 'https://other.test/post'],
+            ['summary' => '<script>bad</script>'],
+        ] as $invalid) {
+            $data['posts'][0] = array_replace($entry, $invalid);
+            try {
+                $source->chronology(1, '', '', '');
+                self::fail('Ungültiger Chronikbeitrag wurde akzeptiert.');
+            } catch (RuntimeException $error) {
+                self::assertStringContainsString('Chronik', $error->getMessage());
+            }
+        }
+    }
+
     public function testNarrationCannotReadUntaggedPrivateDraftProtectedOrMissingPosts(): void
     {
         $source = $this->source();

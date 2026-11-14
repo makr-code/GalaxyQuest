@@ -660,8 +660,6 @@ describe('RuntimeDevelopmentControllersBootstrap – ShipHangarViewer wiring', (
   function makeBootstrapOpts(doc, root, windowRef) {
     return {
       runtimeColonyViewControllerApi:   { createColonyViewController:   vi.fn(() => ({ render: vi.fn() })) },
-      runtimeEconomyFlowControllerApi:  { createEconomyFlowController:  vi.fn(() => ({ render: vi.fn() })) },
-      runtimeEconomyControllerApi:      { createEconomyController:      vi.fn(() => ({ render: vi.fn() })) },
       runtimeBuildingUpgradePreviewApi: { createBuildingUpgradePreview: vi.fn(() => ({ render: vi.fn() })) },
       runtimeBuildingsControllerApi:    { createBuildingsController:    vi.fn(() => ({ render: vi.fn() })) },
       runtimeResearchControllerApi:     { createResearchController:     vi.fn(() => ({ render: vi.fn() })) },

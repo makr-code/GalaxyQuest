@@ -159,4 +159,12 @@ return [
     // ── NPC worker replay protection ─────────────────────────────────────
     'migrate_npc_ai_worker_nonce_v1.sql',
     'migrate_body_development_v1.sql',
+
+    // ── Hourly world tick: world events, mail outbox, mail opt-out ──────
+    'migrate_world_events_v1.sql',
+    'migrate_standing_trade_orders_v1.sql',
+    'migrate_npc_economy_orders_v1.sql',
+    'migrate_mail_templates_v1.sql',
+    'migrate_economy_requests_v1.sql',
+    'migrate_economy_request_purchase_v1.sql',
 ];

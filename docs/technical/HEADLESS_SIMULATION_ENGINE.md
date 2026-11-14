@@ -37,7 +37,7 @@ see [Colony on-demand economy](COLONY_ON_DEMAND_ECONOMY.md).
 - Each NPC player account tick commits its research/build/ship/fleet mutations
   and per-account completion timestamp atomically. If a later account fails in
   the global batch, a normal retry skips accounts already committed within the
-  three-minute interval; explicit force runs still bypass that per-account
+  15-minute decision period; explicit force runs still bypass that per-account
   cooldown.
 - The NPC controller's manual `run_once` action uses the same per-user
   simulation lock and failure response contract. A busy lock is reported as a
@@ -88,6 +88,72 @@ see [Colony on-demand economy](COLONY_ON_DEMAND_ECONOMY.md).
   exists, so the former tick's fixed `rate × 10` loss figures did not represent
   real units and were not applied to combat state. The tick remains a no-op until
   losses can be calculated from and committed against authoritative unit counts.
+
+## Hourly world tick (flat tick engine)
+
+The global tick **is** the flat hourly tick engine; there is no second engine.
+
+- Cadence: `SIMULATION_GLOBAL_TICK_COOLDOWN_SECONDS` (default `3600`) is an
+  aligned window. The tick is due once per wall-clock window
+  `window_id = floor(unix / 3600)`; the scheduler may call it every 5 minutes —
+  calls inside an already-executed window are cooldown skips, and the MySQL
+  scope lock serializes concurrent runs.
+- Subsystem order: `npc_world`, `war_runtime`, `war_attrition`,
+  `pirate_raids`, `traders`, `world_events`, `mail_outbox` (last, advisory).
+- Missed windows are **not replayed**. Only the current window generates
+  decisions; time-based state (colony ledgers, wormhole stability, NPC
+  account rounds, event probabilities) catches up from elapsed time.
+- Deterministic randomness: `src/Simulation/HourlyWindow.php` seeds a
+  SHA-256 counter stream (`DeterministicRandom`) from
+  `window_id|actor_type|actor_id|decision_type`, so re-running a window
+  reproduces identical decisions. `mt_rand` is not used by the world tick.
+- `world_events`: rolls the small catalog in `src/Economy/WorldEvents.php`
+  (supply shock, demand boom, trade disruption, windfall discovery) once per
+  window (`app_state` key `world_events:last_window`, plus
+  `UNIQUE(window_id, event_type, scope_type, scope_id, good_key)`). Events
+  last 6–48 h, start one settle step (300 s) after creation, and are capped by
+  `WORLD_EVENTS_MAX_ACTIVE` (default 6). They never write colony stock:
+  `OnDemandEconomy` applies them to price quotes and, intersected with each
+  settle step, to production (see [Economy design](../gamedesign/ECONOMY_DESIGN.md)).
+- Digest: in the same transaction, every human player with a colony in an
+  affected scope gets one in-game message and one `mail_outbox` row per window
+  (`dedupe_key = digest:<window>:<user>`).
+- `mail_outbox`: sends up to `MAIL_OUTBOX_BATCH` (50) due mails via
+  `lib/Mailer.php` (Mailpit in development, otherwise `SMTP_*`). Failures back
+  off exponentially (5 min doubling, max 6 h) and become `failed` after
+  `MAIL_OUTBOX_MAX_ATTEMPTS` (5). Without a transport, due mails are marked
+  `skipped`. Mail errors are advisory (`advisory_error_count`) and never fail
+  or roll back the world tick. NPC/engine accounts are never mailed; users can
+  opt out with `users.email_notifications` (commander menu →
+  "E-Mail-Benachrichtigungen umschalten", API
+  `game.php?action=set_email_notifications`).
+
+### Cadence audit (tick-frequency independence)
+
+| Subsystem | Finding | Change |
+|---|---|---|
+| `npc_player_accounts_tick_global` | fixed actions per call (180 s gate) | per-account rounds = elapsed / 900 s, max 4 per tick |
+| `faction_events_tick_global` | 20 % roll per call | `1-(1-0.2)^(elapsed/900 s)`, elapsed capped at 2 h, seeded roll |
+| `colony_events_tick_global` | 10 % roll per call, `ORDER BY RAND()` | `1-(1-0.1)^(elapsed/900 s)`, cap 2 h, seeded per colony/window |
+| `wormhole_regeneration_tick_global` | +2 stability per call | +2 per 600 s elapsed, cap 24 h |
+| `ScenarioEngine::tick` | internal 1 h cooldown | unchanged |
+| `war_runtime` | already elapsed-time based | unchanged |
+| `war_attrition`, `pirate_raids` | no-ops | unchanged |
+| `traders` | one state transition per call (900 s gate) | unchanged; slower at hourly cadence — time-based routes are a later block |
+
+## Scheduling
+
+Docker (development): the `scheduler` service in `docker-compose.yml` reuses
+the web image and runs
+`php scripts/run_simulation_tick.php --scope=global` every 300 s.
+
+Cron (production/Plesk, documentation only):
+
+```cron
+*/5 * * * * cd /path/to/galaxyquest && php scripts/run_simulation_tick.php --scope=global
+```
+
+Manual mail flush: `php scripts/send_mail_outbox.php [--batch=N]`.
 
 ## Trigger ticks
 

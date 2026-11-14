@@ -453,19 +453,12 @@ function launch_fleet_dispatch_locked(PDO $db, int $uid, array $body): array
 
         return (int)$db->lastInsertId();
     };
-    $fleetId = ON_DEMAND_ECONOMY_ENABLED
-        ? (new OnDemandEconomy($db))->spend(
-            $originCid,
-            $uid,
-            ['metal' => $cMetal, 'crystal' => $cCrys, 'deuterium' => $cDeut],
-            $dispatch
-        )
-        : (new ResourceLedger($db))->spend(
-            $originCid,
-            $uid,
-            ['metal' => $cMetal, 'crystal' => $cCrys, 'deuterium' => $cDeut],
-            $dispatch
-        );
+    $fleetId = (new OnDemandEconomy($db))->spend(
+        $originCid,
+        $uid,
+        ['metal' => $cMetal, 'crystal' => $cCrys, 'deuterium' => $cDeut],
+        $dispatch
+    );
     enqueue_dirty_user($db, $uid, 'fleet_sent');
     return ['fleet_id' => $fleetId, 'arrival_time' => $arrival];
 }

@@ -15,6 +15,15 @@
 > keine bereits aktiven Registrierungsboni. Khal'Vethis ist das narrative Vorbild
 > der persönlichen Randwelt, kein gemeinsam beanspruchter Startplanet.
 
+> **Implementierungsgrenze NPC-Wirtschaft:** Explizit gebundene, bereits
+> NPC-eigene Kolonien können im vorhandenen Stunden-Tick finanzierte Orders aus
+> realem Katalogbedarf und endlichen Kontoguthaben pflegen
+> ([Aktivierung/Runbook](../technical/TRADERS_INTEGRATION_GUIDE.md#opt-in-autonomous-npc-colonies)).
+> Keine automatische Welten-/Kontenanlage oder Umsetzung historischer Boni:
+> Schildzirkel, Lichtbund, Kernrat und Schattenzirkel bleiben unabhängig von den
+> sechs Spezies. Wirtschaftliche Strategieprofile ändern weder Registrierung
+> noch Mitgliedschaft; Lore-Güter wie Vethisit werden nicht als Katalogware ergänzt.
+
 ---
 
 ## Inhaltsverzeichnis
@@ -296,6 +305,13 @@ Der Ruf bei den Fraktionen wächst nicht automatisch – der Spieler muss aktiv 
 ---
 
 ### 5.2 🚢 Handeln (Wirtschaftliche Beziehungen)
+
+**Implementierungsgrenze (2026-11):** Freiwillige NPC-Versorgungsanfragen im
+Markt beziehen sich ausschließlich auf bestehende finanzierte Katalog-Aufträge,
+mit fixer Menge/Preis, maximal 24 Stunden Frist und kostenfreiem Verfall ohne
+Antwort. Annahme reserviert ein privates endliches Auftragspaar; normale Händler
+liefern später. Das ist noch kein Ruf-/Exklusivabkommen oder Vethisit-System.
+Siehe [Wirtschaftsdesign](ECONOMY_DESIGN.md#freiwillige-versorgungsanfragen-mit-sicherem-standard).
 
 **Definition:** Aufbau von Handelsrouten, Ressourcentausch, bevorzugte Handelskonditionen, Exklusivverträge.
 
@@ -1026,6 +1042,13 @@ effective_weight = advisor_weight_min
 ---
 
 ### 12.2 Fraktionsmandat: Entscheidungen unter Druck
+
+**Umgesetzt ist nur der wirtschaftliche Einladungsblock:** echte finanzierte
+NPC-Versorgungsanfragen mit freiwilliger Annahme, ausdrücklicher Reservierung
+und kostenfreier Ablehnung/Fristablauf. Die unten beschriebenen Rufstufen,
+Peitsche-Zähler, Sanktionen, Bonusbelohnungen und Beratungsmandate bleiben
+Design, nicht Laufzeitverhalten. Politische Zugehörigkeit und Spezies sind
+unabhängig; diese Anfrage führt weder neue Ruf-Gates noch politische Wahl ein.
 
 Ein **Mandat** ist eine zeitlich befristete Anfrage einer Fraktion an den Spieler.
 Es erscheint als Journal-Event mit Countdown-Timer.

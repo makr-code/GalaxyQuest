@@ -14,7 +14,6 @@ use GalaxyQuest\Economy\OnDemandEconomy;
 
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
-require_once __DIR__ . '/economy_flush.php';
 require_once __DIR__ . '/game_engine.php';
 
 if (!defined('GQ_MARKET_ANALYSIS_BASE_PRICES')) {
@@ -61,119 +60,19 @@ function calculate_system_supply_demand(
     int $galaxy_index,
     int $system_index
 ): array {
-    if (ON_DEMAND_ECONOMY_ENABLED) {
-        require_once __DIR__ . '/game_engine.php';
-        $market = (new OnDemandEconomy($db))->market($galaxy_index, $system_index);
-        $analysis = [];
-        foreach ($market['goods'] as $type => $good) {
-            $supply = $good['quantity'] / 24 + $good['production_per_hour'];
-            $demand = $good['consumption_per_hour'];
-            $analysis[$type] = [
-                'production' => $good['production_per_hour'],
-                'consumption' => $demand, 'available_supply' => $supply,
-                'desired_demand' => $demand, 'net_balance' => $supply - $demand,
-                'oldest_settled_at' => $good['oldest_settled_at'],
-                'represented_colonies' => $good['represented_colonies'],
-            ];
-        }
-        return $analysis;
-    }
-    try {
-        // 1. Get all colonies in this system
-        $colStmt = $db->prepare(<<<SQL
-            SELECT c.id, c.metal, c.crystal, c.deuterium, c.rare_earth, c.food,
-                   c.population
-            FROM colonies c
-            JOIN celestial_bodies cb ON cb.id = c.body_id
-            WHERE cb.galaxy_index = ? AND cb.system_index = ?
-        SQL);
-        $colStmt->execute([$galaxy_index, $system_index]);
-        $colonies = $colStmt->fetchAll(PDO::FETCH_ASSOC);
-        
-        if (!is_array($colonies)) {
-            $colonies = [];
-        }
-    } catch (PDOException $e) {
-        error_log('Market Analysis: DB error retrieving colonies for galaxy=' . $galaxy_index . ', system=' . $system_index . ': ' . $e->getMessage());
-        $colonies = [];
-    }
-    
-    // 2. Initialize supply/demand accumulator
-    $resourceTypes = array_merge(
-        ['metal', 'crystal', 'deuterium', 'rare_earth', 'food'],
-        [
-            'steel_alloy', 'focus_crystals', 'reactor_fuel',
-            'biocompost', 'electronics_components',
-            'consumer_goods', 'luxury_goods', 'military_equipment',
-        ]
-    );
-    
+    $market = (new OnDemandEconomy($db))->market($galaxy_index, $system_index);
     $analysis = [];
-    foreach ($resourceTypes as $resType) {
-        $analysis[$resType] = [
-            'production'       => 0.0,
-            'consumption'      => 0.0,
-            'available_supply' => 0.0,
-            'desired_demand'   => 0.0,
-            'net_balance'      => 0.0,
+    foreach ($market['goods'] as $type => $good) {
+        $supply = $good['quantity'] / 24 + $good['production_per_hour'];
+        $demand = $good['consumption_per_hour'];
+        $analysis[$type] = [
+            'production' => $good['production_per_hour'],
+            'consumption' => $demand, 'available_supply' => $supply,
+            'desired_demand' => $demand, 'net_balance' => $supply - $demand,
+            'oldest_settled_at' => $good['oldest_settled_at'],
+            'represented_colonies' => $good['represented_colonies'],
         ];
     }
-    
-    // 3. Per colony: flush lazy production, then read accurate stock and rates
-    foreach ($colonies as $col) {
-        $pop = (int)$col['population'];
-        if ($pop <= 0) continue;
-        
-        $colId = (int)$col['id'];
-
-        // Flush lazy accumulation so quantities and rate columns are up to date
-        try {
-            if (function_exists('flush_colony_production')) {
-                flush_colony_production($db, $colId);
-            }
-        } catch (Throwable $e) {
-            error_log('Market Analysis: Error flushing colony production for colony=' . $colId . ': ' . $e->getMessage());
-        }
-        
-        // Primary resources in storage
-        $analysis['metal']['available_supply']     += (float)$col['metal'];
-        $analysis['crystal']['available_supply']   += (float)$col['crystal'];
-        $analysis['deuterium']['available_supply'] += (float)$col['deuterium'];
-        $analysis['rare_earth']['available_supply']+= (float)$col['rare_earth'];
-        $analysis['food']['available_supply']      += (float)$col['food'];
-        
-        // Food consumption (primary resource, not in processed_goods)
-        $analysis['food']['consumption'] += colony_food_consumption($pop);
-        
-        // Processed goods: stock, production rate, and consumption rate
-        $goodsStmt = $db->prepare(<<<SQL
-            SELECT good_type, quantity, production_rate_per_hour, consumption_rate_per_hour
-            FROM economy_processed_goods
-            WHERE colony_id = ?
-        SQL);
-        $goodsStmt->execute([$colId]);
-        foreach ($goodsStmt->fetchAll(PDO::FETCH_ASSOC) as $good) {
-            $type = (string)$good['good_type'];
-            if (!isset($analysis[$type])) {
-                continue;
-            }
-            $analysis[$type]['available_supply'] += (float)$good['quantity'];
-            $analysis[$type]['production']       += (float)$good['production_rate_per_hour'];
-            $analysis[$type]['consumption']      += (float)$good['consumption_rate_per_hour'];
-        }
-
-        // Desired demand: consumer_goods proportional to population
-        $goodsConsumption = ECONOMY_POP_CONSUMPTION_RATES['consumer_goods'] * ($pop / 1000.0);
-        $analysis['consumer_goods']['desired_demand'] += $goodsConsumption * 0.5;
-    }
-    
-    // 4. Calculate net balance (positive = surplus, negative = deficit)
-    foreach ($analysis as $type => &$data) {
-        $avail  = $data['available_supply'];
-        $demand = $data['desired_demand'] + $data['consumption'];
-        $data['net_balance'] = $avail - $demand;
-    }
-    
     return $analysis;
 }
 
@@ -185,73 +84,22 @@ function calculate_system_supply_demand(
  * @return int Number of rows updated
  */
 function update_supply_demand_table(PDO $db): int {
-    if (ON_DEMAND_ECONOMY_ENABLED) {
-        $statement = $db->prepare(<<<SQL
-            INSERT INTO market_supply_demand
-                (galaxy_index,system_index,resource_type,production_per_hour,consumption_per_hour,
-                 available_supply,desired_demand,net_balance)
-            SELECT galaxy_index,system_index,good_type,SUM(production),SUM(consumption),
-                   SUM(quantity)/24+SUM(production),SUM(consumption),
-                   SUM(quantity)/24+SUM(production)-SUM(consumption)
-            FROM economy_colony_market GROUP BY galaxy_index,system_index,good_type
-            ON DUPLICATE KEY UPDATE
-                production_per_hour=VALUES(production_per_hour),
-                consumption_per_hour=VALUES(consumption_per_hour),
-                available_supply=VALUES(available_supply),desired_demand=VALUES(desired_demand),
-                net_balance=VALUES(net_balance),updated_at=NOW()
-            SQL);
-        $statement->execute();
-        return $statement->rowCount();
-    }
-    // Get list of all systems with colonies
-    $sysStmt = $db->prepare(<<<SQL
-        SELECT DISTINCT
-               cb.galaxy_index,
-               cb.system_index
-        FROM celestial_bodies cb
-        JOIN colonies c ON c.body_id = cb.id
-        WHERE c.user_id > 0
-    SQL);
-    $sysStmt->execute();
-    
-    $updated = 0;
-    foreach ($sysStmt->fetchAll(PDO::FETCH_ASSOC) as $sys) {
-        $galaxy = (int)$sys['galaxy_index'];
-        $system = (int)$sys['system_index'];
-        
-        $analysis = calculate_system_supply_demand($db, $galaxy, $system);
-        
-        // Upsert into market_supply_demand
-        foreach ($analysis as $resourceType => $data) {
-            $stmt = $db->prepare(<<<SQL
-                INSERT INTO market_supply_demand 
-                (galaxy_index, system_index, resource_type,
-                 production_per_hour, consumption_per_hour,
-                 available_supply, desired_demand, net_balance)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE
-                production_per_hour  = VALUES(production_per_hour),
-                consumption_per_hour = VALUES(consumption_per_hour),
-                available_supply     = VALUES(available_supply),
-                desired_demand       = VALUES(desired_demand),
-                net_balance          = VALUES(net_balance),
-                updated_at           = NOW()
-            SQL);
-            
-            $stmt->execute([
-                $galaxy, $system, $resourceType,
-                (float)$data['production'],
-                (float)$data['consumption'],
-                (float)$data['available_supply'],
-                (float)$data['desired_demand'],
-                (float)$data['net_balance'],
-            ]);
-            
-            $updated += $stmt->rowCount();
-        }
-    }
-    
-    return $updated;
+    $statement = $db->prepare(<<<SQL
+        INSERT INTO market_supply_demand
+            (galaxy_index,system_index,resource_type,production_per_hour,consumption_per_hour,
+             available_supply,desired_demand,net_balance)
+        SELECT galaxy_index,system_index,good_type,SUM(production),SUM(consumption),
+               SUM(quantity)/24+SUM(production),SUM(consumption),
+               SUM(quantity)/24+SUM(production)-SUM(consumption)
+        FROM economy_colony_market GROUP BY galaxy_index,system_index,good_type
+        ON DUPLICATE KEY UPDATE
+            production_per_hour=VALUES(production_per_hour),
+            consumption_per_hour=VALUES(consumption_per_hour),
+            available_supply=VALUES(available_supply),desired_demand=VALUES(desired_demand),
+            net_balance=VALUES(net_balance),updated_at=NOW()
+        SQL);
+    $statement->execute();
+    return $statement->rowCount();
 }
 
 /**
@@ -289,12 +137,7 @@ function find_and_rank_trade_opportunities(PDO $db, float $min_margin_pct = 15.0
     $inserted = 0;
     
     // 3. For each resource type, compare all system pairs
-    $resourceTypes = [
-        'metal', 'crystal', 'deuterium', 'rare_earth', 'food',
-        'steel_alloy', 'focus_crystals', 'reactor_fuel',
-        'biocompost', 'electronics_components',
-        'consumer_goods', 'luxury_goods', 'military_equipment'
-    ];
+    $resourceTypes = array_keys(\GalaxyQuest\Economy\ColonyEconomySimulation::PRICES);
     
     foreach ($resourceTypes as $resource) {
         // Get all systems' data for this resource

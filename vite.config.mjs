@@ -95,10 +95,8 @@ export default ({ mode }) => {
       output: {
         // Code splitting strategy (Function-based for Vite 5+)
         manualChunks: (id) => {
-          if (id.includes('/js/rendering/')) return 'rendering';
-          if (id.includes('/js/engine/')) return 'engine';
-          if (id.includes('/js/runtime/')) return 'runtime';
-
+          // Keep dynamically loaded application modules separate: legacy globals
+          // must be initialized in the order enforced by the runtime loader.
           // Vendor libraries
           if (id.includes('node_modules')) {
             if (id.includes('three')) return 'vendor-three';

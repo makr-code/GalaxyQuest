@@ -10,7 +10,8 @@ async function installDraftApi(page) {
     position: { galaxy: 1, system: 2, position: 2 },
     target: { galaxy_index: 1, system_index: 2, position: 2, x_ly: 400, y_ly: 200, z_ly: 0 },
     stars: [],
-    planets: [1, 2, 3].map((position) => ({ position, name: `Private ${position}`, class: 'rocky', can_colonize: true })),
+    planets: [1, 2, 3].map((position) => ({ position, name: `Private ${position}`, class: 'rocky', can_colonize: true,
+      diameter_km: 12000, semi_major_axis_au: position })),
     starter: config.starter_homeworld,
   }));
   let selected = candidates[1];
@@ -65,7 +66,15 @@ async function installDraftApi(page) {
     } else if (action === 'csrf') result.token = 'draft-e2e-csrf';
     else if (action === 'me') result = { success: true, authenticated, user: authenticated ? { id: 123, username: 'DraftCommander' } : null };
     else if (action === 'overview') result = { success: true, colonies: [], fleets: [], user_meta: { dark_matter: 0 } };
-    else if (action === 'register_catalog') result = { success: true, factions: content.factions, species: species.map((code) => ({ code, name: code, description: 'Private origin' })) };
+    else if (action === 'register_catalog') result = { success: true, factions: content.factions, species: species.map((code, index) => {
+      const target = { galaxy_index: 1, system_index: index + 100, position: 2, x_ly: -400 - index * 100, y_ly: 0, z_ly: 0 };
+      return { code, name: code, description: 'Homeworld origin', homeworld: `${code} home`, target, stars: [target],
+        homeworld_scene: { scene_key: `homeworld:${index}`, target, system_name: `${code} home system`,
+          position: { galaxy: 1, system: index + 100, position: 2 }, star: { temperature_k: 5500, radius_solar: 1 },
+          planets: [{ position: 2, diameter_km: 12000, semi_major_axis_au: 1, inhabited: true }],
+        },
+      };
+    }) };
     else if (action === 'register_mentor_drafts') result.drafts = candidates;
     else if (action === 'register_select_mentor') { selected = candidates.find((entry) => entry.mentor_code === body.mentor_code); result.draft = selected; }
     else if (action === 'register_profile') result.draft = selected;
@@ -84,16 +93,21 @@ async function installDraftApi(page) {
 async function registerIntoDraft(page) {
   await page.goto('/');
   await page.locator('#start-register').click();
-  for (let index = 0; index < content.teaser.length; index++) await page.locator('#registration-continue').click();
+  await page.locator('#registration-opening-skip').click();
+  await expect(page.locator('#registration-title')).toHaveText('aereth home');
+  await page.locator('#registration-opening-skip').click();
   await page.locator('[data-choice="vor_tak"]').click();
   await page.locator('#registration-continue').click();
-  await page.locator('[data-tutorial-planet="2"]').click();
-  for (let index = 0; index < 3; index++) await page.locator('#registration-continue').click();
   await page.locator('#registration-name').fill('DraftCommander');
   await page.locator('#registration-background').fill('Private frontier explorer');
   await page.locator('#registration-character-form button').click();
+  await expect(page.locator('#registration-continue')).toHaveText('Shuttle starten');
   await page.locator('#registration-continue').click();
-  await expect(page.locator('#registration-continue')).toHaveText('Draft-Welt betreten');
+  await expect(page.locator('#registration-prologue')).toHaveAttribute('data-phase', 'journey');
+  await page.locator('#registration-continue').click();
+  await expect(page.locator('#registration-continue')).toHaveText('Bestätigen und landen', { timeout: 30000 });
+  await page.locator('#registration-continue').click();
+  await expect(page.locator('#registration-prologue')).toHaveAttribute('data-phase', 'landing');
   await page.locator('#registration-continue').click();
   await expect(page.locator('#draft-world')).toBeVisible();
   await expect(page.locator('#registration-prologue')).toBeHidden();

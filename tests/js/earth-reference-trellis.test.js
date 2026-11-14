@@ -15,8 +15,10 @@ describe('Earth reference TRELLIS2 building preview', () => {
   });
 
   it('keeps unapproved cleaned mesh candidates separate from inspected pilots', () => {
-    expect(Object.keys(TRELLIS_BUILDING_CANDIDATES).sort()).toEqual(['agriculture', 'command', 'fusion', 'hospital', 'nanotech', 'research', 'school', 'security', 'silo', 'solar', 'tank', 'terraforming']);
+    expect(Object.keys(TRELLIS_BUILDING_CANDIDATES).sort()).toEqual(['agriculture', 'command', 'fusion', 'hospital', 'industry', 'industry_512', 'industry_512_no_meshlib', 'nanotech', 'research', 'school', 'security', 'silo', 'solar', 'tank', 'terraforming']);
     expect(Object.values(TRELLIS_BUILDING_CANDIDATES).every(url => url.endsWith('_zero_area_cleaned.glb'))).toBe(true);
+    expect(TRELLIS_BUILDING_CANDIDATES.industry_512).toContain('building_industry_pilot_v1_00003__zero_area_cleaned.glb');
+    expect(TRELLIS_BUILDING_CANDIDATES.industry_512_no_meshlib).toContain('building_industry_pilot_v1_00004__zero_area_cleaned.glb');
   });
 
   it('fits a model to the requested display width and aligns its base at the Berlin reference site', () => {

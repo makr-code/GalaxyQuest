@@ -34,8 +34,43 @@ final class RegistrationDraftTest extends TestCase {
         }
         $config = json_decode(file_get_contents(__DIR__ . '/../../config/galaxy_config.json'), true, 512, JSON_THROW_ON_ERROR);
         $service = new RegistrationDraftService($db, $species, $config['starter_homeworld']);
-        self::assertSame(['schildzirkel', 'lichtbund', 'kernrat', 'schattenzirkel'], array_column($service->catalog()['factions'], 'code'));
-        self::assertCount(6, $service->catalog()['species']);
+        $catalogTables = ['registration_drafts', 'registration_limits', 'star_systems', 'planets', 'celestial_bodies'];
+        $beforeCatalog = $this->counts($db);
+        foreach ($catalogTables as $table) $beforeCatalog[$table] = (int)$db->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn();
+        $catalog = $service->catalog();
+        self::assertSame(['schildzirkel', 'lichtbund', 'kernrat', 'schattenzirkel'], array_column($catalog['factions'], 'code'));
+        self::assertCount(6, $catalog['species']);
+        self::assertSame(['iron_fleet', 'helion_confederation', 'ketzer_von_verath'],
+            array_column($catalog['npc_homeworlds'], 'code'));
+        $actualWorlds = $db->query(
+            'SELECT f.code, c.name AS homeworld, cb.galaxy_index, cb.system_index, cb.position, s.name AS system_name
+             FROM faction_homeworlds h JOIN npc_factions f ON f.id = h.faction_id
+             JOIN colonies c ON c.id = h.colony_id JOIN celestial_bodies cb ON cb.id = c.body_id
+             JOIN star_systems s ON s.galaxy_index = cb.galaxy_index AND s.system_index = cb.system_index'
+        )->fetchAll(PDO::FETCH_UNIQUE | PDO::FETCH_ASSOC);
+        foreach ($catalog['species'] as $entry) {
+            $world = $actualWorlds[$entry['code']];
+            $scene = $entry['homeworld_scene'];
+            self::assertSame($world['system_name'], $scene['system_name']);
+            self::assertSame($entry['target'], $scene['target']);
+            self::assertSame([
+                'galaxy' => (int)$world['galaxy_index'], 'system' => (int)$world['system_index'],
+                'position' => (int)$world['position'],
+            ], $scene['position']);
+            $inhabited = array_values(array_filter($scene['planets'], static fn(array $planet): bool => !empty($planet['inhabited'])));
+            self::assertCount(1, $inhabited);
+            self::assertSame((int)$world['position'], $inhabited[0]['position']);
+            self::assertSame($world['homeworld'], $inhabited[0]['name']);
+        }
+        foreach ($catalog['npc_homeworlds'] as $entry) {
+            $world = $actualWorlds[$entry['code']];
+            self::assertSame($world['homeworld'], $entry['homeworld']);
+            self::assertSame($entry['target'], $entry['homeworld_scene']['target']);
+            self::assertSame((int)$world['position'], $entry['homeworld_scene']['position']['position']);
+        }
+        $afterCatalog = $this->counts($db);
+        foreach ($catalogTables as $table) $afterCatalog[$table] = (int)$db->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn();
+        self::assertSame($beforeCatalog, $afterCatalog, 'Catalog must not reserve or generate persistent worlds.');
         $mentorOwner = hash('sha256', 'mentor-browser');
         $mentorDrafts = $service->mentorDrafts($mentorOwner, hash('sha256', 'mentor-ip'));
         self::assertCount(6, $mentorDrafts);

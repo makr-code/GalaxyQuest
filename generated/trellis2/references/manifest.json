@@ -23,7 +23,12 @@
       "facility_kind": "industry",
       "file": "industry_concept_v1.png",
       "sha256": "8753077909a89880fc58392443114f9350cc9a5956ad1d0e82f82e4d870d9dcc",
-      "brief": "Single manufacturing hall with loading doors, exterior pipes, utility module and exhaust stack."
+      "brief": "Single manufacturing hall with loading doors, exterior pipes, utility module and exhaust stack.",
+      "trellis_input": {
+        "file": "industry_concept_v1_alpha.png",
+        "sha256": "85504047690d978f196f9770918c8fac57b6e6c75725e14df26387c66c508cc1",
+        "preparation": "rembg 2.0.87 u2netp, CPU; alpha visually inspected"
+      }
     },
     {
       "asset_type": "building",

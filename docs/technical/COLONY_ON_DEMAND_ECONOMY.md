@@ -2,17 +2,28 @@
 
 ## Execution model
 
-There is **no periodic economy tick, scheduler or separate engine** in this slice.
-Existing callers invoke `update_colony_resources()` on demand. The function
-settles elapsed time since the colony's persisted `last_update`, including
-individual seconds, and atomically advances that timestamp with the stockpiles,
-population and geological deposits.
+The on-demand ledger (`src/Economy/OnDemandEconomy.php`,
+`ColonyEconomySimulation.php`, `ResourceLedger.php`) is the **only** colony
+economy path. There is no feature flag (`ON_DEMAND_ECONOMY_ENABLED` was removed),
+no periodic production/population tick, scheduler or lazy flush
+(`api/economy_flush.php` was removed). The global simulation tick
+(`scripts/run_simulation_tick.php --scope=global`) does not run economy
+subsystems.
 
-Long elapsed intervals are integrated in numerical steps of **at most** 60
-seconds inside that same call, including the final partial minute. These are not
-scheduled game ticks. Frequent calls are not required for growth or production.
-The entire elapsed interval is settled before returning; offline time is not
-capped or left waiting for another access.
+`update_colony_resources()` delegates to `OnDemandEconomy::settle()`. Settlement
+advances the colony's persisted economy cursor in numerical steps of
+`ColonyEconomySimulation::STEP_SECONDS` (300 s), at most `MAX_STEPS` (288, i.e.
+24 h) per call. A mutation additionally integrates the final partial step. These
+are not scheduled game ticks; any remaining backlog is settled on the next access.
+Production-changing commands reject with HTTP 409 while the colony is still
+catching up (`assertCaughtUp`).
+
+Mutations (market, research, shipyard, buildings, fleet launch, trade) run inside
+`OnDemandEconomy::transaction()`. Top-level MySQL transactions use
+`READ COMMITTED` isolation so that guards evaluated after acquiring the user and
+colony row locks see committed state instead of a snapshot taken by an earlier
+non-locking read. This requires row-based or mixed binary logging (MySQL default);
+`binlog_format=STATEMENT` is not supported.
 
 ## Shared calculation
 
@@ -38,24 +49,42 @@ settle on reads retain their behavior; this slice does not turn them into jobs.
 - Galaxy catalog refreshes initialize deposits only for new planets. They no
   longer restore depleted or fractional reserves on existing planets.
 
-Migration `migrate_colony_economy_precision_v1.sql` converts legacy mineral
-deposits to `DECIMAL(20,6)` without changing their values and creates
-`colony_economy_precision`. It preserves population, dark-matter and sub-stock-unit
-remainders across requests. Colony stockpiles remain `DECIMAL(20,4)`; extraction
-credits/debits the same four-decimal amount. Residual deposits below 0.0001 cannot
-be credited until stockpile precision is extended.
-
-Apply the migration through the normal migration runner **before deploying these
-runtime changes**. Missing schema/corrupt precision state fails explicitly.
-No runtime DDL or automatic migration runs on a gameplay request.
-
-MySQL locking reads serialize simultaneous settlements and avoid reusing stale
-repeatable-read snapshots. A standalone call owns its transaction. A call inside
-an existing transaction uses a savepoint, never commits its caller, and rolls back
-its own changes on error. Production modifiers must not mutate behind these locks
-without first settling the old interval when future mutation paths are unified.
+The ledger schema is created by `sql/migrate_economy_on_demand_v1.sql` (plus the
+colony-building and body-development migrations it depends on). Apply all pending
+migrations through the normal migration runner **before deploying runtime
+changes**; there is no legacy fallback when the schema is missing. No runtime DDL
+or automatic migration runs on a gameplay request. The older
+`colony_economy_precision` table is no longer read or written at runtime.
 
 ## DOM and market integration
+
+### Opt-in NPC production decisions
+
+The existing hourly NPC-account pipeline can now choose one method adjustment
+and one affordable construction for an explicitly bound economic actor, sharing
+the existing standing-order window marker and finite budget. Unbound/human
+accounts are unchanged; bound accounts already bypass the legacy multi-round
+controller. No actor, research, stock, credits or colony is provisioned.
+
+Next-hour counterfactuals use the real recipe and raw-production calculators,
+including population/employment, energy/input limits, research and available
+deposits/storage. Method switching requires a stable >5% weighted reserve-
+shortfall improvement; premium is not a default. Construction uses player queue
+preflight, body layout/class capacity, research/discounts and ledger costs.
+An active queue prevents another structural choice; on-demand settlement remains
+the only way queued levels complete or production advances.
+
+Construction's market-valued resource cost and new buy escrow share the profile
+cap. Valuation is policy accounting, not a credit grant or resource conversion:
+actual unreserved goods must still fund every cost. Food-reserve deficits defer
+industrial construction, while food/energy repairs remain possible. Decisions
+and all effects commit atomically; same-hour force/retries cannot spend again.
+
+`scripts\npc_economy.php preview|status` are strictly read-only, including when a
+queue is due. Stale preview cursors explicitly defer rather than settling. Saved
+diagnostics include methods/levels, beneficiary needs, costs, reservations,
+budget, window and constraint reasons. See
+`TRADERS_INTEGRATION_GUIDE.md` for explicit activation and verification.
 
 Overview colonies expose `*_per_hour`, `food_consumption_per_hour`,
 `food_coverage` and `population_growth_per_hour`. The economy-flow DOM controller
@@ -79,17 +108,17 @@ cutover and renewable-source recovery remain separate implementation slices.
 Numerical steps recompute current population, food and welfare, but modifiers are
 loaded once per demand-driven settlement. Historical building completions,
 research and event changes are not replayed; that requires the pending chronological
-action integration. Different sub-minute access patterns may have small numerical
+action integration. Different sub-step access patterns may have small numerical
 integration differences when population or welfare changes; there is no per-call
 growth rounding or loss of fractional food/extraction.
 
 ## Focused verification
 
 ```sh
-vendor/bin/phpunit tests/Unit/ColonyEconomyCalculationTest.php tests/Integration/ColonyEconomyPersistenceTest.php
-npm run test:unit:js -- tests/js/runtime-economy-flow-controller.test.js
+vendor/bin/phpunit tests/Unit/ColonyEconomyCalculationTest.php tests/Integration/OnDemandEconomyTest.php
 ```
 
-Persistence tests use SQLite by default. `GQ_BODY_RESOURCE_TEST_DSN` and the
-corresponding `_USER`/`_PASSWORD` variables enable isolated MySQL databases and
-the real precision migration, including stale-snapshot locking coverage.
+`GQ_RESOURCE_LEDGER_TEST_DSN` with the corresponding `_USER`/`_PASSWORD`
+variables enables the isolated MySQL concurrency tests
+(`ResourceMutationApiConcurrencyTest`, `ResourceLedgerConcurrencyTest`,
+`FleetMySqlConcurrencyTest`).

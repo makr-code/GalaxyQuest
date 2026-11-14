@@ -1,0 +1,68 @@
+{
+  "schema": "gq.trellis-inspection.v2",
+  "status": "DEV_ONLY",
+  "source_sha256": "e0697596dbb68ba17d867d8655ad510f827edcce806b3e41fe34aaeabf53b182",
+  "size_bytes": 56356332,
+  "asset_type": "building",
+  "facility_kind": "industry",
+  "instances": 1,
+  "world_bounds": [
+    [
+      0.03247169405221939,
+      0.10851874202489853,
+      -0.9989027976989746
+    ],
+    [
+      0.967765748500824,
+      0.8896399736404419,
+      0.0007314297836273909
+    ]
+  ],
+  "missing_normal_primitives": 1,
+  "meshes": [
+    {
+      "name": "geometry_0",
+      "triangles": 3130900,
+      "vertices": 1565396,
+      "zero_area_faces": 0,
+      "uv_valid": false,
+      "components": [
+        {
+          "triangles": 3130900,
+          "area_fraction": 1.0,
+          "local_bounds": [
+            [
+              0.03247169405221939,
+              0.10851874202489853,
+              -0.9989027976989746
+            ],
+            [
+              0.967765748500824,
+              0.8896399736404419,
+              0.0007314297836273909
+            ]
+          ]
+        }
+      ],
+      "base_color": null,
+      "metallic_roughness": null,
+      "base_color_factor": null,
+      "findings": [
+        "missing_or_invalid_uv",
+        "missing_pbr_material",
+        "missing_base_color_texture",
+        "missing_metallic_roughness_texture"
+      ]
+    }
+  ],
+  "findings": [
+    "missing_normal_attributes"
+  ],
+  "required_manual_checks": [
+    "visual_quality_and_materials",
+    "physical_scale",
+    "orientation_and_ground_contact",
+    "lod_and_render_budget",
+    "both_colony_views"
+  ]
+}

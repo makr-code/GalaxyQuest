@@ -91,6 +91,13 @@ final class OnDemandEconomyTest extends TestCase
             CREATE TABLE leaders (colony_id INTEGER, role TEXT, autonomy INTEGER);
             CREATE TABLE colony_events (colony_id INTEGER, event_type TEXT, expires_at TEXT);
             CREATE TABLE ships (colony_id INTEGER, type TEXT, count INTEGER);
+            CREATE TABLE world_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, window_id INTEGER, event_type TEXT, scope_type TEXT,
+                scope_id INTEGER, galaxy_index INTEGER, system_index INTEGER DEFAULT 0,
+                good_key TEXT NOT NULL DEFAULT '', modifier_json TEXT, starts_at INTEGER, ends_at INTEGER,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(window_id, event_type, scope_type, scope_id, good_key)
+            );
             INSERT INTO users (id) VALUES (1),(2);
             INSERT INTO celestial_bodies VALUES (1,1,1,1),(2,1,2,1),(3,2,1,1);
             INSERT INTO colonies (id,user_id,body_id,name) VALUES (1,1,1,'Alpha'),(2,2,2,'Beta'),(3,2,3,'Gamma');
@@ -265,6 +272,65 @@ final class OnDemandEconomyTest extends TestCase
     {
         self::assertSame(3.0, OnDemandEconomy::price('metal', 1e12, 100000, 1));
         self::assertSame(35.0, OnDemandEconomy::price('metal', 0, 0, 1e12));
+        self::assertSame(35.0, OnDemandEconomy::price('metal', 0, 0, 1e12, 2.0, 2.0));
+        self::assertSame(3.0, OnDemandEconomy::price('metal', 1e12, 100000, 1, 0.5));
+    }
+
+    public function testWorldEventScalesRegionalPriceQuoteOnlyWhileActive(): void
+    {
+        $this->economy->settle(1, 1, 1000000);
+        $this->economy->settle(2, 2, 1000000);
+        $this->db->exec("UPDATE economy_colony_market SET quantity=24, production=0, consumption=1 WHERE good_type='metal'");
+        $baseline = $this->economy->market(1, 1, 1000100)['goods']['metal']['price'];
+        self::assertSame(10.0, $baseline);
+        $this->addEvent('system', 1, 1, 'metal', ['price' => 1.3], 1000000, 1003600);
+
+        $active = $this->economy->market(1, 1, 1000100);
+        self::assertSame(1.3, $active['goods']['metal']['event_price_modifier']);
+        self::assertSame(1.0, $active['goods']['food']['event_price_modifier']);
+        self::assertSame(13.0, $active['goods']['metal']['price']);
+        self::assertSame('Versorgungsschock', $active['world_events'][0]['label']);
+        self::assertSame(1.0, $this->economy->market(1, 2, 1000100)['goods']['metal']['event_price_modifier']);
+        self::assertSame([], $this->economy->market(null, null, 1000100)['world_events']);
+
+        $expired = $this->economy->market(1, 1, 1003600);
+        self::assertSame($baseline, $expired['goods']['metal']['price']);
+        self::assertSame([], $expired['world_events']);
+    }
+
+    public function testWorldEventProductionAppliesOnlyToOverlappingSettleTime(): void
+    {
+        $settle = function (?array $event): float {
+            $this->setUp();
+            $this->economy->settle(1, 1, 1000000);
+            if ($event !== null) {
+                $this->addEvent('system', 1, 1, 'metal', ['production' => 0.5], ...$event);
+            }
+            return (float)$this->economy->settle(1, 1, 1003600)['economy']['stock']['metal'];
+        };
+        $baseline = $settle(null);
+        self::assertLessThan($baseline, $settle([1000000, 1003600]));
+        self::assertSame($baseline, $settle([1003600, 1010800]));
+        self::assertSame($baseline, $settle([900000, 1000000]));
+    }
+
+    /** @param array<string, float> $modifiers */
+    private function addEvent(
+        string $scope,
+        int $galaxy,
+        int $system,
+        string $good,
+        array $modifiers,
+        int $startsAt,
+        int $endsAt
+    ): void {
+        $this->db->prepare(
+            'INSERT INTO world_events (window_id, event_type, scope_type, scope_id, galaxy_index, system_index, '
+                . 'good_key, modifier_json, starts_at, ends_at) VALUES (?,?,?,?,?,?,?,?,?,?)'
+        )->execute([
+            intdiv($startsAt, 3600), 'supply_shock', $scope, $galaxy * 100000 + $system, $galaxy, $system,
+            $good, json_encode($modifiers, JSON_THROW_ON_ERROR), $startsAt, $endsAt,
+        ]);
     }
 
     public function testOfflineBacklogIsPersistedAcrossBoundedRequests(): void

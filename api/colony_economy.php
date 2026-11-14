@@ -9,9 +9,6 @@ require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/economy_cache.php';
 
 $uid = require_auth();
-if (!ON_DEMAND_ECONOMY_ENABLED) {
-    json_error('On-demand economy is disabled. Apply its migration before enabling it.', 503);
-}
 $action = (string)($_GET['action'] ?? 'snapshot');
 $service = new OnDemandEconomy(get_db());
 try {
@@ -37,6 +34,9 @@ try {
     }
     only_method('POST');
     verify_csrf();
+    if ($action === 'buy' || $action === 'sell') {
+        json_error('Soforthandel wurde eingestellt. Bitte einen Auftrag mit create_order erstellen; Lieferung erfolgt per Transportschiff.', 409);
+    }
     $body = get_json_body();
     $cid = filter_var($body['colony_id'] ?? null, FILTER_VALIDATE_INT);
     if ($cid === false || $cid < 1) {
@@ -56,15 +56,6 @@ try {
             json_error('building_type required.', 400);
         }
         $result = $service->queue($cid, $uid, $body['building_type'], $slot);
-        invalidate_economy_views(get_db(), $uid, $cid);
-        json_ok($result);
-    }
-    if ($action === 'buy' || $action === 'sell') {
-        $quantity = $body['quantity'] ?? null;
-        if (!is_string($body['good_type'] ?? null) || !is_numeric($quantity)) {
-            json_error('good_type and numeric quantity required.', 400);
-        }
-        $result = $service->exchange($cid, $uid, $body['good_type'], (float)$quantity, $action === 'buy');
         invalidate_economy_views(get_db(), $uid, $cid);
         json_ok($result);
     }

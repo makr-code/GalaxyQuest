@@ -38,7 +38,6 @@ define('DB_CHARSET', env_value('DB_CHARSET', 'utf8mb4'));
 
 // Game configuration
 define('GAME_SPEED', (int) env_value('GAME_SPEED', 1));   // Resource/fleet speed multiplier
-define('ON_DEMAND_ECONOMY_ENABLED', (int) env_value('ON_DEMAND_ECONOMY_ENABLED', 0));
 define('BODY_DEVELOPMENT_ENABLED', (int) env_value('BODY_DEVELOPMENT_ENABLED', 0));
 define('BATTLE_ENCOUNTERS_ENABLED', (int) env_value('BATTLE_ENCOUNTERS_ENABLED', 0));
 define('LIVE_BATTLE_JOURNAL_WORKER_ENABLED', (int) env_value('LIVE_BATTLE_JOURNAL_WORKER_ENABLED', 0));
@@ -77,6 +76,16 @@ define('OLLAMA_LOCAL_ONLY', (int) env_value('OLLAMA_LOCAL_ONLY', 1));
 define('OLLAMA_BASE_URL', rtrim((string) env_value('OLLAMA_BASE_URL', 'http://127.0.0.1:11434'), '/'));
 define('OLLAMA_DEFAULT_MODEL', (string) env_value('OLLAMA_DEFAULT_MODEL', 'mistral'));
 define('OLLAMA_TIMEOUT_SECONDS', (int) env_value('OLLAMA_TIMEOUT_SECONDS', 45));
+
+// Galaxy News Radio: LLM-written daily news lines published to WordPress (see scripts/generate_galaxy_news.php)
+define('GALAXY_NEWS_MODEL', (string) env_value('GALAXY_NEWS_MODEL', OLLAMA_DEFAULT_MODEL));
+define('GALAXY_NEWS_PUBLISH_STATUS', (string) env_value('GALAXY_NEWS_PUBLISH_STATUS', 'draft'));
+// "Sondernachrichten" thresholds (see scripts/generate_galaxy_special.php); deliberately high
+define('GALAXY_SPECIAL_WAR_MIN_PLAYERS', (int) env_value('GALAXY_SPECIAL_WAR_MIN_PLAYERS', 50));
+define('GALAXY_SPECIAL_CRASH_MIN_GOODS', (int) env_value('GALAXY_SPECIAL_CRASH_MIN_GOODS', 5));
+define('GALAXY_SPECIAL_CRASH_PRICE_MULT', (float) env_value('GALAXY_SPECIAL_CRASH_PRICE_MULT', 0.5));
+define('BLOG_WORDPRESS_USER', (string) env_value('BLOG_WORDPRESS_USER', ''));
+define('BLOG_WORDPRESS_APP_PASSWORD', (string) env_value('BLOG_WORDPRESS_APP_PASSWORD', ''));
 
 // SwarmUI (local Stable Diffusion image generation)
 define('SWARMUI_ENABLED',         (int)    env_value('SWARMUI_ENABLED', APP_ENV === 'dev' ? 1 : 0));
@@ -153,9 +162,15 @@ define('PROJECTION_SYSTEM_BATCH_SIZE', (int) env_value('PROJECTION_SYSTEM_BATCH_
 // ── Headless Simulation Runtime ────────────────────────────────────────────────
 // Default systems-per-shard for deterministic galaxy partitioning.
 define('SIMULATION_SYSTEMS_PER_SHARD', (int) env_value('SIMULATION_SYSTEMS_PER_SHARD', 20000));
-// Cooldown windows for manual/worker-triggered simulation ticks.
-define('SIMULATION_GLOBAL_TICK_COOLDOWN_SECONDS', (int) env_value('SIMULATION_GLOBAL_TICK_COOLDOWN_SECONDS', 60));
+// Cooldown windows for manual/worker-triggered simulation ticks. The global tick is
+// the hourly world tick: it runs at most once per aligned cooldown window.
+define('SIMULATION_GLOBAL_TICK_COOLDOWN_SECONDS', (int) env_value('SIMULATION_GLOBAL_TICK_COOLDOWN_SECONDS', 3600));
 define('SIMULATION_USER_TICK_COOLDOWN_SECONDS', (int) env_value('SIMULATION_USER_TICK_COOLDOWN_SECONDS', 300));
+// Hourly world events: cap of concurrently active events across the universe.
+define('WORLD_EVENTS_MAX_ACTIVE', (int) env_value('WORLD_EVENTS_MAX_ACTIVE', 6));
+// Mail outbox delivery (last step of the global tick, also scripts/send_mail_outbox.php).
+define('MAIL_OUTBOX_BATCH', (int) env_value('MAIL_OUTBOX_BATCH', 50));
+define('MAIL_OUTBOX_MAX_ATTEMPTS', (int) env_value('MAIL_OUTBOX_MAX_ATTEMPTS', 5));
 // Canonical event taxonomy path used by the headless simulation runtime.
 define('SIMULATION_EVENT_TAXONOMY_FILE', (string) env_value('SIMULATION_EVENT_TAXONOMY_FILE', dirname(__DIR__) . '/config/simulation_event_taxonomy.json'));
 

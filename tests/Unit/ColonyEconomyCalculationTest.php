@@ -8,30 +8,10 @@ require_once __DIR__ . '/../../api/economy_runtime.php';
 
 final class ColonyEconomyCalculationTest extends TestCase
 {
-    public function testSmallColonyCanGrowAndStarveWithoutHourlyRounding(): void
+    public function testSmallColonyGrowthRateIsFractionalAndStarvationIsNegative(): void
     {
         self::assertEqualsWithDelta(0.16, population_growth(100, 500, 100, 1.5), 1e-12);
         self::assertSame(-0.5, population_growth(100, 500, 100, 0.0));
-        $population = 100;
-        $remainder = 0.0;
-        for ($minute = 0; $minute < 600; $minute++) {
-            $result = colony_population_change($population, 500, 0.16, 1 / 60, $remainder);
-            $population = $result['population'];
-            $remainder = $result['remainder'];
-        }
-        self::assertSame(101, $population);
-        self::assertEqualsWithDelta(0.6, $remainder, 1e-6);
-        $starving = colony_population_change(100, 500, -0.5, 1, -0.5);
-        self::assertSame(99, $starving['population']);
-        self::assertSame(0.0, $starving['remainder']);
-    }
-
-    public function testHousingReductionDoesNotDeletePopulation(): void
-    {
-        self::assertSame(800, colony_population_change(800, 500, 0, 1, 0)['population']);
-        self::assertSame(799, colony_population_change(800, 500, -1, 1, 0)['population']);
-        self::assertSame(['population' => 500, 'remainder' => 0.0], colony_population_change(499, 500, 5, 1, 0.5));
-        self::assertSame(['population' => 1, 'remainder' => 0.0], colony_population_change(2, 500, -5, 1, -0.5));
     }
 
     public function testStoredFoodPreventsStarvationWithoutAWorkingFarm(): void

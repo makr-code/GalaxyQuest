@@ -350,8 +350,8 @@ Darstellung erzeugt **keine** Ressourcen, Jobs oder Bevölkerungsänderungen.
 - **Wirtschaft:** Ein abbrechbarer, nicht gecachter Request bei Eintritt und
   auf „Refresh snapshot“ liest
   `api/colony_economy.php?action=snapshot&colony_id=N`. Er benötigt das separate
-  On-demand-Economy-Backend, dessen Migration und
-  `ON_DEMAND_ECONOMY_ENABLED=1` (Default aus). Fehlende Freischaltung/Fehler werden
+  On-demand-Economy-Backend (einziger Wirtschaftspfad, kein Feature-Flag) und
+  dessen Migration. Fehlendes Schema/Fehler werden
   sichtbar gemeldet; bestehende `API.buildings()`-Daten bleiben unabhängig
   nutzbar. Es gibt weder Polling noch Requests bei verborgenem Dokument.
   Produktions-/Verbrauchswerte werden nur angezeigt, nicht fortgeschrieben.

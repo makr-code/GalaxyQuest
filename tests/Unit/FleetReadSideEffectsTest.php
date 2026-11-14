@@ -123,8 +123,8 @@ final class FleetReadSideEffectsTest extends TestCase
 
         $sweep = $this->functionBody($source, 'process_fleet_arrivals');
         self::assertStringContainsString('process_fleet_arrival_locked($db', $sweep);
-        self::assertStringContainsString('$db->beginTransaction();', $sweep);
-        self::assertStringContainsString('$db->commit();', $sweep);
+        self::assertStringContainsString('$economy->transaction(', $sweep);
+        self::assertStringContainsString('$economy->settle($recipient)', $sweep);
     }
 
     public function testFtlReadActionsAndHelpersDoNotMutateFleetOrTravelState(): void

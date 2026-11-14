@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 
 test.skip(process.env.GQ_TRELLIS_SHIP_E2E !== '1', 'Requires the local Docker API, Vite server and TRELLIS2 DEV_ONLY GLB.');
 
-test('mentor room renders the TRELLIS2 ship in the WebGPU herald scene on desktop and mobile', async ({ page }) => {
+test('campaign renders comet and TRELLIS2 shuttle in the existing WebGPU canvas', async ({ page }) => {
   test.setTimeout(240_000);
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
@@ -27,41 +27,56 @@ test('mentor room renders the TRELLIS2 ship in the WebGPU herald scene on deskto
     });
     test.skip(!webGpuAvailable, 'This Playwright runner does not expose a WebGPU adapter.');
     await page.locator('#start-register').click();
-    for (const title of [
-      'Ein Bündnis im Wandel',
-      'Eine ungeschriebene Welt',
-      'Deine Geschichte beginnt',
-      'Die Heroldkammer',
-    ]) {
-      await page.locator('#registration-continue').click();
-      await expect(page.locator('#registration-title')).toHaveText(title);
-    }
-
+    await expect(page.locator('#registration-prologue')).toHaveAttribute('data-camera-state', 'ready');
+    await page.evaluate(() => { window.__campaignCanvas = document.querySelector('#galaxy-bg-wrapper canvas'); });
+    expect(await page.evaluate(() => {
+      const renderer = window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer;
+      const flight = (renderer._native || renderer).getSpaceView();
+      return flight.spaceEntities.get('onboarding-comet')?.kind;
+    })).toBe('comet');
+    await page.locator('#registration-opening-skip').click();
+    await expect(page.locator('#registration-prologue')).toHaveAttribute('data-phase', 'homeworlds');
+    await expect(page.locator('#registration-prologue')).toHaveAttribute('data-camera-state', 'ready', { timeout: 90000 });
+    await page.locator('#registration-opening-skip').click();
     await expect(page.locator('#registration-choices button')).toHaveCount(6, { timeout: 120_000 });
-    const shipCanvas = page.locator('.registration-herald-canvas-rigged');
-    await expect(shipCanvas).toHaveAttribute('data-teaser-ship', 'loaded', { timeout: 120_000 });
+    await page.locator('#registration-choices button').first().click();
+    await page.locator('#registration-continue').click();
+    await page.locator('#registration-name').fill(`Pilot${Date.now()}`);
+    await page.locator('#registration-background').fill('An explorer departing for a private frontier world.');
+    await page.locator('#registration-character-form [type="submit"]').click();
+    await expect(page.locator('#registration-continue')).toHaveText('Shuttle starten');
+    await page.locator('#registration-continue').click();
+    await expect.poll(() => page.evaluate(() => {
+      const renderer = window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer;
+      const flight = (renderer._native || renderer).getSpaceView();
+      return Boolean(flight.registrationVoyage && flight.vesselRenderPass.resources.has('onboarding-shuttle'));
+    }), { timeout: 90000 }).toBe(true);
+    await page.locator('#registration-opening-pause').click();
     const desktop = await page.evaluate(() => ({
       webgpu: Boolean(navigator.gpu),
-      renderer: document.querySelector('.registration-herald-canvas-rigged')?.dataset.renderer,
+      sameCanvas: window.__campaignCanvas === document.querySelector('#galaxy-bg-wrapper canvas'),
       scrollWidth: document.documentElement.scrollWidth,
       viewportWidth: innerWidth,
     }));
     expect(desktop.webgpu).toBe(true);
-    expect(desktop.renderer).toBe('three-webgpu-gltf');
+    expect(desktop.sameCanvas).toBe(true);
     expect(desktop.scrollWidth).toBeLessThanOrEqual(desktop.viewportWidth);
-    await page.screenshot({ path: 'C:/Users/mkrueger/AppData/Local/Temp/gq-registration-trellis-desktop.png' });
+    await page.screenshot({ path: 'test-results/registration-shuttle-desktop.png' });
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(shipCanvas).toHaveAttribute('data-teaser-ship', 'loaded');
     const mobile = await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,
       viewportWidth: innerWidth,
-      visibleChoices: [...document.querySelectorAll('#registration-choices button')]
-        .filter((button) => button.getBoundingClientRect().width > 0).length,
     }));
     expect(mobile.scrollWidth).toBeLessThanOrEqual(mobile.viewportWidth);
-    expect(mobile.visibleChoices).toBe(6);
-    await page.screenshot({ path: 'C:/Users/mkrueger/AppData/Local/Temp/gq-registration-trellis-mobile.png' });
+    await page.screenshot({ path: 'test-results/registration-shuttle-mobile.png' });
+    await page.locator('#registration-continue').click();
+    await expect(page.locator('#registration-continue')).toHaveText('Bestätigen und landen');
+    await expect(page.locator('#draft-world')).toBeHidden();
+    await page.locator('#registration-continue').click();
+    await expect(page.locator('#registration-prologue')).toHaveAttribute('data-phase', 'landing');
+    await expect(page.locator('#draft-world')).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('body')).toHaveClass(/draft-playing/);
     expect(pageErrors).toEqual([]);
   } finally {
     await page.evaluate(async () => {

@@ -3,7 +3,7 @@
 /**
  * Plugin Name: GalaxyQuest Deployment Status
  * Description: Read-only deployment status and controlled Plesk Git fetch operations.
- * Version: 0.2.0
+ * Version: 0.2.1
  * Requires at least: 6.5
  * Requires PHP: 8.2
  * Update URI: https://github.com/makr-code/GalaxyQuest/tree/main/wordpress-integration
@@ -13,9 +13,15 @@
 
 declare(strict_types=1);
 
+use GalaxyQuest\WordPress\GitHubPluginUpdaterV1 as GitHubPluginUpdater;
+use GalaxyQuest\WordPress\AdminTablesV1 as AdminTables;
+
 if (!defined('ABSPATH')) {
     exit;
 }
+
+require_once __DIR__ . '/gq-github-plugin-updater.php';
+require_once __DIR__ . '/gq-admin-tables.php';
 
 const GQ_DEPLOYMENT_STATUS_REPOSITORY = 'makr-code/GalaxyQuest';
 const GQ_DEPLOYMENT_STATUS_WORKFLOW = '.github/workflows/ci.yml';
@@ -32,7 +38,7 @@ const GQ_DEPLOYMENT_STATUS_REQUIRED_JOBS = [
 const GQ_DEPLOYMENT_STATUS_ACCEPTANCE_STEP =
     'Accept native candidate on PHP 8.4 FPM behind Apache with WordPress routing';
 const GQ_DEPLOYMENT_STATUS_ARTIFACT_STEP = 'Preserve non-deployable native candidate';
-const GQ_DEPLOYMENT_STATUS_PLUGIN_VERSION = '0.2.0';
+const GQ_DEPLOYMENT_STATUS_PLUGIN_VERSION = '0.2.1';
 const GQ_DEPLOYMENT_STATUS_PLUGIN_SLUG = 'gq-deployment-status';
 const GQ_DEPLOYMENT_STATUS_PLUGIN_UPDATE_URI =
     'https://github.com/makr-code/GalaxyQuest/tree/main/wordpress-integration';
@@ -62,6 +68,11 @@ function gq_deployment_status_render_page(): void
     if (!current_user_can('manage_options')) {
         wp_die(esc_html__('You are not allowed to view deployment status.', 'gq-deployment-status'));
     }
+    $environment = $_GET['environment'] ?? 'staging';
+    $branch = is_string($environment) ? gq_deployment_status_branch_for_environment($environment) : null;
+    if ($branch === null) {
+        wp_die(esc_html__('Unknown deployment environment.', 'gq-deployment-status'), '', ['response' => 400]);
+    }
 
     if (isset($_GET['gq_refresh'])) {
         check_admin_referer('gq_deployment_status_refresh');
@@ -69,13 +80,10 @@ function gq_deployment_status_render_page(): void
         delete_transient('gq_deployment_status_production');
         delete_transient(GQ_DEPLOYMENT_STATUS_PLUGIN_RELEASE_CACHE);
     }
-    $reports = [
-        'staging' => gq_deployment_status_get_report('staging'),
-        'production' => gq_deployment_status_get_report('production'),
-    ];
+    $report = gq_deployment_status_get_report($environment);
     $notice = gq_deployment_status_take_notice();
     $refreshUrl = wp_nonce_url(
-        admin_url('admin.php?page=gq-deployment-status&gq_refresh=1'),
+        admin_url('admin.php?page=gq-deployment-status&gq_refresh=1&environment=' . $environment),
         'gq_deployment_status_refresh'
     );
     ?>
@@ -92,16 +100,26 @@ function gq_deployment_status_render_page(): void
                 <p><?php echo esc_html($notice['message']); ?></p>
             </div>
         <?php endif; ?>
-        <p><a class="button" href="<?php echo esc_url($refreshUrl); ?>">
-            <?php esc_html_e('Refresh status', 'gq-deployment-status'); ?>
-        </a></p>
-        <?php foreach ([
-            'staging' => ['label' => 'Staging', 'branch' => 'develop'],
-            'production' => ['label' => 'Production', 'branch' => 'main'],
-        ] as $environment => $details) : ?>
-            <h2><?php echo esc_html($details['label']); ?> — <?php echo esc_html($details['branch']); ?></h2>
-            <?php gq_deployment_status_render_environment($environment, $reports[$environment]); ?>
-        <?php endforeach; ?>
+        <nav class="nav-tab-wrapper" aria-label="<?php echo esc_attr(__('Environment', 'gq-deployment-status')); ?>">
+            <?php foreach (['staging' => 'Staging', 'production' => 'Production'] as $tab => $label) : ?>
+                <a class="nav-tab<?php echo $tab === $environment ? ' nav-tab-active' : ''; ?>"
+                    href="<?php echo esc_url(admin_url('admin.php?page=gq-deployment-status&environment=' . $tab)); ?>"
+                    <?php if ($tab === $environment) : ?>
+                        aria-current="page"
+                    <?php endif; ?>
+                ><?php echo esc_html(__($label, 'gq-deployment-status')); ?></a>
+            <?php endforeach; ?>
+        </nav>
+        <section id="gq-deployment-status-<?php echo esc_attr($environment); ?>">
+            <h2>
+                <?php echo esc_html($environment === 'staging' ? 'Staging' : 'Production'); ?>
+                — <?php echo esc_html($branch); ?>
+            </h2>
+            <p><a class="button" href="<?php echo esc_url($refreshUrl); ?>">
+                <?php esc_html_e('Refresh status', 'gq-deployment-status'); ?>
+            </a></p>
+            <?php gq_deployment_status_render_environment($environment, $report); ?>
+        </section>
         <h2><?php esc_html_e('Promote staging to production', 'gq-deployment-status'); ?></h2>
         <p class="description">
             <?php esc_html_e(
@@ -120,14 +138,8 @@ function gq_deployment_status_render_page(): void
 function gq_deployment_status_render_environment(string $environment, array $report): void
 {
     ?>
-    <table class="widefat striped">
-        <thead>
-            <tr>
-                <th><?php esc_html_e('Source', 'gq-deployment-status'); ?></th>
-                <th><?php esc_html_e('Commit', 'gq-deployment-status'); ?></th>
-                <th><?php esc_html_e('Status / evidence', 'gq-deployment-status'); ?></th>
-            </tr>
-        </thead>
+    <table class="widefat striped" data-gq-admin-table>
+        <?php AdminTables::header(['Source', 'Commit', 'Status / evidence']); ?>
         <tbody>
             <tr>
                 <th><?php esc_html_e('GitHub branch and CI', 'gq-deployment-status'); ?></th>
@@ -161,6 +173,7 @@ function gq_deployment_status_render_environment(string $environment, array $rep
             </tr>
         </tbody>
     </table>
+    <?php AdminTables::assets(); ?>
     <?php gq_deployment_status_render_fetch_form($environment); ?>
     <?php
 }
@@ -474,7 +487,7 @@ function gq_deployment_status_handle_plesk_fetch(): void
         'message' => $message,
     ], 120);
     delete_transient('gq_deployment_status_' . $environment);
-    wp_safe_redirect(admin_url('admin.php?page=gq-deployment-status'));
+    wp_safe_redirect(admin_url('admin.php?page=gq-deployment-status&environment=' . $environment));
     exit;
 }
 
@@ -586,40 +599,7 @@ function gq_deployment_status_get_github_evidence(string $branch): array
 
 function gq_deployment_status_api_get(string $endpoint): array
 {
-    $headers = [
-        'Accept' => 'application/vnd.github+json',
-        'X-GitHub-Api-Version' => '2022-11-28',
-        'User-Agent' => 'GalaxyQuest-Plesk-Deployment-Status',
-    ];
-    if (
-        defined('GQ_DEPLOY_STATUS_GITHUB_TOKEN')
-        && is_string(GQ_DEPLOY_STATUS_GITHUB_TOKEN)
-        && GQ_DEPLOY_STATUS_GITHUB_TOKEN !== ''
-    ) {
-        $headers['Authorization'] = 'Bearer ' . GQ_DEPLOY_STATUS_GITHUB_TOKEN;
-    }
-    $response = wp_remote_get(
-        'https://api.github.com/repos/' . GQ_DEPLOYMENT_STATUS_REPOSITORY . '/' . $endpoint,
-        [
-            'timeout' => 10,
-            'redirection' => 0,
-            'sslverify' => true,
-            'limit_response_size' => 2097152,
-            'headers' => $headers,
-        ]
-    );
-    if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
-        return [
-            'error' => __(
-                'Could not read GitHub data; check server connectivity, credentials or API limits.',
-                'gq-deployment-status'
-            ),
-        ];
-    }
-    $data = json_decode(wp_remote_retrieve_body($response), true);
-    return is_array($data)
-        ? $data
-        : ['error' => __('GitHub returned invalid JSON.', 'gq-deployment-status')];
+    return gq_deployment_status_updater()->apiGet($endpoint);
 }
 
 function gq_deployment_status_validate_jobs(array $response): bool
@@ -818,290 +798,73 @@ function gq_deployment_status_read_web_state(string $stateFile): array
     return $result;
 }
 
+function gq_deployment_status_updater(): GitHubPluginUpdater
+{
+    static $updater = null;
+    return $updater ??= new GitHubPluginUpdater(
+        __FILE__,
+        GQ_DEPLOYMENT_STATUS_PLUGIN_SLUG,
+        'GalaxyQuest Deployment Status',
+        GQ_DEPLOYMENT_STATUS_PLUGIN_VERSION,
+        GQ_DEPLOYMENT_STATUS_PLUGIN_UPDATE_URI,
+        GQ_DEPLOYMENT_STATUS_PLUGIN_RELEASE_CACHE,
+        'GQ_DEPLOY_STATUS_GITHUB_TOKEN'
+    );
+}
+
 function gq_deployment_status_plugin_tag_version(string $tag): ?string
 {
-    $number = '(?:0|[1-9][0-9]*)';
-    return preg_match('/\Agq-deployment-status-v(' . $number . '\.' . $number . '\.' . $number . ')\z/D', $tag, $match)
-        === 1 ? $match[1] : null;
+    return gq_deployment_status_updater()->tagVersion($tag);
 }
 
 function gq_deployment_status_plugin_release_data(array $release): array|WP_Error
 {
-    $tag = $release['tag_name'] ?? '';
-    $version = is_string($tag) ? gq_deployment_status_plugin_tag_version($tag) : null;
-    if (
-        $version === null
-        || ($release['draft'] ?? null) !== false
-        || ($release['prerelease'] ?? null) !== false
-        || !is_array($release['assets'] ?? null)
-    ) {
-        return new WP_Error('gq_plugin_release', __('Invalid published plugin release.', 'gq-deployment-status'));
-    }
-    $name = 'gq-deployment-status-' . $version . '.zip';
-    $package = 'https://github.com/' . GQ_DEPLOYMENT_STATUS_REPOSITORY . '/releases/download/' . $tag . '/' . $name;
-    $assets = array_values(array_filter(
-        $release['assets'],
-        static fn($asset): bool => is_array($asset) && ($asset['name'] ?? null) === $name
-    ));
-    $asset = count($assets) === 1 ? $assets[0] : [];
-    if (
-        ($asset['state'] ?? null) !== 'uploaded'
-        || ($asset['browser_download_url'] ?? null) !== $package
-        || !is_int($asset['size'] ?? null)
-        || $asset['size'] < 1 || $asset['size'] > 5242880
-        || !is_string($asset['digest'] ?? null)
-        || preg_match('/\Asha256:[a-f0-9]{64}\z/D', $asset['digest']) !== 1
-    ) {
-        return new WP_Error(
-            'gq_plugin_asset',
-            __('Plugin ZIP or GitHub SHA-256 metadata is missing or invalid.', 'gq-deployment-status')
-        );
-    }
-    return [
-        'tag' => $tag, 'version' => $version, 'package' => $package,
-        'digest' => substr($asset['digest'], 7), 'size' => $asset['size'],
-        'url' => 'https://github.com/' . GQ_DEPLOYMENT_STATUS_REPOSITORY . '/releases/tag/' . $tag,
-    ];
+    return gq_deployment_status_updater()->releaseData($release);
 }
 
 function gq_deployment_status_find_plugin_release(): array|WP_Error|null
 {
-    $selected = null;
-    for ($page = 1; $page <= 10; $page++) {
-        $releases = gq_deployment_status_api_get('releases?per_page=100&page=' . $page);
-        if (isset($releases['error']) || !array_is_list($releases)) {
-            return new WP_Error(
-                'gq_plugin_discovery',
-                $releases['error'] ?? __('Invalid GitHub release list.', 'gq-deployment-status')
-            );
-        }
-        foreach ($releases as $release) {
-            if (!is_array($release) || !is_string($release['tag_name'] ?? null)) {
-                return new WP_Error('gq_plugin_discovery', __('Invalid GitHub release entry.', 'gq-deployment-status'));
-            }
-            $version = gq_deployment_status_plugin_tag_version($release['tag_name']);
-            if ($version === null || ($release['draft'] ?? true) || ($release['prerelease'] ?? true)) {
-                continue;
-            }
-            if ($selected === null || version_compare($version, $selected['version'], '>')) {
-                $selected = ['version' => $version, 'release' => $release];
-            }
-        }
-        if (count($releases) < 100) {
-            return $selected === null ? null : gq_deployment_status_plugin_release_data($selected['release']);
-        }
-    }
-    return new WP_Error(
-        'gq_plugin_discovery_limit',
-        __('Plugin update discovery exceeded its release pagination limit.', 'gq-deployment-status')
-    );
+    return gq_deployment_status_updater()->findRelease();
 }
 
 function gq_deployment_status_get_plugin_release(): array|WP_Error|null
 {
-    $cached = get_transient(GQ_DEPLOYMENT_STATUS_PLUGIN_RELEASE_CACHE);
-    if (is_array($cached) && array_key_exists('release', $cached)) {
-        return $cached['release'];
-    }
-    $release = gq_deployment_status_find_plugin_release();
-    set_transient(GQ_DEPLOYMENT_STATUS_PLUGIN_RELEASE_CACHE, ['release' => $release], is_wp_error($release) ? 300 : 3600);
-    return $release;
+    return gq_deployment_status_updater()->getRelease();
 }
 
 function gq_deployment_status_plugin_update_blocker(): ?string
 {
-    $installed = plugin_dir_path(__FILE__) . basename(__FILE__);
-    if (
-        plugin_basename(__FILE__) !== 'gq-deployment-status/gq-deployment-status.php'
-        || is_link($installed) || is_link(dirname($installed))
-        || (stat($installed)['nlink'] ?? 1) > 1
-    ) {
-        return __(
-            'Plugin self-updates are disabled for flat-file, linked or development installations. Install the release ZIP in its own gq-deployment-status directory first.',
-            'gq-deployment-status'
-        );
-    }
-    return null;
+    return gq_deployment_status_updater()->blocker();
 }
 
 function gq_deployment_status_plugin_update(mixed $update, array $pluginData, string $pluginFile, array $locales): mixed
 {
-    if ($pluginFile !== plugin_basename(__FILE__)) {
-        return $update;
-    }
-    if (gq_deployment_status_plugin_update_blocker() !== null) {
-        return false;
-    }
-    $release = gq_deployment_status_get_plugin_release();
-    if ($release === null || is_wp_error($release)) {
-        return false;
-    }
-    return [
-        'id' => GQ_DEPLOYMENT_STATUS_PLUGIN_UPDATE_URI, 'slug' => GQ_DEPLOYMENT_STATUS_PLUGIN_SLUG,
-        'version' => $release['version'], 'url' => $release['url'], 'package' => $release['package'],
-        'requires' => '6.5', 'requires_php' => '8.2',
-    ];
+    return gq_deployment_status_updater()->update($update, $pluginData, $pluginFile, $locales);
 }
 
 function gq_deployment_status_plugin_information(mixed $result, string $action, object $args): mixed
 {
-    if ($action !== 'plugin_information' || ($args->slug ?? null) !== GQ_DEPLOYMENT_STATUS_PLUGIN_SLUG) {
-        return $result;
-    }
-    $release = gq_deployment_status_get_plugin_release();
-    if (is_wp_error($release)) {
-        return $release;
-    }
-    if ($release === null) {
-        return new WP_Error('gq_plugin_unreleased', __('No published plugin release is available.', 'gq-deployment-status'));
-    }
-    return (object)[
-        'name' => 'GalaxyQuest Deployment Status', 'slug' => GQ_DEPLOYMENT_STATUS_PLUGIN_SLUG,
-        'version' => $release['version'], 'homepage' => $release['url'],
-        'requires' => '6.5', 'requires_php' => '8.2', 'download_link' => $release['package'],
-        'sections' => ['description' => esc_html__(
-            'WordPress plugin updates only. This does not install or promote the GalaxyQuest game.',
-            'gq-deployment-status'
-        )],
-    ];
+    return gq_deployment_status_updater()->information($result, $action, $args);
 }
 
 function gq_deployment_status_plugin_zip_error(string $file, string $version): ?string
 {
-    if (!class_exists(ZipArchive::class)) {
-        return __('PHP ext-zip is required to verify plugin updates.', 'gq-deployment-status');
-    }
-    $zip = new ZipArchive();
-    if ($zip->open($file) !== true) {
-        return __('Plugin package is not a readable ZIP.', 'gq-deployment-status');
-    }
-    try {
-        $seen = [];
-        $size = 0;
-        if ($zip->numFiles < 1 || $zip->numFiles > 100) {
-            return __('Unexpected plugin ZIP entry count.', 'gq-deployment-status');
-        }
-        for ($index = 0; $index < $zip->numFiles; $index++) {
-            $entry = $zip->statIndex($index);
-            $name = $entry['name'] ?? '';
-            $parts = explode('/', rtrim($name, '/'));
-            $attributes = 0;
-            $system = 0;
-            $zip->getExternalAttributesIndex($index, $system, $attributes);
-            $type = ($attributes >> 16) & 0170000;
-            $size += $entry['size'] ?? 10485761;
-            if (
-                $parts[0] !== GQ_DEPLOYMENT_STATUS_PLUGIN_SLUG
-                || in_array('', $parts, true) || in_array('..', $parts, true) || in_array('.', $parts, true)
-                || str_contains($name, '\\') || preg_match('/[\x00-\x1f]/', $name)
-                || isset($seen[rtrim($name, '/')]) || $size > 10485760
-                || !in_array($type, [0, 0100000, 0040000], true)
-            ) {
-                return __('Unsafe plugin ZIP paths, links or expanded size.', 'gq-deployment-status');
-            }
-            $seen[rtrim($name, '/')] = true;
-        }
-        $main = $zip->getFromName('gq-deployment-status/gq-deployment-status.php');
-        if (
-            !is_string($main)
-            || preg_match('/^[ \t*]*Version:[ \t]*([^\r\n]+)/m', $main, $match) !== 1
-            || trim($match[1]) !== $version
-            || !str_contains($main, 'Plugin Name: GalaxyQuest Deployment Status')
-        ) {
-            return __('Plugin ZIP entrypoint or version does not match the release.', 'gq-deployment-status');
-        }
-        return null;
-    } finally {
-        $zip->close();
-    }
+    return gq_deployment_status_updater()->zipError($file, $version);
 }
 
 function gq_deployment_status_plugin_download(mixed $reply, string $package, object $upgrader, array $extra): mixed
 {
-    if (($extra['type'] ?? 'plugin') !== 'plugin') {
-        return $reply;
-    }
-    $prefix = 'https://github.com/' . GQ_DEPLOYMENT_STATUS_REPOSITORY . '/releases/download/gq-deployment-status-v';
-    if (($extra['plugin'] ?? null) !== plugin_basename(__FILE__) && !str_starts_with($package, $prefix)) {
-        return $reply;
-    }
-    if (is_wp_error($reply)) {
-        return $reply;
-    }
-    $blocker = gq_deployment_status_plugin_update_blocker();
-    if ($blocker !== null || $reply !== false) {
-        return new WP_Error('gq_plugin_update_blocked', $blocker ?? __('Conflicting plugin download filter.', 'gq-deployment-status'));
-    }
-    if (preg_match('~\A' . preg_quote($prefix, '~') . '([^/]+)/[^/]+\z~D', $package, $match) !== 1) {
-        return new WP_Error('gq_plugin_package', __('Untrusted plugin package URL.', 'gq-deployment-status'));
-    }
-    $tag = 'gq-deployment-status-v' . $match[1];
-    if (gq_deployment_status_plugin_tag_version($tag) === null) {
-        return new WP_Error('gq_plugin_package', __('Invalid plugin release tag.', 'gq-deployment-status'));
-    }
-    // Never trust cached release metadata at the installation boundary.
-    $data = gq_deployment_status_api_get('releases/tags/' . rawurlencode($tag));
-    $release = gq_deployment_status_plugin_release_data($data);
-    if (is_wp_error($release)) {
-        return $release;
-    }
-    if (
-        $release['package'] !== $package || $release['tag'] !== $tag
-        || !version_compare($release['version'], GQ_DEPLOYMENT_STATUS_PLUGIN_VERSION, '>')
-    ) {
-        return new WP_Error('gq_plugin_package', __('Plugin package identity or upgrade version changed.', 'gq-deployment-status'));
-    }
-    $file = wp_tempnam('gq-deployment-status.zip');
-    if ($file === false) {
-        return new WP_Error('gq_plugin_tempfile', __('Could not create plugin download file.', 'gq-deployment-status'));
-    }
-    $keep = false;
-    try {
-        // Public release download: never forward the GitHub API token to redirects/CDNs.
-        $response = wp_safe_remote_get($package, [
-            'timeout' => 60, 'redirection' => 3, 'sslverify' => true,
-            'stream' => true, 'filename' => $file, 'limit_response_size' => $release['size'] + 1,
-        ]);
-        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
-            return new WP_Error('gq_plugin_download', __('Plugin ZIP download failed.', 'gq-deployment-status'));
-        }
-        if (filesize($file) !== $release['size'] || !hash_equals($release['digest'], (string)hash_file('sha256', $file))) {
-            return new WP_Error('gq_plugin_digest', __('Plugin ZIP size or SHA-256 verification failed.', 'gq-deployment-status'));
-        }
-        $error = gq_deployment_status_plugin_zip_error($file, $release['version']);
-        if ($error !== null) {
-            return new WP_Error('gq_plugin_zip', $error);
-        }
-        $keep = true;
-        return $file;
-    } finally {
-        if (!$keep) {
-            wp_delete_file($file);
-        }
-    }
+    return gq_deployment_status_updater()->download($reply, $package, $upgrader, $extra);
 }
 
 function gq_deployment_status_plugin_updated(object $upgrader, array $options): void
 {
-    if (
-        ($options['type'] ?? null) === 'plugin' && ($options['action'] ?? null) === 'update'
-        && in_array(plugin_basename(__FILE__), $options['plugins'] ?? [], true)
-    ) {
-        delete_transient(GQ_DEPLOYMENT_STATUS_PLUGIN_RELEASE_CACHE);
-    }
+    gq_deployment_status_updater()->updated($upgrader, $options);
 }
 
 function gq_deployment_status_plugin_update_notice(): void
 {
-    if (!current_user_can('update_plugins')) {
-        return;
-    }
-    $cached = get_transient(GQ_DEPLOYMENT_STATUS_PLUGIN_RELEASE_CACHE);
-    if (is_array($cached) && is_wp_error($cached['release'] ?? null)) {
-        echo '<div class="notice notice-error"><p>'
-            . esc_html__('GalaxyQuest plugin update check failed:', 'gq-deployment-status') . ' '
-            . esc_html($cached['release']->get_error_message()) . '</p></div>';
-    }
+    gq_deployment_status_updater()->notice();
 }
 
 function gq_deployment_status_render_plugin_updates(): void

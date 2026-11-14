@@ -14,6 +14,9 @@ const history = () => ({ success: true, transactions: [{ id: 8, colony_id: 2, go
   direction: 'sell', quantity: 2.5, price_per_unit: 10, total_credits: 25, net_credits: 23.75,
   trade_tax_rate: 0.05, transacted_at: '2026-11-03 10:00:00' }] });
 const order = () => ({ good_type: 'metal', quantity: '2.5' });
+const economicRequest = (overrides = {}) => ({ id: 31, colony_id: 1, type: 'supply', good_type: 'metal',
+  quantity: 4, price_cents: 1501, total_cents: 6004, expires_at: Math.floor(Date.now() / 1000) + 86400,
+  status: 'pending', player_order: null, ...overrides });
 
 describe('Canonical market commands and overlay', () => {
   let api;
@@ -28,6 +31,7 @@ describe('Canonical market commands and overlay', () => {
         if (url.includes('overview')) return overview();
         if (url.includes('get_prices')) return prices();
         if (url.includes('get_history')) return history();
+        if (url.includes('list_orders')) return { success: true, orders: [] };
         return { success: true, colony: { id: Number(new URL(url, 'http://localhost').searchParams.get('colony_id')) },
           economy: { stock: { metal: 10 } } };
       }),
@@ -56,6 +60,93 @@ describe('Canonical market commands and overlay', () => {
   const fill = (value) => { quantity().value = value; quantity().dispatchEvent(new Event('input')); };
   const submit = (action) => root.querySelector('form').dispatchEvent(new SubmitEvent('submit',
     { cancelable: true, submitter: root.querySelector(`button[value="${action}"]`) }));
+  function serveRequests(requests, now = Math.floor(Date.now() / 1000)) {
+    const get = api.get.getMockImplementation();
+    api.get.mockImplementation((url, options) => url.includes('list_orders')
+      ? Promise.resolve({ success: true, orders: [], requests, now_unix: now }) : get(url, options));
+  }
+  it('uses immutable invitation IDs only and blocks acceptance at the exact server deadline', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1000000);
+    try {
+      serveRequests([economicRequest({ expires_at: 1000 })], 999);
+      await domain.load();
+      await domain.command('accept_request', { request_id: 31, quantity: 999, price_cents: 1, colony_id: 2 });
+      expect(api.post).toHaveBeenCalledWith('api/market.php?action=accept_request',
+        { request_id: 31 }, { signal: expect.any(AbortSignal) });
+      serveRequests([economicRequest({ expires_at: 1000 })], 1000);
+      await domain.load();
+      api.post.mockClear();
+      await expect(domain.command('accept_request', { request_id: 31 })).rejects.toThrow('abgelaufen');
+      expect(api.post).not.toHaveBeenCalled();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+  it('renders scoped terms safely and only actionable requests receive reservation controls', async () => {
+    serveRequests([
+      economicRequest({ good_type: '<img src=x>' }),
+      economicRequest({ id: 32, status: 'expired' }),
+      economicRequest({ id: 33, status: 'declined' }),
+      economicRequest({ id: 34, status: 'unavailable' }),
+      economicRequest({ id: 35, status: 'accepted', player_order: { id: 71, colony_id: 1, status: 'active', quantity_remaining: 4 } }),
+    ]);
+    mount();
+    await vi.waitFor(() => expect(root.querySelector('.game-market-economic-requests')).not.toBeNull());
+    const section = root.querySelector('.game-market-economic-requests');
+    expect(section.querySelector('img')).toBeNull();
+    expect(section.textContent).toContain('<img src=x>');
+    expect(section.textContent).toContain('kostenfreier Verfall');
+    expect(section.textContent).toContain('Keine sofortige Lieferung');
+    expect(section.textContent).toContain('Bestätigter Auftrag #71');
+    expect(section.querySelectorAll('[data-economy-request-action]')).toHaveLength(2);
+    expect(api.post).not.toHaveBeenCalled();
+    session.events.emit('colony:mutation-accepted', { colonyId: 1, domain: 'economy', allColonies: true });
+    expect([...root.querySelectorAll('[data-economy-request-action]')].every(button => button.disabled)).toBe(true);
+  });
+  it('shows server unavailability explicitly and requires a fresh read after a failed response', async () => {
+    serveRequests([economicRequest()]);
+    mount();
+    await vi.waitFor(() => expect(root.querySelector('[data-economy-request-action]')).not.toBeNull());
+    api.post.mockRejectedValueOnce(new Error('NPC-Auftrag ist nicht mehr verfügbar; es wurde nichts reserviert.'));
+    root.querySelector('[data-economy-request-action="accept_request"]').click();
+    await vi.waitFor(() => expect(root.textContent).toContain('es wurde nichts reserviert'));
+    expect(domain.getState().stale).toBe(true);
+    expect([...root.querySelectorAll('[data-economy-request-action]')].every(button => button.disabled)).toBe(true);
+  });
+  it('distinguishes a purchase and requires explicit maximum credit reservation', async () => {
+    serveRequests([economicRequest({ type: 'purchase' })]);
+    mount();
+    await vi.waitFor(() => expect(root.querySelector('[data-economy-request-action]')).not.toBeNull());
+    const section = root.querySelector('.game-market-economic-requests');
+    expect(section.textContent).toContain('NPC-Überschuss kaufen');
+    expect(section.textContent).toContain('15.01 Credits/Einheit');
+    expect(section.textContent).toContain('maximal 60.04 Credits');
+    expect(section.textContent).toContain('Bestand wird bei Annahme erneut geprüft');
+    expect(section.querySelector('[data-economy-request-action="accept_request"]').textContent).toContain('Credits reservieren');
+    expect(api.post).not.toHaveBeenCalled();
+  });
+  it('disables duplicate clicks while mutating and displays only refreshed confirmed request states', async () => {
+    const pending = [economicRequest()];
+    serveRequests(pending);
+    mount();
+    await vi.waitFor(() => expect(root.querySelector('[data-economy-request-action]')).not.toBeNull());
+    let resolve;
+    api.post.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    root.querySelector('[data-economy-request-action="accept_request"]').click();
+    await vi.waitFor(() => expect(domain.getState().mutating).toBe(true));
+    expect([...root.querySelectorAll('[data-economy-request-action]')].every(button => button.disabled)).toBe(true);
+    pending[0] = economicRequest({ status: 'accepted', player_order: { id: 72, colony_id: 1, status: 'active', quantity_remaining: 4 } });
+    resolve({ success: true });
+    await vi.waitFor(() => expect(root.textContent).toContain('Bestätigter Auftrag #72'));
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(root.querySelector('[data-economy-request-action]')).toBeNull();
+  });
+  it('rejects foreign-colony request payloads rather than enabling their controls', async () => {
+    serveRequests([economicRequest({ colony_id: 2 })]);
+    expect(await domain.load()).toBe(false);
+    expect(domain.getState()).toMatchObject({ stale: true, error: 'Ungültige Marktdaten vom Server.' });
+    expect(api.post).not.toHaveBeenCalled();
+  });
   it('uses shared trade fields with linked help and retains decimal drafts and focus on read updates', async () => {
     mount();
     await vi.waitFor(() => expect(quantity()).not.toBeNull());
@@ -93,12 +184,92 @@ describe('Canonical market commands and overlay', () => {
     expect(api.get.mock.calls.map(([url]) => url)).toEqual([
       'api/market.php?action=get_prices&colony_id=1', 'api/colony_economy.php?action=snapshot&colony_id=1',
       'api/market.php?action=get_history&limit=20',
+      'api/market.php?action=list_orders&colony_id=1',
     ]);
     expect(domain.getState()).toMatchObject({ stale: false, data: { stock: { metal: 10 }, transactions: [{ colony_id: 2 }] } });
     expect(api.post).not.toHaveBeenCalled();
     const copy = domain.getState();
     copy.data.stock.metal = 999;
     expect(domain.getState().data.stock.metal).toBe(10);
+  });
+  it('carries active world events from the price read and lists them in the market window', async () => {
+    api.get.mockImplementation(async (url) => {
+      if (url.includes('get_prices')) {
+        return { ...prices(), world_events: [
+          { id: 3, event_type: 'supply_shock', label: 'Versorgungsengpass', scope_type: 'system', galaxy: 1,
+            system: 10, good_type: 'metal', modifiers: { price: 1.2 }, starts_at: 1, ends_at: 1800000000 },
+          { label: 42 },
+        ] };
+      }
+      if (url.includes('get_history')) return history();
+      if (url.includes('list_orders')) return { success: true, orders: [] };
+      return { success: true, colony: { id: 1 }, economy: { stock: { metal: 10 } } };
+    });
+    await domain.load();
+    expect(domain.getState().data.events).toHaveLength(1);
+    mount();
+    await vi.waitFor(() => expect(root.querySelector('.game-market-world-events')).not.toBeNull());
+    expect(root.querySelector('.game-market-world-events li').textContent).toContain('Versorgungsengpass (System 1:10 · metal)');
+    expect(api.post).not.toHaveBeenCalled();
+  });
+  it('defaults to no world events when the price read omits them', async () => {
+    await domain.load();
+    expect(domain.getState().data.events).toEqual([]);
+  });
+  it('creates explicit finite contracts with server-owned prices and separate cancellation payloads', async () => {
+    const get = api.get.getMockImplementation();
+    const standing = { id: 11, colony_id: 1, good_type: 'metal', side: 'buy', quantity_initial: 4,
+      quantity_remaining: 4, limit_price_cents: 1502, escrow_cents: 6008, status: 'active' };
+    api.get.mockImplementation((url, options) => url.includes('list_orders')
+      ? Promise.resolve({ success: true, orders: [standing] }) : get(url, options));
+    await domain.load();
+    await domain.command('create_order', { side: 'buy', good_type: 'metal', quantity: '4', limit_price: '15.02' });
+    expect(api.post).toHaveBeenLastCalledWith('api/market.php?action=create_order',
+      { colony_id: 1, side: 'buy', good_type: 'metal', quantity: 4, limit_price: '15.02' },
+      { signal: expect.any(AbortSignal) });
+    await domain.command('cancel_order', { order_id: 11, quantity: 999, refund: 999 });
+    expect(api.post).toHaveBeenLastCalledWith('api/market.php?action=cancel_order',
+      { order_id: 11 }, { signal: expect.any(AbortSignal) });
+    await expect(domain.command('cancel_order', { order_id: 999 })).rejects.toThrow('Aktiven eigenen Auftrag');
+  });
+  it.each([
+    { side: 'buy', quantity: 1.5, limit_price: '10.00' },
+    { side: 'sell', quantity: 1, limit_price: '10.001' },
+    { side: 'buy', quantity: 1000001, limit_price: '10.00' },
+    { side: 'buy', quantity: 1000000, limit_price: '1000000' },
+    { side: 'automatic', quantity: 1, limit_price: '10.00' },
+  ])('rejects invalid standing orders without sending reservation commands: %j', async (value) => {
+    await domain.load();
+    await expect(domain.command('create_order', { good_type: 'metal', ...value })).rejects.toThrow();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+  it('keeps NPC consent disabled by default and exposes reservation errors and stale locks separately', async () => {
+    mount();
+    await vi.waitFor(() => expect(quantity()).not.toBeNull());
+    const section = () => root.querySelector('.game-market-standing-orders');
+    expect(section().textContent).toContain('Automatischer Handel ist deaktiviert');
+    expect(section().textContent).toContain('Bereits gestartete Lieferungen');
+    expect(api.post).not.toHaveBeenCalled();
+    const set = (label, value) => {
+      const input = root.querySelector(`[aria-label="${label}"]`);
+      input.value = value;
+      input.dispatchEvent(new Event('input'));
+    };
+    set('NPC-Auftragsmenge', '4');
+    set('NPC-Limitpreis', '15.02');
+    api.post.mockRejectedValueOnce(new Error('Nicht genügend Credits für die Reservierung.'));
+    root.querySelector('[aria-label="NPC-Auftrag erstellen"]').dispatchEvent(new SubmitEvent('submit', { cancelable: true }));
+    await vi.waitFor(() => expect(root.textContent).toContain('Nicht genügend Credits'));
+    expect(root.querySelector('.game-market-ticket')).not.toBeNull();
+    session.events.emit('colony:mutation-accepted', { colonyId: 1, domain: 'economy', allColonies: true });
+    expect(section().querySelector('fieldset').disabled).toBe(true);
+  });
+  it('rejects foreign-colony or malformed standing-order reads instead of silently enabling trades', async () => {
+    const get = api.get.getMockImplementation();
+    api.get.mockImplementation((url, options) => url.includes('list_orders')
+      ? Promise.resolve({ success: true, orders: [{ id: 1, colony_id: 2 }] }) : get(url, options));
+    expect(await domain.load()).toBe(false);
+    expect(domain.getState()).toMatchObject({ stale: true, data: null, error: 'Ungültige Marktdaten vom Server.' });
   });
   it.each(['buy', 'sell'])('sends exact %s decimal payload and publishes accepted colony mutation', async (action) => {
     const accepted = vi.fn();
@@ -138,13 +309,15 @@ describe('Canonical market commands and overlay', () => {
   ])('rejects malformed account history: %j', async (invalid) => {
     api.get.mockImplementation(async (url) => url.includes('get_prices') ? prices()
       : url.includes('get_history') ? { ...history(), ...invalid }
+        : url.includes('list_orders') ? { success: true, orders: [] }
         : { success: true, colony: { id: 1 }, economy: { stock: {} } });
     await domain.load();
     expect(domain.getState()).toMatchObject({ stale: true, data: null, error: 'Ungültige Marktdaten vom Server.' });
   });
   it.each([{ id: 2, stock: { metal: 1 } }, { id: 1, stock: null }, { id: 1, stock: { metal: 'bad' } }])('rejects wrong colony or malformed stock: %j', async ({ id, stock }) => {
     api.get.mockImplementation(async (url) => url.includes('get_prices') ? prices()
-      : url.includes('get_history') ? history() : { success: true, colony: { id }, economy: { stock } });
+      : url.includes('get_history') ? history() : url.includes('list_orders') ? { success: true, orders: [] }
+        : { success: true, colony: { id }, economy: { stock } });
     expect(await domain.load()).toBe(false);
     expect(domain.getState().data).toBeNull();
   });
@@ -215,7 +388,7 @@ describe('Canonical market commands and overlay', () => {
     const catalogue = root.querySelector('.game-market-catalogue');
     const ticket = root.querySelector('.game-market-ticket');
     expect(catalogue.querySelector('legend').textContent).toBe('Warenauswahl');
-    expect(ticket.querySelector('legend').textContent).toBe('Handelsauftrag');
+    expect(ticket.querySelector('legend').textContent).toBe('Soforthandel mit dem Markt');
     expect(catalogue.querySelector('.game-market-good')).not.toBeNull();
     expect(ticket.querySelector('.game-market-good')).toBeNull();
     const goods = ticket.querySelector('[aria-label="Handelsgut"]');
@@ -501,6 +674,7 @@ describe('Canonical market commands and overlay', () => {
     api.get.mockImplementation(async url => url.includes('overview') ? overview()
       : url.includes('get_prices') ? { success: true, prices: [{ ...prices().prices[0], good_type: 'steel_alloy' }] }
         : url.includes('get_history') ? history()
+          : url.includes('list_orders') ? { success: true, orders: [] }
           : { success: true, colony: { id: 1 }, economy: { stock: {} } });
     mount();
     await vi.waitFor(() => expect(quantity()).not.toBeNull());

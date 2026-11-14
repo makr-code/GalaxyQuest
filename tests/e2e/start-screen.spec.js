@@ -1,5 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const prologueContent = require('../../config/onboarding_prologue.json');
+const cometNarration = require('../../config/onboarding_narration.json');
 
 const apiAction = (file, action) => (url) =>
   url.pathname.endsWith(`/${file}.php`) && url.searchParams.get('action') === action;
@@ -21,7 +22,7 @@ const mentorDrafts = ['aereth', 'vor_tak', 'syl_nar', 'vel_ar', 'kryl_tha', 'zha
   };
 });
 
-async function mockApi(page, { authenticated = false, expireOnResume = false, twoFactor = false } = {}) {
+async function mockApi(page, { authenticated = false, expireOnResume = false, twoFactor = false, loginSucceeds = false } = {}) {
   let sessionChecks = 0;
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
@@ -34,6 +35,8 @@ async function mockApi(page, { authenticated = false, expireOnResume = false, tw
       data = { success: true, source: 'local', posts: [], flight_targets: [] };
     } else if (url.pathname.endsWith('/server_announcements.php')) {
       data = { success: true, announcements: [] };
+    } else if (url.pathname.endsWith('/audio.php') && action === 'list') {
+      data = { success: true, tracks: [{ value: 'music/Nebula_Overture.mp3' }] };
     } else if (action === 'me') {
       sessionChecks++;
       const valid = authenticated && !(expireOnResume && sessionChecks > 1);
@@ -47,15 +50,40 @@ async function mockApi(page, { authenticated = false, expireOnResume = false, tw
     } else if (action === 'dev_tools_status') {
       data = { success: true, enabled: false };
     } else if (action === 'login') {
-      data = twoFactor
-        ? { success: true, requires_2fa: true, totp_session: 'test-challenge' }
-        : { success: false, error: 'Test login rejected' };
+      if (loginSucceeds) {
+        authenticated = true;
+        data = { success: true, user: { username: 'TestCommander' } };
+      } else {
+        data = twoFactor
+          ? { success: true, requires_2fa: true, totp_session: 'test-challenge' }
+          : { success: false, error: 'Test login rejected' };
+      }
     } else if (action === 'totp_login_challenge') {
       data = { success: false, error: 'Test code rejected' };
     } else if (action === 'register_catalog') {
       data = { success: true,
         factions: prologueContent.factions.map((entry) => ({ ...entry, homeworld: "Sol'Ryaan", target: registrationTarget, stars: [registrationTarget] })),
-        species: mentorDrafts.map((draft) => ({ code: draft.mentor_code, name: draft.mentor_code, description: 'Independent origin', homeworld: `${draft.mentor_code} home` })),
+        species: mentorDrafts.map((draft, index) => {
+          const target = { ...draft.target, system_index: 100 + index, x_ly: -400 - index * 100 };
+          return { code: draft.mentor_code, name: draft.mentor_code, description: 'Independent origin',
+            homeworld: `${draft.mentor_code} home`, target, stars: [target],
+            homeworld_scene: { scene_key: `homeworld:${index}`, target, system_name: `${draft.mentor_code} homeland`,
+              position: { galaxy: 1, system: 100 + index, position: target.position },
+              star: { temperature_k: 5500, radius_solar: 1 },
+              planets: [{ position: target.position, name: `${draft.mentor_code} home`,
+                diameter_km: 12000, semi_major_axis_au: 1, inhabited: true }],
+            },
+          };
+        }).sort((a, b) => a.code.localeCompare(b.code)),
+        npc_homeworlds: prologueContent.npc_tour.map((entry) => ({
+          ...entry, target: registrationTarget, stars: [registrationTarget],
+          homeworld_scene: { scene_key: `npc:${entry.code}`, target: registrationTarget,
+            system_name: entry.homeworld, position: { galaxy: 1, system: 2, position: 3 },
+            star: { temperature_k: 5500, radius_solar: 1 },
+            planets: [{ position: 3, name: entry.homeworld,
+              diameter_km: 12000, semi_major_axis_au: 1, inhabited: true }],
+          },
+        })),
       };
     } else if (action === 'register_status') {
       data = { success: true, draft: null };
@@ -80,18 +108,55 @@ async function mockApi(page, { authenticated = false, expireOnResume = false, tw
 }
 
 async function reachMentorRoom(page) {
-  await page.clock.install();
   await page.locator('#start-register').click();
-  for (const clip of prologueContent.teaser) {
-    await expect(page.locator('#registration-title')).toHaveText(clip.title);
-    await expect(page.locator('#registration-narration-status')).toContainText('nicht verfügbar');
-    await page.clock.fastForward(30000);
-  }
-  await page.locator('#registration-continue').click();
-  await expect(page.locator('#registration-title')).toHaveText('Die Heroldkammer');
+  await waitForFirstHomeworld(page);
+  await page.locator('#registration-opening-skip').click();
+  await expect(page.locator('#registration-title')).toHaveText('Deine Herkunft');
   await expect(page.locator('#registration-choices button')).toHaveCount(6);
   await expect(page.locator('#registration-choices button').first()).toBeEnabled();
 }
+
+async function waitForFirstHomeworld(page) {
+  await page.locator('#registration-opening-skip').click();
+  await expect(page.locator('#registration-title')).toHaveText('aereth home');
+}
+
+test('startup loads audio and galaxy modules without executing unrelated runtime modules', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await mockApi(page);
+  await page.goto('/');
+
+  await expect(page.locator('#start-music-play')).toBeEnabled();
+  await expect.poll(() => page.evaluate(() => typeof window.StarfieldWebGPU)).toBe('function');
+  await expect.poll(() => page.evaluate(() => typeof window.Galaxy3DView)).toBe('function');
+  await expect(page.locator('#start-music-status')).not.toContainText('Audio konnte nicht geladen werden');
+  expect(await page.evaluate(() => typeof window.WMCore)).toBe('undefined');
+  expect(errors).toEqual([]);
+});
+
+test('successful login initializes the window manager and shows the game overlay shell', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error' && /is not defined|before initialization/.test(message.text())) {
+      errors.push(message.text());
+    }
+  });
+  await mockApi(page, { loginSucceeds: true });
+  await page.goto('/');
+  await page.locator('#start-login').click();
+  await page.locator('#login-username').fill('TestCommander');
+  await page.locator('#login-password').fill('isolated-test-password');
+  await page.locator('#login-form button[type="submit"]').click();
+
+  await expect(page.locator('#game-overlay-shell')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('#auth-section')).toBeHidden();
+  expect(await page.evaluate(() => typeof window.WM?.open)).toBe('function');
+  await page.locator('#game-command-toggle').click();
+  await expect(page.locator('#game-command-overlay')).toBeVisible();
+  expect(errors).toEqual([]);
+});
 
 for (const entry of ['/', '/index.html?logout=1']) {
   test(`start page loads its module graph and opens the login dialog: ${entry}`, async ({ page }) => {
@@ -111,21 +176,289 @@ for (const entry of ['/', '/index.html?logout=1']) {
   });
 }
 
-test('narration chapters offer manual Back and Next without waiting for speech', async ({ page }) => {
+test('homeworld chapters offer manual Back and Next before identity selection', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
+  await expect.poll(() => page.evaluate(() => Boolean(window.GQAuthGalaxyBackgroundControl))).toBe(true);
+  await page.evaluate(() => { window.GQAuthGalaxyBackgroundControl.playRegistrationShot = () => false; });
   await page.locator('#start-register').click();
+  await waitForFirstHomeworld(page);
+  await expect(page.locator('#registration-flight-status')).toContainText('Kometenflug ist nicht verfügbar');
   await expect(page.locator('#registration-continue')).toBeVisible();
   await expect(page.locator('#registration-continue')).toBeEnabled();
   await page.locator('#registration-continue').click();
-  await expect(page.locator('#registration-title')).toHaveText(prologueContent.teaser[1].title);
+  await expect(page.locator('#registration-title')).toHaveText('kryl_tha home');
+  await expect(page.locator('#registration-flight-status')).toContainText('Kometenflug ist nicht verfügbar');
   await page.locator('#registration-back').click();
-  await expect(page.locator('#registration-title')).toHaveText(prologueContent.teaser[0].title);
-  for (let index = 0; index < prologueContent.teaser.length; index++) await page.locator('#registration-continue').click();
-  await expect(page.locator('#registration-title')).toHaveText('Die Heroldkammer');
+  await expect(page.locator('#registration-title')).toHaveText('aereth home');
+  for (const title of [
+    'kryl_tha home', 'syl_nar home', 'vel_ar home', 'vor_tak home', 'zhareen home',
+    ...prologueContent.npc_tour.map((entry) => entry.homeworld),
+  ]) {
+    await expect(page.locator('#registration-flight-status')).toContainText('Kometenflug ist nicht verfügbar');
+    await page.locator('#registration-continue').click();
+    await expect(page.locator('#registration-title')).toHaveText(title);
+  }
+  await expect(page.locator('#registration-flight-status')).toContainText('Kometenflug ist nicht verfügbar');
+  await page.locator('#registration-continue').click();
+  await expect(page.locator('#registration-title')).toHaveText('Deine Herkunft');
   await expect(page.locator('#registration-choices button').first()).toBeEnabled();
   await expect(page.locator('#registration-choices button')).toHaveCount(6);
   await expect(page.locator('#registration-continue')).toBeHidden();
+});
+
+test('new campaign opens a pausable cinematic before the arrival on desktop and mobile', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await expect(page.locator('#registration-prologue')).toBeHidden();
+  await page.clock.install();
+  await page.locator('#start-register').click();
+  await expect(page.locator('#registration-prologue')).toHaveAttribute('data-phase', 'opening');
+  await expect(page.locator('#registration-title')).toHaveText(prologueContent.opening[0].title);
+  await expect(page.locator('#start-menu')).not.toBeVisible();
+  await page.locator('#registration-opening-pause').click();
+  await page.clock.fastForward(60000);
+  await expect(page.locator('#registration-title')).toHaveText(prologueContent.opening[0].title);
+  await page.locator('#registration-opening-pause').click();
+  await page.clock.fastForward(prologueContent.opening[0].duration_ms);
+  await expect(page.locator('#registration-title')).toHaveText('GalaxyQuest');
+  await expect.poll(() => page.locator('#registration-story').evaluate((node) => node.getAnimations().length)).toBe(0);
+  await page.locator('#registration-opening-pause').click();
+  await expect(page.locator('#registration-prologue')).toHaveAttribute('data-slide-motion', 'paused');
+  await expect(page.locator('#registration-story')).toHaveCSS('opacity', '1');
+  expect(await page.locator('.registration-slide-ghost').evaluateAll((nodes) =>
+    nodes.every((node) => getComputedStyle(node).opacity === '0'))).toBe(true);
+  await expect.poll(() => page.locator('#registration-title').evaluate((node) => node.getAnimations().length)).toBe(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.evaluate(() => {
+    document.body.dataset.startReducedMotion = 'true';
+    document.body.classList.add('start-reduced-motion');
+    window.dispatchEvent(new CustomEvent('gq:start-motion', { detail: { reduced: true } }));
+  });
+  await expect.poll(() => page.locator('#registration-title').evaluate((node) => node.getAnimations().length)).toBe(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await expect(page.locator('#registration-opening-skip')).toBeInViewport();
+  await page.locator('#registration-opening-skip').click();
+  await expect(page.locator('#registration-prologue')).not.toHaveAttribute('data-phase', 'opening');
+  if ((await page.locator('#registration-prologue').getAttribute('data-phase')) === 'arrival') {
+    await page.locator('#registration-continue').click();
+  }
+  await expect(page.locator('#registration-title')).toHaveText('aereth home');
+  for (let index = 0; index < 4; index++) await page.locator('#registration-back').click();
+  await expect(page.locator('#start-register')).toBeFocused();
+});
+
+test('menu controls fly out before the cinematic and fly back in on return', async ({ page }) => {
+  await mockApi(page);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.addInitScript(() => localStorage.setItem('gq_start_reduced_motion', '0'));
+  await page.goto('/');
+  const menu = page.locator('#start-menu');
+  await expect(menu).toHaveAttribute('data-motion-state', 'visible');
+  expect(await page.locator('[data-motion-direction]').evaluateAll((nodes) =>
+    [...new Set(nodes.map((node) => node.dataset.motionDirection))].sort()))
+    .toEqual(['bottom', 'left', 'right', 'top']);
+  await page.locator('#start-register').click();
+  await expect(menu).toHaveAttribute('data-motion-state', 'exiting');
+  await expect(menu).toHaveJSProperty('inert', true);
+  await expect(page.locator('#registration-prologue')).toBeHidden();
+  await expect.poll(() => page.locator('#start-music-player').evaluate((node) =>
+    Number(getComputedStyle(node).opacity))).toBeLessThan(1);
+  await expect(page.locator('#registration-prologue')).toHaveAttribute('data-phase', 'opening');
+  await expect(menu).toHaveAttribute('data-motion-state', 'hidden');
+  await page.locator('#registration-back').click();
+  await expect(menu).toHaveAttribute('data-motion-state', 'entering');
+  await expect(menu).toHaveJSProperty('inert', false);
+  await expect(menu).toHaveAttribute('data-motion-state', 'visible');
+  expect(await page.locator('.start-title').evaluate((node) =>
+    ({ opacity: getComputedStyle(node).opacity, transform: getComputedStyle(node).transform })))
+    .toEqual({ opacity: '1', transform: 'none' });
+  await page.locator('#start-login').click();
+  await expect(page.locator('#login-username')).toBeFocused();
+});
+
+test('narrative overlays leave the galaxy center clear on desktop, mobile and landscape', async ({ page }) => {
+  await mockApi(page);
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 844, height: 390 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    await page.locator('#start-register').click();
+    await page.locator('#registration-opening-pause').click();
+    const stage = page.locator('.registration-stage');
+    const checkComposition = async () => {
+      const bounds = await stage.boundingBox();
+      expect(bounds.y).toBeGreaterThanOrEqual(viewport.height * 0.55);
+      expect(bounds.height).toBeLessThanOrEqual(viewport.height * 0.44 + 1);
+      expect(bounds.width).toBeLessThanOrEqual(760);
+      expect(await page.locator('#registration-prologue').evaluate((node) =>
+        getComputedStyle(node).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await expect(page.locator('#registration-continue')).toBeInViewport();
+    };
+    await checkComposition();
+    await expect(page.locator('#registration-opening-source')).not.toHaveAttribute('open');
+    await page.locator('#registration-opening-source summary').click();
+    await expect(page.locator('#registration-opening-source a')).toBeVisible();
+    await page.locator('#registration-opening-source summary').click();
+    await page.locator('#registration-opening-skip').click();
+    if ((await page.locator('#registration-prologue').getAttribute('data-phase')) === 'arrival') {
+      await page.locator('#registration-continue').click();
+    }
+    await expect(page.locator('#registration-title')).toHaveText('aereth home');
+    await checkComposition();
+    await page.locator('#registration-back').click();
+  }
+});
+
+test('registration keeps a large subtitle above accessible icon controls and real progress', async ({ page }) => {
+  await mockApi(page);
+  await page.addInitScript(() => {
+    localStorage.setItem('gq_tts_auto_voice', '0');
+    localStorage.setItem('gq_tts_voice', 'en_US-ryan-high');
+    localStorage.setItem('gq_start_reduced_motion', '0');
+  });
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 844, height: 390 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    await page.locator('#start-register').click();
+    await expect(page.locator('#registration-prologue')).toHaveAttribute('data-phase', 'opening');
+    await expect.poll(() => page.locator('#registration-story').evaluate((node) => node.getAnimations().length)).toBe(0);
+    await page.locator('#registration-opening-pause').click();
+    await expect(page.locator('#registration-story')).toHaveText(cometNarration.clips['comet-opening-o1'].en);
+    await expect(page.locator('#registration-progress')).toBeVisible();
+    await expect(page.locator('#registration-progress')).toHaveJSProperty('value', 1);
+    const layout = await page.evaluate(() => {
+      const bounds = (selector) => document.querySelector(selector).getBoundingClientRect();
+      const story = bounds('#registration-story');
+      const progress = bounds('#registration-progress');
+      const controls = bounds('.registration-stage-actions');
+      return {
+        storyBottom: story.bottom, progressTop: progress.top, progressBottom: progress.bottom,
+        controlsTop: controls.top, storyFont: parseFloat(getComputedStyle(document.querySelector('#registration-story')).fontSize),
+        titleClip: getComputedStyle(document.querySelector('#registration-title')).clip,
+        pageFits: document.documentElement.scrollWidth <= innerWidth,
+      };
+    });
+    expect(layout.storyBottom).toBeLessThanOrEqual(layout.progressTop);
+    expect(layout.progressBottom).toBeLessThanOrEqual(layout.controlsTop);
+    expect(layout.storyFont).toBeGreaterThanOrEqual(15);
+    expect(layout.titleClip).toBe('rect(0px, 0px, 0px, 0px)');
+    expect(layout.pageFits).toBe(true);
+    for (const id of ['back', 'opening-pause', 'opening-skip', 'continue']) {
+      await expect(page.locator(`#registration-${id}`)).toHaveAttribute('aria-label', /.+/);
+      await expect(page.locator(`#registration-${id} svg:visible`).first()).toBeVisible();
+      await expect(page.locator(`#registration-${id}`)).toBeInViewport();
+    }
+    await expect(page.locator('#registration-opening-pause')).toHaveAttribute('aria-label', 'Fortsetzen');
+    await page.locator('#registration-opening-source summary').click();
+    await expect(page.locator('#registration-opening-source a')).toBeVisible();
+    await page.locator('#registration-continue').click();
+    await expect(page.locator('#registration-progress')).toHaveJSProperty('value', 2);
+    await expect(page.locator('#registration-story')).toHaveText(cometNarration.clips['comet-opening-o2'].en);
+    await expect(page.locator('#registration-story')).toHaveCSS('opacity', '1');
+    await expect(page.locator('#registration-opening-source')).not.toHaveAttribute('open');
+
+    await page.locator('#registration-opening-skip').click();
+    await expect(page.locator('#registration-prologue')).toHaveAttribute('data-phase', 'homeworlds');
+    await page.locator('#registration-opening-skip').click();
+    await expect(page.locator('#registration-choices button')).toHaveCount(6);
+    await expect(page.locator('#registration-progress')).toBeInViewport();
+    const order = await page.evaluate(() =>
+      document.querySelector('#registration-choices').getBoundingClientRect().bottom
+      <= document.querySelector('#registration-story').getBoundingClientRect().top);
+    expect(order).toBe(true);
+    await page.locator('[data-choice="aereth"]').click();
+    await expect(page.locator('[data-choice="aereth"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#registration-continue')).toHaveAttribute('aria-label', 'Herkunft bestätigen und Namen wählen');
+    await page.locator('#registration-continue').click();
+    await expect(page.locator('#registration-name')).toBeVisible();
+    await page.locator('#registration-name').fill('Commander');
+    await page.locator('#registration-background').fill('Explorer');
+    await page.locator('#registration-character-form [type="submit"]').click();
+    await expect(page.locator('#registration-status')).toContainText('nicht aktiviert');
+  }
+});
+
+test('comet narration prepares and reuses the next cue during audio playback', async ({ page }) => {
+  await mockApi(page);
+  await page.addInitScript(() => localStorage.setItem('gq_start_reduced_motion', '1'));
+  const requests = [];
+  const audioRequests = [];
+  let releaseNext;
+  const nextReady = new Promise((resolve) => { releaseNext = resolve; });
+  const samples = 8000 * 3;
+  const silence = Buffer.alloc(44 + samples * 2);
+  silence.write('RIFF', 0);
+  silence.writeUInt32LE(silence.length - 8, 4);
+  silence.write('WAVEfmt ', 8);
+  silence.writeUInt32LE(16, 16);
+  silence.writeUInt16LE(1, 20);
+  silence.writeUInt16LE(1, 22);
+  silence.writeUInt32LE(8000, 24);
+  silence.writeUInt32LE(16000, 28);
+  silence.writeUInt16LE(2, 32);
+  silence.writeUInt16LE(16, 34);
+  silence.write('data', 36);
+  silence.writeUInt32LE(samples * 2, 40);
+  await page.route('**/api/registration_narration.php', async (route) => {
+    const body = route.request().postDataJSON();
+    requests.push(body.clip);
+    if (body.clip === 'comet-opening-o2') await nextReady;
+    const voice = body.voice || 'de_DE-kerstin-low';
+    const language = cometNarration.voices[voice];
+    const digit = body.clip.match(/o(\d)$/)?.[1] || '9';
+    await route.fulfill({ json: {
+      success: true, text: cometNarration.clips[body.clip][language], voice,
+      audio_url: `generated/tts/${digit.repeat(64)}.mp3`,
+    } });
+  });
+  await page.route('**/generated/tts/*.mp3', (route) => {
+    audioRequests.push(route.request().url());
+    return route.fulfill({ body: silence, contentType: 'audio/wav' });
+  });
+
+  try {
+    await page.goto('/');
+    await page.locator('#start-register').click();
+    await expect.poll(() => requests.slice(0, 2)).toEqual(['comet-opening-o1', 'comet-opening-o2']);
+    await expect.poll(() => audioRequests.some((url) => url.includes('1'.repeat(64)))).toBe(true);
+    await expect(page.locator('#registration-story')).toHaveText(cometNarration.clips['comet-opening-o1'].de);
+    await page.locator('#registration-continue').click();
+    await expect(page.locator('#registration-story')).toHaveText(cometNarration.clips['comet-opening-o2'].de);
+    expect(requests.filter((clip) => clip === 'comet-opening-o2')).toHaveLength(1);
+    releaseNext();
+    await expect.poll(() => audioRequests.some((url) => url.includes('2'.repeat(64)))).toBe(true);
+    await expect.poll(() => requests.includes('comet-opening-o3')).toBe(true);
+  } finally {
+    releaseNext();
+  }
+});
+
+test('comet can be skipped and cancellation restores the captured view', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await expect.poll(() => page.evaluate(() => Boolean(window.GQAuthGalaxyBackgroundControl))).toBe(true);
+  await page.evaluate(() => {
+    const calls = window.__registrationTransitionCalls = [];
+    Object.assign(window.GQAuthGalaxyBackgroundControl, {
+      captureRegistrationView: () => { calls.push('capture'); return { marker: 'original' }; },
+      beginRegistrationTransition: ({ snapshot }) => {
+        calls.push(`begin:${snapshot.marker}`);
+        return new Promise((resolve) => { window.__finishRegistrationTransition = resolve; });
+      },
+      skipRegistrationTransition: () => calls.push('skip'),
+      restoreRegistrationView: (snapshot) => calls.push(`restore:${snapshot.marker}`),
+    });
+  });
+  await page.locator('#start-register').click();
+  await page.locator('#registration-opening-skip').click();
+  await expect(page.locator('#registration-title')).toHaveText('aereth home');
+  for (let index = 0; index < 4; index++) await page.locator('#registration-back').click();
+  await expect(page.locator('#start-register')).toBeFocused();
+  expect(await page.evaluate(() => window.__registrationTransitionCalls)).toEqual([
+    'capture', 'restore:original',
+  ]);
 });
 
 test('front-page status row mirrors the latest log entry and expands the same log', async ({ page }) => {
@@ -436,17 +769,7 @@ test('guest menu opens lazy login and cinematic private registration without cre
   )).toBe(6);
   await page.locator('[data-choice="syl_nar"]').click();
   await page.locator('#registration-continue').click();
-  await expect(page.locator('#registration-title')).toHaveText('Dein Sternsystem');
-  await expect(page.locator('#registration-continue')).toBeHidden();
-  await page.locator('[data-tutorial-planet="3"]').click();
-  await page.locator('#registration-continue').click();
-  await expect(page.locator('#registration-title')).toHaveText('Planetenscan');
-  await expect(page.locator('#registration-story')).toContainText('Status: kolonialisierbar');
-  await expect(page.locator('#registration-continue')).toContainText('Landeanflug starten');
-  await page.locator('#registration-continue').click();
-  await expect(page.locator('#registration-title')).toHaveText('Landeanflug');
-  await expect(page.locator('#registration-continue')).toHaveText('Landeanflug bestätigen');
-  await page.locator('#registration-continue').click();
+  await expect(page.locator('#registration-title')).toHaveText('Wer übernimmt das Kommando?');
   await expect(page.locator('#registration-draft-summary')).toContainText('Frontier Colony');
   await page.locator('#registration-name').fill('Commander');
   await page.locator('#registration-background').fill('Frontier engineer');
@@ -455,7 +778,7 @@ test('guest menu opens lazy login and cinematic private registration without cre
   await expect(page.locator('#registration-prologue input[type="email"],#registration-prologue input[type="password"]')).toHaveCount(0);
 });
 
-test('registration previews mentor systems and restores a private character draft on mobile', async ({ page }) => {
+test('registration previews public homeworlds and restores a private character draft on mobile', async ({ page }) => {
   await mockApi(page);
   await mockBackgroundRenderer(page);
   const saved = { ...mentorDrafts[1], selected: true, character: { name: 'SavedCommander', background: 'Explorer' } };
@@ -469,20 +792,19 @@ test('registration previews mentor systems and restores a private character draf
   await reachMentorRoom(page);
   await expect(page.locator('#registration-status')).toContainText('private System-Drafts');
   await page.locator('[data-choice="vor_tak"]').click();
-  await expect(page.locator('#registration-story')).toContainText('vor_tak System');
-  await expect.poll(() => page.evaluate(() => document.getElementById('start-galaxy-source').textContent)).toContain('WEBGPU FLIGHT');
+  await expect(page.locator('#registration-story')).toContainText('vor_tak home');
+  await expect.poll(() => page.evaluate(() =>
+    window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer.registrationShots?.at(-1)?.kind)).toBe('comet-world');
   const sceneState = await page.evaluate(() => {
     const renderer = window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer;
-    return { scene: renderer.scene, destinations: renderer.destinations };
+    return { scene: renderer.scene, shot: renderer.registrationShots.at(-1) };
   });
   expect(sceneState.scene.sceneGraph.type).toBe('galaxy');
   expect(sceneState.scene.sceneGraph.children[0].type).toBe('system');
   expect(sceneState.scene.sceneGraph.children[0].children[0].type).toBe('planet');
-  expect(sceneState.destinations).toContainEqual({ kind: 'planet', position: 2 });
-  await page.locator('#registration-continue').click();
-  await page.locator('[data-tutorial-planet="2"]').click();
-  await page.locator('#registration-continue').click();
-  await page.locator('#registration-continue').click();
+  expect(sceneState.scene.sceneGraph.children[0].data.system_index).toBe(101);
+  expect(sceneState.shot.destination).toEqual(sceneState.scene.sceneGraph);
+  expect(sceneState.shot.duration_ms).toBe(45000);
   await page.locator('#registration-continue').click();
   await expect(page.locator('#registration-name')).toHaveValue('SavedCommander');
   await expect(page.locator('#registration-background')).toHaveValue('Explorer');
@@ -500,16 +822,14 @@ test('registration surfaces setup failures and Back cancels the visible flow wit
   });
   await page.goto('/');
   await page.locator('#start-register').click();
-  for (const clip of prologueContent.teaser) {
-    await expect(page.locator('#registration-title')).toHaveText(clip.title);
-    await page.locator('#registration-continue').click();
-  }
+  await waitForFirstHomeworld(page);
+  await page.locator('#registration-opening-skip').click();
   await expect(page.locator('#registration-status')).toContainText('Systeme werden vorbereitet');
   release();
   await expect(page.locator('#registration-error')).toContainText('Registration setup is incomplete');
   await expect(page.locator('#registration-retry')).toBeVisible();
   await expect(page.locator('#registration-character')).toBeHidden();
-  for (let index = 0; index <= prologueContent.teaser.length; index++) await page.keyboard.press('Escape');
+  for (let index = 0; index < 10; index++) await page.keyboard.press('Escape');
   await expect(page.locator('#registration-prologue')).toBeHidden();
   await expect(page.locator('#start-menu')).toBeVisible();
   await expect(page.locator('#start-register')).toBeFocused();
@@ -752,6 +1072,17 @@ async function mockBackgroundRenderer(page) {
       constructor() {
         this.flightCoordinates = null;
         this._native = {
+          ready: true,
+          playRegistrationShot: (shot) => {
+            (this.registrationShots ||= []).push(shot);
+            if (shot.kind !== 'comet-world') return false;
+            this.scene = { stage: 'planet', sceneGraph: shot.destination };
+            return new Promise((resolve) => { this.pendingRegistrationShot = resolve; });
+          },
+          cancelRegistrationShot: () => {
+            this.pendingRegistrationShot?.(false);
+            this.pendingRegistrationShot = null;
+          },
           setFlightScene: (scene) => { this.scene = scene; return true; },
           setSpatialLabelStars: (stars) => { this._native.spatialLabelStars = stars.slice(); return stars.length; },
           getFlightTelemetry: () => ({ spatial: true, phase: 'idle' }),
@@ -780,10 +1111,15 @@ async function mockBackgroundRenderer(page) {
   });
 }
 
-test('registration flies galaxy to surface and back without replacing its canvas or activating the world', async ({ page }) => {
+test('registration keeps one canvas and requires explicit landing without activating the world', async ({ page }) => {
   await mockApi(page);
   await mockBackgroundRenderer(page);
   const activation = [];
+  const draftEntries = [];
+  await page.route(apiAction('registration_play', 'enter'), (route) => {
+    draftEntries.push(route.request().postDataJSON());
+    return route.fulfill({ status: 503, json: { success: false, error: 'Test draft entry rejected' } });
+  });
   page.on('request', (request) => {
     if (['register_complete', 'register'].includes(new URL(request.url()).searchParams.get('action'))) activation.push(request.url());
   });
@@ -791,29 +1127,10 @@ test('registration flies galaxy to surface and back without replacing its canvas
   await expect(page.locator('#galaxy-bg-wrapper canvas')).toHaveCount(1);
   await page.evaluate(() => { window.__flightCanvas = document.querySelector('#galaxy-bg-wrapper canvas'); });
   await reachMentorRoom(page);
-  const hasWebGpuAdapter = await page.evaluate(async () => !!(await navigator.gpu?.requestAdapter()));
-  if (hasWebGpuAdapter) {
-    const heraldCanvas = page.locator('.registration-herald-canvas');
-    await expect(heraldCanvas).toHaveCount(1, { timeout: 20000 });
-    await page.locator('[data-choice="vor_tak"]').focus();
-    await expect.poll(() => heraldCanvas.getAttribute('data-focused-herald'), { timeout: 20000 }).toBe('vor_tak');
-    await page.screenshot({ path: 'test-results/registration-herald-desktop.png' });
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: 'test-results/registration-herald-mobile.png' });
-    await page.setViewportSize({ width: 1280, height: 800 });
-  }
+  await expect(page.locator('.registration-herald-canvas')).toHaveCount(0);
   const sceneStage = () => page.evaluate(() => window.__GQ_AUTH_GALAXY_BG_RUNTIME.renderer.scene?.stage || 'galaxy');
   await page.locator('[data-choice="vor_tak"]').click();
   await expect.poll(sceneStage).toBe('planet');
-  await page.locator('#registration-continue').click();
-  await expect.poll(sceneStage).toBe('system');
-  await expect(page.locator('#registration-continue')).toBeHidden();
-  await page.locator('[data-tutorial-planet="2"]').click();
-  await expect.poll(sceneStage).toBe('planet');
-  await page.locator('#registration-continue').click();
-  await expect.poll(sceneStage).toBe('planet');
-  await page.locator('#registration-continue').click();
-  await expect.poll(sceneStage).toBe('surface');
   await page.locator('#registration-continue').click();
   await expect(page.locator('#registration-character')).toBeVisible();
   await expect.poll(sceneStage).toBe('planet');
@@ -822,15 +1139,28 @@ test('registration flies galaxy to surface and back without replacing its canvas
   await page.locator('#registration-character-form [type="submit"]').click();
   await expect(page.locator('#registration-status')).toContainText('nicht aktiviert');
   await expect(page.locator('#registration-title')).toHaveText('Wer übernimmt das Kommando?');
+  await page.locator('#registration-continue').click();
+  await expect(page.locator('#registration-prologue')).toHaveAttribute('data-phase', 'journey');
+  await expect(page.locator('#registration-flight-status')).toContainText('nicht verfügbar');
+  await expect(page.locator('#registration-continue')).toHaveText('Ohne Kamera zur Zielprüfung');
+  await page.locator('#registration-continue').click();
+  await expect(page.locator('#registration-continue')).toHaveText('Bestätigen und landen');
+  await expect.poll(sceneStage).toBe('planet');
+  expect(draftEntries).toEqual([]);
   expect(await page.evaluate(() => window.__flightCanvas === document.querySelector('#galaxy-bg-wrapper canvas'))).toBe(true);
   await page.locator('#registration-back').click();
-  await expect.poll(sceneStage).toBe('surface');
-  await page.locator('#registration-back').click();
-  await expect.poll(sceneStage).toBe('planet');
-  await page.locator('#registration-back').click();
-  await expect.poll(sceneStage).toBe('system');
-  await page.locator('#registration-back').click();
-  await expect.poll(sceneStage).toBe('galaxy');
+  await expect(page.locator('#registration-character')).toBeVisible();
+  await page.locator('#registration-continue').click();
+  await expect(page.locator('#registration-continue')).toHaveText('Ohne Kamera zur Zielprüfung');
+  await page.locator('#registration-continue').click();
+  await expect(page.locator('#registration-continue')).toHaveText('Bestätigen und landen');
+  expect(draftEntries).toEqual([]);
+  await page.locator('#registration-continue').click();
+  await expect(page.locator('#registration-continue')).toHaveText('Ohne Kamera zum Tutorial');
+  expect(draftEntries).toEqual([]);
+  await page.locator('#registration-continue').click();
+  await expect(page.locator('#registration-error')).toContainText('Test draft entry rejected');
+  expect(draftEntries).toHaveLength(1);
   expect(activation).toEqual([]);
 });
 

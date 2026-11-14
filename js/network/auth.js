@@ -115,6 +115,20 @@ import '../ui/prolog.js';
       if (typeof control?.setRegistrationPreview !== 'function') return false;
       return control.setRegistrationPreview(preview);
     },
+    onRegistrationCamera: {
+      play: (shot) => window.GQAuthGalaxyBackgroundControl?.playRegistrationShot?.(shot) ?? false,
+      pause: (paused) => window.GQAuthGalaxyBackgroundControl?.pauseRegistrationShot?.(paused),
+      finish: () => window.GQAuthGalaxyBackgroundControl?.finishRegistrationShot?.(),
+      cancel: () => window.GQAuthGalaxyBackgroundControl?.cancelRegistrationShot?.(),
+    },
+    onRegistrationTransition: {
+      capture: () => window.GQAuthGalaxyBackgroundControl?.captureRegistrationView?.() || null,
+      begin: (snapshot, reducedMotion, onReady) => window.GQAuthGalaxyBackgroundControl?.beginRegistrationTransition?.({
+        snapshot, reducedMotion, onReady,
+      }),
+      skip: () => window.GQAuthGalaxyBackgroundControl?.skipRegistrationTransition?.(),
+      restore: (snapshot) => window.GQAuthGalaxyBackgroundControl?.restoreRegistrationView?.(snapshot),
+    },
     onFlightTour: (enabled) => {
       const control = window.GQAuthGalaxyBackgroundControl;
       if (typeof control?.setFlightTourEnabled !== 'function') return false;

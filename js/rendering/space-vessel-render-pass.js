@@ -1,11 +1,13 @@
 import {
-  Box3, BoxGeometry, ConeGeometry, CylinderGeometry, Group, Matrix3, Matrix4,
+  Box3, BoxGeometry, ConeGeometry, CylinderGeometry, Float32BufferAttribute, Group, Matrix3, Matrix4,
   Mesh, MeshStandardMaterial, ObjectLoader, Quaternion, SphereGeometry, Vector3,
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createHeroBattleModel } from './hero-battle-models.js';
 import { fleetVisualLod } from './fleet-visual-lod.js';
 import { isHeroShipActive } from './hero-battle-waves.js';
+import * as THREE from 'three';
+import './SystemSpecialBodiesRenderer.js';
 
 const VESSEL_SHADER = `
 struct VesselUniforms {
@@ -95,7 +97,7 @@ struct ParticleOutput {
   let drift = vec2(sin(particle.x * 17.0 + age * 8.0), cos(particle.x * 11.0 + age * 7.0));
   let localCenter = vec3(-0.53 - age * 0.58, drift * (0.035 + age * 0.07));
   let worldCenter = (uniforms.model * vec4(localCenter, 1.0)).xyz;
-  let size = particle.y * (0.55 + age * 0.8);
+  let size = particle.y * uniforms.timeScale.y * (0.55 + age * 0.8);
   let worldPosition = worldCenter
     + uniforms.cameraRight.xyz * uv.x * size
     + uniforms.cameraUp.xyz * uv.y * size;
@@ -405,6 +407,36 @@ export class SpaceVesselRenderPass {
   }
 
   _createProceduralScene(kind) {
+    if (kind === 'comet') {
+      const comet = window.GQSystemSpecialBodiesRenderer.buildCometMesh(THREE, { seed: 5, tailParticles: 30 });
+      const nucleus = comet.userData.nucleusMesh;
+      nucleus.removeFromParent();
+      comet.traverse((node) => {
+        node.geometry?.dispose();
+        node.material?.dispose();
+      });
+      nucleus.geometry.dispose();
+      nucleus.geometry = new SphereGeometry(0.6, 48, 32);
+      const positions = nucleus.geometry.getAttribute('position');
+      const colors = [];
+      for (let index = 0; index < positions.count; index++) {
+        const x = positions.getX(index) / 0.6;
+        const y = positions.getY(index) / 0.6;
+        const z = positions.getZ(index) / 0.6;
+        const strata = Math.sin(x * 7 + Math.sin(z * 5)) * Math.cos(y * 6 - z * 3);
+        const coarse = Math.sin(x * 11 + y * 8) * Math.sin(z * 13 - y * 5);
+        const fine = Math.sin(x * 27 + z * 19) * Math.cos(y * 23 - x * 12);
+        const deformation = 1 + 0.18 * strata + 0.07 * coarse + 0.025 * fine;
+        positions.setXYZ(index, x * 0.6 * deformation, y * 0.6 * deformation, z * 0.6 * deformation);
+        const ice = Math.max(0, Math.min(1, 0.48 + strata * 0.42 + coarse * 0.3 + fine * 0.12));
+        colors.push(0.12 + ice * 0.52, 0.14 + ice * 0.57, 0.16 + ice * 0.6);
+      }
+      nucleus.geometry.setAttribute('color', new Float32BufferAttribute(colors, 3));
+      nucleus.geometry.computeVertexNormals();
+      nucleus.material.color.setRGB(1, 1, 1);
+      nucleus.material.vertexColors = true;
+      return nucleus;
+    }
     const root = new Group();
     const hullMaterial = new MeshStandardMaterial({ color: 0x4f8890, metalness: 0.3, roughness: 0.62 });
     const roofMaterial = new MeshStandardMaterial({ color: 0x8db6ad, metalness: 0.16, roughness: 0.48 });
@@ -464,6 +496,7 @@ export class SpaceVesselRenderPass {
       const normalAttribute = geometry.getAttribute('normal');
       const normalMatrix = new Matrix3().getNormalMatrix(node.matrixWorld);
       const material = Array.isArray(node.material) ? node.material[0] : node.material;
+      const colorAttribute = material?.vertexColors ? geometry.getAttribute('color') : null;
       const baseColor = material?.color?.toArray?.() || [0.58, 0.72, 0.84];
       const emissiveColor = material?.emissive?.toArray?.() || [0, 0, 0];
       const hasEmission = emissiveColor.some((channel) => channel > 0);
@@ -481,7 +514,11 @@ export class SpaceVesselRenderPass {
           normal.fromBufferAttribute(normalAttribute, vertexIndex).applyMatrix3(normalMatrix).normalize();
           positions.push(position.x, position.y, position.z);
           normals.push(normal.x, normal.y, normal.z);
-          surfaceColors.push(...surfaceColor, emissionLevel);
+          surfaceColors.push(
+            surfaceColor[0] * (colorAttribute?.getX(vertexIndex) ?? 1),
+            surfaceColor[1] * (colorAttribute?.getY(vertexIndex) ?? 1),
+            surfaceColor[2] * (colorAttribute?.getZ(vertexIndex) ?? 1), emissionLevel,
+          );
           bounds.expandByPoint(position);
         }
       }

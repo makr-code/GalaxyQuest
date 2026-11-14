@@ -1,0 +1,65 @@
+name: galaxyquest-wordpress-local
+
+# Independent project: never combine with docker-compose.yml or use shared service names.
+services:
+  private-storage:
+    profiles: [wordpress-local-https]
+    image: galaxyquest-wordpress-local-https
+    pull_policy: never
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        for directory in /var/lib/gq-inspection /var/lib/gq-local-tls /var/lib/gq-local-config; do
+          test ! -L "$$directory"
+          mkdir -p "$$directory"
+          chown www-data:www-data "$$directory"
+          chmod 0700 "$$directory"
+        done
+    volumes:
+      - inspection-profiles:/var/lib/gq-inspection
+      - local-tls:/var/lib/gq-local-tls
+      - local-config:/var/lib/gq-local-config
+
+  wordpress-https:
+    profiles: [wordpress-local-https]
+    build:
+      context: .
+      dockerfile: docker/wordpress-local-https/Dockerfile
+    image: galaxyquest-wordpress-local-https
+    restart: unless-stopped
+    depends_on:
+      private-storage:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:8443:8443"
+    networks:
+      - local-wordpress-database
+    volumes:
+      - ./wordpress:/var/www/html/wordpress:ro
+      - ./wordpress/wp-config.php:/run/gq-source/wp-config.php:ro
+      - ./docker/wordpress-local-https/wp-config.php:/var/www/html/wordpress/wp-config.php:ro
+      - ./wordpress-integration/gq-game-admin.php:/var/www/html/wordpress/wp-content/plugins/gq-game-admin.php:ro
+      - ./wordpress-integration/gq-github-plugin-updater.php:/var/www/html/wordpress/wp-content/plugins/gq-github-plugin-updater.php:ro
+      - ./wordpress-integration/gq-admin-tables.php:/var/www/html/wordpress/wp-content/plugins/gq-admin-tables.php:ro
+      - inspection-profiles:/var/lib/gq-inspection
+      - local-tls:/var/lib/gq-local-tls
+      - local-config:/var/lib/gq-local-config
+    healthcheck:
+      test: ["CMD", "php", "/usr/local/lib/gq-local-https/healthcheck.php"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 6
+
+networks:
+  local-wordpress-database:
+    external: true
+    name: galaxyquest_default
+
+volumes:
+  inspection-profiles:
+  local-tls:
+  local-config:

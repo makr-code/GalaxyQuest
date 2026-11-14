@@ -1,0 +1,279 @@
+{
+  "version": 1,
+  "voices": {
+    "de_DE-kerstin-low": "de",
+    "de_DE-thorsten-high": "de",
+    "en_US-lessac-high": "en",
+    "en_US-ryan-high": "en"
+  },
+  "opening": [
+    {
+      "slide": "opening-galaxy",
+      "title": { "de": "Eine Galaxie", "en": "A Galaxy" },
+      "label": { "de": "Sternenarchiv / Astronomie", "en": "Star Archive / Astronomy" },
+      "cues": [
+        { "id": "comet-opening-o1", "duration_ms": 6000 },
+        { "id": "comet-opening-o2", "duration_ms": 6000 }
+      ]
+    },
+    {
+      "slide": "opening-title",
+      "title": { "de": "GalaxyQuest", "en": "GalaxyQuest" },
+      "label": { "de": "Jenseits des bekannten Himmels", "en": "Beyond the Known Sky" },
+      "cues": [
+        { "id": "comet-opening-o3", "duration_ms": 4500 },
+        { "id": "comet-opening-o4", "duration_ms": 4000 }
+      ]
+    },
+    {
+      "slide": "opening-convergence",
+      "title": { "de": "Aus Sternen werden Welten", "en": "From Stars, Worlds" },
+      "label": { "de": "Sternenarchiv / Fiktion beginnt", "en": "Star Archive / Fiction Begins" },
+      "cues": [
+        { "id": "comet-opening-o5", "duration_ms": 7000 },
+        { "id": "comet-opening-o6", "duration_ms": 7000 }
+      ]
+    }
+  ],
+  "stops": [
+    {
+      "code": "aereth",
+      "transit": [
+        { "id": "comet-aereth-t1", "duration_ms": 7000 },
+        { "id": "comet-aereth-t2", "duration_ms": 7000 },
+        { "id": "comet-aereth-t3", "duration_ms": 6000 },
+        { "id": "comet-aereth-t4", "duration_ms": 7000 },
+        { "id": "comet-aereth-t5", "duration_ms": 7000 },
+        { "id": "comet-aereth-t6", "duration_ms": 6000 }
+      ],
+      "arrival": [
+        { "id": "comet-aereth-a1", "duration_ms": 6000 },
+        { "id": "comet-aereth-a2", "duration_ms": 6000 }
+      ]
+    },
+    {
+      "code": "kryl_tha",
+      "transit": [
+        { "id": "comet-kryl_tha-t1", "duration_ms": 7000 },
+        { "id": "comet-kryl_tha-t2", "duration_ms": 7000 },
+        { "id": "comet-kryl_tha-t3", "duration_ms": 6000 },
+        { "id": "comet-kryl_tha-t4", "duration_ms": 7000 },
+        { "id": "comet-kryl_tha-t5", "duration_ms": 7000 },
+        { "id": "comet-kryl_tha-t6", "duration_ms": 6000 }
+      ],
+      "arrival": [
+        { "id": "comet-kryl_tha-a1", "duration_ms": 6000 },
+        { "id": "comet-kryl_tha-a2", "duration_ms": 6000 }
+      ]
+    },
+    {
+      "code": "syl_nar",
+      "transit": [
+        { "id": "comet-syl_nar-t1", "duration_ms": 7000 },
+        { "id": "comet-syl_nar-t2", "duration_ms": 7000 },
+        { "id": "comet-syl_nar-t3", "duration_ms": 6000 },
+        { "id": "comet-syl_nar-t4", "duration_ms": 7000 },
+        { "id": "comet-syl_nar-t5", "duration_ms": 7000 },
+        { "id": "comet-syl_nar-t6", "duration_ms": 6000 }
+      ],
+      "arrival": [
+        { "id": "comet-syl_nar-a1", "duration_ms": 6000 },
+        { "id": "comet-syl_nar-a2", "duration_ms": 6000 }
+      ]
+    },
+    {
+      "code": "vel_ar",
+      "transit": [
+        { "id": "comet-vel_ar-t1", "duration_ms": 7000 },
+        { "id": "comet-vel_ar-t2", "duration_ms": 7000 },
+        { "id": "comet-vel_ar-t3", "duration_ms": 6000 },
+        { "id": "comet-vel_ar-t4", "duration_ms": 7000 },
+        { "id": "comet-vel_ar-t5", "duration_ms": 7000 },
+        { "id": "comet-vel_ar-t6", "duration_ms": 6000 }
+      ],
+      "arrival": [
+        { "id": "comet-vel_ar-a1", "duration_ms": 6000 },
+        { "id": "comet-vel_ar-a2", "duration_ms": 6000 }
+      ]
+    },
+    {
+      "code": "vor_tak",
+      "transit": [
+        { "id": "comet-vor_tak-t1", "duration_ms": 7000 },
+        { "id": "comet-vor_tak-t2", "duration_ms": 7000 },
+        { "id": "comet-vor_tak-t3", "duration_ms": 6000 },
+        { "id": "comet-vor_tak-t4", "duration_ms": 7000 },
+        { "id": "comet-vor_tak-t5", "duration_ms": 7000 },
+        { "id": "comet-vor_tak-t6", "duration_ms": 6000 }
+      ],
+      "arrival": [
+        { "id": "comet-vor_tak-a1", "duration_ms": 6000 },
+        { "id": "comet-vor_tak-a2", "duration_ms": 6000 }
+      ]
+    },
+    {
+      "code": "zhareen",
+      "transit": [
+        { "id": "comet-zhareen-t1", "duration_ms": 7000 },
+        { "id": "comet-zhareen-t2", "duration_ms": 7000 },
+        { "id": "comet-zhareen-t3", "duration_ms": 6000 },
+        { "id": "comet-zhareen-t4", "duration_ms": 7000 },
+        { "id": "comet-zhareen-t5", "duration_ms": 7000 },
+        { "id": "comet-zhareen-t6", "duration_ms": 6000 }
+      ],
+      "arrival": [
+        { "id": "comet-zhareen-a1", "duration_ms": 6000 },
+        { "id": "comet-zhareen-a2", "duration_ms": 6000 }
+      ]
+    },
+    {
+      "code": "iron_fleet",
+      "transit": [
+        { "id": "comet-iron_fleet-t1", "duration_ms": 7000 },
+        { "id": "comet-iron_fleet-t2", "duration_ms": 7000 },
+        { "id": "comet-iron_fleet-t3", "duration_ms": 6000 },
+        { "id": "comet-iron_fleet-t4", "duration_ms": 7000 },
+        { "id": "comet-iron_fleet-t5", "duration_ms": 7000 },
+        { "id": "comet-iron_fleet-t6", "duration_ms": 6000 }
+      ],
+      "arrival": [
+        { "id": "comet-iron_fleet-a1", "duration_ms": 6000 },
+        { "id": "comet-iron_fleet-a2", "duration_ms": 6000 }
+      ]
+    },
+    {
+      "code": "helion_confederation",
+      "transit": [
+        { "id": "comet-helion_confederation-t1", "duration_ms": 7000 },
+        { "id": "comet-helion_confederation-t2", "duration_ms": 7000 },
+        { "id": "comet-helion_confederation-t3", "duration_ms": 6000 },
+        { "id": "comet-helion_confederation-t4", "duration_ms": 7000 },
+        { "id": "comet-helion_confederation-t5", "duration_ms": 7000 },
+        { "id": "comet-helion_confederation-t6", "duration_ms": 6000 }
+      ],
+      "arrival": [
+        { "id": "comet-helion_confederation-a1", "duration_ms": 6000 },
+        { "id": "comet-helion_confederation-a2", "duration_ms": 6000 }
+      ]
+    },
+    {
+      "code": "ketzer_von_verath",
+      "transit": [
+        { "id": "comet-ketzer_von_verath-t1", "duration_ms": 7000 },
+        { "id": "comet-ketzer_von_verath-t2", "duration_ms": 7000 },
+        { "id": "comet-ketzer_von_verath-t3", "duration_ms": 6000 },
+        { "id": "comet-ketzer_von_verath-t4", "duration_ms": 7000 },
+        { "id": "comet-ketzer_von_verath-t5", "duration_ms": 7000 },
+        { "id": "comet-ketzer_von_verath-t6", "duration_ms": 6000 }
+      ],
+      "arrival": [
+        { "id": "comet-ketzer_von_verath-a1", "duration_ms": 6000 },
+        { "id": "comet-ketzer_von_verath-a2", "duration_ms": 6000 }
+      ]
+    }
+  ],
+  "moments": {
+    "tour-complete": { "de": "Sechs Herkünfte stehen euch offen. Andere Mächte begegnen euch unterwegs. Und nun?", "en": "Six origins are open to you. Other powers await you along the way. And now?" },
+    "choose-origin": { "de": "Welche Geschichte möchtet ihr weiterschreiben? Wählt eure Herkunft. Ich kann gut warten.", "en": "Whose story will you carry forward? Choose your origin. I'm very good at waiting." },
+    "commander-name": { "de": "Und wie darf ich euch nennen? Namen bleiben mir besser im Gedächtnis als Katalognummern.", "en": "And what shall I call you? I remember names much better than catalog numbers." },
+    "shuttle-handoff": { "de": "Euer Shuttle kreuzt gleich meinen Kurs. Es hat Sitze. Ich bin ein bisschen neidisch.", "en": "Your shuttle is about to cross my path. It has seats. I'm a little jealous." },
+    "destination-orbit": { "de": "Da liegt eure neue Heimat. Nehmt euch Zeit und bestätigt die Landung erst, wenn ihr bereit seid.", "en": "There's your new home. Take your time, and confirm the landing only when you're ready." },
+    "landing-confirmed": { "de": "Dann ist es entschieden. Das Shuttle setzt zur Landung an. Eure Geschichte beginnt hier.", "en": "Then it's decided. The shuttle begins its descent. Your story starts here." }
+  },
+  "clips": {
+    "comet-opening-o1": { "de": "Diese Galaxie hält Sterne, Gas und Staub mit ihrer Schwerkraft zusammen. Und Geschichten.", "en": "A galaxy holds stars, gas and dust together with its gravity. And stories, if you ask me." },
+    "comet-opening-o2": { "de": "Mich zum Beispiel. Ich bestehe aus Eis und Staub. Und bin besser im Reisen als im Bremsen.", "en": "Take me, for example. I'm made of ice and dust. I'm much better at travelling than braking." },
+    "comet-opening-o3": { "de": "Die Menschen nennen mich Hale-Bopp. Ich bin ein Komet.", "en": "Humans call me Hale-Bopp. I'm a comet." },
+    "comet-opening-o4": { "de": "Kommt mit. Sitze habe ich keine, aber die Aussicht ist großartig.", "en": "Come along. I don't have seats, but the view is wonderful." },
+    "comet-opening-o5": { "de": "Heute reisen wir in eine Geschichte: zur Kalytherion-Konvergenz, weit jenseits der Erde.", "en": "Today we travel into a story: to the Kalytherion Convergence, far beyond Earth." },
+    "comet-opening-o6": { "de": "Sechs Völker, ein Bündnis. Was macht eine Welt für sie zum Zuhause? Sehen wir nach.", "en": "Six peoples, one alliance. What makes a world home to them? Let's find out." },
+
+    "comet-aereth-t1": { "de": "Ganz am Anfang stand der Urknall. Das Universum ist ungefähr 13,8 Milliarden Jahre alt.", "en": "At the very beginning came the Big Bang. The universe is about 13.8 billion years old." },
+    "comet-aereth-t2": { "de": "Unser Sonnensystem entstand viel später: vor rund 4,6 Milliarden Jahren. Erst danach kam ich dazu.", "en": "Our solar system formed much later, about 4.6 billion years ago. I came along after that." },
+    "comet-aereth-t3": { "de": "Den Urknall habe ich also verpasst. Für einen alten Reisenden ist das etwas peinlich.", "en": "So I missed the Big Bang. A little embarrassing for an old traveller." },
+    "comet-aereth-t4": { "de": "Da vorne liegt Sol'Ryaan. Die Aereth bestehen aus Materie und Energie.", "en": "Up ahead is Sol'Ryaan. The Aereth are beings of matter and energy." },
+    "comet-aereth-t5": { "de": "Energie ist ihnen heilig. Sie erforschen sie, um ihre Welt und das Universum zu verstehen.", "en": "Energy is sacred to them. They study it to understand their world and the universe." },
+    "comet-aereth-t6": { "de": "Sol'Kaar führt ihren Kernrat. Seine Neugier ist gewaltig; seine Grenzen sind es manchmal weniger.", "en": "Sol'Kaar leads their Core Council. His curiosity is boundless. His limits, sometimes less so." },
+    "comet-aereth-a1": { "de": "In ihren Geschichten schweben Kontinente. Städte aus Licht werden von Energiefeldern getragen.", "en": "In their stories, continents float, and fields of energy hold cities of light aloft." },
+    "comet-aereth-a2": { "de": "Die Aereth zeigen mir: Ein Zuhause kann mit einer Frage beginnen. Ich mag gute Fragen.", "en": "The Aereth remind me that a home can begin with a question. I like a good question." },
+
+    "comet-kryl_tha-t1": { "de": "Apropos Fragen: Wie misst man Entfernungen zwischen Sternen? Mit Lichtjahren.", "en": "Speaking of questions, how do you measure the distance between stars? In light-years." },
+    "comet-kryl_tha-t2": { "de": "Ein Lichtjahr ist keine Zeit. So weit reist Licht im Vakuum in einem Jahr.", "en": "A light-year isn't a measure of time. It's how far light travels in a vacuum in one year." },
+    "comet-kryl_tha-t3": { "de": "Das sind rund 9,46 Billionen Kilometer. Ich laufe sie lieber nicht zu Fuß.", "en": "That's about 9.46 trillion kilometers. I don't think I'll walk it." },
+    "comet-kryl_tha-t4": { "de": "Auf Zyr'Mekar leben die Kryl'Tha. Sie denken im Schwarm, bleiben aber einzelne Persönlichkeiten.", "en": "The Kryl'Tha of Zyr'Mekar think as a swarm, yet each remains an individual." },
+    "comet-kryl_tha-t5": { "de": "Ihre Städte wachsen mit dem Wald. Ihre Brutkammern sind für sie ein Heiligtum.", "en": "Their cities grow with the forest. Their brood chambers are sacred to them." },
+    "comet-kryl_tha-t6": { "de": "Kommandantin Zha'Mira schützt ihre Gemeinschaft. Zusammenhalt ist für sie mehr als ein Wort.", "en": "Commander Zha'Mira protects her community. Togetherness means more to her than a word." },
+    "comet-kryl_tha-a1": { "de": "Ein Zuhause kann heißen: füreinander da sein, auch wenn der Weg durch den Wald dunkel wird.", "en": "Home can mean looking after one another, even when the path through the forest grows dark." },
+    "comet-kryl_tha-a2": { "de": "Und ich bleibe lieber über den Bäumen. Kometen sind keine besonders guten Gärtner.", "en": "I'll stay above the trees, though. Comets don't make particularly good gardeners." },
+
+    "comet-syl_nar-t1": { "de": "Vom Wald geht es zu den Ozeanen der Syl'Nar. Unterwegs zeige ich euch meinen Reisemantel.", "en": "From the forest we travel to the oceans of the Syl'Nar. First, let me show you my travelling cloak." },
+    "comet-syl_nar-t2": { "de": "Sonnenwärme lässt Eis direkt zu Gas werden, ohne zu schmelzen. Das heißt Sublimation.", "en": "The Sun's heat turns ice straight into gas, without melting first. That's called sublimation." },
+    "comet-syl_nar-t3": { "de": "Das Gas nimmt Staub mit. So entsteht meine Koma, die Hülle um meinen Kern.", "en": "The gas carries dust with it. Together they form my coma, the cloud around my core." },
+    "comet-syl_nar-t4": { "de": "Und da ist Oon'Vareth. Die Syl'Nar sprechen dort auch mit Farben. Gedanken können leuchten.", "en": "And there's Oon'Vareth. The Syl'Nar speak through colors. Their thoughts can shine." },
+    "comet-syl_nar-t5": { "de": "Vela'Thii vom Lichtbund sucht Verständigung. Denn Frieden fällt nicht einfach vom Himmel.", "en": "Vela'Thii of the Light Covenant seeks understanding. Peace doesn't just fall from the sky." },
+    "comet-syl_nar-t6": { "de": "Das weiß ich. Vom Himmel fällt manches. Ich versuche allerdings, nicht dazuzugehören.", "en": "I should know. Things do fall from the sky. I try not to be one of them." },
+    "comet-syl_nar-a1": { "de": "Ihre Heimat ist ein Ozeanplanet. In ihren Geschichten wachsen Städte aus lebenden Korallen.", "en": "Their home is an ocean world. In their stories, cities grow from living coral." },
+    "comet-syl_nar-a2": { "de": "Hier kann Zuhause bedeuten, verstanden zu werden. Auch wenn man einmal keine Worte findet.", "en": "Here, home can mean being understood, even when you can't find the words." },
+
+    "comet-vel_ar-t1": { "de": "Meine Koma kennt ihr jetzt. Aber was ist der helle Streifen dahinter?", "en": "Now you know my coma. But what about that bright streak behind it?" },
+    "comet-vel_ar-t2": { "de": "Mein Staubschweif leuchtet, weil seine Körnchen Sonnenlicht streuen. Er hat also kein eigenes Licht.", "en": "My dust tail shines because its grains scatter sunlight. It doesn't make light of its own." },
+    "comet-vel_ar-t3": { "de": "Strahlungsdruck und meine Bahn biegen ihn. Eine Frisur, die niemand bändigen muss.", "en": "Radiation pressure and my orbit curve it. A hairstyle nobody has to tame." },
+    "comet-vel_ar-t4": { "de": "Erscheinungen sind auch auf Nira'Voss ein Thema: Die gasförmigen Vel'Ar tragen lebende Masken.", "en": "Appearances matter on Nira'Voss, too. The gaseous Vel'Ar wear living masks." },
+    "comet-vel_ar-t5": { "de": "Diese Masken sind Teil ihrer Identität. Was sich dahinter verbirgt, ist nicht immer leicht zu erkennen.", "en": "Those masks are part of their identity. What lies behind them isn't always easy to see." },
+    "comet-vel_ar-t6": { "de": "Shy'Nira und ihr Schattenzirkel sammeln Informationen. Wissen kann schützen. Oder Macht verleihen.", "en": "Shy'Nira and her Shadow Circle gather information. Knowledge can protect, or give you power." },
+    "comet-vel_ar-a1": { "de": "In den Nebeln von Nira'Voss wird eine andere Frage wichtig: Wem kann man vertrauen?", "en": "In the mists of Nira'Voss, another question matters: who can you trust?" },
+    "comet-vel_ar-a2": { "de": "Ich wäre ein schlechter Spion. Mein Schweif verrät mich schon von Weitem.", "en": "I'd make a terrible spy. My tail gives me away from a long way off." },
+
+    "comet-vor_tak-t1": { "de": "Neben dem Staubschweif habe ich noch einen: den Ionenschweif. Der funktioniert anders.", "en": "Besides my dust tail, I have an ion tail. That one works differently." },
+    "comet-vor_tak-t2": { "de": "Ultraviolettes Sonnenlicht ionisiert Gas aus meiner Koma. Dabei entstehen geladene Teilchen.", "en": "Ultraviolet sunlight ionizes gas from my coma, creating electrically charged particles." },
+    "comet-vor_tak-t3": { "de": "Der Sonnenwind trägt sie fort. Darum zeigt dieser Schweif ungefähr von der Sonne weg.", "en": "The solar wind carries them away. That's why this tail points roughly away from the Sun." },
+    "comet-vor_tak-t4": { "de": "Unser nächstes Ziel ist Drak'Thuun. Hier leben die Vor'Tak, stolz und diszipliniert.", "en": "Our next stop is Drak'Thuun, home to the proud and disciplined Vor'Tak." },
+    "comet-vor_tak-t5": { "de": "General Drak'Mol führt den Schildzirkel. Er will die Grenzen der Konvergenz schützen.", "en": "General Drak'Mol leads the Shield Circle. He wants to protect the Convergence's borders." },
+    "comet-vor_tak-t6": { "de": "Doch Stärke wirft eine Frage auf: Wie verteidigt man, ohne alles andere zu verlieren?", "en": "But strength raises a question: how do you defend a home without losing everything else?" },
+    "comet-vor_tak-a1": { "de": "Unter Savannen und vulkanischen Bergen liegt die Heimat der Vor'Tak, so erzählen ihre Chroniken.", "en": "Their chronicles tell of a home beneath savannas and volcanic mountains." },
+    "comet-vor_tak-a2": { "de": "Sicherheit ist ein Versprechen. Gut, wenn auch jemand fragt, wen es einschließen soll.", "en": "Safety is a promise. It's worth asking who gets to share in it." },
+
+    "comet-zhareen-t1": { "de": "Manches an mir seht ihr gar nicht. Zum Beispiel meine riesige Hülle aus Wasserstoff.", "en": "There are things about me you can't see, like my enormous envelope of hydrogen." },
+    "comet-zhareen-t2": { "de": "Sonnenlicht zerlegt Wasser aus meiner Koma. Dabei wird unter anderem Wasserstoff frei.", "en": "Sunlight breaks down water from my coma, releasing hydrogen among other things." },
+    "comet-zhareen-t3": { "de": "Die Hülle streut ultraviolettes Licht. Für eure Augen bleibt sie unsichtbar.", "en": "The envelope scatters ultraviolet light. Your eyes can't see it." },
+    "comet-zhareen-t4": { "de": "Auch die Zhareen bewahren Unsichtbares. Ihre Kristalle speichern Erinnerungen und Gefühle.", "en": "The Zhareen keep invisible things, too. Their crystals hold memories and feelings." },
+    "comet-zhareen-t5": { "de": "Doch die Leerenbrut bedroht Aeryth'Luun. Teile ihrer Welt und ihrer Archive sind verloren.", "en": "But the Voidspawn threaten Aeryth'Luun. Parts of their world and archives are lost." },
+    "comet-zhareen-t6": { "de": "Archivar Kaelor versucht zu bewahren, was noch zu retten ist. Das ist keine leichte Aufgabe.", "en": "Archivist Kaelor tries to preserve what can still be saved. That is no easy task." },
+    "comet-zhareen-a1": { "de": "Ein Zuhause besteht nicht nur aus Orten. Es lebt auch in denen weiter, die sich erinnern.", "en": "A home is more than a place. It lives on in those who remember it." },
+    "comet-zhareen-a2": { "de": "Für einen Moment fehlen selbst mir die Worte. Manche Geschichten brauchen einfach Zeit.", "en": "Even I am lost for words for a moment. Some stories simply need time." },
+
+    "comet-iron_fleet-t1": { "de": "Nun fliegen wir zu denen, die mir meinen Namen gaben: den Menschen.", "en": "Now we're travelling to the people who gave me my name: humans." },
+    "comet-iron_fleet-t2": { "de": "1995 entdeckten Alan Hale und Thomas Bopp mich, unabhängig voneinander.", "en": "In 1995, Alan Hale and Thomas Bopp discovered me independently of each other." },
+    "comet-iron_fleet-t3": { "de": "Zwei Entdecker, zwei Nachnamen. Für einen Kometen ohne Ausweis ganz schön förmlich.", "en": "Two discoverers, two surnames. Rather formal for a comet without an identity card." },
+    "comet-iron_fleet-t4": { "de": "1996 und 1997 konnten sie mich sogar ohne Teleskop sehen. Ich war wohl schwer zu übersehen.", "en": "In 1996 and 1997 they could even see me without a telescope. I must have stood out." },
+    "comet-iron_fleet-t5": { "de": "Auf der Erde leben viele verschiedene Menschen. Die Eisenflotte ist eine ihrer Militärmächte.", "en": "Earth is home to many different people. The Iron Fleet is one of their military powers." },
+    "comet-iron_fleet-t6": { "de": "Sie will expandieren und stößt mit der Konvergenz zusammen. Nicht alle Menschen wollen das.", "en": "It seeks to expand and clashes with the Convergence. Not every human wants that." },
+    "comet-iron_fleet-a1": { "de": "Die Erde ist mehr als eine Flotte. Eure Herkunft wählt ihr unter den sechs Völkern des Bündnisses.", "en": "Earth is more than one fleet. You'll choose your origin from the alliance's six peoples." },
+    "comet-iron_fleet-a2": { "de": "Einige Menschen bewunderten mich. Andere berechneten meine Bahn. Ich mochte beides.", "en": "Some humans admired me. Others calculated my orbit. I liked both." },
+
+    "comet-helion_confederation-t1": { "de": "Eure Sonne hat acht Planeten. Dazwischen reisen Monde, Asteroiden und Kometen wie ich.", "en": "Your Sun has eight planets. Moons, asteroids and comets like me travel there, too." },
+    "comet-helion_confederation-t2": { "de": "Wir sind nur einige von vielen Körpern im Sonnensystem. Platz zum Entdecken gibt es genug.", "en": "We're just a few of the many bodies in the solar system. There's plenty left to explore." },
+    "comet-helion_confederation-t3": { "de": "Für eine ordentliche Parkplatzverwaltung wäre es trotzdem eine Herausforderung.", "en": "Organizing the parking would be quite a challenge, though." },
+    "comet-helion_confederation-t4": { "de": "Von den Planeten geht es nach Helion Prime. Die Konföderation verbindet Welten durch Handel.", "en": "From those planets we travel to Helion Prime. The Confederation connects worlds through trade." },
+    "comet-helion_confederation-t5": { "de": "Wer Waren tauscht, tauscht oft auch Wissen. Doch Verträge können Abhängigkeiten schaffen.", "en": "People who exchange goods often exchange knowledge, too. But contracts can create dependence." },
+    "comet-helion_confederation-t6": { "de": "Ihre Neutralität hält Wege offen. Das bedeutet nicht, dass alle Geschäfte uneigennützig sind.", "en": "Their neutrality keeps routes open. That doesn't make every deal selfless." },
+    "comet-helion_confederation-a1": { "de": "Auf Helion Prime treffen Hoffnungen, Interessen und Preise aufeinander. Manchmal im selben Satz.", "en": "On Helion Prime, hopes, interests and prices meet. Sometimes in the same sentence." },
+    "comet-helion_confederation-a2": { "de": "Mein Rat: Lest das Kleingedruckte. Ich selbst kann nur darauf landen. Wenn es groß genug ist.", "en": "My advice: read the fine print. I can only land on it, if it's big enough." },
+
+    "comet-ketzer_von_verath-t1": { "de": "Von Verträgen zu Fragen. Die Menschen fragten einst, wann ich der Sonne am nächsten kam.", "en": "From contracts to questions. Humans once asked when I came closest to the Sun." },
+    "comet-ketzer_von_verath-t2": { "de": "Das war am ersten April 1997. Ja, wirklich. Das Datum habe nicht ich ausgesucht.", "en": "That was April first, 1997. Yes, really. I didn't choose the date." },
+    "comet-ketzer_von_verath-t3": { "de": "Der sonnennächste Punkt einer Bahn heißt Perihel. Danach führt mein Weg wieder hinaus.", "en": "The closest point of an orbit to the Sun is called perihelion. Then my path leads outward again." },
+    "comet-ketzer_von_verath-t4": { "de": "Fragen anderer Art stellen die abtrünnigen Syl'Nar auf Verath, jenseits der etablierten Lehren.", "en": "On Verath, dissenting Syl'Nar ask different questions, beyond established teachings." },
+    "comet-ketzer_von_verath-t5": { "de": "Sael-Vorath und seine Gemeinschaft sammeln Wissen, das anderswo nicht gern gehört wird.", "en": "Sael-Vorath and his community collect knowledge others would rather not hear." },
+    "comet-ketzer_von_verath-t6": { "de": "Sie sind dieselbe Spezies wie die Syl'Nar von Oon'Vareth. Nur ihre Überzeugungen unterscheiden sich.", "en": "They're the same species as the Syl'Nar of Oon'Vareth. Their beliefs are what differ." },
+    "comet-ketzer_von_verath-a1": { "de": "Wer entscheidet, welche Frage erlaubt ist? Für die Ketzer von Verath ist das keine leichte Frage.", "en": "Who decides which questions are allowed? For the heretics of Verath, that's no easy question." },
+    "comet-ketzer_von_verath-a2": { "de": "Damit sind wir zurück bei unserer ersten Frage: Was macht einen Ort zu einem Zuhause?", "en": "And that brings us back to our first question: what makes a place a home?" },
+
+    "comet-moment-tour-complete": { "de": "Sechs Herkünfte stehen euch offen. Andere Mächte begegnen euch unterwegs. Und nun?", "en": "Six origins are open to you. Other powers await you along the way. And now?" },
+    "comet-moment-choose-origin": { "de": "Welche Geschichte möchtet ihr weiterschreiben? Wählt eure Herkunft. Ich kann gut warten.", "en": "Whose story will you carry forward? Choose your origin. I'm very good at waiting." },
+    "comet-moment-commander-name": { "de": "Und wie darf ich euch nennen? Namen bleiben mir besser im Gedächtnis als Katalognummern.", "en": "And what shall I call you? I remember names much better than catalog numbers." },
+    "comet-moment-shuttle-handoff": { "de": "Euer Shuttle kreuzt gleich meinen Kurs. Es hat Sitze. Ich bin ein bisschen neidisch.", "en": "Your shuttle is about to cross my path. It has seats. I'm a little jealous." },
+    "comet-moment-destination-orbit": { "de": "Da liegt eure neue Heimat. Nehmt euch Zeit und bestätigt die Landung erst, wenn ihr bereit seid.", "en": "There's your new home. Take your time, and confirm the landing only when you're ready." },
+    "comet-moment-landing-confirmed": { "de": "Dann ist es entschieden. Das Shuttle setzt zur Landung an. Eure Geschichte beginnt hier.", "en": "Then it's decided. The shuttle begins its descent. Your story starts here." }
+  }
+}

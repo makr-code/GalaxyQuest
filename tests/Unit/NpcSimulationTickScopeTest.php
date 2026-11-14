@@ -119,7 +119,8 @@ final class NpcSimulationTickScopeTest extends TestCase
         $tick = substr($source, $start, $nextFunction - $start);
 
         self::assertStringContainsString("'npc_player_tick:user:' . \$npcUserId . ':last_unix'", $tick);
-        self::assertStringContainsString('if (!$force && ($now - $lastTick) < 180)', $tick);
+        self::assertStringContainsString('if (!$force && ($now - $lastTick) < NPC_PLAYER_DECISION_PERIOD_SECONDS)', $tick);
+        self::assertStringContainsString('ElapsedTime::rounds(', $tick);
         self::assertStringContainsString('game_engine_begin_tick_transaction($db, $savepoint)', $tick);
         self::assertStringContainsString('npc_player_account_tick_actions($db, $npcUserId)', $tick);
         $action = strpos($tick, 'npc_player_account_tick_actions($db, $npcUserId)');

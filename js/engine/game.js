@@ -4,11 +4,10 @@
  * Single entry point for all game functionality
  * Coordinates all domains, systems, and infrastructure
  * 
- * Usage: window.GQGame.domains.economy.setTaxRate(15)
+ * Usage: window.GQGame.domains.fleet.getState()
  */
 
 import { ValidatedEventBus, EVENT_REGISTRY } from './runtime/domains/shared/EventRegistry.js';
-import { initializeEconomyDomain } from './runtime/domains/economy/__exports.js';
 import { initializeFleetDomain } from './runtime/domains/fleet/__exports.js';
 import { initializeWarDomain } from './runtime/domains/war/war__exports.js';
 import { initializeResearchDomain } from './runtime/domains/research/research__exports.js';
@@ -16,7 +15,6 @@ import { initializeColonizationDomain } from './runtime/domains/colonization/col
 import { initializeGalaxyDomain } from './runtime/domains/galaxy/galaxy__exports.js';
 import { initializeAllianceDomain } from './runtime/domains/alliance/alliance__exports.js';
 import { initializeDiplomacyDomain } from './runtime/domains/diplomacy/diplomacy__exports.js';
-import { initializeMarketDomain } from './runtime/domains/market/market__exports.js';
 import { initializeEspionageDomain } from './runtime/domains/espionage/espionage__exports.js';
 import { initializeNPCDomain } from './runtime/domains/npc/npc__exports.js';
 import { initializeEventDomain } from './runtime/domains/event/event__exports.js';
@@ -285,13 +283,8 @@ class GalaxyQuestGame {
   async _initializeDomains() {
     console.log('[Game] Initializing domains...');
 
-    // Economy domain
-    this.domains.economy = await initializeEconomyDomain({
-      eventBus: this.events,
-      repository: this.infrastructure.repository,
-      logger: this.infrastructure.logger,
-      domTarget: document.querySelector('[data-domain="economy"]')
-    });
+    // Economy and market are server-authoritative; their read models live in
+    // runtime/server-economy-domain.js and runtime/server-market-domain.js.
 
     // Fleet domain
     this.domains.fleet = await initializeFleetDomain({
@@ -347,14 +340,6 @@ class GalaxyQuestGame {
       repository: this.infrastructure.repository,
       logger: this.infrastructure.logger,
       domTarget: document.querySelector('[data-domain="diplomacy"]')
-    });
-
-    // Market domain
-    this.domains.market = await initializeMarketDomain({
-      eventBus: this.events,
-      repository: this.infrastructure.repository,
-      logger: this.infrastructure.logger,
-      domTarget: document.querySelector('[data-domain="market"]')
     });
 
     // Espionage domain

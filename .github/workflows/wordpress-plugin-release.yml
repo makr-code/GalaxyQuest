@@ -1,12 +1,12 @@
-name: WordPress Deployment Plugin Release
+name: WordPress Plugin Release
 
 on:
   push:
-    tags: ['gq-deployment-status-v*']
+    tags: ['gq-deployment-status-v*', 'gq-game-admin-v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing stable plugin tag (gq-deployment-status-vX.Y.Z)
+        description: Existing stable gq-deployment-status-vX.Y.Z or gq-game-admin-vX.Y.Z tag
         required: true
         type: string
 
@@ -20,10 +20,22 @@ jobs:
       github.ref == 'refs/heads/main' ||
       github.ref == 'refs/heads/release/wordpress-plugin'
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mariadb:11.8
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: '1'
+          MARIADB_ROOT_HOST: '%'
+          MARIADB_DATABASE: gq_admin_connection
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=20
     outputs:
       tag: ${{ steps.package.outputs.tag }}
       sha: ${{ steps.package.outputs.sha }}
       version: ${{ steps.package.outputs.version }}
+      slug: ${{ steps.source.outputs.slug }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,49 +46,57 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
-          extensions: zip, mbstring, pdo_sqlite
+          extensions: zip, mbstring, pdo_sqlite, mysqli, pdo_mysql
           coverage: none
 
       - name: Validate stable plugin source
+        id: source
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          [[ "$RELEASE_TAG" =~ ^gq-deployment-status-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$RELEASE_TAG" =~ ^(gq-deployment-status|gq-game-admin)-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          SLUG="${BASH_REMATCH[1]}"
           test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
           if ! git merge-base --is-ancestor HEAD origin/main; then
             git merge-base --is-ancestor HEAD origin/release/wordpress-plugin
           fi
-          php -l wordpress-integration/gq-deployment-status.php
+          php -l "wordpress-integration/$SLUG.php"
+          php -l wordpress-integration/gq-github-plugin-updater.php
           php -l scripts/package_wordpress_plugin.php
+          echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
 
       - name: Install locked test dependencies
         run: composer install --no-interaction --prefer-dist --no-progress --no-scripts --no-plugins
 
       - name: Verify plugin updater and canonical package contract
+        env:
+          GQ_GAME_ADMIN_CONNECTION_TEST_DSN: mysql:host=127.0.0.1;dbname=gq_admin_connection;charset=utf8mb4
         run: |
           vendor/bin/phpunit --no-configuration tests/Unit/WordPressDeploymentStatusTest.php
+          vendor/bin/phpunit --no-configuration tests/Unit/WordPressGameAdministrationTest.php
           vendor/bin/phpunit --no-configuration tests/Unit/WordPressPluginPackageTest.php
 
       - name: Prepare independent WordPress plugin assets
         id: package
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          SLUG: ${{ steps.source.outputs.slug }}
           OUTPUT: ${{ runner.temp }}/wordpress-plugin
         run: |
           set -euo pipefail
           SHA="$(git rev-parse HEAD)"
           mkdir -m 700 "$OUTPUT"
           php scripts/package_wordpress_plugin.php "$RELEASE_TAG" "$SHA" "$OUTPUT"
-          VERSION="${RELEASE_TAG#gq-deployment-status-v}"
-          (cd "$OUTPUT" && sha256sum --check "gq-deployment-status-$VERSION.sha256")
+          VERSION="${RELEASE_TAG#${SLUG}-v}"
+          (cd "$OUTPUT" && sha256sum --check "$SLUG-$VERSION.sha256")
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wordpress-deployment-plugin
+          name: wordpress-plugin
           path: ${{ runner.temp }}/wordpress-plugin/*
           if-no-files-found: error
           retention-days: 7
@@ -93,7 +113,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: wordpress-deployment-plugin
+          name: wordpress-plugin
           path: wordpress-plugin
 
       - name: Publish verified plugin assets without replacing existing releases
@@ -103,23 +123,27 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
           VERSION: ${{ needs.prepare.outputs.version }}
+          SLUG: ${{ needs.prepare.outputs.slug }}
         working-directory: wordpress-plugin
         run: |
           set -euo pipefail
+          test "$RELEASE_TAG" = "$SLUG-v$VERSION"
           test "$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)" = "$RELEASE_SHA"
-          ZIP="gq-deployment-status-$VERSION.zip"
-          CHECKSUM="gq-deployment-status-$VERSION.sha256"
-          MANIFEST="gq-deployment-status-$VERSION.release.json"
+          ZIP="$SLUG-$VERSION.zip"
+          CHECKSUM="$SLUG-$VERSION.sha256"
+          MANIFEST="$SLUG-$VERSION.release.json"
           sha256sum --check "$CHECKSUM"
           DIGEST="sha256:$(sha256sum "$ZIP" | cut -d ' ' -f 1)"
           SIZE="$(stat -c '%s' "$ZIP")"
-          jq -e --arg tag "$RELEASE_TAG" --arg commit "$RELEASE_SHA" --arg version "$VERSION" \
+          jq -e --arg tag "$RELEASE_TAG" --arg commit "$RELEASE_SHA" --arg version "$VERSION" --arg plugin "$SLUG" \
             --arg zip "$ZIP" --arg digest "$DIGEST" --argjson size "$SIZE" \
             '.schema_version == 1 and .repository == "makr-code/GalaxyQuest"
-             and .plugin == "gq-deployment-status" and .version == $version
+             and .plugin == $plugin and .version == $version
              and .tag == $tag and .commit == $commit
              and .package == {name:$zip,digest:$digest,size_in_bytes:$size}' "$MANIFEST"
-          printf 'GalaxyQuest Deployment Status %s\n\nWordPress plugin only; no game deployment.\n' "$VERSION" > notes.txt
+          PLUGIN_NAME='GalaxyQuest Deployment Status'
+          if [ "$SLUG" = gq-game-admin ]; then PLUGIN_NAME='GalaxyQuest Administration'; fi
+          printf '%s %s\n\nWordPress plugin only; no game deployment.\n' "$PLUGIN_NAME" "$VERSION" > notes.txt
           gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" > releases.json
           jq --arg tag "$RELEASE_TAG" '[.[][] | select(.tag_name == $tag)]' releases.json > existing.json
           COUNT="$(jq length existing.json)"
@@ -142,7 +166,7 @@ jobs:
           fi
           gh release create "$RELEASE_TAG" "$ZIP" "$CHECKSUM" "$MANIFEST" \
             --repo "$GH_REPO" --verify-tag --target "$RELEASE_SHA" \
-            --draft --latest=false --title "WordPress Deployment Plugin $VERSION" --notes-file notes.txt
+            --draft --latest=false --title "$PLUGIN_NAME $VERSION" --notes-file notes.txt
           # The by-tag endpoint does not expose drafts; select the authenticated list entry.
           gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" > draft-releases.json
           jq --arg tag "$RELEASE_TAG" \

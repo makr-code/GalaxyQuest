@@ -11,8 +11,6 @@ use PDOStatement;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
-const ON_DEMAND_ECONOMY_ENABLED = 0;
-
 // Isolate economy/queue/catalog/cache infrastructure, not the dispatch or ledger.
 function update_colony_resources(PDO $db, int $colonyId): void
 {
@@ -66,6 +64,20 @@ function enqueue_dirty_user(PDO $db, int $userId, string $reason): void
     $db->prepare('INSERT INTO dirty_users (user_id, reason) VALUES (?, ?)')->execute([$userId, $reason]);
 }
 
+// Dispatch-focused fixture without the on-demand schema; real ledger coverage lives in
+// the FleetLaunchOnDemand namespace below.
+final class OnDemandEconomy
+{
+    public function __construct(private PDO $db)
+    {
+    }
+
+    public function spend(int $colonyId, int $userId, array $cost, callable $mutation): mixed
+    {
+        return (new \GalaxyQuest\Economy\ResourceLedger($this->db))->spend($colonyId, $userId, $cost, $mutation);
+    }
+}
+
 final class FleetLaunchTest extends TestCase
 {
     public static array $cacheDeletes = [];
@@ -78,9 +90,10 @@ final class FleetLaunchTest extends TestCase
         $start = strpos($source, 'function launch_fleet_dispatch(');
         self::assertNotFalse($start);
         // Execute repository functions in this isolated infrastructure namespace.
+        // This namespace resolves OnDemandEconomy to the local ledger double below.
         eval('namespace ' . __NAMESPACE__ . '; use PDO; use DomainException; '
             . 'use GalaxyQuest\\Combat\\FleetDispatchReceipt; '
-            . 'use GalaxyQuest\\Economy\\ResourceLedger; use GalaxyQuest\\Economy\\OnDemandEconomy; '
+            . 'use GalaxyQuest\\Economy\\ResourceLedger; '
             . str_replace('__DIR__', var_export(realpath(__DIR__ . '/../../lib'), true), substr($source, $start)));
         eval('namespace GalaxyQuest\\Tests\\Integration\\FleetLaunchOnDemand; use PDO; use DomainException; '
             . 'use GalaxyQuest\\Combat\\FleetDispatchReceipt; '
@@ -658,8 +671,6 @@ namespace GalaxyQuest\Tests\Integration\FleetLaunchOnDemand;
 
 use GalaxyQuest\Economy\OnDemandEconomy;
 use PDO;
-
-const ON_DEMAND_ECONOMY_ENABLED = 1;
 
 function update_colony_resources(PDO $db, int $colonyId): void
 {

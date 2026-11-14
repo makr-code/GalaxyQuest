@@ -47,6 +47,47 @@ if ($action === 'list') {
         json_error('Blog derzeit nicht verfügbar. Bitte erneut versuchen.', 503);
     }
 }
+if ($action === 'radio') {
+    only_method('GET');
+    if (BLOG_SOURCE !== 'wordpress' || $source === null) {
+        json_error('Galaxy News Radio benötigt eine konfigurierte WordPress-Quelle.', 503);
+    }
+    try {
+        json_ok(['posts' => $source->latest($repository->flightTargets(), 'galaxy-news-radio'), 'source' => BLOG_SOURCE]);
+    } catch (RuntimeException $error) {
+        error_log('[developer_blog_radio] ' . $error->getMessage());
+        json_error('Galaxy News Radio derzeit nicht verfügbar. Bitte erneut versuchen.', 503);
+    }
+}
+if ($action === 'chronology') {
+    only_method('GET');
+    if (BLOG_SOURCE !== 'wordpress' || $source === null) {
+        json_error('Die Chronik benötigt eine konfigurierte WordPress-Quelle.', 503);
+    }
+    $page = $_GET['page'] ?? '1';
+    $topic = $_GET['topic'] ?? '';
+    $from = $_GET['from'] ?? '';
+    $to = $_GET['to'] ?? '';
+    $order = $_GET['order'] ?? 'desc';
+    $validDate = static function ($value): bool {
+        if (!is_string($value)) return false;
+        if ($value === '') return true;
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value, new DateTimeZone('UTC'));
+        return $date !== false && $date->format('Y-m-d') === $value && substr($value, 0, 4) !== '0000';
+    };
+    if (!is_string($page) || !preg_match('/^[1-9][0-9]{0,3}$/D', $page)
+        || !is_string($topic) || !in_array($topic, ['', 'galaxiegeschichte', 'spielentwicklung', 'diplomatie'], true)
+        || !is_string($order) || !in_array($order, ['asc', 'desc'], true)
+        || !$validDate($from) || !$validDate($to) || ($from !== '' && $to !== '' && $from > $to)) {
+        json_error('Ungültige Chronikfilter.', 422);
+    }
+    try {
+        json_ok($source->chronology((int)$page, $topic, $from, $to, $order));
+    } catch (RuntimeException $error) {
+        error_log('[developer_blog_chronology] ' . $error->getMessage());
+        json_error('Chronik derzeit nicht verfügbar. Bitte erneut versuchen.', 503);
+    }
+}
 if ($action === 'narration') {
     only_method('POST');
     verify_csrf();

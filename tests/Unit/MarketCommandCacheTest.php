@@ -6,7 +6,7 @@ use PHPUnit\Framework\TestCase;
 
 final class MarketCommandCacheTest extends TestCase
 {
-    public function testBothMarketModesInvalidateTradeCachesBeforeAcknowledging(): void
+    public function testMarketExchangesInvalidateTradeCachesBeforeAcknowledging(): void
     {
         $source = file_get_contents(__DIR__ . '/../../api/market.php');
         self::assertIsString($source);
@@ -18,9 +18,8 @@ final class MarketCommandCacheTest extends TestCase
             $handler = substr($source, $start, $end - $start);
             self::assertStringContainsString("only_method('POST')", $handler);
             self::assertStringContainsString('verify_csrf()', $handler);
-            self::assertSame(2, substr_count($handler, 'invalidate_market_trade_cache($uid, $colonyId)'));
-            self::assertMatchesRegularExpression('/exchange\([\s\S]*?\);\s*invalidate_market_trade_cache\(\$uid, \$colonyId\);\s*json_ok\(\$result\)/', $handler);
-            self::assertMatchesRegularExpression('/invalidate_market_trade_cache\(\$uid, \$colonyId\);\s*json_ok\(\[/', $handler);
+            self::assertSame(1, substr_count($handler, 'invalidate_market_trade_cache($uid, $colonyId)'));
+            self::assertMatchesRegularExpression('/exchange\([\s\S]*?\);[\s\S]*?invalidate_market_trade_cache\(\$uid, \$colonyId\);\s*json_ok\(\$result\)/', $handler);
         }
         self::assertStringContainsString("gq_cache_delete('game_overview', ['uid' => \$uid])", $source);
         self::assertStringContainsString("gq_cache_delete('game_resources', ['uid' => \$uid, 'cid' => \$colonyId])", $source);

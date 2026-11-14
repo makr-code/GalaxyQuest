@@ -1,0 +1,117 @@
+{
+  "schema": "gq.trellis-inspection.v2",
+  "status": "DEV_ONLY",
+  "source_sha256": "5f3f95b06934e01392be689c20c924baf796236fd8ffa6089445bffe3924b928",
+  "size_bytes": 251656,
+  "asset_type": "building",
+  "facility_kind": "industry",
+  "instances": 1,
+  "world_bounds": [
+    [
+      0.031693197786808014,
+      0.10784222930669785,
+      -0.9995281100273132
+    ],
+    [
+      0.9682869911193848,
+      0.8896086812019348,
+      0.0015056007541716099
+    ]
+  ],
+  "missing_normal_primitives": 1,
+  "meshes": [
+    {
+      "name": "geometry_0",
+      "triangles": 13708,
+      "vertices": 7196,
+      "zero_area_faces": 0,
+      "uv_valid": false,
+      "components": [
+        {
+          "triangles": 13701,
+          "area_fraction": 0.9999795379752696,
+          "local_bounds": [
+            [
+              0.031693197786808014,
+              0.10784222930669785,
+              -0.9995281100273132
+            ],
+            [
+              0.9682869911193848,
+              0.8896086812019348,
+              0.0015056007541716099
+            ]
+          ]
+        },
+        {
+          "triangles": 5,
+          "area_fraction": 1.878276649614306e-05,
+          "local_bounds": [
+            [
+              0.8361685276031494,
+              0.12099647521972656,
+              -0.9774792790412903
+            ],
+            [
+              0.8505969643592834,
+              0.12099829316139221,
+              -0.9658684730529785
+            ]
+          ]
+        },
+        {
+          "triangles": 1,
+          "area_fraction": 1.377804147511821e-06,
+          "local_bounds": [
+            [
+              0.7852194309234619,
+              0.11082315444946289,
+              -0.978011965751648
+            ],
+            [
+              0.7897045612335205,
+              0.11082315444946289,
+              -0.9713215231895447
+            ]
+          ]
+        },
+        {
+          "triangles": 1,
+          "area_fraction": 3.01454086761796e-07,
+          "local_bounds": [
+            [
+              0.7852194309234619,
+              0.11082315444946289,
+              -0.9798911809921265
+            ],
+            [
+              0.7862932682037354,
+              0.11082315444946289,
+              -0.9774750471115112
+            ]
+          ]
+        }
+      ],
+      "base_color": null,
+      "metallic_roughness": null,
+      "base_color_factor": null,
+      "findings": [
+        "multiple_face_components_review_required",
+        "missing_or_invalid_uv",
+        "missing_pbr_material",
+        "missing_base_color_texture",
+        "missing_metallic_roughness_texture"
+      ]
+    }
+  ],
+  "findings": [
+    "missing_normal_attributes"
+  ],
+  "required_manual_checks": [
+    "visual_quality_and_materials",
+    "physical_scale",
+    "orientation_and_ground_contact",
+    "lod_and_render_budget",
+    "both_colony_views"
+  ]
+}

@@ -1,8 +1,11 @@
 import { initializeServerAnnouncements } from './server-announcements.js';
 import { initializeRegistrationPrologue } from './registration-prologue.js';
 import { initializeDeveloperBlog } from './developer-blog.js';
+import { initializeChronology } from './chronology.js';
+import { initializeRadio } from './radio.js';
+import { createStartScreenMotion } from './start-screen-motion.js';
 
-export function initializeStartScreen({ onResume, onMute, onFlightTour = () => true, onRegistrationRequest, onRegistrationPreview, onEnterDraft } = {}) {
+export function initializeStartScreen({ onResume, onMute, onFlightTour = () => true, onRegistrationRequest, onRegistrationPreview, onRegistrationCamera, onRegistrationTransition, onEnterDraft } = {}) {
   const menu = document.getElementById('start-menu');
   const template = document.getElementById('auth-forms-template');
   if (!menu || !template?.content.firstElementChild) throw new Error('Start-screen HTML is missing required markup');
@@ -20,14 +23,19 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
   let returnFocus = null;
   let resumePending = false;
   let registrationPausedFlightTour = false;
+  let registrationView = null;
+  let registrationStarting = false;
+  let exitListeners = null;
   let panelListeners = null;
   let activeTrigger = null;
   const loginButton = document.getElementById('start-login');
   const blog = initializeDeveloperBlog();
+  initializeChronology();
+  initializeRadio();
   const announcements = initializeServerAnnouncements({
     beforeOpen: () => {
       // Do not interrupt credentials, registration or settings while the initial request finishes.
-      if (authDialog || contentDialog.open || registration.isActive()) return false;
+      if (authDialog || contentDialog.open || registrationStarting || registration.isActive()) return false;
       return true;
     },
   });
@@ -99,10 +107,22 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
   }
 
   const registration = initializeRegistrationPrologue({
-    request: onRegistrationRequest, onPreview: onRegistrationPreview,
+    request: onRegistrationRequest, onPreview: onRegistrationPreview, onCamera: onRegistrationCamera,
     onEnterDraft,
-    onClose: () => {
-      resumeFlightTourAfterRegistration();
+    onClose: ({ completed }) => {
+      if (!completed && registrationView) {
+        try {
+          if (onRegistrationTransition?.restore(registrationView) === false) {
+            throw new Error('Der ursprüngliche Renderer ist nicht mehr verfügbar.');
+          }
+        } catch (error) {
+          report(`Galaxieansicht konnte nicht wiederhergestellt werden: ${error.message}`, 'warn');
+        }
+      }
+      registrationView = null;
+      if (!completed) resumeFlightTourAfterRegistration();
+      else registrationPausedFlightTour = false;
+      if (!completed) void animateMenuEntrance(document.getElementById('start-register'));
       document.getElementById('start-register').focus();
       window.dispatchEvent(new Event('gq:start-panel-closed'));
     },
@@ -150,13 +170,62 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
     const trigger = document.getElementById(`start-${mode}`);
     trigger.addEventListener('click', () => openAuth(mode, trigger));
   });
-  document.getElementById('start-register').addEventListener('click', () => {
+  document.getElementById('start-register').addEventListener('click', async () => {
+    if (registrationStarting || registration.isActive()) return;
     closeAuth();
     if (authDialog) return;
     closeContent();
     announcements.close();
+    registrationStarting = true;
+    try {
+      registrationView = onRegistrationTransition?.capture() || null;
+    } catch (error) {
+      registrationView = null;
+      report(`Galaxieansicht konnte nicht übernommen werden: ${error.message}`, 'warn');
+    }
     pauseFlightTourForRegistration();
-    registration.open();
+    menu.inert = true;
+    const terminal = document.getElementById('boot-terminal');
+    if (terminal) terminal.inert = true;
+    menu.setAttribute('aria-busy', 'true');
+    document.body.classList.add('start-menu-transitioning');
+    exitListeners = new AbortController();
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      exitListeners.abort();
+      exitListeners = null;
+      registrationStarting = false;
+      releaseMenuExit();
+      if (registrationView) {
+        try {
+          if (onRegistrationTransition.restore(registrationView) === false) throw new Error('Renderer nicht verfügbar.');
+        } catch (error) {
+          report(`Galaxieansicht konnte nicht wiederhergestellt werden: ${error.message}`, 'warn');
+        }
+      }
+      registrationView = null;
+      resumeFlightTourAfterRegistration();
+      void animateMenuEntrance(document.getElementById('start-register'));
+      document.getElementById('start-register').focus();
+    }, { signal: exitListeners.signal });
+    try {
+      if (!await menuMotion.exit()) return;
+    } catch (error) {
+      report(`Menüanimation nicht verfügbar: ${error.message}`, 'warn');
+    }
+    if (!registrationStarting) return;
+    exitListeners?.abort();
+    exitListeners = null;
+    registrationStarting = false;
+    registration.open(registrationView ? {
+      opening: true,
+      campaign: true,
+      transition: (onReady) => onRegistrationTransition.begin(
+        onRegistrationTransition.capture() || registrationView, motion.checked, onReady),
+      onSkipTransition: () => onRegistrationTransition.skip(),
+    } : { opening: true, campaign: true, transition: onRegistrationTransition ? () => false : undefined });
+    releaseMenuExit();
   });
   document.getElementById('start-resume').addEventListener('click', async (event) => {
     if (resumePending) return;
@@ -204,6 +273,7 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
 
   const motion = document.getElementById('start-reduced-motion');
   const mute = document.getElementById('start-mute');
+  const ttsVoice = document.getElementById('start-tts-voice');
   const flightTour = document.getElementById('start-flight-tour');
   const flightStatus = document.getElementById('start-flight-status');
   const settingsStatus = document.getElementById('start-settings-status');
@@ -216,17 +286,42 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
     if (storedFlightTour && motion.checked) flightStatus.textContent = 'Turn off Reduce motion to enable automatic flight.';
     const audio = JSON.parse(localStorage.getItem('gq_audio_settings') || '{}');
     mute.checked = audio.masterMuted === true;
+    const storedVoice = window.GQTTS?.getVoice?.() || localStorage.getItem('gq_tts_voice') || 'de_DE-kerstin-low';
+    ttsVoice.value = [...ttsVoice.options].some((option) => option.value === storedVoice)
+      ? storedVoice
+      : 'de_DE-kerstin-low';
   } catch (error) {
     motion.checked = media.matches;
     flightTour.checked = false;
+    ttsVoice.value = 'de_DE-kerstin-low';
     settingsStatus.textContent = `Preferences could not be loaded: ${error.message}`;
   }
   function applyMotion() {
     document.body.classList.toggle('start-reduced-motion', motion.checked);
     document.body.dataset.startReducedMotion = String(motion.checked);
     window.dispatchEvent(new CustomEvent('gq:start-motion', { detail: { reduced: motion.checked } }));
+    if (motion.checked) menuMotion.finish();
+  }
+  const menuMotion = createStartScreenMotion({ menu, isReduced: () => motion.checked });
+  function releaseMenuExit() {
+    menu.inert = false;
+    const terminal = document.getElementById('boot-terminal');
+    if (terminal) terminal.inert = false;
+    menu.removeAttribute('aria-busy');
+    document.body.classList.remove('start-menu-transitioning');
+  }
+  async function animateMenuEntrance(focusTarget = null) {
+    try {
+      const completed = await menuMotion.enter();
+      if (completed && focusTarget && (document.activeElement === document.body || document.activeElement === focusTarget)) {
+        focusTarget.focus({ preventScroll: true });
+      }
+    } catch (error) {
+      report(`Menüanimation nicht verfügbar: ${error.message}`, 'warn');
+    }
   }
   applyMotion();
+  void animateMenuEntrance();
   motion.addEventListener('change', () => {
     applyMotion();
     try {
@@ -282,6 +377,20 @@ export function initializeStartScreen({ onResume, onMute, onFlightTour = () => t
       settingsStatus.textContent = `Audio preference could not be applied: ${error.message}`;
     } finally {
       mute.disabled = false;
+    }
+  });
+  ttsVoice.addEventListener('change', () => {
+    const previousVoice = ttsVoice.value;
+    try {
+      if (typeof window.GQTTS?.setVoice === 'function') {
+        window.GQTTS.setVoice(ttsVoice.value);
+      } else {
+        localStorage.setItem('gq_tts_voice', ttsVoice.value);
+      }
+      settingsStatus.textContent = 'TTS voice preference saved.';
+    } catch (error) {
+      ttsVoice.value = previousVoice;
+      settingsStatus.textContent = `TTS voice preference could not be saved: ${error.message}`;
     }
   });
   window.addEventListener('gq:audio-state', (event) => {

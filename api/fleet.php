@@ -429,57 +429,71 @@ function recall_fleet(PDO $db, int $uid, int $fleetId): never {
 // ─── Arrival processing ───────────────────────────────────────────────────────
 
 function process_fleet_arrivals(PDO $db): void {
-    $sql = 'SELECT * FROM fleets WHERE arrival_time <= NOW() ORDER BY arrival_time ASC';
-    if (ON_DEMAND_ECONOMY_ENABLED) {
-        $sql .= ' LIMIT 100';
-    }
-    $due = $db->prepare($sql);
+    $traderRoutes = fleet_trader_route_table_exists($db);
+    $routeExclusion = $traderRoutes
+        ? 'AND NOT EXISTS (SELECT 1 FROM trader_routes tr WHERE tr.fleet_id = f.id) '
+        : '';
+    $due = $db->prepare(
+        'SELECT f.* FROM fleets f WHERE f.arrival_time <= NOW() '
+        . $routeExclusion . 'ORDER BY f.arrival_time ASC LIMIT 100'
+    );
     $due->execute();
+    $economy = new OnDemandEconomy($db);
     foreach ($due->fetchAll() as $fleet) {
-        if (ON_DEMAND_ECONOMY_ENABLED) {
-            $economy = new OnDemandEconomy($db);
-            $recipient = (int)$fleet['origin_colony_id'];
-            if (!$fleet['returning'] && $fleet['mission'] === 'transport') {
-                $target = $db->prepare(
-                    'SELECT c.id FROM colonies c JOIN celestial_bodies cb ON cb.id=c.body_id '
-                        . 'WHERE cb.galaxy_index=? AND cb.system_index=? AND cb.position=?'
-                );
-                $target->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
-                $recipient = (int)($target->fetchColumn() ?: $recipient);
-            }
-            // Catch-up must survive a deferred delivery instead of rolling back with it.
-            if ($economy->settle($recipient)['economy']['pending_seconds'] >= 300) {
-                continue;
-            }
-            $economy->transaction(
-                static function () use ($db, $fleet): void {
-                    process_fleet_arrival_locked($db, (int)$fleet['id']);
-                }
+        $recipient = (int)$fleet['origin_colony_id'];
+        if (!$fleet['returning'] && $fleet['mission'] === 'transport') {
+            $target = $db->prepare(
+                'SELECT c.id FROM colonies c JOIN celestial_bodies cb ON cb.id=c.body_id '
+                    . 'WHERE cb.galaxy_index=? AND cb.system_index=? AND cb.position=?'
             );
-        } else {
-            $db->beginTransaction();
-            try {
-                process_fleet_arrival_locked($db, (int)$fleet['id']);
-                $db->commit();
-            } catch (Throwable $error) {
-                if ($db->inTransaction()) {
-                    $db->rollBack();
-                }
-                throw $error;
-            }
+            $target->execute([$fleet['target_galaxy'], $fleet['target_system'], $fleet['target_position']]);
+            $recipient = (int)($target->fetchColumn() ?: $recipient);
         }
+        // Catch-up must survive a deferred delivery instead of rolling back with it.
+        if ($economy->settle($recipient)['economy']['pending_seconds'] >= 300) {
+            continue;
+        }
+        $economy->transaction(
+            static function () use ($db, $fleet): void {
+                process_fleet_arrival_locked($db, (int)$fleet['id']);
+            }
+        );
     }
 }
 
 function process_fleet_arrival_locked(PDO $db, int $fleetId): void
 {
+    $lock = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+    $routeExclusion = fleet_trader_route_table_exists($db)
+        ? 'AND NOT EXISTS (SELECT 1 FROM trader_routes tr WHERE tr.fleet_id = f.id) '
+        : '';
     $claim = $db->prepare(
-        'SELECT * FROM fleets WHERE id = ? AND arrival_time <= NOW() FOR UPDATE'
+        'SELECT f.* FROM fleets f WHERE f.id = ? AND f.arrival_time <= NOW() '
+        . $routeExclusion . $lock
     );
     $claim->execute([$fleetId]);
     $current = $claim->fetch(PDO::FETCH_ASSOC);
     if ($current) {
         handle_fleet_arrival($db, $current);
+    }
+}
+
+function fleet_trader_route_table_exists(PDO $db): bool
+{
+    static $tableExistsByConnection = [];
+    $connectionId = spl_object_id($db);
+    if (array_key_exists($connectionId, $tableExistsByConnection)) {
+        return $tableExistsByConnection[$connectionId];
+    }
+
+    try {
+        $db->query('SELECT 1 FROM trader_routes LIMIT 0');
+        return $tableExistsByConnection[$connectionId] = true;
+    } catch (PDOException $error) {
+        if (gq_is_missing_table_exception($error, $db)) {
+            return $tableExistsByConnection[$connectionId] = false;
+        }
+        throw $error;
     }
 }
 
@@ -516,17 +530,11 @@ function return_fleet_to_origin(PDO $db, array $fleet, array $ships): void {
            ->execute([$cid, $type, $cnt, $cnt]);
     }
 
-    $payload = decode_fleet_cargo_payload($fleet);
-    if ($payload || ON_DEMAND_ECONOMY_ENABLED) {
-        if (!$payload) {
-            $payload = ['metal' => $fleet['cargo_metal'], 'crystal' => $fleet['cargo_crystal'],
-                'deuterium' => $fleet['cargo_deuterium']];
-        }
-        apply_fleet_payload_to_colony($db, $cid, $payload);
-    } else {
-        $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
-           ->execute([$fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $cid]);
-    }
+    $payload = decode_fleet_cargo_payload($fleet) ?: [
+        'metal' => $fleet['cargo_metal'], 'crystal' => $fleet['cargo_crystal'],
+        'deuterium' => $fleet['cargo_deuterium'],
+    ];
+    apply_fleet_payload_to_colony($db, $cid, $payload);
 
     $db->prepare('DELETE FROM fleets WHERE id=?')->execute([$fleet['id']]);
     enqueue_dirty_user($db, (int)$fleet['user_id'], 'fleet_returned');
@@ -539,16 +547,10 @@ function deliver_resources(PDO $db, array $fleet, array $ships): void {
     $payload = decode_fleet_cargo_payload($fleet);
 
     if ($target) {
-        if ($payload || ON_DEMAND_ECONOMY_ENABLED) {
-            if (!$payload) {
-                $payload = ['metal' => $fleet['cargo_metal'], 'crystal' => $fleet['cargo_crystal'],
-                    'deuterium' => $fleet['cargo_deuterium']];
-            }
-            apply_fleet_payload_to_colony($db, (int)$target['id'], $payload);
-        } else {
-            $db->prepare('UPDATE colonies SET metal=metal+?, crystal=crystal+?, deuterium=deuterium+? WHERE id=?')
-               ->execute([$fleet['cargo_metal'], $fleet['cargo_crystal'], $fleet['cargo_deuterium'], $target['id']]);
-        }
+        apply_fleet_payload_to_colony($db, (int)$target['id'], $payload ?: [
+            'metal' => $fleet['cargo_metal'], 'crystal' => $fleet['cargo_crystal'],
+            'deuterium' => $fleet['cargo_deuterium'],
+        ]);
 
         // Mark the receiving user dirty (different user for inter-player transports)
         if ((int)$target['user_id'] !== (int)$fleet['user_id']) {
@@ -587,33 +589,7 @@ function decode_fleet_cargo_payload(array $fleet): array {
 }
 
 function apply_fleet_payload_to_colony(PDO $db, int $colonyId, array $payload): void {
-    if (ON_DEMAND_ECONOMY_ENABLED) {
-        (new OnDemandEconomy($db))->receive($colonyId, $payload);
-        return;
-    }
-    $metal = (float)($payload['metal'] ?? 0.0);
-    $crystal = (float)($payload['crystal'] ?? 0.0);
-    $deuterium = (float)($payload['deuterium'] ?? 0.0);
-    $rareEarth = (float)($payload['rare_earth'] ?? 0.0);
-    $food = (float)($payload['food'] ?? 0.0);
-
-    if ($metal > 0 || $crystal > 0 || $deuterium > 0 || $rareEarth > 0 || $food > 0) {
-        $db->prepare('UPDATE colonies SET metal = metal + ?, crystal = crystal + ?, deuterium = deuterium + ?, rare_earth = rare_earth + ?, food = food + ? WHERE id = ?')
-           ->execute([$metal, $crystal, $deuterium, $rareEarth, $food, $colonyId]);
-    }
-
-    foreach ($payload as $resource => $qty) {
-        $qty = max(0.0, (float)$qty);
-        if ($qty <= 0 || in_array($resource, ['metal', 'crystal', 'deuterium', 'rare_earth', 'food'], true)) {
-            continue;
-        }
-
-        $db->prepare(<<<SQL
-            INSERT INTO economy_processed_goods (colony_id, good_type, quantity, capacity)
-            VALUES (?, ?, ?, 5000.0)
-            ON DUPLICATE KEY UPDATE quantity = LEAST(capacity, quantity + VALUES(quantity))
-        SQL)->execute([$colonyId, $resource, $qty]);
-    }
+    (new OnDemandEconomy($db))->receive($colonyId, $payload);
 }
 
 function leaders_attack_skill_column(PDO $db): ?string {

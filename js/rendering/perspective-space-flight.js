@@ -7,6 +7,10 @@ import { SpaceVesselRenderPass } from './space-vessel-render-pass.js';
 import { SpaceWeaponRenderPass } from './space-weapon-render-pass.js';
 import { createSpatialStarIndex, resolveSpatialLabels } from './spatial-label-layout.js';
 import { AU_LY, SystemVisualizationLayer } from './system-visualization-layer.js';
+import { createCometTail, createCometIonTail, createCometComa, COMET_PARTICLE_COUNT, COMET_ION_PARTICLE_COUNT,
+  COMET_COMA_PARTICLE_COUNT, resolveCometTailAxes, sampleCometParticle, sampleCometIonParticle,
+  sampleCometComaParticle } from './comet-tail.js';
+import { COMET_WORLD_DURATION_MS, RegistrationCometTour, RegistrationVoyage, registrationWorldPose } from './registration-voyage.js';
 
 export { AU_LY } from './system-visualization-layer.js';
 export const KM_LY = 1 / 9460730472580.8;
@@ -261,6 +265,10 @@ fn surfaceFbm(point: vec3<f32>) -> f32 {
     let edge = 1.0 - smoothstep(0.48, 1.0, radius);
     return vec4(input.color.rgb * grain, edge * input.color.a);
   }
+  if (kind > 9.5) {
+    let glow = exp(-radius * radius * 3.5) * (1.0 - smoothstep(0.7, 1.0, radius));
+    return vec4(input.color.rgb, glow * input.color.a);
+  }
   if (kind < 0.5) {
     let glow = exp(-radius * radius * 4.5);
     return vec4(input.color.rgb, glow * input.color.a);
@@ -327,6 +335,7 @@ fn surfaceFbm(point: vec3<f32>) -> f32 {
 export class PerspectiveSpaceFlight {
   constructor({ radius = 50000, aspect = 1, lensFlare = null, bloom = null,
     labelRenderer = new SpatialLabelRenderer(), vesselLoaderFactory, canvas = null } = {}) {
+    this.radius = radius;
     this.camera = new PerspectiveCamera(58, aspect, 1e-14, radius * 20);
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(radius * 0.35, -radius * 1.1, radius * 0.75);
@@ -348,6 +357,9 @@ export class PerspectiveSpaceFlight {
     this.weaponRenderPass = new SpaceWeaponRenderPass();
     this.device = null;
     this.spaceEntities = new Map();
+    this.cometTail = createCometTail();
+    this.cometIonTail = createCometIonTail();
+    this.cometComa = createCometComa();
     this.spaceVessels = this.spaceEntities;
     this.systemManagedEntityIds = new Set();
     this.cameraFollowEntity = null;
@@ -431,6 +443,11 @@ export class PerspectiveSpaceFlight {
     } else {
       entity.setRoute(descriptor, points, { defaultDuration: this.vesselDurationSeconds });
     }
+    if (descriptor.smooth_camera_handoff === true && entity === this.cameraFollowEntity) {
+      entity.cameraStartPosition.copy(this.camera.position);
+      entity.cameraStartQuaternion.copy(this.camera.quaternion);
+      entity.cameraTransitionElapsed = 0;
+    }
     if (entity === this.cameraFollowEntity) this._followVessel(entity, entity.reducedMotion ? 1 : 0);
 
     if (!this.vesselRenderPass.resources.has(entity.id) && !entity.assetLoadPromise) {
@@ -505,9 +522,12 @@ export class PerspectiveSpaceFlight {
     vessel.quaternion.setFromUnitVectors(new Vector3(1, 0, 0), direction);
     const localPosition = vessel.position.clone().sub(this.origin);
     const lookAt = localPosition.clone().addScaledVector(direction, vessel.scale * 0.55);
+    const framing = this.cameraShot?.kind === 'follow' ? this.cameraShot : null;
+    const side = direction.clone().cross(new Vector3(0, 0, 1)).normalize();
     const cameraTarget = localPosition.clone()
-      .addScaledVector(direction, -vessel.scale * 5)
-      .add(new Vector3(0, 0, vessel.scale * 1.8));
+      .addScaledVector(direction, -vessel.scale * (framing?.distance ?? 5))
+      .addScaledVector(side, vessel.scale * (framing?.side ?? 0))
+      .add(new Vector3(0, 0, vessel.scale * (framing?.height ?? 1.8)));
     const previousQuaternion = this.camera.quaternion.clone();
     this.camera.position.lerp(cameraTarget, alpha);
     this.camera.lookAt(lookAt);
@@ -761,11 +781,25 @@ export class PerspectiveSpaceFlight {
             Math.max(radius * 0.008, 1e-15));
           body.userData.parentPosition = Number(data.position);
           const modelType = String(facility.model_id || facility.modelId || facility.type || '').toLowerCase();
+          const previewAnchor = facility.preview_only === true && position.lengthSq() > 0;
+          let previewLatitude = 0;
+          let previewLongitude = 0;
+          if (previewAnchor) {
+            const normal = position.clone().negate().normalize();
+            const tangent = normal.clone().cross(new Vector3(0, 0, 1)).normalize();
+            const up = normal.clone().cross(tangent).normalize();
+            const direction = zone === 'orbital'
+              ? normal.multiplyScalar(0.8).addScaledVector(tangent, -0.259).addScaledVector(up, 0.54)
+              : normal.multiplyScalar(0.669).addScaledVector(tangent, 0.337).addScaledVector(up, 0.661);
+            direction.normalize();
+            previewLatitude = Math.asin(direction.z) / THREE_DEG_TO_RAD;
+            previewLongitude = Math.atan2(direction.y, direction.x) / THREE_DEG_TO_RAD;
+          }
           this._registerSystemSpaceEntity({
             id: `building:${systemId}:${Number(data.position)}:${String(facility.id || facility.facility_id || `${modelType || 'facility'}-${childIndex}`)}`,
             space_entity: 'building',
             route: [[0, 0, 0], [0, 0, 0]],
-            ...(hasColony && zone !== 'orbital'
+            ...(hasColony && zone !== 'orbital' && !previewAnchor
               ? {
                 parent_entity_id: `${colonyId}:settlement`,
                 local_position: [Math.cos(angle) * radius * 0.22,
@@ -773,8 +807,8 @@ export class PerspectiveSpaceFlight {
               }
               : {
                 anchor_body: { kind: 'planet', position: Number(data.position) },
-                surface_latitude_deg: ((seed % 1200) / 10) - 60,
-                surface_longitude_deg: ((seed * 2.399963229728653) % 360) - 180,
+                surface_latitude_deg: previewAnchor ? previewLatitude : ((seed % 1200) / 10) - 60,
+                surface_longitude_deg: previewAnchor ? previewLongitude : ((seed * 2.399963229728653) % 360) - 180,
                 surface_height_ly: zone === 'orbital' ? radius * 0.28 : radius * 0.004,
               }),
             visual_scale_ly: radius * (zone === 'orbital' ? 0.055 : 0.028),
@@ -809,12 +843,17 @@ export class PerspectiveSpaceFlight {
       if (!direction.lengthSq()) this.camera.getWorldDirection(direction);
       return { destination: point, focus: point.clone().add(direction), tolerance: 1e-12 };
     }
-    if (kind === 'ship') {
-      const ship = this.spaceEntities.get(String(target.id || ''));
-      if (!ship || ship.kind !== 'vessel') return null;
+    if (kind === 'ship' || kind === 'colony') {
+      const ship = target.id ? this.spaceEntities.get(String(target.id))
+        : kind === 'colony' ? [...this.spaceEntities.values()].find((entity) =>
+          entity.kind === 'colony' && Number(entity.parentBodyAnchor?.position) === Number(target.position)) : null;
+      if (!ship || ship.kind !== (kind === 'ship' ? 'vessel' : 'colony')) return null;
       const focus = ship.position.clone().sub(this.origin);
       const radius = ship.scale;
-      const direction = this.camera.position.clone().sub(focus).normalize();
+      const parent = kind === 'colony' && this.bodies.find((body) => body.userData.type === 'planet'
+        && Number(body.userData.data.position) === Number(ship.parentBodyAnchor?.position));
+      const direction = parent ? focus.clone().sub(parent.getWorldPosition(new Vector3())).normalize()
+        : this.camera.position.clone().sub(focus).normalize();
       if (!direction.lengthSq()) direction.set(0, -0.8, 0.6);
       const passDistance = safeFraming ? cameraFrameDistance(this.camera, radius, 0.24) : radius * 10;
       const destination = focus.clone().addScaledVector(direction, passDistance);
@@ -877,6 +916,144 @@ export class PerspectiveSpaceFlight {
       tolerance: Math.max(1e-14, radius * 0.004),
       collisionBody: body,
     };
+  }
+
+  setCameraShot(shot, { reducedMotion = false } = {}) {
+    if (!shot || !Number.isFinite(shot.duration_ms) || shot.duration_ms <= 0) return false;
+    let pose;
+    let entity;
+    if (shot.kind === 'galaxy') {
+      const valid = (value) => Array.isArray(value) && value.length === 3 && value.every(Number.isFinite);
+      if (!valid(shot.position) || !valid(shot.lookAt)
+        || !Number.isFinite(shot.fov) || shot.fov < 20 || shot.fov > 90) return false;
+      const position = new Vector3(...shot.position).multiplyScalar(this.radius).sub(this.origin);
+      const focus = new Vector3(...shot.lookAt).multiplyScalar(this.radius).sub(this.origin);
+      if (position.distanceToSquared(focus) === 0) return false;
+      const camera = this.camera.clone();
+      camera.position.copy(position);
+      camera.lookAt(focus);
+      pose = { position, orientation: camera.quaternion.clone(), fov: shot.fov };
+    } else if (shot.kind === 'follow') {
+      entity = this.spaceEntities.get(String(shot.target?.id || ''));
+      if (!entity || !['vessel', 'comet'].includes(entity.kind)
+        || !Number.isFinite(shot.distance) || shot.distance < 4 || shot.distance > 30
+        || !Number.isFinite(shot.height) || shot.height < 1 || shot.height > 20
+        || !Number.isFinite(shot.side) || Math.abs(shot.side) > 10) return false;
+    } else if (shot.kind !== 'target' || !shot.target || !this.resolveTarget(shot.target, { safeFraming: true })) {
+      return false;
+    }
+    this.cancelCameraShot();
+    this.cameraShot = {
+      ...shot, elapsed: 0, paused: false, finished: false, pose,
+      from: { position: this.camera.position.clone(), orientation: this.camera.quaternion.clone(), fov: this.camera.fov },
+    };
+    if (entity) {
+      this.cameraFollowEntity = entity;
+      entity.cameraStartPosition.copy(this.camera.position);
+      entity.cameraStartQuaternion.copy(this.camera.quaternion);
+      entity.cameraTransitionElapsed = 0;
+      entity.cameraTransitionDuration = shot.duration_ms / 1000;
+    } else if (shot.kind === 'target' && !reducedMotion) {
+      void this.navigate(shot.target, { durationSec: shot.duration_ms / 1000,
+        orbitDurationSec: (shot.orbit_ms || 0) / 1000 });
+    }
+    if (reducedMotion) this.finishCameraShot();
+    return true;
+  }
+
+  setCameraShotPaused(paused) {
+    if (!this.cameraShot) return false;
+    this.cameraShot.paused = paused;
+    return true;
+  }
+
+  finishCameraShot() {
+    const shot = this.cameraShot;
+    if (!shot || shot.finished) return false;
+    if (shot.kind === 'journey' || shot.kind === 'landing' || shot.kind === 'comet-world') {
+      shot.finishRequested = true;
+      this.registrationVoyage?.update(0, true);
+      return true;
+    }
+    if (shot.kind === 'galaxy') {
+      this.camera.position.copy(shot.pose.position);
+      this.camera.quaternion.copy(shot.pose.orientation);
+      this.camera.fov = shot.pose.fov;
+    } else if (shot.kind === 'follow') {
+      this.cameraFollowEntity.cameraTransitionElapsed = this.cameraFollowEntity.cameraTransitionDuration + 1;
+      this._followVessel(this.cameraFollowEntity, 1);
+    } else {
+      const pose = this.resolveTarget(shot.target, { safeFraming: true });
+      if (!pose) return false;
+      this.camera.position.copy(pose.destination);
+      this.camera.lookAt(pose.focus);
+    }
+    this.stop();
+    shot.finished = true;
+    this.camera.updateProjectionMatrix();
+    this.camera.updateMatrixWorld(true);
+    return true;
+  }
+
+  cancelCameraShot() {
+    this.registrationVoyage?.cancel();
+    this.registrationVoyage = null;
+    this.cameraShot = null;
+    this.cameraFollowEntity = null;
+    this.stop();
+  }
+
+  async beginRegistrationVoyage(shot) {
+    if (!Number.isFinite(shot.duration_ms) || shot.duration_ms <= 0) return false;
+    const generation = this.cameraShot;
+    const comet = this.spaceEntities.get('onboarding-comet');
+    if (!shot.landing && !comet) {
+      throw new Error('Der Komet für das Shuttle-Rendezvous ist nicht verfügbar.');
+    }
+    if (!shot.landing) {
+      const world = registrationWorldPose(shot.origin);
+      if (comet.position.distanceTo(world.center) > world.radius * 12) {
+        const tour = new RegistrationCometTour(this, comet, shot.origin, COMET_WORLD_DURATION_MS);
+        this.registrationVoyage = tour;
+        tour.update(0, shot.reducedMotion === true || generation.finishRequested === true);
+        if (!await tour.finished || this.cameraShot !== generation) return false;
+      }
+    }
+    if (!shot.landing && !this.setSystem({ sceneGraph: shot.origin, flightTour: true })) {
+      throw new Error('Die gewählte Heimatwelt konnte nicht geladen werden.');
+    }
+    const id = 'onboarding-shuttle';
+    let entity = this.spaceEntities.get(id);
+    if (!entity) {
+      const planet = this.bodies.find((body) => body.userData.type === 'planet'
+        && Number(body.userData.data.position) === Number(shot.origin.target.position));
+      if (!planet) throw new Error('Die gewählte Heimatwelt ist nicht geladen.');
+      const start = planet.getWorldPosition(new Vector3()).add(this.origin)
+        .add(new Vector3(0.35, -0.75, 0.56).normalize().multiplyScalar(planet.userData.radius * 1.15));
+      const ready = this.registerSpaceEntity({
+        id, space_entity: 'vessel', route: [start.toArray(), start.toArray()],
+        visual_scale_ly: planet.userData.radius * 0.035,
+      });
+      entity = this.spaceEntities.get(id);
+      if (!await ready) return false;
+    }
+
+    if (entity.assetLoadPromise) await entity.assetLoadPromise;
+    if (this.cameraShot !== generation) {
+      if (!this.cameraShot && this.spaceEntities.get(id) === entity) this._removeSpaceEntity(entity);
+      return false;
+    }
+    this.registrationVoyage = new RegistrationVoyage(this, entity, shot);
+    this.registrationVoyage.update(0, shot.reducedMotion === true || generation.finishRequested === true);
+    return this.registrationVoyage.finished;
+  }
+
+  beginRegistrationCometTour(shot) {
+    const comet = this.spaceEntities.get('onboarding-comet');
+    if (!comet || !Number.isFinite(shot.duration_ms) || shot.duration_ms <= 0) return false;
+    this.registrationVoyage = new RegistrationCometTour(this, comet, shot.destination, shot.duration_ms);
+    this.registrationVoyage.update(0, shot.reducedMotion === true || this.cameraShot.finishRequested === true);
+    return this.registrationVoyage.finished;
   }
 
   navigate(target, { durationSec = 18, orbitDurationSec = 0, orbitRevolutions = 0.65, signal } = {}) {
@@ -994,9 +1171,35 @@ export class PerspectiveSpaceFlight {
   }
 
   update(deltaSeconds) {
+    if (this.cameraShot?.paused) return;
     const dt = Math.max(0, Math.min(0.05, Number(deltaSeconds) || 0));
     this.effectTime += dt;
     this._updateSpaceEntities(dt);
+    if (this.registrationVoyage) {
+      try {
+        this.registrationVoyage.update(dt);
+      } catch (error) {
+        window.GQLog?.warn?.('[registration-voyage]', error.message);
+        this.registrationVoyage.cancel();
+        this.registrationVoyage = null;
+      }
+      return;
+    }
+    const shot = this.cameraShot;
+    if (shot?.kind === 'galaxy') {
+      if (!shot.finished) {
+        shot.elapsed = Math.min(shot.duration_ms / 1000, shot.elapsed + dt);
+        const progress = shot.elapsed / (shot.duration_ms / 1000);
+        const eased = progress * progress * (3 - 2 * progress);
+        this.camera.position.copy(shot.from.position).lerp(shot.pose.position, eased);
+        this.camera.quaternion.copy(shot.from.orientation).slerp(shot.pose.orientation, eased);
+        this.camera.fov = shot.from.fov + (shot.pose.fov - shot.from.fov) * eased;
+        this.camera.updateProjectionMatrix();
+        this.camera.updateMatrixWorld(true);
+        shot.finished = progress === 1;
+      }
+      return;
+    }
     const flight = this.flight;
     if (this.heroBattle || !flight || !dt) return;
     const previousOrientation = this.camera.quaternion.clone();
@@ -1191,7 +1394,7 @@ export class PerspectiveSpaceFlight {
     const asteroidBeltParticleCount = this.asteroidBelts.reduce((total, belt) => total + belt.particles.length, 0);
     const capacity = (stars.length + this.bodies.length * 2 + asteroidBeltParticleCount + orbitPointCount
       + planeGuidePointCount + distanceLinePointCount + apsisMarkerPointCount
-      + phaseArcPointCount + 8) * 20;
+      + phaseArcPointCount + COMET_PARTICLE_COUNT + COMET_ION_PARTICLE_COUNT + COMET_COMA_PARTICLE_COUNT + 10) * 20;
     if (!this.instances || this.instances.length < capacity) {
       this.instanceBuffer?.destroy();
       this.instances = new Float32Array(capacity);
@@ -1212,19 +1415,30 @@ export class PerspectiveSpaceFlight {
     let count = 0;
     const starProjectionStarted = performance.now();
     const append = (position, radius, color, kind, seed = 0, opacity = 1, light = [0, 0, 1], profile = 0,
-      inhabited = false, atmosphere = 0, cloudiness = 0) => {
+      inhabited = false, atmosphere = 0, cloudiness = 0, closeSphere = false) => {
       const x = view[0] * position.x + view[4] * position.y + view[8] * position.z + view[12];
       const y = view[1] * position.x + view[5] * position.y + view[9] * position.z + view[13];
       const depth = -(view[2] * position.x + view[6] * position.y + view[10] * position.z + view[14]);
       if (depth <= Math.max(1e-15, radius * 0.01)) return;
-      const cx = x * focal / (depth * aspect);
-      const cy = y * focal / depth;
-      const angularRadius = radius * focal / Math.sqrt(Math.max(1e-30, depth * depth - radius * radius));
-      const ry = kind === 0 ? Math.max(angularRadius, 2.2 / height)
+      let cx = x * focal / (depth * aspect);
+      let cy = y * focal / depth;
+      const angularRadius = kind === 11
+        ? Math.min(0.025, radius * focal / Math.max(depth, radius * 2))
+        : kind === 10
+        ? radius * focal / Math.max(depth, radius * 2)
+        : radius * focal / Math.sqrt(Math.max(1e-30, depth * depth - radius * radius));
+      let ry = kind === 0 ? Math.max(angularRadius, 2.2 / height)
         : kind === 9 ? Math.max(angularRadius, 0.8 / height)
         : kind === 6 || kind === 7 ? Math.max(angularRadius, 12 / height)
           : angularRadius * (kind === 4 ? 2.6 : 1);
-      const rx = ry / aspect;
+      let rx = ry / aspect;
+      if (closeSphere && depth > radius) {
+        const denominator = depth * depth - radius * radius;
+        cx = x * depth * focal / (denominator * aspect);
+        cy = y * depth * focal / denominator;
+        rx = radius * focal * Math.sqrt(denominator + x * x) / (denominator * aspect);
+        ry = radius * focal * Math.sqrt(denominator + y * y) / denominator;
+      }
       if (Math.abs(cx) > 1.1 + rx || Math.abs(cy) > 1.1 + ry || ry * height < 0.2) return;
       let trailX = 0;
       let trailY = 0;
@@ -1290,6 +1504,29 @@ export class PerspectiveSpaceFlight {
         append(position, 0, [0.62, 0.82, 1], 0, 0, 0.82);
       }
     }
+    const comet = this.spaceEntities.get('onboarding-comet');
+    if (comet) {
+      const star = this.bodies.find((body) => body.userData.type === 'star');
+      const starPosition = star ? star.getWorldPosition(new Vector3()).add(this.origin) : null;
+      const axes = resolveCometTailAxes(comet, starPosition);
+      for (const particle of this.cometTail) {
+        const sample = sampleCometParticle(particle, comet, this.effectTime, axes, position);
+        position.sub(this.origin);
+        append(position, sample.radius, [1, 0.88, 0.66], 11, 0, sample.opacity);
+      }
+      for (const particle of this.cometIonTail) {
+        const sample = sampleCometIonParticle(particle, comet, this.effectTime, axes, position);
+        position.sub(this.origin);
+        append(position, sample.radius, [0.3, 0.62, 1], 11, 0, sample.opacity);
+      }
+      for (const particle of this.cometComa) {
+        const sample = sampleCometComaParticle(particle, comet, this.effectTime, position);
+        position.sub(this.origin);
+        append(position, sample.radius, [0.76, 0.91, 1], 10, 0, sample.opacity);
+      }
+      position.copy(comet.position).sub(this.origin);
+      append(position, comet.scale * 2.4, [0.68, 0.83, 1], 10, 0, 0.19);
+    }
     for (const belt of this.asteroidBelts) {
       const lodCount = this._asteroidBeltLodCount(belt);
       const stride = Math.max(1, Math.floor(belt.particles.length / lodCount));
@@ -1309,6 +1546,8 @@ export class PerspectiveSpaceFlight {
     for (const item of sortedBodies) {
       const { type, data, radius } = item.body.userData;
       if (type === 'colony-site' || type === 'facility') continue;
+      const closeSphere = type === 'planet' && this.registrationVoyage instanceof RegistrationCometTour
+        && this.registrationVoyage.loaded && Number(data.position) === Number(this.registrationVoyage.scene.target.position);
       const kind = type === 'star' ? 1 : type === 'moon' ? 3 : 2;
       const planetClass = String(data.class || data.planet_class || 'rocky');
       const fallbackColor = planetClass.includes('ice') ? [0.65, 0.78, 0.86]
@@ -1346,11 +1585,11 @@ export class PerspectiveSpaceFlight {
         const tint = surfaceColor({ texture: { palette: { base: data.texture?.palette?.accent } } }, [0.38, 0.68, 0.92]);
         append(item.position, radius * (1.035 + item.body.userData.atmosphere * 0.08), tint, 5,
           item.body.userData.surfaceSeed, 1, light.toArray(), item.body.userData.surfaceProfile,
-          false, item.body.userData.atmosphere);
+          false, item.body.userData.atmosphere, 0, closeSphere);
       }
       append(item.position, radius, color, kind, item.body.userData.surfaceSeed, 1, light.toArray(),
         item.body.userData.surfaceProfile, item.body.userData.inhabited,
-        item.body.userData.atmosphere, item.body.userData.cloudiness);
+        item.body.userData.atmosphere, item.body.userData.cloudiness, closeSphere);
       if (type === 'planet' && selected?.position === Number(data.position)) {
         append(item.position, radius * 1.6, [0.42, 0.88, 1], 6, 0, 0.92);
       }

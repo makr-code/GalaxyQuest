@@ -123,8 +123,9 @@ window.GQPerspectiveBloom = PerspectiveBloom;
   }
 
   function getRegistrationSceneGraph(draft) {
-    if (!draft?.prolog_token || !draft.target || !Array.isArray(draft.planets)) return null;
-    if (runtime.registrationSceneGraphToken === draft.prolog_token && runtime.registrationSceneGraph) {
+    const key = draft?.prolog_token || draft?.scene_key;
+    if (!key || !draft.target || !Array.isArray(draft.planets)) return null;
+    if (runtime.registrationSceneGraphToken === key && runtime.registrationSceneGraph) {
       return runtime.registrationSceneGraph;
     }
     const star = {
@@ -148,15 +149,21 @@ window.GQPerspectiveBloom = PerspectiveBloom;
           preview_only: true,
         },
         children: position === Number(draft.position?.position)
-          ? [{ type: 'colony-site', previewOnly: true, children: [] }]
-          : [],
+          ? [
+            { type: 'colony-site', previewOnly: true, children: [] },
+            ...(draft.scene_key ? [
+              { type: 'facility', data: { type: 'colony_hq', zone: 'surface', preview_only: true }, children: [] },
+              { type: 'facility', data: { type: 'space_station', zone: 'orbital', preview_only: true }, children: [] },
+            ] : []),
+          ] : [],
       };
     });
     runtime.registrationSceneGraph = {
       type: 'galaxy',
+      target: draft.target,
       children: [{ type: 'system', data: star, children }],
     };
-    runtime.registrationSceneGraphToken = draft.prolog_token;
+    runtime.registrationSceneGraphToken = key;
     return runtime.registrationSceneGraph;
   }
 
@@ -1289,9 +1296,69 @@ window.GQPerspectiveBloom = PerspectiveBloom;
   }
 
   const controlApi = {
+    playRegistrationShot(shot) {
+      const active = getFlightRenderer();
+      const renderer = active?._native || active;
+      if (!isStartMenu || runtime.gameOwned || runtime.released || !renderer?.ready) return false;
+      const target = shot.target?.id === 'registration-transfer'
+        ? { ...shot.target, id: renderer.getRegistrationTransferInfo?.()?.id || 'registration-transfer' } : shot.target;
+      if (shot.kind === 'comet-world') {
+        const destination = getRegistrationSceneGraph(shot.destination);
+        if (!destination) return false;
+        return renderer.playRegistrationShot?.({ ...shot, destination }) ?? false;
+      }
+      if (shot.kind === 'journey' || shot.kind === 'landing') {
+        const origin = getRegistrationSceneGraph(shot.origin);
+        const destination = getRegistrationSceneGraph(shot.destination);
+        if (!origin || !destination) return false;
+        return renderer.playRegistrationShot?.({ ...shot, origin, destination }) ?? false;
+      }
+      return renderer.playRegistrationShot?.({ ...shot, ...(target ? { target } : {}) }) ?? false;
+    },
+    pauseRegistrationShot(paused) {
+      const active = getFlightRenderer();
+      return (active?._native || active)?.pauseRegistrationShot?.(paused) ?? false;
+    },
+    finishRegistrationShot() {
+      const active = getFlightRenderer();
+      return (active?._native || active)?.finishRegistrationShot?.() ?? false;
+    },
+    cancelRegistrationShot() {
+      const active = getFlightRenderer();
+      (active?._native || active)?.cancelRegistrationShot?.();
+    },
+    captureRegistrationView() {
+      const active = getFlightRenderer();
+      const renderer = active?._native || active;
+      if (!isStartMenu || runtime.gameOwned || runtime.released || !renderer?.ready) return null;
+      return renderer.captureRegistrationView?.() ?? null;
+    },
+    async beginRegistrationTransition({ snapshot, reducedMotion = false, onReady } = {}) {
+      const active = getFlightRenderer();
+      const renderer = active?._native || active;
+      if (!isStartMenu || runtime.gameOwned || runtime.released || !renderer?.ready || !snapshot
+        || typeof renderer.beginRegistrationTransition !== 'function') return false;
+      runtime.flightTourController?.stop();
+      return renderer.beginRegistrationTransition({
+        snapshot, reducedMotion, ...(typeof onReady === 'function' ? { onReady } : {}),
+      });
+    },
+    skipRegistrationTransition() {
+      const active = getFlightRenderer();
+      return (active?._native || active)?.skipRegistrationTransition?.() ?? false;
+    },
+    restoreRegistrationView(snapshot) {
+      const active = getFlightRenderer();
+      const renderer = active?._native || active;
+      if (!isStartMenu || runtime.gameOwned || runtime.released || !renderer?.ready) return false;
+      return renderer.restoreRegistrationView?.(snapshot) ?? false;
+    },
     prepareForGame() {
       runtime.gameOwned = true;
       runtime.flightTourController?.stop();
+      const active = getFlightRenderer();
+      (active?._native || active)?.cancelRegistrationShot?.();
+      (active?._native || active)?._cancelRegistrationTransition?.();
       runtime.authStarsAbortController?.abort();
       getFlightRenderer()?.cancelCameraFlight?.();
       if (runtime.speedOverlayRafId) cancelAnimationFrame(runtime.speedOverlayRafId);
@@ -1414,6 +1481,37 @@ window.GQPerspectiveBloom = PerspectiveBloom;
       return true;
     },
     setRegistrationPreview(preview) {
+      if (preview?.stage !== 'opening' && !preview?.cometTour) {
+        const active = getFlightRenderer();
+        const native = active?._native || active;
+        const flight = native?.getSpaceView?.();
+        const comet = flight?.spaceEntities.get('onboarding-comet');
+        if (comet) flight._removeSpaceEntity(comet);
+        if (preview?.draft?.scene_key) {
+          const shuttle = flight?.spaceEntities.get('onboarding-shuttle');
+          if (shuttle) flight._removeSpaceEntity(shuttle);
+        }
+      }
+      if (preview?.cometTour) {
+        const stars = preview.stars;
+        if (!Array.isArray(stars) || !stars.length) return false;
+        runtime.registrationPreview = preview;
+        if (!runtime.renderer) return !runtime.released;
+        const visible = runtime.starSource === 'database'
+          ? [...new Map([...runtime.stars, ...stars].map((star) => [`${star.galaxy_index}:${star.system_index}`, star])).values()]
+          : stars;
+        runtime.renderer.setStars?.(renderableStars(visible), { preserveScale: true });
+        return true;
+      }
+      if (preview?.stage === 'opening') {
+        const previous = runtime.registrationPreview;
+        runtime.registrationPreview = preview;
+        if (!runtime.renderer) return !runtime.released;
+        runtime.registrationVesselActive = false;
+        runtime.registrationVesselOrbitKey = '';
+        if (previous?.stage !== 'opening' && runtime.renderer.setRegionPreview?.(null) !== true) return false;
+        return runtime.renderer.setRegistrationScene?.({ stage: 'galaxy', beat: preview.beat }) === true;
+      }
       const isGalaxyBeat = preview?.stage === 'galaxy';
       const stars = preview?.stars;
       if (preview && !isGalaxyBeat && (!Array.isArray(stars) || !stars.length)) return false;
@@ -1423,7 +1521,15 @@ window.GQPerspectiveBloom = PerspectiveBloom;
       if (typeof runtime.renderer.setRegionPreview !== 'function') return false;
       const flightRenderer = getFlightRenderer();
       if (isGalaxyBeat) {
-        if (flightRenderer?.getFlightTelemetry?.()?.spatial === true && previous?.stage !== 'galaxy') {
+        const native = flightRenderer?._native || flightRenderer;
+        if (native?.registrationArrivalFellBack?.()) {
+          runtime.registrationVesselActive = false;
+          runtime.registrationVesselOrbitKey = '';
+          return typeof runtime.renderer.setRegistrationScene !== 'function'
+            || runtime.renderer.setRegistrationScene(preview) === true;
+        }
+        const transfer = native?.getRegistrationTransferInfo?.();
+        if (!transfer && flightRenderer?.getFlightTelemetry?.()?.spatial === true && previous?.stage !== 'galaxy') {
           flightRenderer.setGalaxyFleets?.([]);
           runtime.registrationVesselActive = false;
           runtime.registrationVesselOrbitKey = '';
@@ -1446,21 +1552,27 @@ window.GQPerspectiveBloom = PerspectiveBloom;
           const routeOffsets = [[0, 0, 0], [2, 0.3, 0.1], [5, 1.1, 0.25], [9, 2, 0.6], [13, 3.2, 1]];
           const beatIndex = ({ 'teaser-distance': 0, 'teaser-convergence': 1,
             'teaser-frontier': 2, 'teaser-commander': 3 })[preview.beat] ?? 0;
-          const fleetResult = flightRenderer.setGalaxyFleets?.([{
+          const descriptor = {
             id: 'registration-transfer',
             registration_vessel: true,
             model_url: '/generated/trellis2/imported/ship/ship_generic_teaser_transfer_organic_lod0_dev.glb',
-            route: routeOffsets.map(([x, y, z]) => ({
+            route: transfer ? [transfer.anchor.map((coordinate, index) =>
+              coordinate + transfer.direction[index] * transfer.scale * (beatIndex + 1) * 12)]
+              : routeOffsets.map(([x, y, z]) => ({
               x_ly: anchorPosition[0] + x,
               y_ly: anchorPosition[1] + y,
               z_ly: anchorPosition[2] + z,
             })),
+            continue_from_current: !!transfer,
             chapter_index: beatIndex,
             segment_duration_seconds: 7,
-            visual_scale_ly: 0.08,
+            visual_scale_ly: transfer?.scale ?? 0.08,
             reduced_motion: document.body.dataset.startReducedMotion === 'true',
             color: [0.62, 0.82, 0.98, 1],
-          }]);
+          };
+          const fleetResult = transfer
+            ? native.updateRegistrationTransfer(descriptor)
+            : flightRenderer.setGalaxyFleets?.([descriptor]);
           runtime.registrationVesselActive = fleetResult !== false;
           runtime.registrationVesselOrbitKey = '';
         }
@@ -1494,7 +1606,7 @@ window.GQPerspectiveBloom = PerspectiveBloom;
           if (isVesselArrival) {
             const orbit = registrationVesselOrbit(preview);
             if (orbit) {
-              const fleetResult = flightRenderer.setGalaxyFleets?.([{
+              const descriptor = {
                 id: 'registration-transfer',
                 registration_vessel: true,
                 model_url: '/generated/trellis2/imported/ship/ship_generic_teaser_transfer_organic_lod0_dev.glb',
@@ -1508,7 +1620,11 @@ window.GQPerspectiveBloom = PerspectiveBloom;
                 orbit_angular_speed: 0.1,
                 reduced_motion: document.body.dataset.startReducedMotion === 'true',
                 color: [0.62, 0.82, 0.98, 1],
-              }]);
+              };
+              const native = flightRenderer?._native || flightRenderer;
+              const fleetResult = native?.getRegistrationTransferInfo?.()
+                ? native.updateRegistrationTransfer(descriptor)
+                : flightRenderer.setGalaxyFleets?.([descriptor]);
               runtime.registrationVesselActive = fleetResult !== false;
               runtime.registrationVesselOrbitKey = targetOrbitKey;
             } else {

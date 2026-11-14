@@ -27,7 +27,7 @@ function ollama_is_local_url(string $baseUrl): bool {
     }
 
     $host = strtolower((string) ($parts['host'] ?? ''));
-    return in_array($host, ['127.0.0.1', 'localhost', '::1', 'host.docker.internal'], true);
+    return in_array($host, ['127.0.0.1', 'localhost', '::1', 'host.docker.internal', 'ollama'], true);
 }
 
 function ollama_chat(array $messages, array $options = []): array {

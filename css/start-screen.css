@@ -2,9 +2,12 @@
 .auth-page #galaxy-bg-wrapper {
   background: #000 !important;
 }
+body.auth-page { overflow-x: clip; }
+body.start-menu-transitioning #boot-terminal { pointer-events: none; }
 
 body.auth-page #auth-section {
   position: relative;
+  overflow: clip;
   min-height: 100svh;
   display: block;
   padding: 0;
@@ -80,7 +83,6 @@ body.auth-page #auth-section {
   letter-spacing: -.055em;
   line-height: 1.1;
   text-shadow: 0 0 48px #62aaff55;
-  animation: start-arrival 1.3s ease-out both;
 }
 
 .start-title span {
@@ -218,10 +220,6 @@ body.auth-page #auth-section {
   color: #e0eeff;
 }
 
-@keyframes start-arrival {
-  from { opacity: 0; transform: translateY(12px); letter-spacing: .02em; }
-  to { opacity: 1; transform: translateY(0); }
-}
 @keyframes start-glow { from { text-shadow: 0 0 15px #8fceff22; } to { text-shadow: 0 0 38px #8fceff88; } }
 @keyframes start-dialog-arrival { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @media (max-width: 600px) {
@@ -251,6 +249,7 @@ body.auth-page #auth-section {
 
 .auth-page #terminal-section {
   position: relative;
+  overflow: clip;
   z-index: 99999;
   box-sizing: border-box;
   padding: 0 24px 24px clamp(24px, 5vw, 64px);

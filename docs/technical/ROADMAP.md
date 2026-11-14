@@ -164,10 +164,10 @@ Folgende große Arbeitspakete sind abgeschlossen und bilden das Fundament des Pr
 ### 2.3 Policy-Enforcement ✅
 
 **Aufgaben:**
-- [x] War-Economy-Policy (+30% Militär, −20% Konsumgüter) vollständig erzwingen — `economy_flush.php` (Backend) + `EconomySimulation.js` `processTick()` (Client)
-- [x] Autarkie-Policy: Import-Blockierung in `api/market.php` + Produktion +10% in `economy_flush.php` + `EconomySimulation.js`
+- [x] War-Economy-Policy (+30% Militär, −20% Konsumgüter) vollständig erzwingen — `get_policy_good_multipliers()` in `api/economy_runtime.php` (vormals `economy_flush.php`) (Backend) + `EconomySimulation.js` `processTick()` (Client)
+- [x] Autarkie-Policy: Import-Blockierung in `api/market.php` + Produktion +10% in `get_policy_good_multipliers()` in `api/economy_runtime.php` (vormals `economy_flush.php`) + `EconomySimulation.js`
 - [x] Merkantilismus: Import +20% in `market.php` buy, Export +20% in `market.php` sell (Integer-Policy-Bug gefixt)
-- [x] Subventionen (Landwirtschaft/Forschung/Militär) Boost-Logik — `economy_flush.php` + `EconomyPolicy.productionMultipliers()`
+- [x] Subventionen (Landwirtschaft/Forschung/Militär) Boost-Logik — `get_policy_good_multipliers()` in `api/economy_runtime.php` (vormals `economy_flush.php`) + `EconomyPolicy.productionMultipliers()`
 
 **Akzeptanzkriterien:**
 - ✅ Policy-Wechsel zeigt sofort messbaren Effekt auf Produktion/Markt

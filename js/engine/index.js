@@ -43,15 +43,6 @@ const { LensFlarePass, MAX_FLARE_SOURCES } = require('./post-effects/passes/Lens
 const { DustLayerPass, DUST_LAYER_COUNT }  = require('./post-effects/passes/DustLayerPass');
 const { MotionBlurPass }            = require('./post-effects/passes/MotionBlurPass');
 const { ColonySimulation, Colony, PopJob, BASE_YIELD, ColonyType, COLONY_TYPE_BONUS } = require('./game/ColonySimulation');
-const {
-  EconomySimulation, ColonyEconomyNode, GalacticMarket, EconomyPolicy, GoodStock,
-  GoodType, GOOD_TIER, ProcessingMethod, ProcessingBuilding, EconomicPolicy,
-  PROCESSING_RECIPES, GOOD_BASE_PRICE, POP_CONSUMPTION_RATE, CONSUMPTION_HAPPINESS,
-  CONSUMER_GOODS_SHORTAGE_CREDIT_MULT, POLICY_EFFECTS, DEFAULT_TAX_RATES,
-  MARKET_EVENT_TEMPLATES, PRICE_MULT_MIN, PRICE_MULT_MAX, PRICE_ELASTICITY,
-  PopClass, POP_CLASS_ORDER, POP_CLASS_NEEDS, POP_CLASS_YIELD, POP_CLASS_MAX_FRACTION,
-  CLASS_NEED_HAPPINESS, ADVANCEMENT_TICKS_REQUIRED, DESCENT_TICKS_REQUIRED,
-} = require('./game/EconomySimulation');
 
 // FX systems
 const { StarfieldFX, StarfieldLayerType } = require('./fx/StarfieldFX');
@@ -111,14 +102,6 @@ module.exports = {
   InvasionResult, InvasionReport,
   TROOP_DEFENSE_VALUE, TROOP_ATTACK_VALUE, DEFENSE_DPS_FACTOR,
   MAX_INVASION_ROUNDS, INVASION_LOOT_FRACTION, INVASION_CONQUEST_PENALTIES,
-  // Economy system (Anno-principle pop-class economy)
-  EconomySimulation, ColonyEconomyNode, GalacticMarket, EconomyPolicy, GoodStock,
-  GoodType, GOOD_TIER, ProcessingMethod, ProcessingBuilding, EconomicPolicy,
-  PROCESSING_RECIPES, GOOD_BASE_PRICE, POP_CONSUMPTION_RATE, CONSUMPTION_HAPPINESS,
-  CONSUMER_GOODS_SHORTAGE_CREDIT_MULT, POLICY_EFFECTS, DEFAULT_TAX_RATES,
-  MARKET_EVENT_TEMPLATES, PRICE_MULT_MIN, PRICE_MULT_MAX, PRICE_ELASTICITY,
-  PopClass, POP_CLASS_ORDER, POP_CLASS_NEEDS, POP_CLASS_YIELD, POP_CLASS_MAX_FRACTION,
-  CLASS_NEED_HAPPINESS, ADVANCEMENT_TICKS_REQUIRED, DESCENT_TICKS_REQUIRED,
   // FX systems
   StarfieldFX, StarfieldLayerType,
   WarpFX, WarpPhase, PlasmaFlowType,

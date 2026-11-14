@@ -79,6 +79,7 @@ try {
     GRANT ALL PRIVILEGES ON gq_staging.* TO 'gq_staging'@'%';
     CREATE USER 'gq_restore'@'%' IDENTIFIED BY '${restorePassword}';
     GRANT ALL PRIVILEGES ON gq_restore.* TO 'gq_restore'@'%';
+    CREATE USER 'gq_engine_reader'@'%' IDENTIFIED BY '${password}';
   `);
   const schemaCheck = `
     require 'config/db.php';
@@ -100,8 +101,31 @@ try {
   assert.equal(before.database, 'gq_staging');
   assert.equal(before.empty_visible, true);
   assert.deepEqual(before.visible_objects, { tables_and_views: 0, routines: 0, events: 0, triggers: 0 });
+  assert.deepEqual(before.visible_base_table_engines, []);
   assert.throws(() => php(['scripts/native_db_inspect.php', '--database=gq_production', '--user=gq_staging']));
   assert.throws(() => php(['scripts/native_db_inspect.php', '--database=gq_staging', '--user=gq_restore']));
+  admin(`
+    CREATE TABLE gq_staging.fixture_engine_innodb (id INT) ENGINE=InnoDB;
+    CREATE TABLE gq_staging.fixture_engine_myisam (id INT) ENGINE=MyISAM;
+    CREATE VIEW gq_staging.fixture_engine_view AS SELECT id FROM gq_staging.fixture_engine_innodb;
+    GRANT SELECT ON gq_staging.fixture_engine_innodb TO 'gq_engine_reader'@'%';
+  `);
+  const mixed = JSON.parse(php(inspection));
+  assert.deepEqual(mixed.visible_base_table_engines, [
+    { engine: 'InnoDB', table_count: 1 },
+    { engine: 'MyISAM', table_count: 1 },
+  ]);
+  assert.equal(mixed.visible_objects.tables_and_views, 3);
+  const partial = JSON.parse(php(
+    ['scripts/native_db_inspect.php', '--database=gq_staging', '--user=gq_engine_reader'],
+    'gq_staging', 'gq_engine_reader'
+  ));
+  assert.deepEqual(partial.visible_base_table_engines, [{ engine: 'InnoDB', table_count: 1 }]);
+  assert.equal(partial.visible_objects.tables_and_views, 1);
+  admin(`
+    DROP VIEW gq_staging.fixture_engine_view;
+    DROP TABLE gq_staging.fixture_engine_innodb, gq_staging.fixture_engine_myisam;
+  `);
   console.log(php(['-r', schemaCheck]));
   const after = JSON.parse(php(inspection));
   assert.equal(after.empty_visible, false);

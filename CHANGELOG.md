@@ -8,6 +8,212 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] — Sprint 1.2: Technische Schulden abbauen
 
+### Added — Deterministic economy acceptance regressions
+
+- Seven-day in-memory scenario: two explicitly endowed NPC colonies, one
+  human and an existing trader produce 147 standing orders and 87 completed
+  funded deliveries (2,529 metal, 48 steel alloy); 500,000 total credits remain
+  conserved with zero tax. Duplicate hourly calls, ignored/expired requests,
+  bounded backlog, four-day catch-up, transaction retry, delayed delivery and
+  funded construction completion are exercised without live services.
+- A paired human-funded order changes the next shipment from 208 to 1 metal.
+  The baseline executes no methods or construction; these remain separately
+  exercised. Stock accounting covers an actual step and full-storage
+  extraction, not comprehensive seven-day recipe conservation. No automatic
+  provisioning, live migration, SMTP delivery, scheduler or deployment.
+- Six SQLite scenario tests passed (4,292 assertions); an independent seven-day
+  MySQL 8.4 scenario passed (850 assertions) after applying and verifying the
+  manifest in a dedicated disposable server and schema.
+
+### Added — Bounded NPC economic production choices
+
+- Explicitly bound NPC actors now evaluate actual recipe/raw-production forecasts
+  and may execute one method adjustment and one affordable player-style queued
+  construction per UTC hour, sharing standing-order idempotency and finite budget.
+  Survival food/energy and manufactured-input bottlenecks use actual population,
+  research, input/energy/storage limits and a stable improvement threshold.
+- Shared construction guards preserve player costs, discounts, research,
+  slots/class capacity and ledger affordability. Active queues prevent duplicate
+  capacity; food reserves and existing stock/credit escrow remain protected.
+  Market-valued construction resources and new buy escrow share the policy cap;
+  valuation neither grants resources nor charges fictitious credits.
+- Decision preview is now strictly read-only, including due queues and stale
+  cursors. Existing CLI diagnostics show needs, methods/levels, costs, reservations,
+  executed/deferred reasons and window. Database failures roll back the complete
+  actor decision. No new migration, automatic activation, provisioning, research/
+  combat autonomy, SMTP, scheduler or rollout; completion remains on demand.
+- Verified 89 targeted SQLite tests / 755 assertions (one existing PHPUnit
+  deprecation), plus five isolated MySQL tests / 84 assertions covering queue/
+  idempotency/savepoint and CLI cases.
+  Affected PHPStan uses the unchanged baseline.
+
+### Added — Voluntary NPC surplus purchase invitations
+
+- The existing bounded invitation selection now also offers policy-reserved NPC
+  surplus. Player acceptance reserves the displayed maximum credits and moves
+  existing NPC stock into a private pair; delivery still requires normal delayed
+  trader routes. Decline or expiry is free. Both directions share the existing caps.
+- Append-only `migrate_economy_request_purchase_v1.sql` preserves historical supply
+  semantics; its guarded down refuses to discard purchase history. Deploy after
+  the original request migration and explicitly bind eligible NPC profiles.
+
+### Added — Voluntary timed player supply requests
+
+- Existing hourly NPC economy now invites eligible players to supply exact
+  whole catalog goods from their own same-galaxy colonies against actual funded
+  NPC buy orders. Immutable cent terms, capped absolute deadlines, deterministic
+  bounded selection and deduplicated in-game/outbox notifications; email opt-out
+  is respected. Ignoring or declining costs nothing, reserves nothing and does
+  not stop autonomous NPC trading.
+- Atomic CSRF-protected acceptance revalidates backing and creates an exact
+  private reciprocal standing-order pair, moving rather than minting NPC escrow.
+  Duplicate acceptance never repeats reservation; unavailable backing returns
+  409 without player spending. Existing traders fulfil later, not instantly.
+  Explicit cancellation releases only both unallocated residuals, never flight
+  backing; NPC upkeep does not silently cancel accepted pairs.
+- Pure owned-colony request reads, persisted hourly expiry, actionable safe-DOM
+  market UI and append-only `migrate_economy_requests_v1.sql` with guarded down.
+  No advice/reputation mandates, new scheduler, world funding,
+  NPC activation, live migration or actual test SMTP delivery.
+- Verified 65 targeted PHP tests / 838 assertions (51 SQLite economy/notification
+  regressions plus 14 isolated MySQL funded-order regressions, including final-
+  budget races, duplicate acceptance and guarded migration down/up), and 54 JS
+  market/legacy-proposal tests. Affected PHPStan, PHP syntax, ESLint and append-only
+  migration-history checks pass.
+
+### Added — Opt-in autonomous NPC colony standing orders
+
+- Existing hourly NPC account decisions now support explicitly bound NPC-owned
+  colonies with production/class/recipe-driven food/input reserves and finite
+  buy escrow or measured sell surplus through the ordinary standing-order ledger.
+  UTC-window summaries and effects commit atomically, including force/retry
+  protection, deterministic priorities, four-operation and actual-credit caps.
+  Existing reservations/transit purchases prevent duplicate offers; conservative
+  24-hour refresh cancels only residual commitments. Catch-up defers stale orders.
+- Append-only `migrate_npc_economy_orders_v1.sql` registers persistent opt-in
+  profile/window/order metadata without funding or provisioning seeds.
+  `scripts/npc_economy.php` supplies explicit-target offline bind, rollback
+  preview and read-only diagnostics; activation requires an existing
+  non-authenticating `npc_engine` owner and existing credits.
+- Bound actors bypass legacy multi-round build/research/ship actions; unbound
+  actors retain them. No scheduler, periodic production scan, LLM dependency,
+  human consent changes, faction/species coupling or automatic world creation.
+  Existing funded traders and timed routes are still required for exchange;
+  additional building choices and player deadlines remain out of scope.
+- Verified **78 targeted tests / 1,410 assertions** on PHP 8.2.35, including
+  14 autonomous SQLite regressions and 10 isolated MySQL 8.4.11 regressions
+  (three new CLI/window/current-ownership rollback cases). Two NPC colonies
+  exchange primary/manufactured goods over deterministic decision windows
+  through real funded routes; in-flight obligations and reserve protection
+  remain intact. Affected PHPStan and PHP syntax checks pass; no live rollout.
+
+### Added — Funded voluntary NPC standing orders
+
+- Explicit finite standing buy/sell orders in the market API and German UI,
+  separate from instant market-maker trading; default NPC access is disabled.
+  Buying reserves the complete budget; selling reserves physical catalog goods.
+  Authenticated CSRF POST create/cancel and pure owned-colony GET list;
+  cancellation refunds only unallocated residuals, exactly once.
+- NPC routes use backed order pairs and contract ask/bid prices. Acquisition
+  pays the seller from trader capital and earmarks buyer escrow on the route;
+  atomic delivery pays the NPC from that escrow without minting money.
+  Cancelled in-flight orders remain payable; deterministic participant locks,
+  replay and rollback tests cover conservation, same-owner and all cargo classes.
+- Append-only `sql/migrate_standing_trade_orders_v1.sql`; no default orders,
+  NPC colonies, seeded goods/credits or scheduler changes.
+  Unfunded legacy planning fails safely; acquired/in-transit legacy routes
+  retain cargo/history in explicit quarantine pending operator reconciliation.
+- MySQL 8.4.11 certification adds executable canonical-migration/subprocess
+  regressions for finite reservations, cancellation/acquisition races, partial
+  fills, reverse/same-owner routes, concurrent completion/ordinary-arrival
+  exclusion, savepoint rollback and outer REPEATABLE READ stale snapshots.
+  Ledger reads now use current locking reads after participant locks and
+  revalidate ownership; delivery verifies linked order ownership and quarantines
+  missing endpoints/orders without losing committed cargo or escrow.
+  Verified targeted run: 24 tests / 960 assertions, including seven focused
+  MySQL integration regressions; affected PHPStan and PHP syntax checks pass.
+- The unreleased standing-order migration adds quantity/escrow checks and unique
+  fleet binding, and prevents trader/account deletion from cascading away funded
+  routes. Historical orders/routes intentionally block parent deletion; no
+  destructive rollback/refund workflow or production rollout is included.
+
+### Added — Hourly world tick: world events and e-mail digests
+
+- The existing global simulation tick is the flat hourly tick engine:
+  `SIMULATION_GLOBAL_TICK_COOLDOWN_SECONDS` now defaults to `3600` and is
+  aligned to `floor(unix/3600)` windows; missed windows are not replayed.
+- New `world_events` subsystem rolls a small, deterministically seeded catalog
+  (supply shock, demand boom, trade disruption, windfall discovery) once per
+  window (`src/Economy/WorldEvents.php`, `src/Simulation/HourlyWindow.php`).
+  Active events modify on-demand price quotes and, time-bounded per settle
+  step, colony production; they are exposed in `market.php` (`get_prices`
+  `world_events`, `get_active_events`) and listed in the market window.
+- Affected players get one in-game message and one digest e-mail per window
+  via the new transactional `mail_outbox` (subsystem `mail_outbox`, advisory,
+  last step; backoff, `skipped` without transport; CLI
+  `scripts/send_mail_outbox.php`). SMTP/Mailpit delivery moved to
+  `lib/Mailer.php`; registration mail behavior is unchanged.
+- `users.email_notifications` opt-out with `game.php?action=notification_settings`
+  / `set_email_notifications` and a commander-menu toggle.
+- Migration `sql/migrate_world_events_v1.sql` (`world_events`, `mail_outbox`,
+  `users.email_notifications`).
+- `docker-compose.yml` gains a `scheduler` service (global tick every 300 s);
+  cron for production is documented only.
+
+### Changed — Tick-frequency-independent world subsystems
+
+- NPC player accounts catch up one decision round per elapsed 15 min (max 4).
+- Faction and colony event rolls use `1-(1-p)^(elapsed/period)` with a 2-h cap
+  and seeded per-window randomness; colony events no longer use `ORDER BY RAND()`.
+- Wormhole stability regenerates +2 per elapsed 10 min (cap 24 h) instead of
+  +2 per call.
+
+### Removed — Client-side economy simulation
+
+- Removed: unused client-side economy simulation (EconomySimulation.js), WebGPU
+  economy compute (EconomyComputeEngine.js, economy_tick.wgsl),
+  RuntimeEconomyController/RuntimeEconomyFlowController and the experimental JS
+  economy/market domains with their tests; frontend renders server read models
+  (server-economy-domain.js, server-market-domain.js); migration guide archived
+  to docs/archive/.
+
+### Removed — Legacy colony economy and `ON_DEMAND_ECONOMY_ENABLED`
+
+- The on-demand ledger (`src/Economy/OnDemandEconomy.php`) is now the only
+  colony economy path. The `ON_DEMAND_ECONOMY_ENABLED` flag and all legacy
+  branches were removed from config, API handlers and fleet launch.
+- Removed `api/economy_flush.php` (lazy flush and legacy market formulas) and the
+  `economy_production` / `economy_population` subsystems of the global simulation
+  tick; there is no periodic economy tick. Still-used constants and
+  `get_policy_good_multipliers()` moved to `api/economy_runtime.php` /
+  `api/economy.php`.
+- Removed the broken `scripts/traders_background_job.php`; traders run via
+  `scripts/run_simulation_tick.php --scope=global`.
+- The legacy pop-policy endpoint now responds with HTTP 503.
+- Deployments must apply all pending migrations (incl.
+  `sql/migrate_economy_on_demand_v1.sql`) before upgrading.
+
+### Fixed — On-demand economy concurrency
+
+- Top-level MySQL ledger transactions use `READ COMMITTED`, so concurrent
+  research starts and credit/stock guards can no longer evaluate a stale
+  snapshot taken before the user lock was acquired.
+
+### Added — Time-based NPC trader logistics
+
+- NPC routes now advance through acquisition, launch, due delivery, and sale
+  within one processing pass; persisted arrival schedules replace the old
+  step-count delay. Stale/repeated route callers are re-read under row locks,
+  route mutations roll back together on errors, and trader-owned fleets bypass
+  ordinary fleet-arrival resolution.
+- The OnDemandEconomy catalog now drives route goods and opportunity scans,
+  including all primary and processed goods. Source/destination colonies settle
+  before inventory changes; route fleets use the existing 3-D travel helpers at
+  the explicit NPC logistics speed of 100 ly/h.
+- Counterparty permissions and balanced payments are now supplied by the funded
+  standing-order block above; older unfunded routes are not grandfathered into
+  player consent.
+
 ### Changed — Start-page galaxy flight tour
 
 - The read-only start-page flight now circles the system, star, selected planet,

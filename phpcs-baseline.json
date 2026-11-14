@@ -308,15 +308,6 @@
             "lineHash": "aa6d37a9d99a2ad6d92800c054f5ea79d448ce3f0f27427f55af14757a8efb61",
             "count": 1
         },
-        "01fad2690ac86af555ab2ceffe1a2302a168056a84e8912cb5a148ca75e3b254": {
-            "path": "api/economy.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 47,
-            "lineHash": "55634e9676556a2a41bad853e1a5c02704af67fd603f7fd67cb0a3a2897132c8",
-            "count": 1
-        },
         "0203a449a326fbd5513b1adeef30f384b064edc339514576c2baf44c2480c3fc": {
             "path": "api/game_engine.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -587,15 +578,6 @@
             "lineHash": "c8c40efec3b97063b32009ef35c6e2ca5502958a3c70b6ce09a03720911e4501",
             "count": 1
         },
-        "0434df79963d30559753ab0b8a89c0c1478c0eddf29ef1f48ea928378638d833": {
-            "path": "api/economy_flush.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected 12 spaces, found 20",
-            "column": 21,
-            "lineHash": "ec41c04d85fbaf32191a802fb066402eb6a6f0965d0043a6909b4fc53a3d084f",
-            "count": 1
-        },
         "043f238b3a0f28be4c31c7eed1b062644aa22536d29224386e4288d660b39cdd": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceAfter",
@@ -720,15 +702,6 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 73,
             "lineHash": "de56f6a4608924b8a6db0fdf9e939d786c95d31bf89ca7122b237c9c33a6a1c5",
-            "count": 1
-        },
-        "0507ba2c4e8f8533b576abb890d9a7314fb0468c87e2b3e0275f332cb01402bc": {
-            "path": "api/game_engine.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 9,
-            "lineHash": "0dc9ef13ddb6a4a3e6279c9223f534f3b398605903f739bfe6ad688e9289b536",
             "count": 1
         },
         "050f3d106ba831d61f89bfc1936b519841917093c331469c1292c947c2620a78": {
@@ -1748,15 +1721,6 @@
             "lineHash": "8fd7ab0a78d94b0fad63df41a31ed335cbff0d65f0b6893692764521f649b8f5",
             "count": 1
         },
-        "0bf127dac87bacf4fba441e4fe1c2083d64179bc846536c4b4c956c80d73668a": {
-            "path": "api/market_analysis.php",
-            "source": "PSR12.Operators.OperatorSpacing.NoSpaceBefore",
-            "type": "ERROR",
-            "message": "Expected at least 1 space before \"+=\"; 0 found",
-            "column": 52,
-            "lineHash": "a25b2fb44926ba8f63d145cdeb54d16f3f35dcc64ae3a2ba566151132d98cda3",
-            "count": 1
-        },
         "0c02cb5983b21e8fbd570368876d243f805f9bf5211456239aed0c04301b859b": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceAfter",
@@ -2180,15 +2144,6 @@
             "lineHash": "7df9445efaeda8d90541b7f4266d594ca4fe343c4c838eb45594bb34e5681276",
             "count": 1
         },
-        "0eabb60e77cea50ec9f7ba6714f22d43abc73a0f9f05dc0948e94ff032a42f08": {
-            "path": "api/economy_flush.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 95,
-            "lineHash": "7da5d75331685fac35a1e13232cc0baa92d9bbc8c39333491918199c327b1149",
-            "count": 1
-        },
         "0eac5a254bd6fe34e7f74b0778179b533ddbfe251e073f4352751e2287fe9a59": {
             "path": "api/shipyard.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -2575,15 +2530,6 @@
             "column": 86,
             "lineHash": "99f9b23304594221e7841e1ea91fa2be2284bfe6d3aba90f880325dae541b9d4",
             "count": 1
-        },
-        "112fe3aedeee7accd36be33cf6e2b2039ee2b13a287f1a4d5ad25094aac9af41": {
-            "path": "api/market_analysis.php",
-            "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
-            "type": "ERROR",
-            "message": "Whitespace found at end of line",
-            "column": 1,
-            "lineHash": "05a8475feebbfea685ece06045be63722edc61bb2ade8060a9f03aed6d49f454",
-            "count": 2
         },
         "11316b5b920c0ba306ff03d32a257f1968b26288e4e4e05e43391730a36eb0d6": {
             "path": "api/leaders.php",
@@ -3431,15 +3377,6 @@
             "lineHash": "c6f0b9f35d9a92f8f8081bfe20b4b7a7e945f1daf24e464093af47b913dec509",
             "count": 1
         },
-        "16e1fd6e2939426d3d741ba2db3bd5547d35c6bb2a2cc52c87926faa6378dc8f": {
-            "path": "api/economy_flush.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected 4 spaces, found 8",
-            "column": 9,
-            "lineHash": "77885ad5ce27a0ac4e923d4895f206496f865fdc897f75cda6772c8986acc64d",
-            "count": 1
-        },
         "1703f128de9ab7c2ce037b88fb00792571d35a0e4717b45e258230e391f86cec": {
             "path": "api/llm.php",
             "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
@@ -3708,6 +3645,15 @@
             "message": "Whitespace found at end of line",
             "column": 7,
             "lineHash": "b9e2d6a201b3a8bdb0f55d3bed89fdaf43941d46402d9cec021bac6f52e84fa2",
+            "count": 1
+        },
+        "18704df5067c5dcc3ed113219ed2fa52a15232095d6ba02a9e03fcb880089ca3": {
+            "path": "config/config.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 3 and the first side effect is on line 135.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "187087114aefce0581e6c9e7dcc0f81a83b76dbfb0bb61382b218f2dd93f6a0f": {
@@ -4709,15 +4655,6 @@
             "lineHash": "4399f47234dd7d40975bfdced5c6b13bb53a461d4a8f8f791ad995bd72eecd5e",
             "count": 1
         },
-        "1eb2c6d06f7b3453a900bc8279b660956ba28e1f003a5a7a84180b6f0d267d9e": {
-            "path": "api/colony_buildings.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected 4 spaces, found 8",
-            "column": 9,
-            "lineHash": "05b23da578d1cb9a7e45f0676b8fb210e25e2a7705aedfebfcc2b77983097605",
-            "count": 2
-        },
         "1eb51b39e9b3591d822c000b7a0d74bda23da852f1e25cb9ec658f43b7e7a8b7": {
             "path": "api/admin_endpoints.php",
             "source": "Generic.Files.LineLength.TooLong",
@@ -5464,15 +5401,6 @@
             "column": 1,
             "lineHash": "8b6fa01313ce51afc09e610f819250da501778ad363cba4f9e312a6ec823d42a",
             "count": 3
-        },
-        "23299f250d58d8ff5f96863f41ef8b9a42f6f6e515192335cc3c300b6ed0919e": {
-            "path": "api/economy_flush.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 146 characters",
-            "column": 146,
-            "lineHash": "78217532c5cf5d171350c5d2b6de0ce7cfd716ddc7d83eebe565967237c1afc9",
-            "count": 1
         },
         "233e1eeab5be6c6e3e9ec3ad30ba78a0b757abe66fc09316d3536899008889f2": {
             "path": "api/colonization.php",
@@ -6752,15 +6680,6 @@
             "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
-        "2b8ed404fbc1dad40b8f855990ed02529830249ad01bc897b09393140b9c1243": {
-            "path": "api/economy_flush.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 83,
-            "lineHash": "704f03bdee84f67accfed7c0a98fa1642f7569f1af1f5dd605d317497621016b",
-            "count": 1
-        },
         "2b8fbc5747df4731a7803c54bae16dec4717023dec8560845b5739867bd40691": {
             "path": "api/trellis2_asset_manager.php",
             "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
@@ -7110,15 +7029,6 @@
             "message": "Line exceeds 120 characters; contains 133 characters",
             "column": 133,
             "lineHash": "cada9b80b4391b590255e1dbfc12e269b22d0dd4df9ebc94e1e0d3c31619d9ac",
-            "count": 1
-        },
-        "2e6cf65becd8ae4fdc6f76325b04797f1f1a76c8404c2e34703878362d2b9a73": {
-            "path": "api/economy_flush.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected 12 spaces, found 16",
-            "column": 17,
-            "lineHash": "13f9c40068f961dba09e46eb9fad9a8aa76a8984c6dc945129f1e02eb711f2b9",
             "count": 1
         },
         "2e7b856618efe01edd184d65fc0bf8373f3b7f8574426f39d25ff7617783e886": {
@@ -7841,15 +7751,6 @@
             "lineHash": "a3f543e4b34ceda45314cea37ddf1670cddef5eed0adf6c67d2f893e5f30d211",
             "count": 1
         },
-        "3312337a0e6654ed578d622e5d8b2119ed548729c68c651ecfcd4aaeada2f367": {
-            "path": "api/economy_flush.php",
-            "source": "PSR12.Operators.OperatorSpacing.NoSpaceBefore",
-            "type": "ERROR",
-            "message": "Expected at least 1 space before \"=>\"; 0 found",
-            "column": 30,
-            "lineHash": "31400741ea8e5d4b509146209f67c4ffe91a620e87f1f0a5efff32b5ffac2f53",
-            "count": 1
-        },
         "332b1d864ec5c8d21d989078c47f803f46bc6197f3f1e192ecd0590cade6c0b3": {
             "path": "lib/projection_runtime.php",
             "source": "PSR2.Methods.FunctionCallSignature.MultipleArguments",
@@ -7857,15 +7758,6 @@
             "message": "Only one argument is allowed per line in a multi-line function call",
             "column": 26,
             "lineHash": "1455099e900b098e1a4b02a061a0cbd77b0c6ff41c55fa35d3348c088a4eefa6",
-            "count": 1
-        },
-        "332e64b6a6fa142165bb5e1f510dc6c0bbac73d36b64447ad8a1db78385770ee": {
-            "path": "api/economy_flush.php",
-            "source": "PSR12.ControlStructures.ControlStructureSpacing.CloseParenthesisLine",
-            "type": "ERROR",
-            "message": "The closing parenthesis of a multi-line control structure must be on the line after the last expression",
-            "column": 87,
-            "lineHash": "9b23cd06ee64c837701f9689ccc3f546bf54b1fe7bff77a71183111d4cbe30ef",
             "count": 1
         },
         "33444fba0921fe2a4517936b1e929e172f05ec6ab832849fbf0aced5932ed7da": {
@@ -8327,15 +8219,6 @@
             "lineHash": "62796d7b66cd31acf22716fa55db3431e686b959c11dbbc09a3ed3b3f381c44b",
             "count": 1
         },
-        "35cb7db6753b897d036705f37345bb99a7b6228d26f189f80e323c3e3d05a1bc": {
-            "path": "api/economy_flush.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected 16 spaces, found 24",
-            "column": 25,
-            "lineHash": "add317e244bafa977c217802b5de536a297bbe565de5f2c2097b4ef0cf79fab7",
-            "count": 1
-        },
         "35cfc3eb6570f246a2e03c33e2c89786d91de24d2876947043d8fe883de7286e": {
             "path": "lib/RegistrationDraftService.php",
             "source": "Generic.Files.LineLength.TooLong",
@@ -8568,15 +8451,6 @@
             "message": "Line indented incorrectly; expected 0 spaces, found 4",
             "column": 5,
             "lineHash": "d1b180ff4cda7e429938626492deead9556c8a580dca7542d69dd9bb728d6417",
-            "count": 1
-        },
-        "37cd96057c87a2b824feb4d531e240b839f99ad41d6550b39ee3d580c8b03350": {
-            "path": "api/colony_buildings.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 296 and the first side effect is on line 23.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "37e07a688ab4aa82462c1181bec77d24aed85cca85a88641c96ddd845dd87a42": {
@@ -8964,15 +8838,6 @@
             "message": "Line exceeds 120 characters; contains 130 characters",
             "column": 130,
             "lineHash": "b8b3e7155902fe72febc1490b6df2a025149cc1dd8ca560ba6ac477746d764c0",
-            "count": 1
-        },
-        "3a6c6aeba8119adf5df24e0d2b47009f3d3b3b58098b7decabecf17f21034890": {
-            "path": "api/economy_flush.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 104,
-            "lineHash": "2b4540a4c882d05076889ee9b049bcb080bd955897314c685d7cf4965a843a6f",
             "count": 1
         },
         "3a7e92c1d829ee7ea289804555c412b7e1a3c713152614f1453b3a6dfb51d635": {
@@ -9983,6 +9848,15 @@
             "lineHash": "bc29a9ae7e076ebab8402ea25c006d73f9b7192a977f1077f0b48909740ffe5c",
             "count": 1
         },
+        "417efd4683ecd9d601504544cdf4bf3b199fe379ad670ba2c28c9122e8e195d1": {
+            "path": "api/market.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 77 and the first side effect is on line 15.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "418500fb553783fc8331d0600e47e4ba9964e996b8c161634c45d2f2861f7db4": {
             "path": "api/game_engine.php",
             "source": "Generic.Files.LineLength.TooLong",
@@ -10017,15 +9891,6 @@
             "message": "Expected at least 1 space before \"=>\"; 0 found",
             "column": 58,
             "lineHash": "4a987c72fd6063099e8f3c70be79a78569b31fcfb48af9c83b79e2ce0b38590d",
-            "count": 1
-        },
-        "41ca53a8d057a0ceada10157c1a66bde87ef7aacc227dec17eeee949d6f7e702": {
-            "path": "api/buildings.php",
-            "source": "PSR12.ControlStructures.ControlStructureSpacing.FirstExpressionLine",
-            "type": "ERROR",
-            "message": "The first expression of a multi-line control structure must be on the line after the opening parenthesis",
-            "column": 17,
-            "lineHash": "f37bfe15254d6d0ecbbf205bcf1408f648f9402c8eb9021b3bedb7327b956ccb",
             "count": 1
         },
         "41d8182337f137ad786ee3203bdcb7c391997056d8919ab88d9a91e8845cbd70": {
@@ -10278,24 +10143,6 @@
             "message": "Opening brace should be on a new line",
             "column": 35,
             "lineHash": "94c366a0b032112f8a05eeae0337a7ce5de27a316956a12a2ce4c5044dee7854",
-            "count": 1
-        },
-        "430ac679d2c095446b0ea64d207fe2c08ab1aaa3d94d778ec5ed74a21b36400b": {
-            "path": "api/game.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 311 and the first side effect is on line 13.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
-            "count": 1
-        },
-        "4334288055fbcd59b6fb7582e8dbc0cb5dd627f5fe330daa2b68b1b595cc7aa8": {
-            "path": "api/economy_flush.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected 4 spaces, found 8",
-            "column": 9,
-            "lineHash": "1fc7581bd6df48daef64e98423869b53e5dad3354861dfb9e906d35f8cdc6942",
             "count": 1
         },
         "433ba5977853e218ae01dc180be5e85d1e81ff3b88bf415a4864bdfc4d3ca98a": {
@@ -10964,15 +10811,6 @@
             "lineHash": "a25aa67bf5830fafe9d49f496a0ef6491ea000882077ebbe0e197dcac64da168",
             "count": 1
         },
-        "478b7e5348662205b7cc8b0b05eef6ad46a25b6c3b6c43f3bc147255ba8ddf7d": {
-            "path": "api/buildings.php",
-            "source": "PSR12.ControlStructures.ControlStructureSpacing.CloseParenthesisLine",
-            "type": "ERROR",
-            "message": "The closing parenthesis of a multi-line control structure must be on the line after the last expression",
-            "column": 58,
-            "lineHash": "7cd94b097c8b4c94622f547e25bd78b9c2caf66dd31ef0e2b33f3e405f418c3f",
-            "count": 1
-        },
         "47901ce97c3107cb67abede7dcd48df70fa075834b29719c2d66c902b9f35d8f": {
             "path": "api/leaders.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -10989,15 +10827,6 @@
             "message": "Inline control structures are not allowed",
             "column": 9,
             "lineHash": "13593df9e421382d971f2221dd39000e1feea1a2279a011ab6f2024fa7418570",
-            "count": 1
-        },
-        "47bb1bb5bda397413a5f18f3a46fdf91b3d05b701bc9a115ee735ed70c0b2d5d": {
-            "path": "api/economy.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 5,
-            "lineHash": "79542ba2ec57408f985076134c83ce1956e25e3168166f4e403c6b19d673d184",
             "count": 1
         },
         "47eba39e7f3a551b944ec0c874d8d10834f8ce9c5ac8039fa93f46811ef1a4ed": {
@@ -11052,15 +10881,6 @@
             "message": "Line indented incorrectly; expected 4 spaces, found 8",
             "column": 9,
             "lineHash": "2a44168318e224e1f830fe9ab620aa00dd4f7b3fb19ef4399abf59593cf0756d",
-            "count": 1
-        },
-        "482cc7bdf6793acba1c79d091c5d9e56e5942682f3510b428a4f44106aa25272": {
-            "path": "api/economy.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 5,
-            "lineHash": "fdba158f8b1e6e16607081999180ec6f2bca45ae1a88b313c77e4bbc4c078628",
             "count": 1
         },
         "484d200021863180f4edf4c197eb488e7f6029cd9c2347b731d23155ec4579fd": {
@@ -11315,15 +11135,6 @@
             "lineHash": "74223576af7b13b7194d338deaa15d689c0e4603c44773a0091c4b45888a004c",
             "count": 1
         },
-        "4a08e2192e514909da04905c53c7cfe0667fae4dd564e7e7db87712f8ccc10a8": {
-            "path": "api/economy_flush.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected 12 spaces, found 16",
-            "column": 17,
-            "lineHash": "0bf0a088a649c22dc9b184a9519d1ed05a4389bc2c3c5f1b6c8c857c3fb84ba1",
-            "count": 1
-        },
         "4a237f0997c3feaa2376d31f69561ba796992a0652001c460fd2cb60df7bb5dd": {
             "path": "api/auth.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -11502,15 +11313,6 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 42,
             "lineHash": "560d5ccb3ee4f122ee8a29b40bbd48372a54e8d11f38252835ab4bdb5e71dc70",
-            "count": 1
-        },
-        "4bfca080496be2f8b1618910ff99ad53afdb5aff3dcf557b20b3b1d821628e72": {
-            "path": "api/buildings.php",
-            "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
-            "type": "ERROR",
-            "message": "Whitespace found at end of line",
-            "column": 1,
-            "lineHash": "05a8475feebbfea685ece06045be63722edc61bb2ade8060a9f03aed6d49f454",
             "count": 1
         },
         "4c0ff4025c2c7cc991331853de5565a8530de8c7075fad5d3ae3bf32445cb783": {
@@ -11720,6 +11522,15 @@
             "lineHash": "60b6608f086a4caeeed6c026465bf695a01bfe1055febb144525f5fa670006d5",
             "count": 1
         },
+        "4d80afca0a61b7858286bb0f67e5b23204573459a011ea6cf81a88419bc35c89": {
+            "path": "api/shipyard.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 193 and the first side effect is on line 11.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "4d8843e4f2611e13269b1367f004468e6a9667ef1447fc64f65cce4251e77c59": {
             "path": "api/factions.php",
             "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
@@ -11745,15 +11556,6 @@
             "message": "Inline control structures are not allowed",
             "column": 5,
             "lineHash": "846be341531ed567eefc5aabff0cfff3ae21ca78cae94548b9c79f812714c603",
-            "count": 1
-        },
-        "4dd46fab57807681e1fc1fdc3ebd431b5ef703a502a1404e7645a0815e54b6dc": {
-            "path": "config/config.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 3 and the first side effect is on line 130.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "4ddb60d5ae5cd66f69a598a9c98c122e83fa1117924c8bbe49ea876b159b1078": {
@@ -11826,15 +11628,6 @@
             "message": "Line exceeds 120 characters; contains 129 characters",
             "column": 31,
             "lineHash": "7326f293124d9f9110d2c16ec99997c5b22e7eb0b821162bc2b8bd1e4c733aa8",
-            "count": 1
-        },
-        "4e6c65b52f03d2b8fb303ed584c7914d7b862c040a1ee23dc12a261c682a4562": {
-            "path": "api/market_analysis.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 21 and the first side effect is on line 15.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "4e73002e158cfc996a19d307274ee6f9d957bd7eb5755a2e9cb1616d8aa68896": {
@@ -12051,15 +11844,6 @@
             "message": "Inline control structures are not allowed",
             "column": 5,
             "lineHash": "37cf828daafbf674320da42a138220e231e5d287530ece7fa4540a9e92fcf4b5",
-            "count": 1
-        },
-        "4f751b313152931d897ef0a153290e9397124b502c31534e5f4715e502de3fce": {
-            "path": "api/economy_flush.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 69,
-            "lineHash": "9fc3e5d638cf3a23767d5cb7044a2417df51ec40899dbe7bf2d8a3186060c018",
             "count": 1
         },
         "4f92e92aa33d55e82908f5c23c303bbf9171dfaec26fa432707cb5447867ff78": {
@@ -12303,15 +12087,6 @@
             "message": "Expected 1 space after comma in argument list; 6 found",
             "column": 23,
             "lineHash": "e296d6a7257003e37665f35f3adae1e78a6a1a8b97b180b89e8cdc6fa6f3c397",
-            "count": 1
-        },
-        "5135b45637cb0e118e0d59ad38e85a51f7fe67178c5b06e09f5f1486a16081af": {
-            "path": "api/trade.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 21 and the first side effect is on line 6.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "514f332c5090eb37f090ec0aca0de70782513d8a1b9d5d00438e05862f8b21e5": {
@@ -12728,15 +12503,6 @@
             "lineHash": "0692dcc19b9495ce31b4b4448d17f4ecc9d9d6811f8411e0a6cec1219b592867",
             "count": 1
         },
-        "5401ff570fba49b9298941d47494a1ec6450bbebeb6b22ee807f7c428c5d9391": {
-            "path": "api/shipyard.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 212 and the first side effect is on line 12.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
-            "count": 1
-        },
         "5410849e4c72a0d4069c1d4e7def78bfc89d617b477ce3b88bd192eb8125cbe8": {
             "path": "lib/RegistrationDraftService.php",
             "source": "Generic.Files.LineLength.TooLong",
@@ -13005,7 +12771,7 @@
             "message": "Line exceeds 120 characters; contains 121 characters",
             "column": 121,
             "lineHash": "46daef975bec3781699ace78839e2826ac0798bdbe6b84c2162869b02d9a9e13",
-            "count": 2
+            "count": 1
         },
         "5628cc6f7482a9e700d62edcfd43f9d50228136056b9409bd303bc9f9cd5d657": {
             "path": "api/game_engine.php",
@@ -14132,15 +13898,6 @@
             "lineHash": "2a44168318e224e1f830fe9ab620aa00dd4f7b3fb19ef4399abf59593cf0756d",
             "count": 2
         },
-        "5d9db6fbfceabd52150cec849bdda49fe40e010cba8e5468e6b9c423765f1a70": {
-            "path": "api/economy.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 121 characters",
-            "column": 121,
-            "lineHash": "f1eb47fdf3a1ed9ff81bf37a45a775694fcd890fa40ca84580c5c977ebeea6be",
-            "count": 1
-        },
         "5db8dbb111ebd31c8f6c4f76840edbaee438d5889ba28c98706305d6c57932bb": {
             "path": "api/auth_helpers.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -14600,6 +14357,15 @@
             "lineHash": "799a3f7027b9a9a9613f44fa85d45d575aedc8930a5f607b448535210ac43bce",
             "count": 1
         },
+        "60b3f00b0a75219710e7aefc375c523b818fca3f41959c796c1ffdbcf9de0d78": {
+            "path": "lib/world_tick.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 19 and the first side effect is on line 8.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "60bfba5416a6f6910c25e43a7decb9108d31577eb860750b8e6e6ce364578108": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceAfter",
@@ -14886,15 +14652,6 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 18,
             "lineHash": "68e3f0a1932f09c4dad320e23cc102d7d862ce8adeb2b126024da80cd27e811c",
-            "count": 1
-        },
-        "629e924d38874b26485b74fecf5087dc1b106fa62e94ff3bb97f6f3d4bca4980": {
-            "path": "api/colony_buildings.php",
-            "source": "PSR2.ControlStructures.SwitchDeclaration.WrongOpener",
-            "type": "ERROR",
-            "message": "CASE statements must not use a braced block after the colon",
-            "column": 5,
-            "lineHash": "13f69fab5dc6081b2cb9696353687724cdaa80c7f2c246e50210bcf905bae1f7",
             "count": 1
         },
         "62bae8c58f3797b60920465f1a93f387af7685ba68844c1497422b07b787bc63": {
@@ -16166,15 +15923,6 @@
             "lineHash": "edd57d0e1efa499571921ad11d9b5c1548d77d487bcfd8a31ad1d87e2b51897a",
             "count": 1
         },
-        "6b4f6e574d1155b7a93385814aff03674adbf0fdb8d84e6e15c800d4f5ca182e": {
-            "path": "api/economy_flush.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 121 characters",
-            "column": 121,
-            "lineHash": "6bb167a379f750359e6e7d6caf5b8821d932ae981e9dc728caeb31937c7054b1",
-            "count": 1
-        },
         "6b52af56560d8e78e59b86fcf33e6c89a76c038b73acd8a0ecf7b574f8f41a59": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceAfter",
@@ -16336,15 +16084,6 @@
             "column": 43,
             "lineHash": "d09f0f7fac3c3f27011f4ad6668faa4ad3ffa042dac44bf6bff97a7003680b21",
             "count": 1
-        },
-        "6c75a8d28ceac68981260fa5be8c6ecb06e758d44990310497e351067e8191ce": {
-            "path": "api/economy_flush.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected 16 spaces, found 24",
-            "column": 25,
-            "lineHash": "aab81fdfa3632011902dd7fb2d29b70493f5abcfdbec08cd58de1c57ca289d8f",
-            "count": 2
         },
         "6c786b5f04f54accfa605ccf490451c862bc2d767c0546b2f447f6b98093f392": {
             "path": "api/traders.php",
@@ -17093,15 +16832,6 @@
             "lineHash": "0d885408be7e73f7f716a4ea983ef87ead63ca22c638c857ba556670249df716",
             "count": 1
         },
-        "71ada592ba31f59a9045d38f208431422d0a63d90d0e80c79e3eb176129cf56b": {
-            "path": "api/economy.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 5,
-            "lineHash": "ccd565c25d520d5b0b747c185ca70e02b4d40b96e8299006be7efa656ece31b3",
-            "count": 1
-        },
         "71b972cf7cafd0fb67f0519d2968d1da8f46aa6d3a0a4433a59c967c664e820c": {
             "path": "lib/FactionHomeworldSeeder.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -17721,7 +17451,7 @@
             "message": "Line indented incorrectly; expected 4 spaces, found 8",
             "column": 9,
             "lineHash": "2f4d0bbbbd8b31f9e03014ff8790aca583971fd695bfcf41f180f2ea50083899",
-            "count": 2
+            "count": 1
         },
         "761dda5759cf77e2e149697152e2066afcfea25deb32e9ce9990656ae501eec6": {
             "path": "api/ship_component_prompts.php",
@@ -18083,6 +17813,15 @@
             "lineHash": "b70c2b1302f4d1018b7d659fec9137b922b2ce08a89014de3559cdb75354a288",
             "count": 1
         },
+        "78570d0fc321bd4e8a5f67925c098be5aefec84e0341c1ec194ee0bb757efad5": {
+            "path": "api/economy_runtime.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 31 and the first side effect is on line 5.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "786634d69a76093d64138257359ef647f92696f36a0833c5aa3fc6ada5840adc": {
             "path": "api/llm.php",
             "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
@@ -18299,15 +18038,6 @@
             "lineHash": "1a0f564ddc6039457b2fb26b3d6a316c15eba20a886449847c3210c35821a693",
             "count": 8
         },
-        "7a23811a5f8e2fdd31ec7a4043440704e8df2883ba7f52ee1c60979217dce517": {
-            "path": "api/game_engine.php",
-            "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
-            "type": "ERROR",
-            "message": "Whitespace found at end of line",
-            "column": 44,
-            "lineHash": "8d70b0b42b66c50934ef35acc3383251d10447d44ab1fc49ef78d4d384f5b752",
-            "count": 1
-        },
         "7a32fb60e4a669461e08f0a2538fff849a52a4f84584e54b1e2d94542da29208": {
             "path": "api/llm.php",
             "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
@@ -18405,24 +18135,6 @@
             "message": "Line exceeds 120 characters; contains 127 characters",
             "column": 127,
             "lineHash": "994d9949b766e06876cde82d85d583ed8e7f2b3a8c33f08ec54757c62aa0625c",
-            "count": 1
-        },
-        "7acdddd46fc1f54d0581b7462dcea3ecf5ae03c51f1c40d8df5935d5167a29de": {
-            "path": "api/market.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 78 and the first side effect is on line 15.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
-            "count": 1
-        },
-        "7ad04cf9707b5646f4cb730d4db7fe75ac218b813fbada65c9bf6fd44dc3f43e": {
-            "path": "api/economy_flush.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 65,
-            "lineHash": "d61caecb287fdafb872e6fa932fad4f229b7f0299d2c930e43529b40bf1237a9",
             "count": 1
         },
         "7ad60f4d0b8f4b319774ece33cffe171a8f0015d5560c6da300fd2143081b4f3": {
@@ -19037,15 +18749,6 @@
             "lineHash": "6f617d20e3b744a8184d0496673da35bcb208fb80c907b35d62cdef7a0743d92",
             "count": 1
         },
-        "7ed54a2704179aa6b4d9f579bf57dea2aba35fbd0d0dda668786d30a856b9162": {
-            "path": "api/market_analysis.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 9,
-            "lineHash": "bf2712965d86efc42be5c1f41668d1fa1cd3ef1b157e4646fb35e6f7e8bc5a4a",
-            "count": 1
-        },
         "7ee47bc57e3892bab4e3a5b41514fb16562e63acb88b13e22a758b5dac2157ba": {
             "path": "api/npc_llm_controller.php",
             "source": "PSR1.Files.SideEffects.FoundWithSymbols",
@@ -19359,7 +19062,7 @@
             "message": "Whitespace found at end of line",
             "column": 1,
             "lineHash": "8b6fa01313ce51afc09e610f819250da501778ad363cba4f9e312a6ec823d42a",
-            "count": 8
+            "count": 1
         },
         "80abbfb786d646d60a88c88a857983777f84d5093728335d86e4ff52349cf928": {
             "path": "api/leaders.php",
@@ -20522,15 +20225,6 @@
             "lineHash": "ca3cc20299c902c13d6ded5dc53893f90e864163a3e2f76b14b1ce9f2939e396",
             "count": 1
         },
-        "8944654d242e751896ed46e960500aa5e4c630d7370809daa2df313d7d3a347f": {
-            "path": "api/buildings.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 125 characters",
-            "column": 125,
-            "lineHash": "13434a18eae0734534b82f84df3225d929260d160933fff960f20d420b19f8fa",
-            "count": 1
-        },
         "8954a2edc498c24fe935437abc66e602b234ae03aa5d7e910eed32777ed7a3ff": {
             "path": "api/fleet.php",
             "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
@@ -20844,15 +20538,6 @@
             "message": "Expected at least 1 space before \"=>\"; 0 found",
             "column": 21,
             "lineHash": "8cf6d8986eeb5838892a8550b60e8ddcf7218a1a04b190e8d0f18f5e1a124452",
-            "count": 1
-        },
-        "8b70b639bc801f907cfd1d0774bdc7920e320576aac4e93185c4b9cd8cbb9eaf": {
-            "path": "api/game_engine.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 85,
-            "lineHash": "8b53be11a9b23ef466f515eb118f1026acdc24e979408db25ea8b79d1e97ae69",
             "count": 1
         },
         "8b8dcc83ebe249688a31785ced5707964680d7d1ca748cb1dbe9db53b514fba0": {
@@ -21413,15 +21098,6 @@
             "lineHash": "d3446b476797bce20f186fbadb6e32f88f088dddb5dbca92c962065810c3fd51",
             "count": 2
         },
-        "8f9a66311f58bb12c22b1d4383f0950ff993afd93e95d52b1593bf3a2d3c38ff": {
-            "path": "api/economy.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 5,
-            "lineHash": "e3afa1237720feb3d653301bfa7bc576ad747ba165e94db6248557388602d11d",
-            "count": 1
-        },
         "8f9e94b69201a6ab735247e3eb6368f02eb28a0b4a53640740f19e6ac793993b": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceAfter",
@@ -21519,6 +21195,15 @@
             "message": "Each PHP statement must be on a line by itself",
             "column": 46,
             "lineHash": "3d5bf90020a400c593aaff189f81783312b5b3c75a5680f4ef59769c1153dd98",
+            "count": 1
+        },
+        "90a49697d58ba1a3d3db835ad15759809b5e5b99f375d884656343a86bf9d97b": {
+            "path": "api/colony_buildings.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 162 and the first side effect is on line 23.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "90b4de9851cb1dfea4d95575341b84454d0a3306f0258aa43bc64f96b2db3571": {
@@ -21971,15 +21656,6 @@
             "lineHash": "154351edefca7351c674e063e7a805dc923b3908794b064e0d97c088cf6b9e87",
             "count": 1
         },
-        "93f1b5391d97c692f28175f8752caa2f9aa0a8cb4e8172b8a8dc624285eaaaf0": {
-            "path": "api/economy.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 53,
-            "lineHash": "fb1207a8fca17a5c400b5a1158ea55f019e33a376df03d9bfee0586e5257f7db",
-            "count": 1
-        },
         "9403961d1809c095876e671976ea0fde72c1e6e3ce065a2c514fd8165bfd03f1": {
             "path": "api/fleet.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceAfter",
@@ -22401,15 +22077,6 @@
             "message": "Line indented incorrectly; expected at least 4 spaces, found 2",
             "column": 3,
             "lineHash": "98c23b91e328a6313a27edb134dd48dae5cf1d821a15e57ba3ee078254141441",
-            "count": 1
-        },
-        "9755b7c6906eec4c54de67eb053e88cb49f0d0facf8e364f01a4bae8620270f9": {
-            "path": "api/npc_ai.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 18 and the first side effect is on line 5.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "978cdd16547c3a40b7844cabc7e8b2d0ff188a8ff0d94572de1f0b2858cf79c5": {
@@ -22961,15 +22628,6 @@
             "lineHash": "4a987c72fd6063099e8f3c70be79a78569b31fcfb48af9c83b79e2ce0b38590d",
             "count": 1
         },
-        "9ab764e1ef413d1756629b9f274142d89cc93afb4d8d0f6f65063b2e8245bf66": {
-            "path": "api/buildings.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 328 and the first side effect is on line 12.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
-            "count": 1
-        },
         "9ac72336c7cce29963da69125aca48b3cf58d00c7d5a307c1d576df5ba8bb968": {
             "path": "api/colony_buildings.php",
             "source": "PSR12.Files.FileHeader.SpacingAfterDocblockBlock",
@@ -23492,6 +23150,15 @@
             "lineHash": "d56e051edde147643980e2083045ca483587d4274dcd3eb66469c539c811519f",
             "count": 1
         },
+        "9d78f83cf6c1a871b99e7e3aba146a053ab87c8b7e1154d429e4276e3aff29e7": {
+            "path": "api/buildings.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 169 and the first side effect is on line 11.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "9d7e35b6b49080fe14e39508b0a2b99efde311eee3d8601c16e56fcb91bd8b42": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceBefore",
@@ -23635,15 +23302,6 @@
             "column": 65,
             "lineHash": "d1a450127fee6ebfe78ac61fed8c0428349e97604f1d43cf0fa30b1135e27bd0",
             "count": 1
-        },
-        "9e4acb9930d84190eb041ad8933c9fe50669a6f02504e3ca2e4dab23a67786ca": {
-            "path": "api/economy_flush.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected 4 spaces, found 8",
-            "column": 9,
-            "lineHash": "2a44168318e224e1f830fe9ab620aa00dd4f7b3fb19ef4399abf59593cf0756d",
-            "count": 2
         },
         "9e61cc67b7e7e24b98c7d9605f06d9c5301f3686fd63cbb00540f29e9546030c": {
             "path": "api/factions.php",
@@ -23868,7 +23526,7 @@
             "message": "Whitespace found at end of line",
             "column": 1,
             "lineHash": "1a0f564ddc6039457b2fb26b3d6a316c15eba20a886449847c3210c35821a693",
-            "count": 31
+            "count": 24
         },
         "a002208075676d24f293119d666a6fffaf0ba98e8efc080605a1ff6954e5000a": {
             "path": "api/alliance_wars.php",
@@ -24140,15 +23798,6 @@
             "lineHash": "8b6fa01313ce51afc09e610f819250da501778ad363cba4f9e312a6ec823d42a",
             "count": 5
         },
-        "a19e347a123feaa48deee5f0fee4e0d9676d61045ddb15496cd9a1b591cebb3e": {
-            "path": "api/buildings.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 70,
-            "lineHash": "9d086d6861156c74b39a12802b3cdb1921f3aa608e5c50bb2ed4aea0f13ff035",
-            "count": 1
-        },
         "a1a302d00d81e45bc8c0cb7293e0b39d04a8e43c443b51fa6354ab3af2f3ec7d": {
             "path": "api/generation_queue.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -24183,15 +23832,6 @@
             "message": "Line indented incorrectly; expected 4 spaces, found 8",
             "column": 9,
             "lineHash": "364f3b5185afc57b6f528c544e95d2dded711720c4e779554ee905be45b72ed1",
-            "count": 1
-        },
-        "a1ba57c425a48022aea8ae02dac2c3aacf6764f6c4d40364a856f8fd96500e7d": {
-            "path": "api/economy_runtime.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 10 and the first side effect is on line 5.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "a1be256b58da6a3c50879c219d7a4cd10291cbab046e2d65d06c9b5d86cb8bd9": {
@@ -24327,15 +23967,6 @@
             "message": "Line indented incorrectly; expected at least 20 spaces, found 16",
             "column": 17,
             "lineHash": "140fd7dfb9862915fddee62768cf62c05ed9d8980f3fd8b6a6e5afb77aede205",
-            "count": 1
-        },
-        "a2a20d28ff914b9ea424045184273af8d0546dffe605be8b5e07b8a8a25af9e7": {
-            "path": "api/economy_flush.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected 8 spaces, found 12",
-            "column": 13,
-            "lineHash": "a51c1d07a74a3fe78a3b3aa8038492ca24d5243dcf7e01f35fe936cdea24a4b6",
             "count": 1
         },
         "a2a7e68f9fb671320028dc0ea6e4041f87338af839d163b2dffa258b69b0f6ee": {
@@ -24806,24 +24437,6 @@
             "lineHash": "acec0d8d975998b2a943afbbbd149c8d4a178e9ecc646387ac294d809c955025",
             "count": 1
         },
-        "a6345b0450eddf929679b0dc08c4a47f739cb90f497a35088cd8164e0531576e": {
-            "path": "api/economy.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 77,
-            "lineHash": "ebe523da099ed5f4c81298bd7cb399f6102e1a6104e7ec1d0c706af0322f62d4",
-            "count": 1
-        },
-        "a634a73a9f5f66a9f7aa83f87f1056e81bd3adf71fc8fe0bf6626ec8299f9b19": {
-            "path": "api/colony_buildings.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected 4 spaces, found 8",
-            "column": 9,
-            "lineHash": "86c0521ea63c128dd6acef624ead3f48288ed21b463281242606a4c9a5cd5c8f",
-            "count": 1
-        },
         "a64b82e80cfb7d9d0d04b09ca941bd0c3be58c9100844dcdc05c0ee4c731c729": {
             "path": "api/diplomacy.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -24939,15 +24552,6 @@
             "message": "Opening brace should be on a new line",
             "column": 71,
             "lineHash": "23c73c2e1393ea6b1185be700d47e4231de80565ac4bea40f3b90f83cd8b116e",
-            "count": 1
-        },
-        "a732eee4c9c7e74022d33c6a140f4fe977287b4acea1aeaab2090a795a7da5d7": {
-            "path": "api/economy_flush.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected 12 spaces, found 20",
-            "column": 21,
-            "lineHash": "b8d1918176757f7935444fcf43fbbdd5f055a65dc3bfbdc1dd1f925edd564a5b",
             "count": 1
         },
         "a73e1117c1f2a54817dfcf5698e18d4ca358c871847b8657b84757848aad7951": {
@@ -25227,15 +24831,6 @@
             "message": "Opening brace should be on a new line",
             "column": 28,
             "lineHash": "13df8de0a4a74f8aa38a316471a878847314203aef252e0bd6511019a72fb0f1",
-            "count": 1
-        },
-        "a943bc168ad016a341f64256134d83115db0e34e249f0163eb354affd9064641": {
-            "path": "api/economy.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 72 and the first side effect is on line 16.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "a94c0b4ca3f21f1598dd2b5c186eb6b4d780e887c55deff9b569cc2bc127d84c": {
@@ -26417,15 +26012,6 @@
             "lineHash": "d7259ade1c8a0b1dd7b3ecd6298f503715a6dc8a985230747d03f4c2d84e580e",
             "count": 1
         },
-        "b2393738ed11f2b21ccebb1c056388afb76714cca09186b9d8603be4a274d7fb": {
-            "path": "api/economy_flush.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected 4 spaces, found 8",
-            "column": 9,
-            "lineHash": "5aca38e3332a77bbc89efa3b8341ec8790c4958151acef971aef05425723fff0",
-            "count": 1
-        },
         "b25a87e5f9defe8b6da83ad9671d9ec5a62aa8852b00b28a68a327b0ad8859f5": {
             "path": "api/galaxy_seed.php",
             "source": "Generic.Files.LineLength.TooLong",
@@ -26813,6 +26399,15 @@
             "lineHash": "e37fa0c3184e548d4f16fad72a6e7c1530c0597478575bde086709ec80c66e7d",
             "count": 3
         },
+        "b4ef8805b31c72bdee88646222f6e348627e2625ec56a97d1f05d613937ace1e": {
+            "path": "api/npc_ai.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 27 and the first side effect is on line 5.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "b4f962bb54df3ec694e41a77c08e16b8cf62ebb1b7d754411da3032e22084447": {
             "path": "api/leaders.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -26847,15 +26442,6 @@
             "message": "Spaces must be used to indent lines; tabs are not allowed",
             "column": 1,
             "lineHash": "2c3567712d6662d56208a99adb9ef7a7ca0fc07447120e02f3622506ca58acd5",
-            "count": 1
-        },
-        "b5163a38c89c917d5cc072b789ce609cdcff56c5cd7cc0fe9c9136a9b84bd657": {
-            "path": "api/game_engine.php",
-            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
-            "type": "ERROR",
-            "message": "Opening brace should be on a new line",
-            "column": 79,
-            "lineHash": "ac43559e71a5ad2d997331e353b0380da73284ca2b563aed7dd20cfeedf90eb4",
             "count": 1
         },
         "b51f25abec22bccb9d6daf0fd1591b00b857319db1af060c0f67f7aeab13e693": {
@@ -27117,15 +26703,6 @@
             "message": "Inline control structures are not allowed",
             "column": 9,
             "lineHash": "76f0619544c4ae13a2cf5991ebd9ecb26971eb1e1ff1103d446c651e17e89aa1",
-            "count": 1
-        },
-        "b6f5ef5ae3d971544597b02472edbd8e8a3faa70317981700fb375f4e985c881": {
-            "path": "api/economy_flush.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 127 characters",
-            "column": 127,
-            "lineHash": "723b57441d4ef59c37df99e9d76830c5acdbeb3cbeac7547393950162cc3c6da",
             "count": 1
         },
         "b704d090f89005450bdc4e8d4a78ee6c8631f4889a89596d970c6ac5f419a684": {
@@ -27992,15 +27569,6 @@
             "lineHash": "34bb1fea2555eac5f1543ab10ac5710d1ccd5ee7c0038af49fe38d503663563d",
             "count": 2
         },
-        "bd35bc7dbb03de658e8bc60c915ae6ba439bf948b50e472d6b4c6da09d71fae4": {
-            "path": "api/fleet.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 170 characters",
-            "column": 170,
-            "lineHash": "3940bb26e75f8dac055d4bd0c88092d1ef5a09800acba1455286efb1363cc20f",
-            "count": 1
-        },
         "bd43f9845a40dd816a57d27ce5472469139d88986f507e781ec704b56cefec4b": {
             "path": "api/metrics.php",
             "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
@@ -28766,15 +28334,6 @@
             "lineHash": "738a4992343cdea73bc3342a1b8ec1bf3366d0628c643a6018d599c30ecf6680",
             "count": 1
         },
-        "c3220343d558302682f9be131464cdf66b872a0b87e865c0805d2f476e555a9c": {
-            "path": "api/colony_buildings.php",
-            "source": "PSR2.ControlStructures.SwitchDeclaration.WrongOpener",
-            "type": "ERROR",
-            "message": "CASE statements must not use a braced block after the colon",
-            "column": 5,
-            "lineHash": "099a2e380772db7bd93c84d7732ddd4f9d161c14e1a0c6d9ff2766c061855472",
-            "count": 1
-        },
         "c322a3c63753144dc0e3500efc720f715805d3c18151e67c01482052fea5ca07": {
             "path": "api/metrics.php",
             "source": "Generic.Files.LineLength.TooLong",
@@ -28917,15 +28476,6 @@
             "message": "Inline control structures are not allowed",
             "column": 5,
             "lineHash": "812c20432e57ab93174972e89cc0c5af2f8f97aef7cb398a229aca7279bd239c",
-            "count": 1
-        },
-        "c39a0919e3f0c8889d2a2dd937ea9e1ba5c42c13f0e839a84c661033691eda0a": {
-            "path": "api/economy_flush.php",
-            "source": "PSR12.Files.FileHeader.SpacingAfterTagBlock",
-            "type": "ERROR",
-            "message": "Header blocks must be separated by a single blank line",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "c3cd3032bd4226d012297be83d5bf1971e9765c2951101c85a093512f1aee0ac": {
@@ -29567,15 +29117,6 @@
             "lineHash": "8062399688e6153fedcec5e3a2c582e956ed766c9cc860746a1ad0c218d86788",
             "count": 1
         },
-        "c875ba9fd783639906b4f7dd82ea6f87cef2b0a0c79cd63be6ef7bbba61a9e8a": {
-            "path": "api/economy_flush.php",
-            "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
-            "type": "ERROR",
-            "message": "Whitespace found at end of line",
-            "column": 1,
-            "lineHash": "8b6fa01313ce51afc09e610f819250da501778ad363cba4f9e312a6ec823d42a",
-            "count": 4
-        },
         "c88baefe812ce94d004efec046b7872879dca2f622ec3aa519f97b77b7eebb1f": {
             "path": "lib/FactionHomeworldSeeder.php",
             "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
@@ -29963,6 +29504,15 @@
             "lineHash": "8e2bf335878a1087dc043d0b28e7f3d365fa3718202f6639678e79c9b5366ca1",
             "count": 1
         },
+        "cae924b4b3b84c172e333e5e74de333e1e3e99f1b68951ff731de129a4c339cf": {
+            "path": "api/market_analysis.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 20 and the first side effect is on line 15.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "caf374f2787bf1ea63c088243c9a5f7257a749b53af91b55185dd25ca5f93863": {
             "path": "api/cache_invalidation.php",
             "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
@@ -29997,7 +29547,7 @@
             "message": "Inline control structures are not allowed",
             "column": 5,
             "lineHash": "b5e3e6c8590e31adcf2b67417c2762c21d3f11deba5220f4dea5232702b14092",
-            "count": 3
+            "count": 1
         },
         "cb042b6cb85d1036c7085656a006ab6679899c92668b0f7af2cc9b3713f9dfbf": {
             "path": "api/leaders.php",
@@ -30258,15 +29808,6 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 99,
             "lineHash": "b016ed83097d260fa147af1914b2e9893f0afe082483d0a6bf92243f7988ac3c",
-            "count": 1
-        },
-        "ccd8bba0ec917c0bfb721aa6eef35815882d15532e9c202826571d03eea65a99": {
-            "path": "api/colony_buildings.php",
-            "source": "PSR2.ControlStructures.SwitchDeclaration.WrongOpener",
-            "type": "ERROR",
-            "message": "CASE statements must not use a braced block after the colon",
-            "column": 5,
-            "lineHash": "de52032763cadaa53cdaaa571a38cb2ea0ae75a5f8a90ff0d54bcc5034b369a3",
             "count": 1
         },
         "cce1ff77078defe522f8ae4415b9c530c5623b6cd77983a5bb21487c66d0f2ac": {
@@ -31133,15 +30674,6 @@
             "lineHash": "f51e6f2c1ca97ef1fc8f979ffee20affffa54ea53368dcafe1c1931dc47ea198",
             "count": 1
         },
-        "d2cd234c458013293385e54947a8d34f22cd4430b45ab73773741ac99ed97d77": {
-            "path": "api/simulation_runtime.php",
-            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
-            "type": "WARNING",
-            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 23 and the first side effect is on line 5.",
-            "column": 1,
-            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
-            "count": 1
-        },
         "d2cf801fcac5f8e8a3a0b408b3067a1a5c8b2d3fed819934b46f307290c64a7f": {
             "path": "api/game_engine.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceAfter",
@@ -31311,15 +30843,6 @@
             "message": "The file-level docblock must follow the opening PHP tag in the file header",
             "column": 1,
             "lineHash": "8d64a30d9de151b649006a1d9871037ac5649ab6162ea5d7fd77c54fed07b155",
-            "count": 1
-        },
-        "d4787a535f4068e5b695b92b2a70de9578c13b0359c520a1b12ed993717f5828": {
-            "path": "api/economy_flush.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected 16 spaces, found 24",
-            "column": 25,
-            "lineHash": "9e899bf360e6d7c638757a6626545c74da2fa6a369f93d52b012a48e4b1bce23",
             "count": 1
         },
         "d4790b58ec83e2d320400c2f66ff9baeabbd090e2a518c1765e59b04ad5a49b7": {
@@ -31772,15 +31295,6 @@
             "lineHash": "61981bc9912b3295feba1253f2462352b0e6be3ac96b12d109591d6ef0a7f2a6",
             "count": 1
         },
-        "d7b337227a9cf610645a21b427b216e4441c48a6626089d773b63260ab99694a": {
-            "path": "api/economy.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 5,
-            "lineHash": "bc81f496f1bf5542655e262da6e3f74643bbe894886fe63ce583f36394fb7a3f",
-            "count": 1
-        },
         "d7c025c76a8f5c1c23e53f168a079cf44af269c362f9ae014067e939d489888b": {
             "path": "api/colony_buildings.php",
             "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
@@ -31788,7 +31302,7 @@
             "message": "Line indented incorrectly; expected 4 spaces, found 8",
             "column": 9,
             "lineHash": "2a44168318e224e1f830fe9ab620aa00dd4f7b3fb19ef4399abf59593cf0756d",
-            "count": 5
+            "count": 1
         },
         "d7de76f52dc10db93a445f544802b74586bbce23b7280b2d07f4b98c9fae778c": {
             "path": "api/leaders.php",
@@ -32582,15 +32096,6 @@
             "lineHash": "19919cd6b2380810a851ad50b8d799712b2efe2cdaeefb31627509bd58efe2a0",
             "count": 2
         },
-        "dc38e7cc7b722e90012f468d7e66704a1ac6f0dda2ee511a798c3410f4a29450": {
-            "path": "api/market_analysis.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 151 characters",
-            "column": 151,
-            "lineHash": "a7599e3fbc26852a04140e034e67f9f46fc51a152f88b9f64119c564a0925d19",
-            "count": 1
-        },
         "dc4344fadcfe0df1ceeb3eb6e4e97b4a7e3c083a1d56b2e46c223b2ec62d3dc9": {
             "path": "api/factions.php",
             "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
@@ -32888,6 +32393,15 @@
             "lineHash": "86afdf70a95436e883aa7fc5c06a2ab083719054438f1218d15ebdaf287b4bac",
             "count": 1
         },
+        "de0d6c5008c84ecea0ccf39f57f867a55969ff291c22f1d182f974ab17d1cac6": {
+            "path": "api/game.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 335 and the first side effect is on line 15.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "de141d1e84d24d345a39bde794c04a43c67c6e207a6665ce08fb970ba36b8910": {
             "path": "lib/template-renderer.php",
             "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
@@ -32977,15 +32491,6 @@
             "column": 1,
             "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
-        },
-        "de48118fc7d9a692b0e8ca3c46b6b4dc9d2bd10af4a9c84e4b9762ffddc96ae7": {
-            "path": "api/economy_flush.php",
-            "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
-            "type": "ERROR",
-            "message": "Whitespace found at end of line",
-            "column": 3,
-            "lineHash": "34bb1fea2555eac5f1543ab10ac5710d1ccd5ee7c0038af49fe38d503663563d",
-            "count": 2
         },
         "de671d6c7d309521ebeb5e39334021203c714b36dff12164367606a2d18b20bd": {
             "path": "api/factions.php",
@@ -33084,15 +32589,6 @@
             "message": "Inline control structures are not allowed",
             "column": 9,
             "lineHash": "aa174ee1ac7e7c370764f0a1089d3c1a216df3e0c4ad45476f3ca90ac95e3eae",
-            "count": 1
-        },
-        "df4b15da89b1c06d6d5952af187ccd9c8b88d1dce6eb31193e41d29c87f4290a": {
-            "path": "api/economy_flush.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected 16 spaces, found 24",
-            "column": 25,
-            "lineHash": "9ae170e624f1d5a09e03ae0a17748b7282983cd142d28983a701fe5a967d024d",
             "count": 1
         },
         "df4ecc28207439059242e6a25d0e920da5c9453d3d47223c74f9febf19ed60f4": {
@@ -33725,15 +33221,6 @@
             "lineHash": "f14569086dccbca3d315f358e82fd42ee4cb6473ddc8c5b7c819d728795cbc95",
             "count": 1
         },
-        "e24df7bfb32a69456960456899868c38523f4f7f1271b63cc138cb54f82008fd": {
-            "path": "api/economy.php",
-            "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
-            "type": "ERROR",
-            "message": "Whitespace found at end of line",
-            "column": 1,
-            "lineHash": "1a0f564ddc6039457b2fb26b3d6a316c15eba20a886449847c3210c35821a693",
-            "count": 1
-        },
         "e254f32d2c933f2f53b8adbb8eeb59d7153f3726ef181464d6d8cdaf9d2ce684": {
             "path": "api/factions.php",
             "source": "Generic.WhiteSpace.ScopeIndent.Incorrect",
@@ -33840,6 +33327,15 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 16,
             "lineHash": "e4525c0d8aa60ad45e78f0007d7c1a75e78e5cb54634a0d0c9670c88053585f2",
+            "count": 1
+        },
+        "e2ddeddf4e99e94e74c956866bdea1d05bb28660605ede7f77d9f7cc422a28c5": {
+            "path": "lib/RegistrationMail.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 7 and the first side effect is on line 5.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
         "e2e3c252d75c777579e6998c439fa47ac71b20348629c38a22b5a4d56002cd09": {
@@ -34076,6 +33572,15 @@
             "lineHash": "a6b2e88a47af7f49242990e17e59e43f2bc9e2dd3c4e97de510cdacf68208ee9",
             "count": 1
         },
+        "e428fef069a8d10098c1c7d818a546d849d9e929455cdba294de5fc5615ad3ac": {
+            "path": "api/economy.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 58 and the first side effect is on line 16.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "e4307495232759ade23033a415179b73633925bc705fc3a52b3aecbea3fe242c": {
             "path": "api/fleet.php",
             "source": "Generic.Files.LineLength.TooLong",
@@ -34236,15 +33741,6 @@
             "message": "Header blocks must be separated by a single blank line",
             "column": 1,
             "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
-            "count": 1
-        },
-        "e55e73bba68b75d1fce302eaede881c8e3b25373c098958f1f3047c6a4f374b4": {
-            "path": "api/market_analysis.php",
-            "source": "Generic.Files.LineLength.TooLong",
-            "type": "WARNING",
-            "message": "Line exceeds 120 characters; contains 122 characters",
-            "column": 122,
-            "lineHash": "48afcce5ee68b915b8bf234c2f6f9d91f0659af618cf08435efd913da45d8f3c",
             "count": 1
         },
         "e57d1343cc63eba88562a8e7e5cb03a8c658cfdf2c04d56b35745b8f4b49cbcb": {
@@ -34570,15 +34066,6 @@
             "column": 86,
             "lineHash": "60b6608f086a4caeeed6c026465bf695a01bfe1055febb144525f5fa670006d5",
             "count": 1
-        },
-        "e74ae07029c3bdee453c20f57099c40c6d2eaf6794f3891d5dbbc2e81ce20583": {
-            "path": "api/game_engine.php",
-            "source": "Squiz.WhiteSpace.SuperfluousWhitespace.EndLine",
-            "type": "ERROR",
-            "message": "Whitespace found at end of line",
-            "column": 1,
-            "lineHash": "05a8475feebbfea685ece06045be63722edc61bb2ade8060a9f03aed6d49f454",
-            "count": 2
         },
         "e74b7842017a92c0e6a1b517a78c6f8b4925ef0abe1a91ae97c943f317fbd18a": {
             "path": "api/leaders.php",
@@ -35120,6 +34607,15 @@
             "lineHash": "07da442d81392b4ab175a033d498a4f5f768a452f6d574208e035764a82ffa82",
             "count": 1
         },
+        "ea3bb8284852f796c3b591df471dc19d8a87718963c98d9ba9f6786b2eda1384": {
+            "path": "api/trade.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 18 and the first side effect is on line 5.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "ea3d05b77040f05e2485f2f938c0e86f34ab7d2d54fe575e2f007d23c5f4254a": {
             "path": "api/espionage.php",
             "source": "PSR2.ControlStructures.SwitchDeclaration.WrongOpener",
@@ -35291,15 +34787,6 @@
             "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
             "count": 1
         },
-        "eb4303b09232edeb805b546e83ae6c9295e826d6b11b75a48b9fa82639d6efc9": {
-            "path": "api/economy_flush.php",
-            "source": "Generic.WhiteSpace.ScopeIndent.IncorrectExact",
-            "type": "ERROR",
-            "message": "Line indented incorrectly; expected 8 spaces, found 12",
-            "column": 13,
-            "lineHash": "86afdf70a95436e883aa7fc5c06a2ab083719054438f1218d15ebdaf287b4bac",
-            "count": 1
-        },
         "eb50c7f261754f4b7d8bf1ec744a80158f74d3613c586bc952ef0ba8e16b7ac2": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceAfter",
@@ -35370,15 +34857,6 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 19,
             "lineHash": "a4c2019dc869d6dd32d93250ba69947c87d179d4849f972a0c65640edeb8b6d5",
-            "count": 1
-        },
-        "ebb08fcc74f863d5c1eef7e6f2c9d6e1fc411bc21aedbc8067476e65334771b0": {
-            "path": "api/economy.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 5,
-            "lineHash": "ab7a2b57e4a768bc1e70a0ef0b1e0180a84c6ac5ff5525407ffeeb5ac2741b5e",
             "count": 1
         },
         "ebb44b165f1e13150b8607060d68611f9fb32a68e3dda51b2d64789b0188ba99": {
@@ -36704,6 +36182,15 @@
             "lineHash": "ea9a28f85c58193a0a0d7d21d84de097294e133dde0f0deab5da6ef030738fa6",
             "count": 1
         },
+        "f4d7fe05c85d3ccc78a601c6d3079ed4af3bdf470e651ac9edf8692fac2b48d5": {
+            "path": "api/simulation_runtime.php",
+            "source": "PSR1.Files.SideEffects.FoundWithSymbols",
+            "type": "WARNING",
+            "message": "A file should declare new symbols (classes, functions, constants, etc.) and cause no other side effects, or it should execute logic with side effects, but should not do both. The first symbol is defined on line 25 and the first side effect is on line 5.",
+            "column": 1,
+            "lineHash": "fe5bcb54c56e0b9f456a060364dd28b2248f3a0e21c168d4ce9d009b73e83e3c",
+            "count": 1
+        },
         "f4e032b58b0c4708d53adf3317011b15f8e1fb8d3ead14183094dbbf544c4c0f": {
             "path": "api/fleet.php",
             "source": "Squiz.ControlStructures.ControlSignature.NewlineAfterOpenBrace",
@@ -37541,15 +37028,6 @@
             "lineHash": "544fdad49904d325cc7cce82aaa5c8fa81c91538bbaa31c2da846dfe60b8b885",
             "count": 1
         },
-        "fb09ef3adfdd3618810fdc80004b2616e7b798957b07fc231d63dc9d2ce305d6": {
-            "path": "api/economy.php",
-            "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
-            "type": "ERROR",
-            "message": "Inline control structures are not allowed",
-            "column": 5,
-            "lineHash": "ac1446b64c3881e22d540c7d4534a9b44ab6f388cbeb96c00d3db9426b27fd87",
-            "count": 1
-        },
         "fb14d24ef79fde11444488642df399d07093c36ba49ff74e626da442791ebe60": {
             "path": "api/leaders.php",
             "source": "PSR12.Operators.OperatorSpacing.NoSpaceBefore",
@@ -37703,6 +37181,15 @@
             "lineHash": "e635b67de2c7cbfa318e12274a70598dc0afd26dfec880712cdeca01cb68d984",
             "count": 1
         },
+        "fc78eb4180fefbf0dcea784641d3be697261bd054d15115a7b6a3f3a3ec6d910": {
+            "path": "api/economy.php",
+            "source": "Squiz.Functions.MultiLineFunctionDeclaration.BraceOnSameLine",
+            "type": "ERROR",
+            "message": "Opening brace should be on a new line",
+            "column": 70,
+            "lineHash": "61802b61ec7c2b70daf8f5d9528a3b554152b696cd811bcbf2da24ab0d3901be",
+            "count": 1
+        },
         "fc85e8df3b11e6b3acd8d46e2718785f927c47d20e5c7d80dee84543a92466df": {
             "path": "api/pirates.php",
             "source": "Generic.ControlStructures.InlineControlStructure.NotAllowed",
@@ -37827,15 +37314,6 @@
             "message": "Expected at least 1 space after \"=>\"; 0 found",
             "column": 76,
             "lineHash": "95953d33cb2a02ae2d240b536cffbc598130d545283ae6a161d4d9f09587fb26",
-            "count": 1
-        },
-        "fd720f8aa33a9cd3c3ab560af43ef23a3e9de935a5e1bec6aed028808a2b8faf": {
-            "path": "api/economy_flush.php",
-            "source": "PSR12.ControlStructures.ControlStructureSpacing.FirstExpressionLine",
-            "type": "ERROR",
-            "message": "The first expression of a multi-line control structure must be on the line after the opening parenthesis",
-            "column": 18,
-            "lineHash": "52b571f22a0ad74b5c6e7d7409581d7e9a403d9ab5c42b2c0a23110ced4ed276",
             "count": 1
         },
         "fd85c78db3a230f610781b1365a6d50f0ce7fa5c27f26180fb7bcc2c68847ab3": {

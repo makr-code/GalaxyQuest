@@ -110,7 +110,10 @@ final class BodyDevelopmentTest extends TestCase
     public function testMigrationIsAppendOnlyAndHistoryHasNoOwnerOrColonyForeignKey(): void
     {
         $manifest = require __DIR__ . '/../../config/migrations_manifest.php';
-        self::assertSame('migrate_body_development_v1.sql', end($manifest));
+        self::assertSame(
+            array_search('migrate_npc_ai_worker_nonce_v1.sql', $manifest, true) + 1,
+            array_search('migrate_body_development_v1.sql', $manifest, true),
+        );
         $sql = file_get_contents(__DIR__ . '/../../sql/migrate_body_development_v1.sql');
         self::assertStringContainsString('REFERENCES celestial_bodies(id) ON DELETE CASCADE', $sql);
         self::assertStringNotContainsString('REFERENCES colonies', $sql);

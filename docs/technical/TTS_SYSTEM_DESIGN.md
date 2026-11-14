@@ -73,10 +73,23 @@ voice cloning: pass the server-local path to a 6-second WAV sample of the target
 | `de_DE-thorsten-high`   | German   | Male   | High    |
 | `de_DE-thorsten-medium` | German   | Male   | Medium  |
 | `en_US-lessac-high`     | English  | Female | High    |
+| `en_US-ryan-high`       | English  | Male   | High    |
 | `en_GB-alba-medium`     | English  | Female | Medium  |
 
 Additional voices from <https://huggingface.co/rhasspy/piper-voices> can be added
 to the `PIPER_VOICES` dict in `main.py`.
+
+The cinematic comet prologue supports four fixed language/voice profiles:
+German (Kerstin or Thorsten) and US English (Lessac or Ryan). Its server-side
+narration endpoint accepts only registered prologue cue IDs and these
+allowlisted voices; it chooses the corresponding German or English script.
+The start-screen voice preference selects both voice and narration language.
+During playback, the prologue prepares at most the next known cue and reuses
+the result, cancelling obsolete browser requests on navigation or voice changes.
+It does not prefetch while muted or auto voice is disabled. A server-side
+synthesis may finish after cancellation; slow preparation can still cause a
+visible wait. After CSRF and any draft-owner lookup, the narration endpoint
+releases the PHP session before synthesis to avoid blocking registration.
 
 **Caching** (Python layer)
 

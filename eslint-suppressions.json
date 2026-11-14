@@ -49,16 +49,6 @@
       "count": 1
     }
   },
-  "js/engine/runtime/RuntimeEconomyController.js": {
-    "no-unsanitized/property": {
-      "count": 11
-    }
-  },
-  "js/engine/runtime/RuntimeEconomyFlowController.js": {
-    "no-unsanitized/property": {
-      "count": 1
-    }
-  },
   "js/engine/runtime/RuntimeEmpireCategoriesPanel.js": {
     "no-unsanitized/property": {
       "count": 2
@@ -152,11 +142,6 @@
       "count": 2
     }
   },
-  "js/engine/runtime/domains/economy/EconomyUI.js": {
-    "no-unsanitized/property": {
-      "count": 4
-    }
-  },
   "js/engine/runtime/domains/fleet/FleetUI.js": {
     "no-unsanitized/property": {
       "count": 5
@@ -165,11 +150,6 @@
   "js/engine/runtime/domains/galaxy/GalaxyUI.js": {
     "no-unsanitized/property": {
       "count": 2
-    }
-  },
-  "js/engine/runtime/domains/market/MarketUI.js": {
-    "no-unsanitized/property": {
-      "count": 1
     }
   },
   "js/engine/runtime/domains/npc/NPCUI.js": {

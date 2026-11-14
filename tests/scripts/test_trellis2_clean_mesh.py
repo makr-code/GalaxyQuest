@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import sys
 import unittest
 from pathlib import Path
@@ -101,6 +102,34 @@ class RemoveZeroAreaFacesTests(unittest.TestCase):
 
 
 class CleanGlbTests(unittest.TestCase):
+    def test_optional_normals_preserve_ship_faces_and_do_not_mutate_source(self) -> None:
+        raw = textured_box_with_degenerate_face().export(file_type="glb", include_normals=False)
+        default = clean_glb(raw, None, asset_type="ship")
+        cleaned = clean_glb(raw, None, asset_type="ship", with_normals=True)
+
+        self.assertEqual(inspect_glb(default.data, "ship", None).missing_normal_primitives, 1)
+        report = inspect_glb(cleaned.data, "ship", None)
+        self.assertEqual(report.missing_normal_primitives, 0)
+        self.assertEqual(report.meshes[0].zero_area_faces, 0)
+        self.assertTrue(report.meshes[0].uv_valid)
+        self.assertIsNotNone(report.meshes[0].base_color)
+        original_scene = trimesh.load_scene(
+            file_obj=io.BytesIO(raw), file_type="glb", process=False
+        )
+        cleaned_scene = trimesh.load_scene(
+            file_obj=io.BytesIO(cleaned.data), file_type="glb", process=False
+        )
+        original_mesh = next(iter(original_scene.geometry.values()))
+        cleaned_mesh = next(iter(cleaned_scene.geometry.values()))
+        np.testing.assert_array_equal(
+            original_mesh.vertices[original_mesh.faces[:-1]],
+            cleaned_mesh.vertices[cleaned_mesh.faces],
+        )
+        self.assertTrue(np.isfinite(cleaned_mesh.vertex_normals).all())
+        np.testing.assert_allclose(
+            np.linalg.norm(cleaned_mesh.vertex_normals, axis=1), 1.0, atol=1e-5
+        )
+
     def test_cleans_separate_glb_and_preserves_instances_and_materials(self) -> None:
         scene = trimesh.Scene()
         scene.add_geometry(
@@ -129,6 +158,39 @@ class CleanGlbTests(unittest.TestCase):
 
 
 class CleanerCliTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cleans_ship_without_a_facility_kind(self) -> None:
+        with TemporaryDirectory() as directory:
+            source = Path(directory) / "shuttle.glb"
+            raw = textured_box_with_degenerate_face().export(file_type="glb")
+            source.write_bytes(raw)
+            with patch.object(
+                sys,
+                "argv",
+                ["trellis2_clean_mesh.py", str(source), "--asset-type", "ship", "--with-normals"],
+            ):
+                self.assertEqual(await main(), 0)
+            output = source.with_name("shuttle_zero_area_cleaned.glb")
+            report = inspect_glb(output.read_bytes(), "ship", None)
+            self.assertEqual(report.meshes[0].zero_area_faces, 0)
+            self.assertEqual(report.meshes[0].triangles, 12)
+            self.assertEqual(report.missing_normal_primitives, 0)
+            self.assertEqual(source.read_bytes(), raw)
+
+    async def test_rejects_building_without_kind_and_ship_with_kind(self) -> None:
+        with TemporaryDirectory() as directory:
+            source = Path(directory) / "asset.glb"
+            source.write_bytes(textured_box_with_degenerate_face().export(file_type="glb"))
+            for arguments in (
+                [],
+                ["--asset-type", "ship", "--facility-kind", "hospital"],
+            ):
+                with (
+                    self.subTest(arguments=arguments),
+                    patch.object(sys, "argv", ["trellis2_clean_mesh.py", str(source), *arguments]),
+                ):
+                    self.assertEqual(await main(), 1)
+                self.assertFalse(source.with_name("asset_zero_area_cleaned.glb").exists())
+
     async def test_writes_a_new_file_without_changing_the_source(self) -> None:
         with TemporaryDirectory() as directory:
             source = Path(directory) / "hospital.glb"

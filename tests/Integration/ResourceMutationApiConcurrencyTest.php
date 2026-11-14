@@ -7,6 +7,8 @@ namespace GalaxyQuest\Tests\Integration;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
+require_once __DIR__ . '/../../lib/MigrationRunner.php';
+
 final class ResourceMutationApiConcurrencyTest extends TestCase
 {
     private ?PDO $admin = null;
@@ -73,8 +75,10 @@ final class ResourceMutationApiConcurrencyTest extends TestCase
         $this->server = null;
     }
 
-    public function testConcurrentMarketBuysCannotExceedStockCapacityOrDoubleDebit(): void
+    public function testConcurrentMarketBuysCannotDoubleDebitCredits(): void
     {
+        // Enough credits for exactly one 80-unit purchase at the base metal price.
+        $this->admin->exec('UPDATE users SET credits = 300 WHERE id = 7');
         $this->admin->beginTransaction();
         $this->admin->query('SELECT id FROM users WHERE id = 7 FOR UPDATE')->fetchColumn();
         $requests = [];
@@ -98,27 +102,22 @@ final class ResourceMutationApiConcurrencyTest extends TestCase
         );
 
         $credits = (float)$this->admin->query('SELECT credits FROM users WHERE id = 7')->fetchColumn();
-        $stock = (float)$this->admin->query(
-            "SELECT quantity FROM economy_processed_goods WHERE colony_id = 11 AND good_type = 'metal'"
-        )->fetchColumn();
+        $stock = (float)$this->admin->query('SELECT metal FROM colonies WHERE id = 11')->fetchColumn();
         $history = (int)$this->admin->query('SELECT COUNT(*) FROM economy_market_transactions')->fetchColumn();
-        $demand = (float)$this->admin->query(
-            "SELECT desired_demand FROM market_supply_demand WHERE resource_type = 'metal'"
+        $market = (float)$this->admin->query(
+            "SELECT quantity FROM economy_colony_market WHERE colony_id = 11 AND good_type = 'metal'"
         )->fetchColumn();
 
-        self::assertSame(99200.0, $credits);
-        self::assertSame(80.0, $stock);
+        self::assertSame(60.0, $credits);
+        self::assertSame(10080.0, $stock);
         self::assertSame(1, $history);
-        self::assertSame(108.0, $demand);
+        self::assertSame(10080.0, $market);
     }
 
     public function testConcurrentMarketSellsCannotDoubleSellStockOrDoubleCredit(): void
     {
-        $this->admin->exec(
-            "UPDATE economy_processed_goods SET quantity = 100, capacity = 200, "
-            . "last_calculated_at = CURRENT_TIMESTAMP "
-            . "WHERE colony_id = 11 AND good_type = 'metal'"
-        );
+        // Enough raw stock for exactly one 80-unit sale.
+        $this->admin->exec('UPDATE colonies SET metal = 100 WHERE id = 11');
         $this->admin->beginTransaction();
         $this->admin->query('SELECT id FROM users WHERE id = 7 FOR UPDATE')->fetchColumn();
         $requests = [
@@ -141,13 +140,12 @@ final class ResourceMutationApiConcurrencyTest extends TestCase
             1,
             count(array_filter($responses, static fn(array $response): bool => $response['status'] === 409))
         );
-        self::assertSame(100800.0, (float)$this->admin->query('SELECT credits FROM users WHERE id = 7')->fetchColumn());
+        $sold = array_values(array_filter($responses, static fn(array $response): bool => $response['status'] === 200));
         self::assertSame(
-            20.0,
-            (float)$this->admin->query(
-                "SELECT quantity FROM economy_processed_goods WHERE colony_id = 11 AND good_type = 'metal'"
-            )->fetchColumn()
+            100000.0 + (float)$sold[0]['payload']['total_credits'],
+            (float)$this->admin->query('SELECT credits FROM users WHERE id = 7')->fetchColumn()
         );
+        self::assertSame(20.0, (float)$this->admin->query('SELECT metal FROM colonies WHERE id = 11')->fetchColumn());
         self::assertSame(
             1,
             (int)$this->admin->query(
@@ -155,10 +153,9 @@ final class ResourceMutationApiConcurrencyTest extends TestCase
             )->fetchColumn()
         );
         self::assertSame(
-            108.0,
+            20.0,
             (float)$this->admin->query(
-                "SELECT available_supply FROM market_supply_demand "
-                . "WHERE galaxy_index = 1 AND system_index = 4 AND resource_type = 'metal'"
+                "SELECT quantity FROM economy_colony_market WHERE colony_id = 11 AND good_type = 'metal'"
             )->fetchColumn()
         );
     }
@@ -213,6 +210,8 @@ final class ResourceMutationApiConcurrencyTest extends TestCase
 
     public function testConcurrentBuildingUpgradesOnlyQueueAndChargeOnce(): void
     {
+        // Enough metal for level 1 (60) but not for a second queued level (90).
+        $this->admin->exec('UPDATE colonies SET metal = 100 WHERE id = 11');
         $this->admin->beginTransaction();
         $this->admin->query('SELECT id FROM users WHERE id = 7 FOR UPDATE')->fetchColumn();
         $requests = [
@@ -230,7 +229,7 @@ final class ResourceMutationApiConcurrencyTest extends TestCase
         $balances = $this->admin->query(
             'SELECT metal, crystal, deuterium FROM colonies WHERE id = 11'
         )->fetch(PDO::FETCH_NUM);
-        self::assertSame([9940.0, 9985.0, 10000.0], array_map('floatval', $balances));
+        self::assertSame([40.0, 9985.0, 10000.0], array_map('floatval', $balances));
         $queue = $this->admin->query(
             "SELECT building_type, target_level, cost_metal, cost_crystal, cost_deuterium, status "
             . "FROM building_upgrade_queue WHERE colony_id = 11"
@@ -368,7 +367,8 @@ final class ResourceMutationApiConcurrencyTest extends TestCase
         }
         self::assertSame(
             ['dispatched_routes' => 1, 'skipped_routes' => 1, 'failed_routes' => 0],
-            $totals
+            $totals,
+            'API server log: ' . stream_get_contents($this->serverPipes[2])
         );
         self::assertSame(1, (int)$this->admin->query('SELECT COUNT(*) FROM fleets')->fetchColumn());
         self::assertSame(
@@ -608,7 +608,9 @@ final class ResourceMutationApiConcurrencyTest extends TestCase
             CREATE TABLE economy_policies (
                 user_id INT PRIMARY KEY,
                 global_policy VARCHAR(32) NOT NULL,
+                tax_income DECIMAL(8,5) NOT NULL DEFAULT 0.15,
                 tax_trade DECIMAL(8,5) NOT NULL,
+                tax_production DECIMAL(8,5) NOT NULL DEFAULT 0,
                 subsidy_agriculture TINYINT NOT NULL DEFAULT 0,
                 subsidy_research TINYINT NOT NULL DEFAULT 0,
                 subsidy_military TINYINT NOT NULL DEFAULT 0
@@ -632,14 +634,21 @@ final class ResourceMutationApiConcurrencyTest extends TestCase
             CREATE TABLE economy_production_methods (
                 colony_id INT NOT NULL,
                 building_type VARCHAR(64) NOT NULL,
-                method VARCHAR(32) NOT NULL
+                method VARCHAR(32) NOT NULL,
+                UNIQUE KEY unique_method (colony_id, building_type)
             ) ENGINE=InnoDB
         SQL);
         $this->admin->exec(<<<'SQL'
             CREATE TABLE economy_pop_classes (
+                id INT AUTO_INCREMENT PRIMARY KEY,
                 colony_id INT NOT NULL,
-                satisfaction_index DECIMAL(8,4) NOT NULL,
-                count INT NOT NULL
+                pop_class VARCHAR(32) NOT NULL,
+                count INT NOT NULL,
+                satisfaction_ticks INT NOT NULL DEFAULT 0,
+                shortage_ticks INT NOT NULL DEFAULT 0,
+                satisfaction_index DECIMAL(8,4) NOT NULL DEFAULT 50,
+                employment_level DECIMAL(8,4) NOT NULL DEFAULT 80,
+                UNIQUE KEY unique_pop_class (colony_id, pop_class)
             ) ENGINE=InnoDB
         SQL);
         $this->admin->exec(<<<'SQL'
@@ -679,6 +688,25 @@ final class ResourceMutationApiConcurrencyTest extends TestCase
                 transacted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB
         SQL);
+        $this->admin->exec(<<<'SQL'
+            CREATE TABLE colony_events (
+                colony_id INT NOT NULL,
+                event_type VARCHAR(64) NOT NULL,
+                expires_at DATETIME NOT NULL
+            ) ENGINE=InnoDB
+        SQL);
+        // The on-demand ledger is the only economy path; apply its canonical migrations.
+        $sqlDirectory = dirname(__DIR__, 2) . '/sql';
+        $parser = new \MigrationRunner($this->admin, $sqlDirectory, 'TEST');
+        foreach (['migrate_colony_buildings_v1.sql', 'migrate_body_development_v1.sql',
+            'migrate_economy_on_demand_v1.sql'] as $migration) {
+            $sql = file_get_contents($sqlDirectory . '/' . $migration);
+            self::assertIsString($sql);
+            foreach ($parser->splitStatements($sql) as $statement) {
+                $result = $this->admin->query($statement);
+                $result->closeCursor();
+            }
+        }
     }
 
     private function seedMarket(): void
@@ -746,7 +774,6 @@ final class ResourceMutationApiConcurrencyTest extends TestCase
             'DB_NAME' => $this->database,
             'DB_USER' => getenv('GQ_RESOURCE_LEDGER_TEST_USER') ?: 'root',
             'DB_PASS' => getenv('GQ_RESOURCE_LEDGER_TEST_PASSWORD') ?: '',
-            'ON_DEMAND_ECONOMY_ENABLED' => '0',
             'GQ_RESOURCE_API_TEST_SESSION_IDS' => implode(',', $this->sessionIds),
             'PHP_CLI_SERVER_WORKERS' => '4',
         ]);

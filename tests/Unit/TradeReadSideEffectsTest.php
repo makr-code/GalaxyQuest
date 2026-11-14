@@ -90,7 +90,7 @@ final class TradeReadSideEffectsTest extends TestCase
         }
     }
 
-    public function testTradeDispatchLocksRouteAndUsesResourceLedgerForLegacyCargo(): void
+    public function testTradeDispatchLocksRouteAndSpendsCargoThroughTheOnDemandLedger(): void
     {
         $source = file_get_contents(__DIR__ . '/../../api/trade.php');
         self::assertIsString($source);
@@ -108,15 +108,14 @@ final class TradeReadSideEffectsTest extends TestCase
         self::assertStringContainsString('UPDATE trade_routes SET last_dispatch = NOW()', $dispatch);
         self::assertStringContainsString('$db->commit()', $dispatch);
 
-        $reserveStart = strpos($source, 'function reserve_trade_payload_from_origin(');
-        $reserveEnd = strpos($source, '// ─── Trade Proposal handlers', $reserveStart);
-        self::assertNotFalse($reserveStart);
-        self::assertNotFalse($reserveEnd);
-        $reserve = substr($source, $reserveStart, $reserveEnd - $reserveStart);
-
-        self::assertStringContainsString('(new ResourceLedger($db))->spend(', $reserve);
-        self::assertStringContainsString('quantity >= ?', $reserve);
-        self::assertStringContainsString("type = 'large_cargo' AND count >= ?", $reserve);
+        $launchStart = strpos($source, 'function launch_trade_transport_fleet(');
+        $launchEnd = strpos($source, '// ─── Trade Proposal handlers', $launchStart);
+        self::assertNotFalse($launchStart);
+        self::assertNotFalse($launchEnd);
+        $launch = substr($source, $launchStart, $launchEnd - $launchStart);
+        self::assertStringContainsString('(new OnDemandEconomy($db))->spend(', $launch);
+        self::assertStringContainsString("type='large_cargo' AND count>=?", $launch);
+        self::assertStringNotContainsString('ResourceLedger', $source);
     }
 
     private function handlerBody(string $source, string $handlerName): string

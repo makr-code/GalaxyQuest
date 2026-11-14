@@ -30,4 +30,16 @@ describe('TRELLIS colony reference manifest', () => {
     expect(bytes.readUInt32BE(16)).toBe(1024);
     expect(bytes.readUInt32BE(20)).toBe(1024);
   });
+
+  it('pins a transparent TRELLIS input variant without replacing the original industry concept', () => {
+    const industry = manifest.assets.find(asset => asset.facility_kind === 'industry');
+    expect(industry.file).toBe('industry_concept_v1.png');
+    expect(industry.trellis_input.file).toBe('industry_concept_v1_alpha.png');
+
+    const bytes = readFileSync(path.join(root, industry.trellis_input.file));
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(industry.trellis_input.sha256);
+    expect(bytes.readUInt32BE(16)).toBe(1024);
+    expect(bytes.readUInt32BE(20)).toBe(1024);
+    expect(bytes[25]).toBe(6);
+  });
 });

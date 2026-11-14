@@ -5,6 +5,8 @@
  * GET  /api/game.php?action=resources&colony_id=X
  * GET  /api/game.php?action=health
  * POST /api/game.php?action=pvp_toggle
+ * GET  /api/game.php?action=notification_settings
+ * POST /api/game.php?action=set_email_notifications body: {enabled: bool}
  * POST /api/game.php?action=rename_colony   body: {colony_id, name}
  * POST /api/game.php?action=set_colony_type body: {colony_id, colony_type}
  * POST /api/game.php?action=set_ftl_drive   body: {ftl_drive_type}
@@ -235,6 +237,28 @@ switch ($action) {
         gq_cache_delete('game_overview', ['uid' => $uid]);
         enqueue_dirty_user($db, $uid, 'pvp_toggled');
         json_ok(['pvp_mode' => $new]);
+        break;
+
+    // ── Notification settings (hourly world-event digest e-mails) ────────────
+    case 'notification_settings':
+        only_method('GET');
+        $db   = get_db();
+        $stmt = $db->prepare('SELECT email_notifications FROM users WHERE id=?');
+        $stmt->execute([$uid]);
+        json_ok(['email_notifications' => (int)$stmt->fetchColumn() === 1]);
+        break;
+
+    case 'set_email_notifications':
+        only_method('POST');
+        verify_csrf();
+        $body = get_json_body();
+        if (!isset($body['enabled']) || !is_bool($body['enabled'])) {
+            json_error('enabled must be a boolean.');
+        }
+        $db = get_db();
+        $db->prepare('UPDATE users SET email_notifications=? WHERE id=?')
+            ->execute([$body['enabled'] ? 1 : 0, $uid]);
+        json_ok(['email_notifications' => $body['enabled']]);
         break;
 
     // ── Leaderboard ───────────────────────────────────────────────────────────

@@ -4,6 +4,18 @@ The Deployment Status plugin has its own version and release channel. A plugin
 update changes only the WordPress plugin, never the game webroot, database,
 Plesk configuration or staging/production release.
 
+## Environment tabs
+
+The top-level deployment page uses native WordPress **Staging** and **Production**
+tabs. Staging is the default; `environment=production` selects production.
+Only the selected environment's report and Git-fetch controls are loaded and
+rendered. Refresh and the post-fetch redirect preserve the selected tab.
+Unknown or array-valued environment selectors are rejected.
+
+Plugin updates and the locked staging-to-production promotion remain shared
+sections outside the environment panel. Selecting a tab never starts a fetch,
+deployment or promotion.
+
 ## Installation and updates
 
 Requirements: WordPress 6.5+, PHP 8.2+, PHP `ext-zip`, writable WordPress plugin
@@ -15,7 +27,21 @@ automatically generated source-code ZIP. The installed entrypoint must be:
 
 ```text
 wp-content/plugins/gq-deployment-status/gq-deployment-status.php
+wp-content/plugins/gq-deployment-status/gq-github-plugin-updater.php
+wp-content/plugins/gq-deployment-status/gq-admin-tables.php
 ```
+
+Starting with 0.2.1, the release bundles a shared updater engine. Each plugin
+package remains independently installable, including when both plugins are active
+in either load order. For flat-file local development, create the helper hardlink
+once alongside the plugin links, as shown in `GAME_ADMINISTRATION.md`; do not
+copy only the updated entrypoint.
+
+The evidence table provides per-column search, exact-value filters and clickable
+sort headings directly in its header. These JavaScript controls operate on the
+displayed snapshot only and never trigger a fetch, deploy or configuration write.
+Reset restores the original display order; the unmodified table remains readable
+without JavaScript.
 
 For the first migration from the old flat-file plugin, deactivate it, remove
 only `wp-content/plugins/gq-deployment-status.php`, then upload and activate
@@ -65,21 +91,28 @@ game worktree changes. Bump both the plugin header and
 `GQ_DEPLOYMENT_STATUS_PLUGIN_VERSION`, then create an immutable tag:
 
 ```text
-gq-deployment-status-v0.2.0
+gq-deployment-status-v0.2.1
 ```
 
-The `WordPress Deployment Plugin Release` workflow validates tag/version/source
+The `WordPress Plugin Release` workflow validates tag/version/source
 ancestry, runs the standalone updater and package tests, and prepares:
 
 ```text
-gq-deployment-status-0.2.0.zip
-gq-deployment-status-0.2.0.sha256
-gq-deployment-status-0.2.0.release.json
+gq-deployment-status-0.2.1.zip
+gq-deployment-status-0.2.1.sha256
+gq-deployment-status-0.2.1.release.json
 ```
 
-The ZIP contains only the plugin directory and PHP entrypoint, with deterministic
-entry metadata. The manifest binds version, tag, commit, ZIP digest and size.
+The ZIP contains only the plugin entrypoint, bundled updater and shared table
+helper in the canonical
+plugin directory, with deterministic entry metadata. The manifest binds version,
+tag, commit, ZIP digest and size.
 Game `VERSION.txt` and native game packages are not inputs.
+
+The same workflow also accepts `gq-game-admin-vX.Y.Z` for the separate
+Administration plugin, without mixing the two update channels. The published
+Deployment Status 0.2.0 release remains unchanged; 0.2.1 is the next source version,
+not an already published replacement.
 
 A separate write-enabled job uses the `wordpress-plugin-release` GitHub
 environment, rechecks the remote tag and assets, uploads a draft, verifies

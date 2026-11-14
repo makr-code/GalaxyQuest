@@ -122,7 +122,7 @@ export class SpaceEntity {
 
   getForwardDirection() {
     const direction = this.to.clone().sub(this.from);
-    if (direction.lengthSq() < 1e-12) direction.set(1, 0, 0);
+    if (direction.lengthSq() === 0) direction.set(1, 0, 0);
     return direction.normalize();
   }
 }
@@ -165,6 +165,7 @@ export function normalizeSpaceEntityKind(descriptor) {
   if (requestedKind === 'vessel' || requestedKind === 'ship') return 'vessel';
   if (requestedKind === 'station' || requestedKind === 'space_station') return 'station';
   if (requestedKind === 'colony' || requestedKind === 'settlement') return 'colony';
+  if (requestedKind === 'comet') return 'comet';
   if (requestedKind === 'building' || requestedKind === 'facility') return 'building';
   return 'artificial';
 }
@@ -178,6 +179,7 @@ export function resolveSpaceEntityModelUrl(descriptor, kind = normalizeSpaceEnti
     colony: 'procedural:colony',
     building: 'procedural:building',
     artificial: 'procedural:artificial',
+    comet: 'procedural:comet',
   };
   return defaults[kind] || defaults.artificial;
 }
@@ -192,5 +194,6 @@ export function createSpaceEntity(descriptor, route, cameraPose, defaultDuration
   }
   if (kind === 'colony') return new ColonyEntity(descriptor, route, cameraPose, defaultDuration);
   if (kind === 'building') return new BuildingEntity(descriptor, route, cameraPose, defaultDuration);
+  if (kind === 'comet') return new SpaceEntity(descriptor, route, cameraPose, defaultDuration, 'comet');
   return new ArtificialSpaceObject(descriptor, route, cameraPose, defaultDuration);
 }

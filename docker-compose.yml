@@ -9,16 +9,24 @@ services:
         INSTALL_XDEBUG: ${GQ_INSTALL_XDEBUG:-1}
         PHP_CONFIG: dev
     container_name: galaxyquest-web
+    image: galaxyquest-web:latest
     depends_on:
       db:
         condition: service_healthy
       tts:
         condition: service_started
-    environment:
+    environment: &web-environment
       APP_ENV: ${APP_ENV:-dev}
       BLOG_SOURCE: ${BLOG_SOURCE:-}
       BLOG_WORDPRESS_REST_URL: ${BLOG_WORDPRESS_REST_URL:-}
       BLOG_WORDPRESS_SITE_URL: ${BLOG_WORDPRESS_SITE_URL:-}
+      BLOG_WORDPRESS_USER: ${BLOG_WORDPRESS_USER:-}
+      BLOG_WORDPRESS_APP_PASSWORD: ${BLOG_WORDPRESS_APP_PASSWORD:-}
+      GALAXY_NEWS_MODEL: ${GALAXY_NEWS_MODEL:-}
+      GALAXY_NEWS_PUBLISH_STATUS: ${GALAXY_NEWS_PUBLISH_STATUS:-draft}
+      GALAXY_SPECIAL_WAR_MIN_PLAYERS: ${GALAXY_SPECIAL_WAR_MIN_PLAYERS:-}
+      GALAXY_SPECIAL_CRASH_MIN_GOODS: ${GALAXY_SPECIAL_CRASH_MIN_GOODS:-}
+      GALAXY_SPECIAL_CRASH_PRICE_MULT: ${GALAXY_SPECIAL_CRASH_PRICE_MULT:-}
       DB_HOST: db
       DB_PORT: 3306
       DB_NAME: galaxyquest
@@ -30,7 +38,7 @@ services:
       NPC_LLM_CONTROLLER_COOLDOWN_SECONDS: 900
       NPC_LLM_CONTROLLER_MIN_CONFIDENCE: 0.55
       GAME_SPEED: 1
-      ON_DEMAND_ECONOMY_ENABLED: ${ON_DEMAND_ECONOMY_ENABLED:-0}
+      SIMULATION_GLOBAL_TICK_COOLDOWN_SECONDS: ${SIMULATION_GLOBAL_TICK_COOLDOWN_SECONDS:-3600}
       BATTLE_ENCOUNTERS_ENABLED: ${BATTLE_ENCOUNTERS_ENABLED:-0}
       SESSION_LIFETIME: 3600
       XDEBUG_MODE: develop,debug
@@ -43,6 +51,12 @@ services:
       TTS_SERVICE_URL: http://tts:5500
       REGISTRATION_MAILPIT_URL: http://mailpit:8025
       REGISTRATION_PUBLIC_URL: ${REGISTRATION_PUBLIC_URL:-http://localhost:8081}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_TLS: ${SMTP_TLS:-starttls}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       # ThemisDB – Phase 0 dual-write (disabled by default; enable when themisdb profile is active)
       THEMISDB_ENABLED: 0
       THEMISDB_BASE_URL: http://themisdb:8080
@@ -50,6 +64,25 @@ services:
       THEMISDB_DUAL_WRITE: 0
     ports:
       - "127.0.0.1:8081:8080"
+    volumes:
+      - ./:/var/www/html
+
+  # Flat world tick: polls every 5 min; the aligned 3600-s cooldown and the
+  # MySQL scope lock make it run once per hourly window (restart-safe).
+  scheduler:
+    image: galaxyquest-web:latest
+    depends_on:
+      web:
+        condition: service_started
+      db:
+        condition: service_healthy
+    environment: *web-environment
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - 'while true; do php scripts/run_simulation_tick.php --scope=global || echo "simulation tick failed"; sleep 300; done'
+    healthcheck:
+      disable: true
+    restart: unless-stopped
     volumes:
       - ./:/var/www/html
 

@@ -1,22 +1,24 @@
 <?php
 
-// api/market.php — Galactic Market: price queries, buy/sell, history, events
+// api/market.php — Galactic Market: indicative prices, orders, history, events
 //
 // Actions:
 //   get_prices       — current market prices for all goods (or one good)
-//   buy              — buy processed goods from the galactic market (POST)
-//   sell             — sell processed goods to the galactic market (POST)
+//   buy/sell         — retired; use funded standing orders
 //   get_history      — recent trade transactions for the current player
 //   get_active_events — list active market events
 
 use GalaxyQuest\Economy\OnDemandEconomy;
-use GalaxyQuest\Economy\ResourceLedger;
+use GalaxyQuest\Economy\WorldEvents;
+use GalaxyQuest\Economy\StandingOrders;
+use GalaxyQuest\Economy\EconomicRequests;
 
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/cache.php';
-require_once __DIR__ . '/economy_flush.php';
-require_once __DIR__ . '/../src/Economy/ResourceLedger.php';
+require_once __DIR__ . '/../src/Economy/OnDemandEconomy.php';
+require_once __DIR__ . '/../src/Economy/StandingOrders.php';
+require_once __DIR__ . '/../src/Economy/EconomicRequests.php';
 
 // ---------------------------------------------------------------------------
 // Base price table (mirrors JS GOOD_BASE_PRICE)
@@ -64,10 +66,14 @@ $action = $_GET['action'] ?? '';
 match ($action) {
     'get_prices'        => action_get_prices($db, $uid),
     'get_region_prices' => action_get_region_prices($db, $uid),
-    'buy'               => action_buy($db, $uid),
-    'sell'              => action_sell($db, $uid),
+    'buy', 'sell'       => action_retired_trade(),
     'get_history'       => action_get_history($db, $uid),
-    'get_active_events' => action_get_active_events($db),
+    'get_active_events' => action_get_active_events($db, $uid),
+    'list_orders'      => action_list_orders($db, $uid),
+    'create_order'     => action_create_order($db, $uid),
+    'cancel_order'     => action_cancel_order($db, $uid),
+    'accept_request'   => action_economic_request($db, $uid, 'accept'),
+    'decline_request'  => action_economic_request($db, $uid, 'decline'),
     default             => json_error('Unknown action: ' . $action, 400),
 };
 
@@ -98,149 +104,38 @@ function fetch_colony_market_scope(PDO $db, int $colonyId): ?array
 
 function fetch_market_snapshot(PDO $db, string $goodType, ?int $colonyId = null): array
 {
-    if (ON_DEMAND_ECONOMY_ENABLED) {
+    // One market projection per scope and request; it is read-only.
+    static $markets = [];
+    $key = $colonyId ?? 0;
+    if (!isset($markets[$key])) {
         $scope = $colonyId === null ? null : fetch_colony_market_scope($db, $colonyId);
-        $market = (new OnDemandEconomy($db))->market($scope['galaxy'] ?? null, $scope['system'] ?? null);
-        $good = $market['goods'][$goodType] ?? [];
-        return [
-            'supply' => ($good['quantity'] ?? 0) / 24 + ($good['production_per_hour'] ?? 0),
-            'demand' => $good['consumption_per_hour'] ?? 0,
-        ];
+        $markets[$key] = (new OnDemandEconomy($db))->market($scope['galaxy'] ?? null, $scope['system'] ?? null);
     }
-    if ($colonyId !== null) {
-        $scope = fetch_colony_market_scope($db, $colonyId);
-        if ($scope !== null) {
-            $stmt = $db->prepare(<<<SQL
-                SELECT available_supply, desired_demand
-                FROM market_supply_demand
-                WHERE galaxy_index = ? AND system_index = ? AND resource_type = ?
-                LIMIT 1
-            SQL);
-            $stmt->execute([$scope['galaxy'], $scope['system'], $goodType]);
-            $row = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($row) {
-                return [
-                    'supply' => (float)$row['available_supply'],
-                    'demand' => (float)$row['desired_demand'],
-                ];
-            }
-        }
-    }
-
-    $stmt = $db->prepare(<<<SQL
-        SELECT COALESCE(SUM(available_supply), 100.0) AS supply,
-               COALESCE(SUM(desired_demand), 100.0) AS demand
-        FROM market_supply_demand
-        WHERE resource_type = ?
-    SQL);
-    $stmt->execute([$goodType]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['supply' => 100.0, 'demand' => 100.0];
-
+    $market = $markets[$key];
+    $good = $market['goods'][$goodType] ?? [];
+    $modifiers = WorldEvents::priceModifiers($market['world_events'] ?? [], $goodType);
     return [
-        'supply' => (float)$row['supply'],
-        'demand' => (float)$row['demand'],
+        'supply' => ($good['quantity'] ?? 0) / 24 + ($good['production_per_hour'] ?? 0),
+        'demand' => $good['consumption_per_hour'] ?? 0,
+        'price_modifier' => (float)($good['event_price_modifier'] ?? $modifiers['price']),
+        'demand_modifier' => (float)($good['event_demand_modifier'] ?? $modifiers['demand']),
+        'world_events' => $market['world_events'] ?? [],
     ];
 }
 
 /**
- * Compute current market price from market_supply_demand.
+ * Compute current market price from the on-demand colony market snapshot.
  * With colony_id the local system price is used; otherwise the aggregated
- * galaxy-wide price is returned.
+ * galaxy-wide price is returned. Active world events apply as modifiers.
  */
 function compute_price(PDO $db, string $goodType, ?int $colonyId = null): float
 {
     $snapshot = fetch_market_snapshot($db, $goodType, $colonyId);
     $supply   = max(1.0, (float)$snapshot['supply']);
-    $demand   = max(1.0, (float)$snapshot['demand']);
-    $mult     = pow($demand / $supply, PRICE_ELASTICITY);
+    $demand   = max(1.0, (float)$snapshot['demand']) * $snapshot['demand_modifier'];
+    $mult     = pow($demand / $supply, PRICE_ELASTICITY) * $snapshot['price_modifier'];
     $mult     = max(PRICE_MULT_MIN, min(PRICE_MULT_MAX, $mult));
-    if (ON_DEMAND_ECONOMY_ENABLED) {
-        return round((BASE_PRICES[$goodType] ?? 10) * $mult, 2);
-    }
-
-    $evStmt = $db->prepare(<<<SQL
-        SELECT price_mult FROM economy_market_events
-        WHERE remaining_ticks > 0 AND (affected_good IS NULL OR affected_good = ?)
-    SQL);
-    $evStmt->execute([$goodType]);
-    foreach ($evStmt->fetchAll(PDO::FETCH_COLUMN) as $evMult) {
-        $mult *= (float)$evMult;
-    }
-
-    $base = BASE_PRICES[$goodType] ?? 10.0;
-    return round($base * $mult, 2);
-}
-
-/**
- * Resolve a raw economy_policies.global_policy value (integer index or string key)
- * to a canonical policy string.
- */
-function resolve_policy_str(mixed $raw): string
-{
-    static $keys = ['free_market', 'subsidies', 'mercantilism', 'autarky', 'war_economy'];
-    if (is_numeric($raw)) {
-        return $keys[(int)$raw] ?? 'free_market';
-    }
-    return in_array((string)$raw, $keys, true) ? (string)$raw : 'free_market';
-}
-
-/**
- * Fetch the player's trade tax rate from their economy_policies row.
- *
- * @param PDO $db
- * @param int $uid
- * @return float
- */
-function fetch_trade_tax(PDO $db, int $uid): float
-{
-    $stmt = $db->prepare('SELECT tax_trade, global_policy FROM economy_policies WHERE user_id = ?');
-    $stmt->execute([$uid]);
-    $row  = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$row) {
-        return 0.05; // default
-    }
-    $tax  = (float)$row['tax_trade'];
-    // Autarky blocks imports entirely — handled in buy()
-    return $tax;
-}
-
-/**
- * Update local system supply/demand for a colony.
- */
-function update_supply_demand(PDO $db, int $colonyId, string $goodType, float $supplyDelta, float $demandDelta): void
-{
-    $scope = fetch_colony_market_scope($db, $colonyId);
-    if ($scope === null) {
-        return;
-    }
-
-    $db->prepare(<<<SQL
-        INSERT INTO market_supply_demand
-            (galaxy_index, system_index, resource_type,
-             production_per_hour, consumption_per_hour,
-             available_supply, desired_demand, net_balance)
-        VALUES (?, ?, ?, 0, 0,
-                GREATEST(0, 100 + ?),
-                GREATEST(0, 100 + ?),
-                (GREATEST(0, 100 + ?) - GREATEST(0, 100 + ?)))
-        ON DUPLICATE KEY UPDATE
-            available_supply = GREATEST(0, available_supply + ?),
-            desired_demand   = GREATEST(0, desired_demand + ?),
-            net_balance      = (GREATEST(0, available_supply + ?) - GREATEST(0, desired_demand + ?)),
-            updated_at       = CURRENT_TIMESTAMP
-    SQL)->execute([
-        $scope['galaxy'],
-        $scope['system'],
-        $goodType,
-        $supplyDelta,
-        $demandDelta,
-        $supplyDelta,
-        $demandDelta,
-        $supplyDelta,
-        $demandDelta,
-        $supplyDelta,
-        $demandDelta,
-    ]);
+    return round((BASE_PRICES[$goodType] ?? 10) * $mult, 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -266,14 +161,13 @@ function action_get_prices(PDO $db, int $uid): never
         if (!$stmt->fetch()) {
             json_error('Colony not found or access denied', 403);
         }
-        if (ON_DEMAND_ECONOMY_ENABLED) {
-            (new OnDemandEconomy($db))->settle($colonyId, $uid);
-        }
     }
 
     $prices = [];
+    $worldEvents = [];
     foreach ($goods as $good) {
         $row = fetch_market_snapshot($db, $good, $colonyId);
+        $worldEvents = $row['world_events'];
         $prices[$good] = [
             'good_type'  => $good,
             'base_price' => BASE_PRICES[$good] ?? 0,
@@ -283,7 +177,10 @@ function action_get_prices(PDO $db, int $uid): never
         ];
     }
 
-    json_ok(['prices' => $filter ? ($prices[$filter] ?? []) : array_values($prices)]);
+    json_ok([
+        'prices' => $filter ? ($prices[$filter] ?? []) : array_values($prices),
+        'world_events' => $worldEvents,
+    ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -419,290 +316,96 @@ function action_get_region_prices(PDO $db, int $uid): never
     json_ok(['regions' => $result]);
 }
 
-/**
- * POST market.php?action=buy
- * Body: { colony_id, good_type, quantity }
- *
- * Buy processed goods from the galactic market.
- * Deducts credits from the player; adds goods to colony stock.
- * Respects AUTARKY policy (no imports allowed).
- */
-function action_buy(PDO $db, int $uid): never
+function action_retired_trade(): never
 {
     only_method('POST');
     verify_csrf();
-    $body     = json_decode(file_get_contents('php://input'), true) ?? [];
-    $colonyId = (int)($body['colony_id'] ?? 0);
-    $goodType = is_string($body['good_type'] ?? null) ? trim($body['good_type']) : '';
-    $quantity = is_numeric($body['quantity'] ?? null) ? (float)$body['quantity'] : NAN;
-
-    if (!$colonyId) {
-        json_error('colony_id required', 400);
-    }
-    if (!$goodType) {
-        json_error('good_type required', 400);
-    }
-    if (!is_finite($quantity) || $quantity <= 0) {
-        json_error('quantity must be a finite number > 0', 400);
-    }
-    if (!isset(BASE_PRICES[$goodType])) {
-        json_error('Unknown good_type: ' . $goodType, 400);
-    }
-
-    if (ON_DEMAND_ECONOMY_ENABLED) {
-        require_once __DIR__ . '/game_engine.php';
-        try {
-            $result = (new OnDemandEconomy($db))->exchange(
-                $colonyId,
-                $uid,
-                $goodType,
-                $quantity,
-                true
-            );
-            invalidate_market_trade_cache($uid, $colonyId);
-            json_ok($result);
-        } catch (DomainException $error) {
-            json_error($error->getMessage(), $error->getCode() ?: 400);
-        }
-    }
-    // Verify colony ownership
-    $stmt = $db->prepare('SELECT id FROM colonies WHERE id = ? AND user_id = ?');
-    $stmt->execute([$colonyId, $uid]);
-    if (!$stmt->fetch()) {
-        json_error('Colony not found or access denied', 403);
-    }
-
-    // Check AUTARKY policy — imports blocked
-    // Check MERCANTILISM policy — imports cost +20% more
-    $pStmt = $db->prepare('SELECT global_policy FROM economy_policies WHERE user_id = ?');
-    $pStmt->execute([$uid]);
-    $pRow  = $pStmt->fetch(PDO::FETCH_ASSOC);
-    $rawPolicy = $pRow ? $pRow['global_policy'] : 'free_market';
-    $resolvedPolicy = resolve_policy_str($rawPolicy);
-
-    if ($resolvedPolicy === 'autarky') {
-        json_error('Autarky policy: imports are blocked', 403);
-    }
-
-    $taxRate  = fetch_trade_tax($db, $uid);
-    $price    = compute_price($db, $goodType, $colonyId);
-    $gross    = $price * $quantity;
-
-    // MERCANTILISM: import surcharge +20% (protects domestic industry)
-    $importMult = ($resolvedPolicy === 'mercantilism') ? 1.20 : 1.0;
-    $total    = round($gross * $importMult * (1 + $taxRate), 2);
-    if (!is_finite($total) || $total <= 0) {
-        json_error('Invalid transaction amount.', 400);
-    }
-
-    try {
-        (new ResourceLedger($db))->transactionWithColony(
-            $colonyId,
-            $uid,
-            function () use ($db, $uid, $colonyId, $goodType, $quantity, $total, $price, $taxRate): void {
-                $debit = $db->prepare(
-                    'UPDATE users SET credits = credits - ? WHERE id = ? AND credits >= ?'
-                );
-                $debit->execute([$total, $uid, $total]);
-                if ($debit->rowCount() !== 1) {
-                    throw new DomainException('Insufficient credits.', 409);
-                }
-
-                $lock = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
-                $stock = $db->prepare(
-                    'SELECT quantity, capacity FROM economy_processed_goods '
-                    . 'WHERE colony_id = ? AND good_type = ?' . $lock
-                );
-                $stock->execute([$colonyId, $goodType]);
-                $current = $stock->fetch(PDO::FETCH_ASSOC);
-                if (!$current) {
-                    if ($quantity > 5000) {
-                        throw new DomainException('Insufficient storage capacity.', 409);
-                    }
-                    $db->prepare(
-                        'INSERT INTO economy_processed_goods (colony_id, good_type, quantity, capacity) '
-                        . 'VALUES (?, ?, ?, 5000)'
-                    )->execute([$colonyId, $goodType, $quantity]);
-                } else {
-                    if ((float)$current['quantity'] + $quantity > (float)$current['capacity']) {
-                        throw new DomainException('Insufficient storage capacity.', 409);
-                    }
-                    $add = $db->prepare(
-                        'UPDATE economy_processed_goods '
-                        . 'SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP '
-                        . 'WHERE colony_id = ? AND good_type = ? AND quantity + ? <= capacity'
-                    );
-                    $add->execute([$quantity, $colonyId, $goodType, $quantity]);
-                    if ($add->rowCount() !== 1) {
-                        throw new DomainException('Insufficient storage capacity.', 409);
-                    }
-                }
-
-                update_supply_demand($db, $colonyId, $goodType, 0, $quantity * 0.1);
-
-                $db->prepare(<<<SQL
-                    INSERT INTO economy_market_transactions
-                        (
-                            user_id, colony_id, good_type, direction, quantity,
-                            price_per_unit, total_credits, trade_tax_rate, net_credits
-                        )
-                    VALUES (?, ?, ?, 'buy', ?, ?, ?, ?, ?)
-                SQL)->execute([$uid, $colonyId, $goodType, $quantity, $price, $total, $taxRate, $total]);
-            }
-        );
-    } catch (DomainException $error) {
-        json_error($error->getMessage(), $error->getCode() ?: 400);
-    } catch (Throwable $error) {
-        error_log("market buy failed user={$uid} colony={$colonyId}: " . $error->getMessage());
-        json_error('Transaction failed.', 500);
-    }
-
-    invalidate_market_trade_cache($uid, $colonyId);
-    json_ok([
-        'colony_id'      => $colonyId,
-        'good_type'      => $goodType,
-        'quantity'       => $quantity,
-        'price_per_unit' => $price,
-        'trade_tax'      => $taxRate,
-        'import_mult'    => $importMult,
-        'total_credits'  => $total,
-    ]);
-}
-
-/**
- * POST market.php?action=sell
- * Body: { colony_id, good_type, quantity }
- *
- * Sell processed goods to the galactic market.
- * Adds credits to the player; removes goods from colony stock.
- */
-function action_sell(PDO $db, int $uid): never
-{
-    only_method('POST');
-    verify_csrf();
-    $body     = json_decode(file_get_contents('php://input'), true) ?? [];
-    $colonyId = (int)($body['colony_id'] ?? 0);
-    $goodType = is_string($body['good_type'] ?? null) ? trim($body['good_type']) : '';
-    $quantity = is_numeric($body['quantity'] ?? null) ? (float)$body['quantity'] : NAN;
-
-    if (!$colonyId) {
-        json_error('colony_id required', 400);
-    }
-    if (!$goodType) {
-        json_error('good_type required', 400);
-    }
-    if (!is_finite($quantity) || $quantity <= 0) {
-        json_error('quantity must be a finite number > 0', 400);
-    }
-    if (!isset(BASE_PRICES[$goodType])) {
-        json_error('Unknown good_type: ' . $goodType, 400);
-    }
-
-    if (ON_DEMAND_ECONOMY_ENABLED) {
-        require_once __DIR__ . '/game_engine.php';
-        try {
-            $result = (new OnDemandEconomy($db))->exchange(
-                $colonyId,
-                $uid,
-                $goodType,
-                $quantity,
-                false
-            );
-            invalidate_market_trade_cache($uid, $colonyId);
-            json_ok($result);
-        } catch (DomainException $error) {
-            json_error($error->getMessage(), $error->getCode() ?: 400);
-        }
-    }
-    // Verify colony ownership
-    $stmt = $db->prepare('SELECT id FROM colonies WHERE id = ? AND user_id = ?');
-    $stmt->execute([$colonyId, $uid]);
-    if (!$stmt->fetch()) {
-        json_error('Colony not found or access denied', 403);
-    }
-
-    flush_colony_production($db, $colonyId);
-
-    // Check available stock
-    $gStmt = $db->prepare('SELECT quantity FROM economy_processed_goods WHERE colony_id = ? AND good_type = ?');
-    $gStmt->execute([$colonyId, $goodType]);
-    $gRow  = $gStmt->fetch(PDO::FETCH_ASSOC);
-    $available = $gRow ? (float)$gRow['quantity'] : 0;
-    if ($available < $quantity) {
-        json_error('Insufficient stock. Have ' . $available . ', trying to sell ' . $quantity, 400);
-    }
-
-    // MERCANTILISM +20% export bonus (resolve integer or string policy value)
-    $pStmt = $db->prepare('SELECT global_policy, tax_trade FROM economy_policies WHERE user_id = ?');
-    $pStmt->execute([$uid]);
-    $pRow      = $pStmt->fetch(PDO::FETCH_ASSOC);
-    $taxRate   = $pRow ? (float)$pRow['tax_trade'] : 0.05;
-    $resolvedSellPolicy = resolve_policy_str($pRow['global_policy'] ?? 'free_market');
-    $exportMult = ($resolvedSellPolicy === 'mercantilism') ? 1.20 : 1.0;
-
-    $price  = compute_price($db, $goodType, $colonyId);
-    $gross  = $price * $quantity;
-    $net    = round($gross * $exportMult * (1 - $taxRate), 2);
-    if (!is_finite($net) || $net <= 0) {
-        json_error('Invalid transaction amount.', 400);
-    }
-
-    try {
-        (new ResourceLedger($db))->transactionWithColony(
-            $colonyId,
-            $uid,
-            function () use ($db, $uid, $colonyId, $goodType, $quantity, $price, $net, $taxRate): void {
-                $remove = $db->prepare(<<<SQL
-                    UPDATE economy_processed_goods
-                    SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE colony_id = ? AND good_type = ? AND quantity >= ?
-                SQL);
-                $remove->execute([$quantity, $colonyId, $goodType, $quantity]);
-                if ($remove->rowCount() !== 1) {
-                    throw new DomainException('Insufficient stock.', 409);
-                }
-
-                $credit = $db->prepare('UPDATE users SET credits = credits + ? WHERE id = ?');
-                $credit->execute([$net, $uid]);
-                if ($credit->rowCount() !== 1) {
-                    throw new DomainException('User not found.', 404);
-                }
-
-                update_supply_demand($db, $colonyId, $goodType, $quantity * 0.1, 0);
-
-                $db->prepare(<<<SQL
-                    INSERT INTO economy_market_transactions
-                        (
-                            user_id, colony_id, good_type, direction, quantity,
-                            price_per_unit, total_credits, trade_tax_rate, net_credits
-                        )
-                    VALUES (?, ?, ?, 'sell', ?, ?, ?, ?, ?)
-                SQL)->execute([$uid, $colonyId, $goodType, $quantity, $price, $net, $taxRate, $net]);
-            }
-        );
-    } catch (DomainException $error) {
-        json_error($error->getMessage(), $error->getCode() ?: 400);
-    } catch (Throwable $error) {
-        error_log("market sell failed user={$uid} colony={$colonyId}: " . $error->getMessage());
-        json_error('Transaction failed.', 500);
-    }
-
-    invalidate_market_trade_cache($uid, $colonyId);
-    json_ok([
-        'colony_id'     => $colonyId,
-        'good_type'     => $goodType,
-        'quantity'      => $quantity,
-        'price_per_unit' => $price,
-        'trade_tax'     => $taxRate,
-        'export_mult'   => $exportMult,
-        'net_credits'   => $net,
-    ]);
+    json_error('Soforthandel wurde eingestellt. Bitte einen Auftrag mit create_order erstellen; Lieferung erfolgt per Transportschiff.', 409);
 }
 
 function invalidate_market_trade_cache(int $uid, int $colonyId): void
 {
     gq_cache_delete('game_overview', ['uid' => $uid]);
     gq_cache_delete('game_resources', ['uid' => $uid, 'cid' => $colonyId]);
+}
+
+function action_list_orders(PDO $db, int $uid): never
+{
+    only_method('GET');
+    try {
+        $cid = standing_order_id($_GET['colony_id'] ?? null);
+        $now = time();
+        json_ok(['orders' => (new StandingOrders($db))->list($uid, $cid),
+            'requests' => (new EconomicRequests($db))->list($uid, $cid, $now), 'now_unix' => $now]);
+    } catch (DomainException $error) {
+        json_error($error->getMessage(), $error->getCode() ?: 400);
+    }
+}
+
+function action_economic_request(PDO $db, int $uid, string $action): never
+{
+    only_method('POST');
+    verify_csrf();
+    $body = json_decode(file_get_contents('php://input'), true) ?? [];
+    require_once __DIR__ . '/game_engine.php';
+    try {
+        $request = (new EconomicRequests($db))->respond($uid, standing_order_id($body['request_id'] ?? null), $action, time());
+    } catch (DomainException $error) {
+        json_error($error->getMessage(), $error->getCode() ?: 400);
+    }
+    if ($action === 'accept' && $request['status'] !== 'accepted') {
+        json_error(match ($request['status']) {
+            'expired' => 'Anfrage ist abgelaufen; es wurde nichts reserviert.',
+            'declined' => 'Anfrage wurde bereits abgelehnt.',
+            default => 'NPC-Auftrag ist nicht mehr verfügbar; es wurde nichts reserviert.',
+        }, 409);
+    }
+    invalidate_market_trade_cache($uid, (int)$request['colony_id']);
+    json_ok(['request' => $request]);
+}
+
+function action_create_order(PDO $db, int $uid): never
+{
+    only_method('POST');
+    verify_csrf();
+    $body = json_decode(file_get_contents('php://input'), true) ?? [];
+    require_once __DIR__ . '/game_engine.php';
+    try {
+        $order = (new StandingOrders($db))->create(
+            $uid, standing_order_id($body['colony_id'] ?? null),
+            is_string($body['side'] ?? null) ? $body['side'] : '',
+            is_string($body['good_type'] ?? null) ? $body['good_type'] : '',
+            $body['quantity'] ?? null, $body['limit_price'] ?? null
+        );
+    } catch (DomainException $error) {
+        json_error($error->getMessage(), $error->getCode() ?: 400);
+    }
+    invalidate_market_trade_cache($uid, (int)$order['colony_id']);
+    json_ok(['order' => $order]);
+}
+
+function action_cancel_order(PDO $db, int $uid): never
+{
+    only_method('POST');
+    verify_csrf();
+    $body = json_decode(file_get_contents('php://input'), true) ?? [];
+    require_once __DIR__ . '/game_engine.php';
+    try {
+        $order = (new StandingOrders($db))->cancel($uid, standing_order_id($body['order_id'] ?? null));
+    } catch (DomainException $error) {
+        json_error($error->getMessage(), $error->getCode() ?: 400);
+    }
+    invalidate_market_trade_cache($uid, (int)$order['colony_id']);
+    json_ok(['order' => $order]);
+}
+
+function standing_order_id(mixed $value): int
+{
+    if ((!is_int($value) && !is_string($value)) || !preg_match('/^[1-9]\d{0,9}$/D', (string)$value)
+        || (int)$value > 2147483647) {
+        throw new DomainException('Ungültige Kolonie-/Auftrags-ID.', 400);
+    }
+    return (int)$value;
 }
 
 /**
@@ -753,33 +456,39 @@ function action_get_history(PDO $db, int $uid): never
 }
 
 /**
- * GET market.php?action=get_active_events
+ * GET market.php?action=get_active_events[&colony_id=N]
  *
- * Returns all currently active galactic market events.
+ * Returns world events active now. With colony_id: events affecting the
+ * colony's system and galaxy; otherwise all active events.
  */
-function action_get_active_events(PDO $db): never
+function action_get_active_events(PDO $db, int $uid): never
 {
     only_method('GET');
-    $stmt = $db->prepare(<<<SQL
-        SELECT id, event_code, label, affected_good, price_mult, demand_mult,
-               remaining_ticks, started_at
-        FROM economy_market_events
-        WHERE remaining_ticks > 0
-        ORDER BY started_at DESC
-    SQL);
-    $stmt->execute();
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $now = time();
+    $colonyId = isset($_GET['colony_id']) ? (int)$_GET['colony_id'] : null;
+    if ($colonyId !== null) {
+        $stmt = $db->prepare('SELECT id FROM colonies WHERE id = ? AND user_id = ?');
+        $stmt->execute([$colonyId, $uid]);
+        if (!$stmt->fetch()) {
+            json_error('Colony not found or access denied', 403);
+        }
+        $scope = fetch_colony_market_scope($db, $colonyId);
+        $events = (new WorldEvents($db))->forScope($scope['galaxy'] ?? null, $scope['system'] ?? null, $now, $now);
+    } else {
+        try {
+            $stmt = $db->prepare('SELECT * FROM world_events WHERE ends_at > ? AND starts_at <= ? ORDER BY id');
+            $stmt->execute([$now, $now]);
+            $events = array_map(static function (array $row): array {
+                $row['modifiers'] = json_decode((string)$row['modifier_json'], true) ?: [];
+                return $row;
+            }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+        } catch (PDOException $error) {
+            if (!WorldEvents::missingTable($error)) {
+                throw $error;
+            }
+            $events = [];
+        }
+    }
 
-    $events = array_map(fn($r) => [
-        'id'            => (int)$r['id'],
-        'code'          => $r['event_code'],
-        'label'         => $r['label'],
-        'affected_good' => $r['affected_good'],
-        'price_mult'    => (float)$r['price_mult'],
-        'demand_mult'   => (float)$r['demand_mult'],
-        'remaining_ticks' => (int)$r['remaining_ticks'],
-        'started_at'    => $r['started_at'],
-    ], $rows);
-
-    json_ok(['events' => $events]);
+    json_ok(['events' => array_map([WorldEvents::class, 'describe'], $events)]);
 }

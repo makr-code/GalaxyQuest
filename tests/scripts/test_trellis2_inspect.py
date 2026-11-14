@@ -74,8 +74,34 @@ class InspectGlbTests(unittest.TestCase):
         raw = split.export(file_type="glb")
         report = inspect_glb(raw, "building", "habitat")
         self.assertEqual(len(report.meshes[0].components), 1)
+        self.assertEqual(report.meshes[0].boundary_edges, 0)
+        self.assertEqual(report.meshes[0].nonmanifold_edges, 0)
         np.testing.assert_array_equal(split.vertices, before_vertices)
         np.testing.assert_array_equal(split.visual.uv, before_uv)
+
+    def test_counts_boundary_edges_ignoring_zero_area_faces(self) -> None:
+        box = trimesh.creation.box()
+        mesh = trimesh.Trimesh(
+            vertices=box.vertices,
+            faces=np.vstack((box.faces[:-1], [0, 0, 1])),
+            process=False,
+        )
+        report = inspect_glb(mesh.export(file_type="glb"), "ship", None).meshes[0]
+        self.assertEqual(report.zero_area_faces, 1)
+        self.assertEqual(report.boundary_edges, 3)
+        self.assertEqual(report.nonmanifold_edges, 0)
+        self.assertIn("boundary_edges_review_required", report.findings)
+
+    def test_reports_edges_shared_by_more_than_two_faces(self) -> None:
+        mesh = trimesh.Trimesh(
+            vertices=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1]]),
+            faces=np.array([[0, 1, 2], [1, 0, 3], [0, 1, 4]]),
+            process=False,
+        )
+        report = inspect_glb(mesh.export(file_type="glb"), "ship", None).meshes[0]
+        self.assertEqual(report.nonmanifold_edges, 1)
+        self.assertEqual(report.boundary_edges, 6)
+        self.assertIn("nonmanifold_edges_review_required", report.findings)
 
     def test_separate_parts_are_reported_not_deleted(self) -> None:
         first = trimesh.creation.box()
@@ -160,6 +186,15 @@ class InspectGlbTests(unittest.TestCase):
             with self.subTest(asset_type=asset_type, facility_kind=facility_kind):
                 with self.assertRaises(ValueError):
                     inspect_glb(raw, asset_type, facility_kind)
+
+    def test_ship_review_does_not_require_colony_views(self) -> None:
+        raw = textured_box().export(file_type="glb")
+        report = inspect_glb(raw, "ship", None)
+        self.assertIn("ship_rendering", report.required_manual_checks)
+        self.assertNotIn("both_colony_views", report.required_manual_checks)
+        self.assertIn(
+            "both_colony_views", inspect_glb(raw, "building", None).required_manual_checks
+        )
 
 
 class InspectorCliTests(unittest.IsolatedAsyncioTestCase):

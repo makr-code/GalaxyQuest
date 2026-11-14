@@ -21,14 +21,11 @@
 ### Module Architecture
 ```
 ✅ GOOD:
-js/engine/runtime/domains/economy/
-├─ EconomyController.js         # Pure logic, no DOM
-├─ EconomyCalculations.js       # Math, state transformations
-├─ EconomyUI.js                 # Only rendering, callbacks
-└─ __exports.js                 # Export to window.GQGame.domains.economy
+js/engine/runtime/server-economy-domain.js   # Server read model: fetch + validate, no DOM
+js/ui/game-economy.js                        # Only rendering, callbacks
 
 ❌ BAD:
-RuntimeEconomyController.js      # 900-line monolith with everything
+EconomyMonolith.js               # 900-line file mixing fetch, state, simulation and DOM
 ```
 
 ---
@@ -189,7 +186,8 @@ js/engine/runtime/domains/{domain}/
 
 ### Example: EconomyController
 ```javascript
-// File: js/engine/runtime/domains/economy/EconomyController.js
+// Pattern illustration (pure logic, no DOM). The real economy state is the server
+// read model in js/engine/runtime/server-economy-domain.js, rendered by js/ui/game-economy.js.
 /**
  * @typedef {Object} EconomyConfig
  * @property {Object} callbacks
@@ -254,14 +252,14 @@ class EconomyController {
 ```javascript
 // ✅ GOOD: Import from modules
 import { Galaxy3DRenderer } from './Galaxy3DRenderer.js';
-import { EconomyController } from './domains/economy/EconomyController.js';
+import { createEconomyDomain } from './server-economy-domain.js';
 
 // ✅ GOOD: Use window.GQGame facade
 window.GQGame.domains.economy.setTaxRate(15);
 window.GQGame.events.emit('economy:changed', data);
 
 // ❌ BAD: Direct window.GQRuntime* access
-const tax = window.GQRuntimeEconomyController.state.tax;
+const tax = window.GQRuntimeSettingsController.state.tax;
 
 // ❌ BAD: Circular imports
 // File A imports File B, File B imports File A
@@ -371,13 +369,13 @@ window.API.galaxy.getStars().then(data => {
 ### Files & Directories
 ```
 ✅ GOOD:
-- js/engine/runtime/domains/economy/EconomyController.js
+- js/engine/runtime/server-economy-domain.js
 - js/rendering/Galaxy3DRendererWebGPU.js
 - js/network/api-transport.js
-- js/components/economy-panel.js
+- js/ui/game-economy.js
 
 ❌ BAD:
-- js/runtime/RuntimeEconomyController.js (Too much "Runtime")
+- js/runtime/RuntimeMarketThing.js (Too much "Runtime", vague)
 - js/engine/core/RC.js (Abbreviations)
 - js/network/api-trans.js (Incomplete words)
 - js/components/ep.js (Non-descriptive)

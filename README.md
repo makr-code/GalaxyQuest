@@ -546,6 +546,15 @@ Login name, email and a password are optional until the player chooses permanent
 registration in the draft command level. Local Docker development simulates
 delivery through Mailpit (`docker compose up -d --no-build mailpit web`).
 Open the email at `http://localhost:8025` and follow its confirmation link.
+In `APP_ENV=dev`, notification mail also goes to Mailpit via its container API;
+it does not reach external recipients. Outside development, configure
+`SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS` (`starttls` on 587 or `implicit` on 465),
+`SMTP_FROM`, `SMTP_USER` and `SMTP_PASSWORD` in the protected runtime environment.
+Use the Plesk mailbox's actual SMTP hostname, credentials and a valid TLS
+certificate; do not commit credentials. Configure SPF, DKIM and DMARC and verify
+actual delivery. The local Compose file passes these SMTP settings through, but
+development still deliberately prefers Mailpit.
+
 The email body contains only this link, never a numeric code. Links expire after
 24 hours, are single-use and may be resent after one minute (invalidating
 the previous link). Only a SHA-256 hash of the random 256-bit token is stored.
@@ -560,8 +569,41 @@ Previously sent numeric codes no longer work; request a new email.
 Code-based administrator 2FA is a separate, future authentication concern, not
 part of email validation. Existing 2FA functionality is unchanged.
 A delivery or confirmation failure leaves the
-playable draft intact. This is deliberately **not production email delivery**:
-the adapter is enabled only for `APP_ENV=dev` with `REGISTRATION_MAILPIT_URL`.
+playable draft intact. Mailpit is a development-only adapter; production
+registration uses the configured SMTP transport.
+
+WordPress mail templates are separate from public posts. A published template is
+an internal approval, not a public page. The authenticated WordPress account
+must be allowed to edit that template; drafts are not returned. After applying
+`migrate_mail_templates_v1.sql`, an operator may queue **one** notification:
+
+```sh
+php scripts/queue_wordpress_mail.php --user=123 --template=45 --key=event_123
+php scripts/send_mail_outbox.php
+```
+
+Use the same key for retries of the same event and user. The queue snapshots the
+subject, HTML and generated plain-text alternative and records the WordPress
+template ID and revision. `{{username}}` is supported in the subject and HTML
+text, not in HTML attributes. Existing email-notification preferences are
+rechecked before delivery. Messages exceeding 65,535 bytes of generated
+plain text or 262,144 bytes of HTML are rejected, not truncated.
+This is not a newsletter consent or bulk-send system;
+do not use it for marketing without implementing and verifying consent and
+unsubscribe. Configure the transport before flushing: the existing outbox marks
+due mail as `skipped` when no transport is available. SMTP acceptance does not
+guarantee delivery, and a crash after acceptance can result in a duplicate on
+retry. Inspect Mailpit locally and verify real recipient delivery separately.
+The isolated pipeline check `node tests/scripts/check_wordpress_template_mail_pipeline.mjs`
+uses temporary Docker resources, SMTP with STARTTLS and the development Mailpit
+API, not the running Mailpit or either live database. `GQ_TEST_WEB_IMAGE` selects
+an existing PHP test image.
+For the real WordPress HTTP/permission check, run
+`node tests/scripts/check_wordpress_template_mail_real_http_e2e.mjs`. It requires
+local WordPress core files and the existing `galaxyquest-web:latest` and
+`mariadb:11.8` Docker images; it does not pull images or use the existing site
+configuration or database. It tests REST authentication and outbox snapshotting,
+not mail delivery.
 
 Successful confirmation atomically creates the user and reserved colony,
 transfers stocks, population, research, ships and paid pending queues, archives
@@ -643,13 +685,10 @@ other settings instead of accidentally adopting different legacy schema defaults
 The economy and construction adapters share colony-switch, request-cancellation,
 duplicate-command and logout handling; no scheduler or client economy is added.
 
-The new economy window requires `ON_DEMAND_ECONOMY_ENABLED=1`. Apply/verify
-`migrate_economy_on_demand_v1.sql` and its prerequisite building/queue migrations
-before enabling it. Docker Compose passes this flag from the local `.env`
-(default remains **0** for unconfigured environments). After changing the local
-flag, recreate only the web service with `docker compose up -d --no-deps web`.
-When disabled, the UI explicitly reports the unavailable engine rather than
-substituting legacy or fabricated data.
+The on-demand ledger is the only server economy path; there is no feature flag
+and no legacy economy fallback. Apply/verify `migrate_economy_on_demand_v1.sql`
+and its prerequisite building/queue migrations before deploying. Missing schema
+is reported explicitly rather than substituting legacy or fabricated data.
 
 This is **not completion of the full UI migration**.
 
@@ -900,12 +939,83 @@ recreate the link so WordPress does not keep pointing at the old file.
 
 The local WordPress site must be configured for the Compose web/database
 services, with its public `home` and `siteurl` set to
-`http://localhost:8081/wordpress`. The plugin exposes typed REST metadata and
+`http://localhost:8081/wordpress`. Keep its database separate: GalaxyQuest uses
+`galaxyquest`; WordPress uses `wordpress` with a dedicated account granted access
+only to `wordpress.*`. Configure these WordPress credentials in the ignored
+`wordpress/wp-config.php`; do not inherit the game's `DB_NAME`, `DB_USER` or
+`DB_PASS` values. Provision the WordPress database/account separately when
+initializing a fresh local MySQL volume; Compose's `MYSQL_DATABASE` initializes
+only the game database. Existing WordPress tables must be backed up and migrated,
+not replaced by a fresh WordPress install.
+
+The plugin exposes typed REST metadata and
 an editorial box for `gq_summary` and `gq_target_faction_code`; it prevents
 publishing `game-start` posts without a valid plain-text summary. Create the
 `game-start` tag in WordPress and assign it to every post intended for the game.
 The optional faction code must exist in the game's public homeworld catalog.
 `hero` only highlights a post and does not grant feed access.
+
+The start-screen **Galaktische Chronik** is an independent, on-demand WordPress
+view. Add an `Ereignisdatum` (UTC calendar date) and select the origin
+(`Redaktion / Lore` or `Spielereignis`) in the GalaxyQuest post box. The date
+is separate from WordPress publication time and does not imply an in-universe
+calendar. Only published, unprotected posts tagged `game-start` and with a
+valid game summary and event date appear. Posts without an event date remain in
+the normal news feed but not the chronology. Categories with slugs
+`galaxiegeschichte`, `spielentwicklung` and `diplomatie` enable the topic
+filter; date filters are inclusive. Entries are ordered by event date descending
+and then WordPress post ID descending, in pages of ten. Changing or withdrawing
+an article is reflected on the next request; pagination is not a snapshot, so
+concurrent editorial changes may shift page boundaries. The source label is
+editorial metadata, not evidence that the game engine exported an event.
+Editors can mark a post as a correction; the chronology displays that label.
+The reading order can be switched to **Geschichtsbuch** (oldest first, `order=asc`);
+entries are grouped under monthly "Kapitel" headings. Reinstall the plugin after
+updating, since the REST route gained the `order` argument.
+
+`scripts/sync_galaxy_chronicle.php` (on demand/cron, no game tick) feeds the history
+book from the game: finished wars and visible galactic events become posts in category
+`galaxiegeschichte` (tag `game-start`, origin `game-event`, `gq_event_date` = event day).
+Slugs are stable (`chronik-krieg-<id>`, `chronik-ereignis-<id>`), existing posts are
+skipped, texts are deterministic and anonymous (no player names). Draft by default;
+`--status=publish`, `--dry-run` and `--limit=N` are available.
+This label does not automatically create a correction history or link to a
+previous article.
+WordPress must have the updated GalaxyQuest plugin installed. The chronology is
+not available in local-editor or simulation mode; it never falls back to test
+data. WordPress failures are displayed explicitly.
+
+**Galaxy News Radio** (start screen) plays the up-to-five newest published
+posts that carry both the `game-start` tag and the category `galaxy-news-radio`.
+Playback is started manually and reuses the existing server-side narration
+(`action=narration`) of each post's `gq_summary`; the revision is re-checked per
+clip. It needs `BLOG_SOURCE=wordpress` and enabled TTS/audio. Game events are not
+exported to WordPress automatically.
+
+**Daily news lines.** `scripts/generate_galaxy_news.php` collects the day's public
+notices (non-withdrawn server announcements and visible galactic events), lets the
+Docker Ollama model (`GALAXY_NEWS_MODEL`, default `OLLAMA_DEFAULT_MODEL`) rewrite
+them as broadcast-style lines, validates the JSON answer (plain text only, at most
+six lines), synthesises one MP3 with the TTS service, uploads it to the WordPress
+media library and creates the post `galaxy-news-YYYY-MM-DD` (audio block, lines,
+`gq_summary`, category `galaxy-news-radio`, tag `game-start`). It runs once per
+day and never overwrites an existing post. The default status is `draft` so a
+human can review LLM text before it reaches the radio; use `--status=publish` or
+`GALAXY_NEWS_PUBLISH_STATUS=publish` to publish directly, `--dry-run` to only see
+the script. For cron use the single entry point
+`php scripts/run_galaxy_publishing.php` (runs specials, daily news and chronicle sync
+with a lock; extra options such as `--dry-run` are passed to all jobs). It needs `BLOG_WORDPRESS_USER` and `BLOG_WORDPRESS_APP_PASSWORD`
+(a WordPress application password; HTTPS or `WP_ENVIRONMENT_TYPE=local`). Run it
+daily from cron, e.g. `docker compose exec -T web php scripts/generate_galaxy_news.php`.
+
+**Sondernachrichten (specials).** `scripts/generate_galaxy_special.php` (on-demand/cron,
+no game tick) publishes a "Sondermeldung" post (category `galaxy-news-radio`, tags
+`game-start` + `hero`, with MP3) only for very rare, widely felt situations: a war wave
+with at least `GALAXY_SPECIAL_WAR_MIN_PLAYERS` (default 50) involved players, or a
+market crash with at least `GALAXY_SPECIAL_CRASH_MIN_GOODS` (default 5) goods at or below
+`GALAXY_SPECIAL_CRASH_PRICE_MULT` (default 0.5) of normal price. At most one per type and
+UTC day (slug `galaxy-special-<type>-YYYY-MM-DD`); draft by default; the WordPress tag
+`hero` must exist.
 
 Set `BLOG_SOURCE=wordpress-simulation` in `.env` to use the development-only
 simulation instead. Its versioned
@@ -2250,7 +2360,6 @@ The config file also supports environment-variable overrides. That means the Doc
 │   │   ├── game/               # Simulation systems (pure JS, no GPU)
 │   │   │   ├── BattleSimulator.js      # Round-based fleet combat
 │   │   │   ├── ColonySimulation.js     # Colony economy + invasion
-│   │   │   ├── EconomySimulation.js    # T2–T5 goods, pop classes, market
 │   │   │   ├── EventSystem.js          # Events + journal
 │   │   │   ├── FleetFormation.js       # Fleet formation patterns
 │   │   │   └── ResearchTree.js         # Tech tree

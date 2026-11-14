@@ -12,21 +12,29 @@ function package_wordpress_plugin(string $root, string $tag, string $commit, str
     $number = '(?:0|[1-9][0-9]*)';
     if (
         preg_match(
-            '/\Agq-deployment-status-v(' . $number . '\.' . $number . '\.' . $number . ')\z/D',
+            '/\A(gq-deployment-status|gq-game-admin)-v(' . $number . '\.' . $number . '\.' . $number . ')\z/D',
             $tag,
             $match
         ) !== 1
         || preg_match('/\A[a-f0-9]{40}\z/D', $commit) !== 1
     ) {
-        throw new InvalidArgumentException('Expected gq-deployment-status-vX.Y.Z and a full commit SHA.');
+        throw new InvalidArgumentException(
+            'Expected gq-deployment-status-vX.Y.Z or gq-game-admin-vX.Y.Z and a full SHA.'
+        );
     }
-    $version = $match[1];
-    $main = file_get_contents($root . '/wordpress-integration/gq-deployment-status.php');
+    $slug = $match[1];
+    $version = $match[2];
+    $constant = $slug === 'gq-game-admin' ? 'GQ_GAME_ADMIN_PLUGIN_VERSION' : 'GQ_DEPLOYMENT_STATUS_PLUGIN_VERSION';
+    $main = file_get_contents($root . '/wordpress-integration/' . $slug . '.php');
+    $updater = file_get_contents($root . '/wordpress-integration/gq-github-plugin-updater.php');
+    $tables = file_get_contents($root . '/wordpress-integration/gq-admin-tables.php');
     if (
         !is_string($main)
         || preg_match('/^[ \t*]*Version:[ \t]*([^\r\n]+)/m', $main, $header) !== 1
         || trim($header[1]) !== $version
-        || !str_contains($main, "const GQ_DEPLOYMENT_STATUS_PLUGIN_VERSION = '" . $version . "';")
+        || !str_contains($main, 'const ' . $constant . " = '" . $version . "';")
+        || !is_string($updater) || !str_contains($updater, 'class GitHubPluginUpdater')
+        || !is_string($tables) || !str_contains($tables, 'class AdminTablesV1')
     ) {
         throw new RuntimeException('Plugin tag, header and runtime version must match.');
     }
@@ -47,21 +55,26 @@ function package_wordpress_plugin(string $root, string $tag, string $commit, str
             throw new RuntimeException('Could not open plugin archive.');
         }
         try {
-            $entry = 'gq-deployment-status/gq-deployment-status.php';
-            if (
-                !$zip->addFromString($entry, $main)
-                || !$zip->setMtimeName($entry, 315532800)
-                || !$zip->setExternalAttributesName($entry, ZipArchive::OPSYS_UNIX, 0100644 << 16)
-                || !$zip->setCompressionName($entry, ZipArchive::CM_DEFLATE, 9)
-            ) {
-                throw new RuntimeException('Could not prepare canonical plugin ZIP entry.');
+            $sources = [
+                $slug . '.php' => $main, 'gq-github-plugin-updater.php' => $updater, 'gq-admin-tables.php' => $tables,
+            ];
+            foreach ($sources as $filename => $contents) {
+                $entry = $slug . '/' . $filename;
+                if (
+                    !$zip->addFromString($entry, $contents)
+                    || !$zip->setMtimeName($entry, 315532800)
+                    || !$zip->setExternalAttributesName($entry, ZipArchive::OPSYS_UNIX, 0100644 << 16)
+                    || !$zip->setCompressionName($entry, ZipArchive::CM_DEFLATE, 9)
+                ) {
+                    throw new RuntimeException('Could not prepare canonical plugin ZIP entry.');
+                }
             }
         } finally {
             if (!$zip->close()) {
                 throw new RuntimeException('Could not finish plugin archive.');
             }
         }
-        $name = 'gq-deployment-status-' . $version . '.zip';
+        $name = $slug . '-' . $version . '.zip';
         $digest = hash_file('sha256', $temporary);
         $size = filesize($temporary);
         if (!is_string($digest) || !is_int($size) || $size < 1 || $size > 5242880) {
@@ -69,13 +82,13 @@ function package_wordpress_plugin(string $root, string $tag, string $commit, str
         }
         $manifest = [
             'schema_version' => 1, 'repository' => 'makr-code/GalaxyQuest',
-            'plugin' => 'gq-deployment-status', 'version' => $version, 'tag' => $tag, 'commit' => $commit,
+            'plugin' => $slug, 'version' => $version, 'tag' => $tag, 'commit' => $commit,
             'package' => ['name' => $name, 'digest' => 'sha256:' . $digest, 'size_in_bytes' => $size],
         ];
         $files = [
             $name => file_get_contents($temporary),
-            'gq-deployment-status-' . $version . '.sha256' => $digest . '  ' . $name . "\n",
-            'gq-deployment-status-' . $version . '.release.json' =>
+            $slug . '-' . $version . '.sha256' => $digest . '  ' . $name . "\n",
+            $slug . '-' . $version . '.release.json' =>
                 json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n",
         ];
         foreach ($files as $name => $contents) {

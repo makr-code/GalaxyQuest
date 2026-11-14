@@ -18,6 +18,14 @@
   // ── Constants ───────────────────────────────────────────────────────────────
   const SESSION_CACHE_KEY = 'gq_tts_url_cache';
   const MAX_SESSION_CACHE = 200; // entries kept in sessionStorage
+  const VOICE_KEY = 'gq_tts_voice';
+  const DEFAULT_VOICE = 'de_DE-kerstin-low';
+  const SUPPORTED_VOICES = new Set([
+    DEFAULT_VOICE,
+    'de_DE-thorsten-high',
+    'en_US-lessac-high',
+    'en_US-ryan-high',
+  ]);
 
   // ── Simple FNV-1a-like hash for session cache keys (no crypto needed) ───────
   function _hashKey(voice, text) {
@@ -79,7 +87,7 @@
    * @returns {Promise<string>} Resolved audio URL
    */
   async function _resolveAudioUrl(text, opts = {}) {
-    const voice = String(opts.voice || '');
+    const voice = String(opts.voice || getVoice());
     const lang  = String(opts.lang  || 'de');
     const noCache = !!opts.noCache;
 
@@ -261,6 +269,23 @@
     } catch (_) {}
   }
 
+  function getVoice() {
+    try {
+      const voice = localStorage.getItem(VOICE_KEY);
+      return SUPPORTED_VOICES.has(voice) ? voice : DEFAULT_VOICE;
+    } catch (_) {
+      return DEFAULT_VOICE;
+    }
+  }
+
+  function setVoice(voice) {
+    const selected = String(voice || '');
+    if (!SUPPORTED_VOICES.has(selected)) {
+      throw new Error(`Unsupported TTS voice: ${selected}`);
+    }
+    localStorage.setItem(VOICE_KEY, selected);
+  }
+
   /**
    * Play a pre-rendered audio URL directly (bypasses the /api/tts.php round-trip).
    * Falls back gracefully to speak() when the URL is absent.
@@ -289,6 +314,8 @@
     voices,
     isAutoVoiceEnabled,
     setAutoVoice,
+    getVoice,
+    setVoice,
   };
 
   window.GQTTS = GQTTS;

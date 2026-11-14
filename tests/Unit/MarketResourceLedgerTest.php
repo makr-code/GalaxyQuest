@@ -8,32 +8,22 @@ use PHPUnit\Framework\TestCase;
 
 final class MarketResourceLedgerTest extends TestCase
 {
-    public function testLegacyMarketBuyAndSellUseLockedAtomicTransactions(): void
+    public function testMarketBuyAndSellDelegateToTheOnDemandLedgerExchange(): void
     {
         $source = file_get_contents(__DIR__ . '/../../api/market.php');
         self::assertIsString($source);
 
-        $buyStart = strpos($source, 'function action_buy(');
-        $sellStart = strpos($source, 'function action_sell(', $buyStart);
-        $historyStart = strpos($source, 'function action_get_history(', $sellStart);
-        self::assertNotFalse($buyStart);
-        self::assertNotFalse($sellStart);
-        self::assertNotFalse($historyStart);
-
-        $buy = substr($source, $buyStart, $sellStart - $buyStart);
-        $sell = substr($source, $sellStart, $historyStart - $sellStart);
+        $buy = $this->functionBody($source, 'action_buy');
+        $sell = $this->functionBody($source, 'action_sell');
 
         self::assertSame(1, preg_match("/only_method\\('POST'\\);\\s*verify_csrf\\(\\);/", $buy));
         self::assertSame(1, preg_match("/only_method\\('POST'\\);\\s*verify_csrf\\(\\);/", $sell));
-        self::assertStringContainsString('transactionWithColony(', $buy);
-        self::assertStringContainsString('credits >= ?', $buy);
-        self::assertStringContainsString('quantity + ? <= capacity', $buy);
-        self::assertStringContainsString('economy_market_transactions', $buy);
-
-        self::assertStringContainsString('transactionWithColony(', $sell);
-        self::assertStringContainsString('quantity >= ?', $sell);
-        self::assertStringContainsString('UPDATE users SET credits = credits + ?', $sell);
-        self::assertStringContainsString('economy_market_transactions', $sell);
+        self::assertStringContainsString('->exchange($colonyId, $uid, $goodType, $quantity, true)', $buy);
+        self::assertStringContainsString('->exchange($colonyId, $uid, $goodType, $quantity, false)', $sell);
+        foreach ([$buy, $sell] as $handler) {
+            self::assertStringNotContainsString('ResourceLedger', $handler);
+            self::assertStringNotContainsString('ON_DEMAND_ECONOMY_ENABLED', $handler);
+        }
     }
 
     public function testMarketReadsAndMutationsEnforceTheirHttpMethods(): void
@@ -48,6 +38,9 @@ final class MarketResourceLedgerTest extends TestCase
             'action_get_active_events' => 'GET',
             'action_buy' => 'POST',
             'action_sell' => 'POST',
+            'action_list_orders' => 'GET',
+            'action_create_order' => 'POST',
+            'action_cancel_order' => 'POST',
         ] as $handler => $method) {
             self::assertSame(
                 1,
@@ -60,17 +53,15 @@ final class MarketResourceLedgerTest extends TestCase
         }
     }
 
-    public function testColonyPriceReadUsesOnlyTheExplicitOwnedColonySettlement(): void
+    public function testColonyPriceReadChecksOwnershipWithoutSettlement(): void
     {
         $source = file_get_contents(__DIR__ . '/../../api/market.php');
         self::assertIsString($source);
 
         $prices = $this->functionBody($source, 'action_get_prices');
         $ownershipCheck = strpos($prices, 'if (!$stmt->fetch())');
-        $settlement = strpos($prices, '(new OnDemandEconomy($db))->settle($colonyId, $uid)');
         self::assertNotFalse($ownershipCheck);
-        self::assertNotFalse($settlement);
-        self::assertLessThan($settlement, $ownershipCheck);
+        self::assertStringNotContainsString('->settle(', $prices);
 
         $regionPrices = $this->functionBody($source, 'action_get_region_prices');
         self::assertStringNotContainsString('->settle(', $regionPrices);
@@ -79,6 +70,22 @@ final class MarketResourceLedgerTest extends TestCase
         self::assertStringContainsString('->market(', $snapshot);
         self::assertStringNotContainsString('->settle(', $snapshot);
         self::assertDoesNotMatchRegularExpression('/\\b(?:INSERT|UPDATE|DELETE)\\b/i', $snapshot);
+    }
+
+    public function testStandingOrderMutationsRequireCsrfAndDelegateAuthenticatedOwner(): void
+    {
+        $source = file_get_contents(__DIR__ . '/../../api/market.php');
+        self::assertIsString($source);
+        foreach (['action_create_order', 'action_cancel_order'] as $name) {
+            $handler = $this->functionBody($source, $name);
+            self::assertSame(1, preg_match("/only_method\\('POST'\\);\\s*verify_csrf\\(\\);/", $handler));
+            self::assertStringContainsString('(new StandingOrders($db))->', $handler);
+            self::assertStringContainsString('$uid', $handler);
+            self::assertStringContainsString('catch (DomainException $error)', $handler);
+        }
+        $list = $this->functionBody($source, 'action_list_orders');
+        self::assertStringContainsString('->list($uid,', $list);
+        self::assertStringNotContainsString('->settle(', $list);
     }
 
     private function functionBody(string $source, string $functionName): string

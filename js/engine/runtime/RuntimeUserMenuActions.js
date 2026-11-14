@@ -85,6 +85,24 @@
       return;
     }
 
+    if (action === 'toggle-email-notifications') {
+      if (!API || typeof API.notificationSettings !== 'function' || typeof API.setEmailNotifications !== 'function') return;
+      const current = await API.notificationSettings();
+      if (!current || !current.success) {
+        showToast(current?.error || 'E-Mail-Einstellung konnte nicht geladen werden.', 'error');
+        return;
+      }
+      const response = await API.setEmailNotifications(!current.email_notifications);
+      if (response && response.success) {
+        showToast(response.email_notifications
+          ? 'E-Mail-Benachrichtigungen aktiviert.'
+          : 'E-Mail-Benachrichtigungen deaktiviert.', 'info');
+      } else {
+        showToast(response?.error || 'E-Mail-Einstellung konnte nicht geaendert werden.', 'error');
+      }
+      return;
+    }
+
     if (action === 'refresh-profile') {
       await loadOverview();
       renderUserMenu();

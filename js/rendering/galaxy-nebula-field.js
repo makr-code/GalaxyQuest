@@ -56,13 +56,13 @@ export class GalaxyNebulaField {
     this.pipeline = pipeline;
   }
 
-  overviewProjection({ scale, zoom, rotation, panX, panY, aspect }) {
+  overviewProjection({ scale, zoom, rotation, panX, panY, aspect, horizontalOffset = 0.4 }) {
     const scaleX = this.radiusLy * scale * zoom * 1.6 / aspect;
     const scaleY = this.radiusLy * scale * zoom * 0.85;
     const cosine = Math.cos(rotation);
     const sine = Math.sin(rotation);
     return new Matrix4().set(
-      cosine * scaleX, -sine * scaleX, 0, panX * zoom * 1.6 / aspect + 0.4,
+      cosine * scaleX, -sine * scaleX, 0, panX * zoom * 1.6 / aspect + horizontalOffset,
       sine * scaleY, cosine * scaleY, 0, panY * zoom * 0.85,
       0, 0, -0.25, 0,
       0, 0, 0, 1,

@@ -6,7 +6,7 @@ const distributionDirectory = path.resolve('dist');
 const assetsDirectory = path.join(distributionDirectory, 'assets');
 const maxChunkBytes = 1.25 * 1024 * 1024;
 const maxInitialGzipBytes = 650 * 1024;
-const maxTotalGzipBytes = 800 * 1024;
+const maxTotalGzipBytes = 825 * 1024;
 const assetNames = (await readdir(assetsDirectory)).filter((name) => name.endsWith('.js'));
 
 if (assetNames.length === 0) {

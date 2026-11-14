@@ -101,10 +101,10 @@
 - [ ] Tier-3 Güter (Luxus, Militär, Forschung) implementieren
 - [ ] Pop-Class-Satisfaction an Güterverbrauch koppeln
 - [ ] Shortage/Starvation-Events triggern
-- [x] War-Economy-Policy (+30 % Militär, −20 % Konsumgüter) erzwingen — `economy_flush.php` + `EconomySimulation.js` `processTick()`
-- [x] Autarkie-Policy vollständig integrieren — Import-Blockierung in `api/market.php`, Produktion +10 % in `economy_flush.php` + `EconomySimulation.js`
+- [x] War-Economy-Policy (+30 % Militär, −20 % Konsumgüter) erzwingen — `get_policy_good_multipliers()` in `api/economy_runtime.php` (vormals `economy_flush.php`) + `EconomySimulation.js` `processTick()`
+- [x] Autarkie-Policy vollständig integrieren — Import-Blockierung in `api/market.php`, Produktion +10 % in `get_policy_good_multipliers()` in `api/economy_runtime.php` (vormals `economy_flush.php`) + `EconomySimulation.js`
 - [x] Merkantilismus: Import-Einschränkungen in `api/market.php` (Buy +20 %), Export-Bonus (Sell +20 %) — Integer-Policy-Bug gefixt
-- [x] Subventionen (Landwirtschaft/Forschung/Militär) Boost-Logik — `economy_flush.php` + `EconomyPolicy.productionMultipliers()`
+- [x] Subventionen (Landwirtschaft/Forschung/Militär) Boost-Logik — `get_policy_good_multipliers()` in `api/economy_runtime.php` (vormals `economy_flush.php`) + `EconomyPolicy.productionMultipliers()`
 - [x] Manufacturing-Bottleneck-Warnungen im Frontend — `_renderPolicyEffectsPanel()` + `_renderConflictWarnings()` Bug gefixt
 
 ---

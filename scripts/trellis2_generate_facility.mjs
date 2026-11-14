@@ -12,6 +12,8 @@ const OUTPUT_NODE = '203';
 const TEXTURING_NODE = '258';
 const MESH_ONLY_FACE_TARGET = 15000;
 const TEXTURED_FACE_TARGET = 5000;
+const DEFAULT_SHAPE_RESOLUTION = 1024;
+const SUPPORTED_SHAPE_RESOLUTIONS = new Set([512, 1024]);
 const NODE_CLASSES = new Set([
   'PrimitiveInt',
   'PrimitiveString',
@@ -21,6 +23,7 @@ const NODE_CLASSES = new Set([
   'Trellis2FillHolesWithCuMesh',
   'Trellis2ImageCondGenerator',
   INPUT_NODE,
+  'Trellis2LoadMesh',
   'Trellis2LoadModel',
   'Trellis2MeshTexturing',
   'Trellis2MeshWithVoxelToTrimesh',
@@ -37,18 +40,43 @@ if (manifest.schema !== 'gq.trellis-reference.v1' || manifest.status !== 'CONCEP
   throw new Error('Unsupported or untrusted TRELLIS2 reference manifest.');
 }
 
-export function buildFacilityWorkflow({ facilityKind, imageName, seed = 20261112, textured = false }) {
+export function buildFacilityWorkflow({
+  facilityKind,
+  imageName,
+  seed = 20261112,
+  textured = false,
+  targetShapeResolution = DEFAULT_SHAPE_RESOLUTION,
+}) {
   if (!manifest.assets.some(asset => asset.asset_type === 'building' && asset.facility_kind === facilityKind)) {
     throw new RangeError(`Facility kind is not in the reference manifest: ${facilityKind}`);
   }
+  const filenamePrefix = `gq_trellis2/building_${facilityKind}_pilot_v1${textured ? '_lowpoly_textured' : ''}`;
+  return buildMeshWorkflow({ imageName, seed, textured, targetShapeResolution, filenamePrefix });
+}
+
+export function buildMeshWorkflow({
+  imageName,
+  seed = 20261112,
+  textured = false,
+  targetShapeResolution = DEFAULT_SHAPE_RESOLUTION,
+  filenamePrefix,
+}) {
   if (typeof imageName !== 'string' || !/^[a-z0-9][a-z0-9_.-]*\.png$/i.test(imageName)) {
     throw new TypeError('Image name must be a plain PNG filename.');
+  }
+  if (typeof filenamePrefix !== 'string' || !/^gq_trellis2\/[a-z0-9_]+$/i.test(filenamePrefix)) {
+    throw new TypeError('Output prefix must be a safe gq_trellis2 filename prefix.');
   }
   if (!Number.isSafeInteger(seed) || seed < 0 || seed > 2147483647) {
     throw new RangeError('Seed must be an integer from 0 to 2147483647.');
   }
+  if (!SUPPORTED_SHAPE_RESOLUTIONS.has(targetShapeResolution)) {
+    throw new RangeError('Shape resolution must be 512 or 1024.');
+  }
+  if (textured && targetShapeResolution !== DEFAULT_SHAPE_RESOLUTION) {
+    throw new RangeError('Textured generation requires shape resolution 1024.');
+  }
 
-  const filenamePrefix = `gq_trellis2/building_${facilityKind}_pilot_v1${textured ? '_lowpoly_textured' : ''}`;
   const pipeline = ['39', 0];
   const image = ['194', 0];
   const imageCondition = ['213', 0];
@@ -61,6 +89,9 @@ export function buildFacilityWorkflow({ facilityKind, imageName, seed = 20261112
   const cascadedShape = ['216', 0];
   const cascadedResolution = ['216', 1];
   const cascadedPipeline = ['216', 2];
+  const decodeShape = targetShapeResolution === 512 ? shape : cascadedShape;
+  const decodeResolution = targetShapeResolution === 512 ? shapeResolution : cascadedResolution;
+  const decodePipeline = targetShapeResolution === 512 ? shapePipeline : cascadedPipeline;
   const decodedMesh = ['217', 0];
   const holeFilledMesh = ['193', 0];
   const reconstructedMesh = ['161', 0];
@@ -86,7 +117,7 @@ export function buildFacilityWorkflow({ facilityKind, imageName, seed = 20261112
     },
     '194': {
       class_type: 'Trellis2PreProcessImage',
-      inputs: { image: ['6', 0], padding: 10, remove_background: false, max_size: 1024 },
+      inputs: { image: ['6', 2], padding: 10, remove_background: false, max_size: 1024 },
     },
     '213': {
       class_type: 'Trellis2ImageCondGenerator',
@@ -136,35 +167,39 @@ export function buildFacilityWorkflow({ facilityKind, imageName, seed = 20261112
         dino_foundation_cap: 1,
       },
     },
-    '216': {
-      class_type: 'Trellis2ShapeCascadeGenerator',
-      inputs: {
-        pipeline: shapePipeline,
-        image_cond: ['213', 1],
-        shape_slat: shape,
-        from_resolution: shapeResolution,
-        to_resolution: 1024,
-        sparse_structure_resolution: sparseResolution,
-        max_num_tokens: 999999,
-        shape_steps: 12,
-        shape_guidance_strength: 7.5,
-        shape_guidance_rescale: 0.01,
-        shape_rescale_t: 3,
-        shape_sampler: 'heun',
-        shape_guidance_interval_start: 0.1,
-        shape_guidance_interval_end: 1,
-        verbose: false,
-        dino_lock: 0,
-        dino_substeps: 4,
-        dino_foundation_cap: 1,
-      },
-    },
+    ...(targetShapeResolution === 1024
+      ? {
+          '216': {
+            class_type: 'Trellis2ShapeCascadeGenerator',
+            inputs: {
+              pipeline: shapePipeline,
+              image_cond: ['213', 1],
+              shape_slat: shape,
+              from_resolution: shapeResolution,
+              to_resolution: 1024,
+              sparse_structure_resolution: sparseResolution,
+              max_num_tokens: 999999,
+              shape_steps: 12,
+              shape_guidance_strength: 7.5,
+              shape_guidance_rescale: 0.01,
+              shape_rescale_t: 3,
+              shape_sampler: 'heun',
+              shape_guidance_interval_start: 0.1,
+              shape_guidance_interval_end: 1,
+              verbose: false,
+              dino_lock: 0,
+              dino_substeps: 4,
+              dino_foundation_cap: 1,
+            },
+          },
+        }
+      : {}),
     '217': {
       class_type: 'Trellis2DecodeLatents',
       inputs: {
-        pipeline: cascadedPipeline,
-        shape_slat: cascadedShape,
-        resolution: cascadedResolution,
+        pipeline: decodePipeline,
+        shape_slat: decodeShape,
+        resolution: decodeResolution,
         use_tiled_decoder: true,
       },
     },
@@ -232,6 +267,10 @@ export function buildFacilityWorkflow({ facilityKind, imageName, seed = 20261112
       },
     };
     workflow[OUTPUT_NODE].inputs.trimesh = [TEXTURING_NODE, 0];
+  } else if (targetShapeResolution === 512) {
+    delete workflow['250'];
+    delete workflow['257'];
+    workflow['202'].inputs.mesh = firstSimplifiedMesh;
   }
 
   return workflow;
@@ -264,11 +303,13 @@ function parseArgs(argv) {
     preflight: false,
     submit: false,
     textured: false,
+    shapeResolution: DEFAULT_SHAPE_RESOLUTION,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--kind') options.facilityKind = argv[++i];
     else if (arg === '--seed') options.seed = Number(argv[++i]);
+    else if (arg === '--shape-resolution') options.shapeResolution = Number(argv[++i]);
     else if (arg === '--base-url') options.baseUrl = argv[++i];
     else if (arg === '--preflight') options.preflight = true;
     else if (arg === '--submit') options.submit = true;
@@ -283,7 +324,7 @@ function endpoint(baseUrl, route) {
   return new URL(route.replace(/^\//, ''), `${baseUrl.replace(/\/+$/, '')}/`);
 }
 
-async function requestJson(baseUrl, route, options = {}) {
+export async function requestJson(baseUrl, route, options = {}) {
   const response = await fetch(endpoint(baseUrl, route), {
     ...options,
     signal: AbortSignal.timeout(options.timeoutMs ?? 30000),
@@ -303,7 +344,7 @@ async function requestJson(baseUrl, route, options = {}) {
   return payload;
 }
 
-function validateWorkflow(workflow, objectInfo) {
+export function validateWorkflow(workflow, objectInfo) {
   for (const [nodeId, node] of Object.entries(workflow)) {
     if (!NODE_CLASSES.has(node.class_type)) throw new Error(`Workflow contains an unapproved node: ${node.class_type}`);
     const schema = objectInfo[node.class_type];
@@ -361,7 +402,7 @@ async function findFacilityExports(facilityKind, textured = false) {
     .map(entry => path.join(exportDirectory, entry.name));
 }
 
-async function assertQueueEmpty(baseUrl) {
+export async function assertQueueEmpty(baseUrl) {
   const queue = await requestJson(baseUrl, '/queue');
   if (!Array.isArray(queue?.queue_running) || !Array.isArray(queue?.queue_pending)) {
     throw new Error('ComfyUI returned an invalid queue status.');
@@ -381,7 +422,7 @@ async function uploadReference(baseUrl, imageName, bytes) {
   return result.name;
 }
 
-async function ensureReferenceUploaded(baseUrl, objectInfo, imageName, bytes, expectedHash) {
+export async function ensureReferenceUploaded(baseUrl, objectInfo, imageName, bytes, expectedHash) {
   const choices = imageChoices(objectInfo);
   if (choices.includes(imageName)) {
     const query = new URLSearchParams({ filename: imageName, type: 'input' });
@@ -442,26 +483,31 @@ async function waitForOutput(baseUrl, promptId, timeoutMs, facilityKind, previou
 async function main(argv) {
   const options = parseArgs(argv);
   if (options.help) {
-    console.log('Usage: node scripts/trellis2_generate_facility.mjs --kind <facility-kind> [--seed <int>] [--textured] [--submit] [--base-url <url>]');
+    console.log('Usage: node scripts/trellis2_generate_facility.mjs --kind <facility-kind> [--seed <int>] [--shape-resolution <512|1024>] [--textured] [--submit] [--base-url <url>]');
     console.log('Without --submit, validates the manifest image and prints the generation plan only.');
     return;
   }
   const asset = manifest.assets.find(entry => entry.asset_type === 'building' && entry.facility_kind === options.facilityKind);
   if (!asset) throw new RangeError(`Unknown facility kind: ${options.facilityKind}`);
-  const referencePath = path.join(REPO_ROOT, 'generated', 'trellis2', 'references', asset.file);
+  const trellisInput = asset.trellis_input ?? asset;
+  const referencePath = path.join(REPO_ROOT, 'generated', 'trellis2', 'references', trellisInput.file);
   const imageBytes = await readFile(referencePath);
   const imageHash = createHash('sha256').update(imageBytes).digest('hex');
-  if (imageHash !== asset.sha256) throw new Error(`Reference image SHA-256 mismatch: ${asset.file}`);
+  if (imageHash !== trellisInput.sha256) {
+    throw new Error(`Reference image SHA-256 mismatch: ${trellisInput.file}`);
+  }
   const imageName = `gq_${asset.facility_kind}_concept_${imageHash.slice(0, 16)}.png`;
   const workflow = buildFacilityWorkflow({
     facilityKind: asset.facility_kind,
     imageName,
     seed: options.seed ?? 20261112,
     textured: options.textured,
+    targetShapeResolution: options.shapeResolution,
   });
   console.log(`Facility: ${asset.facility_kind}`);
   console.log(`Reference: ${referencePath}`);
   console.log(`Reference SHA-256: ${imageHash}`);
+  console.log(`Shape resolution: ${options.shapeResolution}`);
   console.log(`Output prefix: ${workflow['219'].inputs.value}`);
   if (!options.submit && !options.preflight) {
     console.log('Dry run only. Add --preflight to check ComfyUI or --submit to upload and enqueue one GPU generation.');

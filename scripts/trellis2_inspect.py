@@ -41,6 +41,8 @@ class MeshInspection:
     triangles: int
     vertices: int
     zero_area_faces: int
+    boundary_edges: int
+    nonmanifold_edges: int
     uv_valid: bool
     components: list[ComponentInspection]
     base_color: TextureInspection | None
@@ -90,6 +92,11 @@ def _mesh(name: str, mesh: trimesh.Trimesh) -> MeshInspection:
     total_area = float(areas.sum())
     if not np.isfinite(total_area) or total_area <= 0:
         raise ValueError(f"Mesh has no finite surface area: {name}")
+    valid_faces = analysis.faces[areas > 0]
+    edges = np.concatenate((valid_faces[:, [0, 1]], valid_faces[:, [1, 2]], valid_faces[:, [2, 0]]))
+    _, edge_counts = np.unique(np.sort(edges, axis=1), axis=0, return_counts=True)
+    boundary_edges = int(np.count_nonzero(edge_counts == 1))
+    nonmanifold_edges = int(np.count_nonzero(edge_counts > 2))
     groups = sorted(groups, key=lambda group: (-float(areas[group].sum()), int(min(group))))
     components = []
     for group in groups:
@@ -116,6 +123,10 @@ def _mesh(name: str, mesh: trimesh.Trimesh) -> MeshInspection:
         findings.append("multiple_face_components_review_required")
     if zero_area_faces:
         findings.append("zero_area_faces")
+    if boundary_edges:
+        findings.append("boundary_edges_review_required")
+    if nonmanifold_edges:
+        findings.append("nonmanifold_edges_review_required")
     if not uv_valid:
         findings.append("missing_or_invalid_uv")
     if not pbr:
@@ -133,6 +144,8 @@ def _mesh(name: str, mesh: trimesh.Trimesh) -> MeshInspection:
         triangles=len(mesh.faces),
         vertices=len(mesh.vertices),
         zero_area_faces=zero_area_faces,
+        boundary_edges=boundary_edges,
+        nonmanifold_edges=nonmanifold_edges,
         uv_valid=uv_valid,
         components=components,
         base_color=base,
@@ -226,7 +239,7 @@ def inspect_glb(raw: bytes, asset_type: str, facility_kind: str | None) -> Inspe
             "physical_scale",
             "orientation_and_ground_contact",
             "lod_and_render_budget",
-            "both_colony_views",
+            "ship_rendering" if asset_type == "ship" else "both_colony_views",
         ],
     )
 

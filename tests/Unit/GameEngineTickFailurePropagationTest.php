@@ -32,8 +32,6 @@ final class GameEngineTickFailurePropagationTest extends TestCase
     {
         foreach ([
             'process_war_runtime_tick' => 'war_runtime_tick',
-            'process_economy_pop_satisfaction_tick' => 'pop_satisfaction_tick',
-            'process_economy_production_tick' => 'economy_production_tick',
         ] as $function => $savepoint) {
             $functionSource = $this->functionSource($function);
             self::assertStringContainsString(

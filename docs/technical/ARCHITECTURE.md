@@ -213,6 +213,7 @@ different layers of the stack.
 | Fleet arrivals | **Explicit mutation** | CSRF-protected `POST fleet.php?action=check` | `process_fleet_arrivals()` |
 | Trade routes | **Explicit mutation** | CSRF-protected `POST trade.php?action=dispatch_due` | `check_and_dispatch_trade_routes()` |
 | Simulation ticks | **Explicit / worker** | CSRF-protected tick API or CLI runner | `simulation_tick.php`, `scripts/run_simulation_tick.php` |
+| Hourly world tick | **Aligned hourly window** | Global tick via scheduler/cron every 5 min; executes once per `floor(unix/3600)` window | `simulation_tick_global()` subsystems `world_events` + `mail_outbox` (`lib/world_tick.php`, `lib/mail_outbox.php`) |
 | Leader AI | **On-demand** | Player-triggered | `POST /api/leaders.php?action=ai_tick` |
 | Background projections | **Worker / cron** | CLI batch | `scripts/project_*.php` via projection queue |
 
@@ -220,7 +221,9 @@ Key insight: **there is no periodic resource-advancement scheduler.** Colony
 economy settlement is lazy and based on `last_update`; it may persist resource
 accounting during overview/resource reads and mutations. Overview GETs do not run
 simulation ticks, and fleet arrivals and recurring trade dispatches use explicit
-CSRF-protected POST actions instead of list requests.
+CSRF-protected POST actions instead of list requests. The hourly world tick only
+creates time-bounded world events and notifications; it never advances colony
+production — events are applied when ledgers settle.
 
 #### Frontend UI — event-driven with polling heartbeat
 
@@ -532,7 +535,7 @@ Key function groups:
 | Build economics | `building_cost`, `building_build_time`, `research_cost`, `research_time`, `ship_cost` |
 | Fleet / 3D physics | `fleet_speed_ly_h`, `fleet_3d_distance`, `fleet_travel_time_3d`, `fleet_current_position`, `get_system_3d_coords` |
 | Leader bonuses | `leader_production_bonus`, `leader_build_time`, `leader_research_time`, `leader_fleet_speed`, `leader_combat_attack` |
-| Colony tick | `update_colony_resources`, `update_all_colonies` |
+| Colony settlement (on demand, no tick) | `update_colony_resources` (delegates to `OnDemandEconomy::settle()`), `update_all_colonies` |
 | FTL speed | `ftl_adjusted_speed` (applies FTL drive type bonuses) |
 
 All cost formulas follow:
@@ -2156,8 +2159,8 @@ Persistent development is opt-in after `migrate_body_development_v1.sql`.
 `lib/BodyDevelopment.php` stores version 1 milestones in `body_development`,
 keyed only by `celestial_bodies.id`: highest observed population, maximum
 founded-prefix count (12), initialization time and last milestone observation.
-Both authoritative `OnDemandEconomy::settle()` and legacy
-`update_colony_resources()` observe the initial population and every existing
+The authoritative `OnDemandEconomy::settle()` (also reached through
+`update_colony_resources()`) observes the initial population and every existing
 simulation step (including partial mutation steps), so growth followed by
 starvation within one offline catch-up still founds the crossed-threshold site.
 The simulation exposes an optional peak accumulator without changing its
@@ -2201,7 +2204,7 @@ scrolls within the viewport and stays collapsed by default in the in-game
 details UI; it is disposed with the existing surface controls.
 
 History is returned only through owner-authorized building lists/economy
-snapshots; building lists bypass their legacy cache when the feature is enabled.
+snapshots; building lists are not served from a legacy cache.
 The loader uses the freshly settled population from the building response,
 rather than an older overview population. Development never enters the public
 terrain manifest/tile caches or foreign-planet reads. Invalid/cross-body/stale
@@ -2230,8 +2233,9 @@ pending/stale navigation, non-click camera drags and detached-control cleanup.
 `tests/Unit/BodyDevelopmentTest.php` and the economy persistence integration
 tests cover threshold parity, initialization, decline, conquest/recolonization,
 idempotency, ownership rejection and transaction rollback. Run the persistence
-tests with `BODY_DEVELOPMENT_ENABLED=0` and `1`; keep
-`ON_DEMAND_ECONOMY_ENABLED=0` when including the legacy persistence fixture.
+tests with `BODY_DEVELOPMENT_ENABLED=0` and `1`. The on-demand ledger is the
+only economy path; there is no `ON_DEMAND_ECONOMY_ENABLED` flag or legacy
+persistence fixture.
 `tests/Unit/ColonyEconomySimulationTest.php` verifies that an intermediate
 growth threshold survives subsequent starvation and that peak observation
 leaves the simulation result unchanged, including partial mutation steps.

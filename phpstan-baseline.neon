@@ -31,12 +31,6 @@ parameters:
 			path: api/auth.php
 
 		-
-			message: '#^Expression on left side of \?\? is not nullable\.$#'
-			identifier: nullCoalesce.expr
-			count: 2
-			path: api/buildings.php
-
-		-
 			message: '#^Unreachable statement \- code above always terminates\.$#'
 			identifier: deadCode.unreachable
 			count: 3
@@ -113,24 +107,6 @@ parameters:
 			identifier: notIdentical.alwaysTrue
 			count: 1
 			path: api/diplomatic_plays.php
-
-		-
-			message: '#^Offset ''consumer_goods'' on array\{military_equipment\: 1\.3\} on left side of \?\? does not exist\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: api/economy_flush.php
-
-		-
-			message: '#^Offset ''food'' on array\{steel_alloy\?\: float, focus_crystals\?\: float, reactor_fuel\?\: float, biocompost\: float, electronics_components\?\: float, consumer_goods\?\: float, luxury_goods\?\: float, military_equipment\?\: float, \.\.\.\} on left side of \?\? does not exist\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: api/economy_flush.php
-
-		-
-			message: '#^Offset ''military_equipment'' on array\{\} on left side of \?\? does not exist\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: api/economy_flush.php
 
 		-
 			message: '#^Unreachable statement \- code above always terminates\.$#'
@@ -387,7 +363,7 @@ parameters:
 		-
 			message: '#^Unreachable statement \- code above always terminates\.$#'
 			identifier: deadCode.unreachable
-			count: 11
+			count: 13
 			path: api/game.php
 
 		-
@@ -665,12 +641,6 @@ parameters:
 			identifier: deadCode.unreachable
 			count: 1
 			path: api/market.php
-
-		-
-			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: api/market_analysis.php
 
 		-
 			message: '#^Unreachable statement \- code above always terminates\.$#'

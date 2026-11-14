@@ -1,0 +1,61 @@
+{
+  "schema": "gq.trellis-shuttle-reference.v1",
+  "status": "CONCEPT_REFERENCE_ONLY",
+  "purpose": "Battered civilian shuttle candidates for the GalaxyQuest start screen",
+  "preferred_candidate": "patchwork_tug",
+  "preparation": {
+    "source": "Image generator; independent single-object three-quarter views, not views of one shared ship",
+    "alpha": "Use existing source alpha; values <=8 set to 0, values >=250 set to 255, others unchanged before resizing",
+    "resize": "Resize whole image to fit 896x896 with Pillow LANCZOS; center on transparent 1024x1024 RGBA canvas without mask multiplication",
+    "background_removal": "Not needed; source PNGs already contain transparency",
+    "review": "Prepared silhouettes visually inspected; all landing feet and engine housings remain in frame"
+  },
+  "assets": [
+    {
+      "id": "dock_mule",
+      "brief": "Boxy mustard-yellow industrial cargo shuttle with battered engine cowling",
+      "source": {
+        "file": "dock_mule_concept_v1.png",
+        "sha256": "59e93507735b4322f778084ab4603338d24da8ab66767843bd65030aa058dc64"
+      },
+      "trellis_input": {
+        "file": "dock_mule_trellis_v1.png",
+        "sha256": "6499eb3f760a411fbcd0cc3b29c298ee99f50948de3cb2d04c24b44847e42dc6"
+      }
+    },
+    {
+      "id": "rust_bucket",
+      "brief": "Bulky rounded cream-and-teal passenger shuttle with patched hull and damaged engine shroud",
+      "source": {
+        "file": "rust_bucket_concept_v1.png",
+        "sha256": "2826b7d4fe83a1b3ceaddd7f053503dd2a566ccda991dd38d88020d03abca7aa"
+      },
+      "trellis_input": {
+        "file": "rust_bucket_trellis_v1.png",
+        "sha256": "060936c7dafa2eb271b93a6026d30fa5d75388c5b93f89b5d9a483b47e42eafe"
+      }
+    },
+    {
+      "id": "patchwork_tug",
+      "brief": "Low blocky faded-red utility shuttle with welded patches and torn attached armor panel",
+      "source": {
+        "file": "patchwork_tug_concept_v1.png",
+        "sha256": "59d2cef1581c6d15fe80fa7d551af6311050106b9617668335927eed4009c130"
+      },
+      "trellis_input": {
+        "file": "patchwork_tug_trellis_v1.png",
+        "sha256": "af1d5757f3311db6565f1014036770e955cff9841c4d269abf359afdf141890b"
+      },
+      "texture_mesh": {
+        "file": "shuttle_patchwork_tug_6613380216584a3fa81741c2bd9cd3e6_00001__zero_area_cleaned_normals.glb",
+        "sha256": "e1b1f0ea331a9776b7fadbd949ebf28ac378d2ace1a48eac0b4cdb6a1c37ae77"
+      }
+    }
+  ],
+  "limitations": [
+    "These are image-to-3D input candidates, not generated or accepted 3D assets.",
+    "Hidden rear and underside geometry will be inferred; image detail does not guarantee mesh or PBR quality.",
+    "The facility-only generator does not consume this shuttle manifest; use the separate shuttle generator.",
+    "Generated shuttle meshes require inspection and are not integrated into the start screen."
+  ]
+}

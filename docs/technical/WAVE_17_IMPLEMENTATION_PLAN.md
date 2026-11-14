@@ -280,7 +280,7 @@ Testing & Validation [PHASE 5]
 
 ### 4.2 Economy Production Warnings
 **Files to modify:**
-- `js/engine/runtime/RuntimeEconomyController.js` — Warning display logic
+- `js/ui/game-economy.js` — Warning display logic
 - `html/war-*.html` → Embed economy warnings
 
 **Gap Items:**

@@ -4,7 +4,7 @@
 
 **Status:** Verbindlicher Zielablauf; Implementierung noch nicht abgeschlossen
 **Zugehörig zu:** [FACTION_INTRODUCTION.md](FACTION_INTRODUCTION.md) → [GAMEDESIGN.md](GAMEDESIGN.md)  
-**Letztes Update:** 2026-10-29
+**Letztes Update:** 2026-11-14
 
 ---
 
@@ -16,11 +16,147 @@ erhalten, sind bei abweichender Reihenfolge oder Mechanik aber nicht mehr
 verbindlich. Insbesondere entfallen die fruehe E-Mail-/Passworteingabe und die
 Gleichsetzung von Fraktion und Spezies.
 
-### Implementierter Zwischenstand
+### Aktueller Kampagnenstart: Komet, Heimatwelten und Shuttle
 
+Dieser Ablauf ersetzt auch den nachfolgend dokumentierten aelteren
+Zwischenstand fuer **Begin a new campaign**:
+
+1. Das Menue fliegt per Motion aus. Die vorhandene 3D-Kamera uebernimmt
+   einen bewegten Kometen und blickt durch dessen raeumlichen Partikelschweif
+   zum Kern. Galaxiebeschreibung, GalaxyQuest-Titel und Konvergenz bleiben
+   drei zusammenhaengende Textbeats derselben Verfolgung.
+2. Der Komet fliegt die sechs echten Spezies-Heimatwelten und anschliessend
+   Erde (Eisenflotte), Helion Prime und Verath als NPC-Stationen nacheinander an
+   und passiert sie sichtbar als Besucher. Nur die sechs Spezies stehen zur
+   Herkunftswahl. Die Kamera begleitet den Kometen bis nahe an die beleuchtete
+   Hemisphaere; ein sichtbarer Teil der Kruemmung bleibt im Bild. Die
+   Oberflaechen und gezeigte Boden- und Orbitalstrukturen sind schematische,
+   nicht persistierte Vorschaubilder, keine Abbildung realer Bauwerke. Die
+   Erde nutzt hier noch prozedurale, keine geografisch authentischen Kontinente.
+   Eine partikelreiche Koma und sein Schweif bleiben erkennbar. Jede Strecke dauert
+   regulaer 45 Sekunden; waehrenddessen vermitteln Textbeats Informationen zum
+   Universum. Erst nach der Ankunft folgt die Heimatwelt-Vorstellung. Der
+   oeffentliche Katalog liefert renderbare DB-Szenen; fehlt eine NPC-Szene,
+   wird dies angezeigt und die Tour nur auf ausdrueckliches Weiter fortgesetzt.
+   Die Tour legt noch keine
+   privaten Drafts an. Weiterlesen wechselt nur den Text, nicht das Flugziel;
+   Zurueck, Pause und Ueberspringen bleiben bedienbar. Reise und Massstab sind
+   filmisch, keine Simulation realer Kometengeschwindigkeiten.
+3. Nach der Tour werden die bestehenden privaten Herkunfts-Drafts vorbereitet.
+   Der Spieler waehlt seine Spezies und seinen Commander-Namen.
+   Die Darstellung bleibt bis zum Abflug bei der gewaehlten Heimatwelt.
+4. Ein Shuttle startet von dieser Heimatwelt und kreuzt den Kometen mit
+   sicherem Abstand. Die Kamera wechselt im Vorbeiflug vom Kometen auf das
+   Shuttle; ein sichtbarer Charakter-Sprung wird nicht behauptet. Das Shuttle durchquert die Galaxie und
+   naehert sich dem bereits reservierten privaten Startsystem. Der Transit
+   ist filmisch skaliert, keine Simulation massstabsgetreuer Reisezeiten.
+5. Im Zielorbit prueft der Spieler seine neue Welt. **Bestaetigen und landen**
+   ist zwingend ein eigener Schritt; erst der anschliessende Landeanflug
+   uebergibt an das bestehende private Draft-Spiel/Tutorial.
+
+Zunaechst wird ausschliesslich das vorhandene private Startsystem verwendet.
+Ein Neuwuerfeln oder eine On-the-fly-Neugenerierung ist spaetere Arbeit und
+wird nicht durch kosmetische Kamerawechsel vorgetaeuscht.
+
+Galaxie und Flug behalten visuellen Vorrang. Ein einzelner großer Untertitel
+steht über einer schlanken, an Cues und Registrierungsschritte gebundenen
+Fortschrittsleiste mit dezenten, beschrifteten Icon-Steuerungen. Auswahl und
+Formulare erscheinen nur bei Bedarf darüber; Fehler bleiben sichtbar. Motion
+animiert den Untertitel; ein injizierter Kamera-Adapter steuert den bestehenden
+Three.js-/WebGPU-Renderer und dessen Frame-Loop. Kein zweiter Canvas,
+Renderer oder Simulationsloop. Pause haelt Text und Flug an; reduzierte
+Bewegung setzt die jeweiligen Zielzustaende. Fehlende Kameraziele/Modelle
+werden sichtbar gemeldet und erfordern ausdrueckliches Fortsetzen ohne
+Darstellung. Details: [Motion-Integration](../technical/MOTION_INTEGRATION.md).
+
+Auch nach der Landung bleibt die Welt ein privater Draft; ein aktiver
+Spieler oder eine aktive Kolonie entstehen erst durch den bestehenden
+verifizierten Registrierungsabschluss.
+
+Der [Untertitel-Drehbuchentwurf aus der Sicht des Kometen](../lore/COMET_NARRATED_INTRO.md)
+deckt die neun Stationen bis zur Landung ab, trennt Lore von belegter Astronomie
+und enthält optionale Entwickler-Credits. Die Kino-Tour nutzt lokalisierte
+Deutsch-/Englisch-Cues und vier fest freigegebene TTS-Stimmen; Sprecherprofil
+und Untertitelsprache werden gemeinsam über die TTS-Stimmeinstellung gewählt.
+Die allgemeinen TTS-Endpunkte und ihre Freigaben bleiben davon getrennt.
+
+### Aelterer Zwischenstand (direkter Legacy-Prolog, nicht der Kampagnenstart)
+
+- Die Startbedienung nutzt lokal gebuendeltes [Motion](https://motion.dev/)
+  (`motion/mini`, MIT). Technische Details und Erweiterungsmoeglichkeiten:
+  [Motion-Integration](../technical/MOTION_INTEGRATION.md).
+  Titel und Menuepunkte fliegen gestaffelt von links,
+  der Musikplayer von rechts, die Kennzeile von oben und Credits,
+  Status und Log von unten ein; alle werden gleichzeitig eingeblendet.
+  **Begin a new campaign** wartet auf den gemeinsamen Abschluss der
+  Ausflug-/Ausblendanimation, bevor der Vorspann beginnt.
+  Waehrenddessen sind die Bedienelemente inert, Doppelklicks werden ignoriert.
+  Escape bricht den Uebergang ab und stellt die Ausgangsansicht wieder her.
+  Auch beim Verlassen des Prologs fliegt das Menue wieder ein.
+  Reduzierte Bewegung setzt die Zustaende ohne Fahrt und Wartezeit;
+  Aktivieren waehrend einer Animation schliesst sie unmittelbar ab.
+- Nach **Begin a new campaign** beginnt vor dem Kamera-Anflug ein eigener
+  dreiteiliger Vorspann: Galaxiebeschreibung, animierter GalaxyQuest-Titel,
+  Ueberleitung in die Kalytherion-Konvergenz. Er startet nicht beim Seitenaufruf
+  und nicht beim Login. Die Texte und Standzeiten stehen unter `opening` in
+  [onboarding_prologue.json](../../config/onboarding_prologue.json).
+  Die astronomische Einleitung ist eigenstaendig formuliert; Faktenvorlage ist
+  [Wikipedia: Galaxie](https://de.wikipedia.org/wiki/Galaxie). Der Uebergang
+  zur Fiktion wird explizit gekennzeichnet.
+  Der bestehende Galaxie-Canvas zeigt die Gesamtansicht, HTML/CSS inszeniert
+  Titel und technische Dialogelemente. Sterne und Nebel ruecken dabei gemeinsam
+  aus der rechts versetzten Startmenue-Komposition in die Bildschirmmitte.
+  Reduzierte Bewegung setzt die Zentrierung unmittelbar; Abbruch stellt die
+  gespeicherte Ausgangskomposition wieder her.
+  Kein Video und kein zweiter Renderer.
+  Die Galaxie hat visuellen Vorrang: keine grossflaechige Dialogbox und
+  keine dauerhafte Vollbild-Abdunklung. Erzaehltext und Navigation liegen
+  als kompakte Untertitelspur im unteren Bereich (maximal 44 Prozent der
+  Viewporthoehe, bei Bedarf scrollbar); die Bildmitte bleibt frei.
+  Nur der animierte GalaxyQuest-Titel nutzt fuer seinen Titelshot die
+  zentrale Bildflaeche. Quellenangaben sind aufklappbar, leere Statusfelder
+  belegen keinen Raum. Notwendige Auswahl-/Formularschritte bleiben als
+  schmale seitliche oder untere Overlays bedienbar.
+  Die Slide-Texte wechseln per Motion: alter Text blendet dezent aus,
+  neuer Text gleitet leicht ein; der Titelshot erhaelt eine Tiefenanimation.
+  Jeder Opening-/Teaser-Slide hat ausserdem einen `camera`-Auftrag:
+  drei zusammenhaengende echte 3D-Galaxieeinstellungen, danach vier
+  Verfolgungsperspektiven desselben Transferschiffs. Die Slide-Regie besitzt
+  dafuer einen injizierten Kamera-Adapter zur bestehenden Engine, keinen
+  eigenen Renderer. Die raeumliche Ansicht wird nicht mehr pro Slide
+  zurueckgesetzt. Der anschliessende Anflug startet aus der letzten
+  Vorspann-Pose; nur ein Abbruch stellt die alte Menueansicht wieder her.
+  Visuelle Textkopien sind nicht bedienbar und fuer Screenreader verborgen.
+  Schnelle Wechsel und Abbruch verwerfen vorherige Animationen.
+  **Pause/Fortsetzen** haelt die aktuelle Restlesezeit, Motion-Animation und Kamera an,
+  **Weiter/Zurueck** navigiert die Slides, **Vorspann ueberspringen** startet
+  denselben bestehenden Anflug. Ein versteckter Browsertab pausiert den
+  Vorspann; Fortsetzen erfolgt bewusst per Button. Abbruch entfernt alle
+  Slide-Timer. Reduzierte Bewegung deaktiviert die Titel- und Textbewegung.
+  Der Vorspann ist bewusst textbasiert; danach nutzt der vorhandene Prolog
+  weiterhin seine Sprachausgabe. Es werden noch keine Drafts angelegt.
 - Der Register-Einstieg ist ein Vollbild-Prolog statt einer Auth-Kaskade.
   Statische Container stehen in [index.html](../../index.html), der Ablauf in
   [registration-prologue.js](../../js/network/registration-prologue.js).
+- Der erste Anflug uebernimmt die aktuelle Galaxieansicht vor dem Anhalten
+  der automatischen Flugtour. **Anflug ueberspringen** startet dasselbe erste
+  Kapitel ohne weiteres Warten; **Zurueck** verwirft den Anflug und stellt
+  die gespeicherte Ansicht wieder her, sofern der Renderer noch verfuegbar
+  ist. Reduzierte Bewegung wird beruecksichtigt. Ist der Kamera-Anflug nicht
+  verfuegbar, bleibt der Prolog bedienbar und zeigt den Fallback an.
+  Kamera und Anflug sind Darstellung, sie legen keinen Draft und kein Konto an.
+  In den Auswahl-/Tutorialschritten werden System, Planet und vorhandener
+  Kolonie-Anker gezielt angeflogen. Fehlende Ziele werden gemeldet statt
+  durch erfundene Welten ersetzt. Asteroiden koennen als vorhandene
+  Szenenziele adressiert werden; ein eigener Asteroiden-Shot ist im
+  aktuellen Vorspann noch nicht geschrieben.
+  Bei der ueblichen 2D-Galaxieansicht wird die bestehende Ansicht in eine
+  raeumliche Kameraansicht ueberfuehrt und hinter einer kurzen Abdunklung
+  sichtbar gemacht, waehrend das Transferschiff geladen wird. Erst wenn das
+  Schiff bereit ist, beginnt die Kamerafahrt. Ein zweiter Renderer wird nicht
+  gestartet. Bei fehlendem WebGPU, nicht geladenem Schiff oder Ladefehlern
+  bleibt die Ansicht bedienbar und meldet den Rueckfall; reduzierte Bewegung
+  setzt die 3D-Ansicht ohne Kamerafahrt fort.
 - Vier Lorekapitel und vier politische Vorstellungen stammen aus
   [onboarding_prologue.json](../../config/onboarding_prologue.json).
   Danach folgen die Symbolwahl, sechs unabhaengige Spezies und ein privater

@@ -5,8 +5,10 @@ declare(strict_types=1);
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/npc_ai.php';
 require_once __DIR__ . '/../src/Simulation/Application/SimulationEventTaxonomy.php';
+require_once __DIR__ . '/../lib/world_tick.php';
 
 use GalaxyQuest\Simulation\Application\SimulationEventTaxonomy;
+use GalaxyQuest\Simulation\HourlyWindow;
 
 /**
  * Headless simulation orchestration runtime.
@@ -298,6 +300,16 @@ function simulation_runtime_execute_subsystem(
 }
 
 /**
+ * Wall-clock aligned cadence: a global tick is due once per cooldown window
+ * (e.g. every full hour), so a 5-minute scheduler never drifts past a window.
+ */
+function simulation_runtime_global_tick_due(int $now, int $last, int $cooldown): bool
+{
+    $cooldown = max(1, $cooldown);
+    return intdiv($now, $cooldown) > intdiv(max(0, $last), $cooldown);
+}
+
+/**
  * @return array<string, mixed>
  */
 function simulation_tick_global(PDO $db, bool $force = false): array
@@ -323,7 +335,7 @@ function simulation_tick_global_locked(PDO $db, bool $force = false): array
 
     if (!$force && $supportsStateTracking) {
         $last = app_state_get_int($db, $stateKey, 0);
-        if (($now - $last) < $cooldown) {
+        if (!simulation_runtime_global_tick_due($now, $last, $cooldown)) {
             return [
                 'executed' => false,
                 'scope' => 'global',
@@ -346,24 +358,6 @@ function simulation_tick_global_locked(PDO $db, bool $force = false): array
         'ticks' => [],
     ];
 
-    $result['ticks']['economy_production'] = simulation_runtime_execute_subsystem(
-        $db,
-        'global',
-        'economy_production',
-        '',
-        static fn(): array => process_economy_production_tick($db, $force),
-        $supportsStateTracking,
-        $tickStartedAtUnix
-    );
-    $result['ticks']['economy_population'] = simulation_runtime_execute_subsystem(
-        $db,
-        'global',
-        'economy_population',
-        '',
-        static fn(): array => process_economy_pop_satisfaction_tick($db, $force),
-        $supportsStateTracking,
-        $tickStartedAtUnix
-    );
     $result['ticks']['npc_world'] = simulation_runtime_execute_subsystem(
         $db,
         'global',
@@ -415,10 +409,47 @@ function simulation_tick_global_locked(PDO $db, bool $force = false): array
         $supportsStateTracking,
         $tickStartedAtUnix
     );
+    $result['ticks']['economy_requests'] = simulation_runtime_execute_subsystem(
+        $db,
+        'global',
+        'economy_requests',
+        '',
+        static function () use ($db, $now): array {
+            require_once __DIR__ . '/../src/Economy/EconomicRequests.php';
+            return (new \GalaxyQuest\Economy\EconomicRequests($db))->tick($now);
+        },
+        $supportsStateTracking,
+        $tickStartedAtUnix
+    );
+    $result['ticks']['world_events'] = simulation_runtime_execute_subsystem(
+        $db,
+        'global',
+        'world_events',
+        '',
+        static fn(): array => world_events_tick_global($db, $now),
+        $supportsStateTracking,
+        $tickStartedAtUnix
+    );
+    // Advisory and last: delivery problems are reported but never fail the world tick.
+    $result['ticks']['mail_outbox'] = simulation_runtime_execute_subsystem(
+        $db,
+        'global',
+        'mail_outbox',
+        '',
+        static fn(): array => mail_outbox_tick_global($db, $now),
+        $supportsStateTracking,
+        $tickStartedAtUnix
+    );
+    $result['ticks']['mail_outbox']['advisory'] = true;
 
     $allTicksSucceeded = true;
     $errorCount = 0;
+    $advisoryErrorCount = 0;
     foreach ($result['ticks'] as $tick) {
+        if (!empty($tick['advisory'])) {
+            $advisoryErrorCount += (int)($tick['error_count'] ?? 0);
+            continue;
+        }
         $errorCount += (int)($tick['error_count'] ?? 0);
         if (empty($tick['ok'])) {
             $allTicksSucceeded = false;
@@ -431,7 +462,9 @@ function simulation_tick_global_locked(PDO $db, bool $force = false): array
 
     $result['duration_ms'] = (int)round((microtime(true) - $tickStart) * 1000);
     $result['error_count'] = $errorCount;
+    $result['advisory_error_count'] = $advisoryErrorCount;
     $result['tick_unix'] = $now;
+    $result['window_id'] = HourlyWindow::id($now);
 
     return $result;
 }

@@ -675,6 +675,10 @@ const API = (() => {
     // PvP
     togglePvp: () => post('api/game.php?action=pvp_toggle', {}),
 
+    // Notifications (hourly world-event digest e-mails)
+    notificationSettings: () => get('api/game.php?action=notification_settings', { cacheMode: 'no-store' }),
+    setEmailNotifications: (enabled) => post('api/game.php?action=set_email_notifications', { enabled: !!enabled }),
+
     // Leaders
     leaders:             ()            => get('api/leaders.php?action=list'),
     hireLeader:          (name, role)  => post('api/leaders.php?action=hire',           { name, role }),

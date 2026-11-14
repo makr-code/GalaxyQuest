@@ -41,8 +41,7 @@ final class GameResourcesReadSideEffectsTest extends TestCase
         self::assertStringNotContainsString('simulation_tick(', $resources);
 
         self::assertStringContainsString(
-            'if (ON_DEMAND_ECONOMY_ENABLED) {' . "\n"
-                . '        (new OnDemandEconomy($db))->settle($colonyId, null, $now);',
+            "{\n    (new OnDemandEconomy(\$db))->settle(\$colonyId, null, \$now);\n}",
             $gameEngine
         );
     }

@@ -19,6 +19,54 @@ function loadStarfield() {
 }
 
 describe('StarfieldWebGPU camera driver', () => {
+  it('centers stars and nebulae together for registration and restores the menu composition', () => {
+    const Starfield = loadStarfield();
+    const canvas = document.createElement('canvas');
+    canvas.width = 1200;
+    canvas.height = 800;
+    const renderer = new Starfield(canvas, { menuGalaxy: true });
+    renderer._reducedMotion = false;
+    const pass = { setPipeline() {}, setBindGroup() {}, setVertexBuffer() {}, draw() {}, end() {} };
+    const writeBuffer = vi.fn();
+    Object.assign(renderer, {
+      _device: {
+        queue: { writeBuffer, submit() {} },
+        createCommandEncoder: () => ({ beginRenderPass: () => pass, finish() {} }),
+      },
+      _context: { getCurrentTexture: () => ({ createView() {} }) },
+      _pipeline: {}, _starBuffer: {}, _viewUniformBuffer: {}, _viewBindGroup: {}, _starCount: 1,
+    });
+    const nebula = new GalaxyNebulaField();
+    vi.spyOn(nebula, 'overviewProjection');
+    vi.spyOn(nebula, 'render').mockImplementation(() => {});
+    renderer._nebulaField = nebula;
+    const projectedCore = () => new Vector3(0, 0, 0).applyMatrix4(nebula.overviewProjection.mock.results.at(-1).value);
+    const starOffset = () => new Float32Array(writeBuffer.mock.calls.at(-1)[2])[8];
+    renderer._renderFrame(1000);
+    expect(starOffset()).toBeCloseTo(0.4);
+    expect(projectedCore().x).toBeCloseTo(0.4);
+    const snapshot = renderer.captureRegistrationView();
+    renderer.setRegistrationScene({ stage: 'galaxy', beat: 'opening-galaxy' });
+    renderer.setRegionPreview(null);
+    renderer._renderFrame(1016);
+    expect(starOffset()).toBeGreaterThan(0);
+    expect(starOffset()).toBeLessThan(0.4);
+    expect(projectedCore().x).toBeCloseTo(starOffset());
+    for (let frame = 2; frame <= 180; frame++) renderer._renderFrame(1000 + frame * 16);
+    expect(starOffset()).toBe(0);
+    expect(projectedCore().toArray()).toEqual([0, 0, 0]);
+    expect(renderer.restoreRegistrationView(snapshot)).toBe(true);
+    renderer._renderFrame(4000);
+    expect(starOffset()).toBeCloseTo(0.4);
+    expect(projectedCore().x).toBeCloseTo(0.4);
+    renderer._reducedMotion = true;
+    renderer.setRegistrationScene({ stage: 'galaxy', beat: 'opening-title' });
+    renderer._renderFrame(4016);
+    expect(starOffset()).toBe(0);
+    expect(projectedCore().x).toBe(0);
+    renderer.dispose();
+  });
+
   it('hands the existing frame loop to colony zoom and resumes spatial rendering after hook removal', () => {
     const Starfield = loadStarfield();
     const renderer = Object.create(Starfield.prototype);
@@ -163,7 +211,9 @@ describe('StarfieldWebGPU camera driver', () => {
     expect(vessel.position.distanceTo(new (vessel.position.constructor)(200, 30, 4)))
       .toBeCloseTo(8e-9, 9);
     expect(vessel.position.y).toBeGreaterThan(30);
-    expect(flight.camera.position.x).toBeLessThan(100);
+    expect(vessel.getForwardDirection().x).toBeLessThan(0);
+    expect(flight.camera.position.distanceTo(vessel.position.clone().sub(flight.origin)))
+      .toBeLessThan(vessel.scale * 7);
     flight.dispose();
   });
 
@@ -1148,7 +1198,7 @@ describe('StarfieldWebGPU camera driver', () => {
     ]);
     expect(starfield._starCount).toBe(2);
     expect(pass.draw).toHaveBeenCalledWith(4, 2, 0, 0);
-    expect(buffers[0].descriptor.size).toBe(32);
+    expect(buffers[0].descriptor.size).toBe(48);
     expect(device.queue.submit).toHaveBeenCalledOnce();
     const rotation = starfield._galaxyRotation;
     expect(rotation).toBeLessThan(0);

@@ -15,13 +15,16 @@ final class RegistrationDraftService {
     public function catalog(): array {
         $rows = $this->db->query(
             'SELECT f.id, f.code, c.name AS homeworld, cb.galaxy_index, cb.system_index,
-                    cb.position, s.x_ly, s.y_ly, s.z_ly
+                    cb.position, cb.body_type, cb.parent_body_type, s.name AS system_name, s.x_ly, s.y_ly, s.z_ly
              FROM faction_homeworlds h JOIN npc_factions f ON f.id = h.faction_id
              JOIN colonies c ON c.id = h.colony_id JOIN celestial_bodies cb ON cb.id = c.body_id
              JOIN star_systems s ON s.galaxy_index = cb.galaxy_index AND s.system_index = cb.system_index'
         )->fetchAll(PDO::FETCH_ASSOC);
         $factions = [];
+        $homeworldScenes = [];
+        $rowsByCode = [];
         foreach ($rows as $row) {
+            $rowsByCode[$row['code']] = $row;
             if (!isset($this->species[$row['code']])) continue;
             $spec = $this->species[$row['code']];
             $factions[$row['code']] = [
@@ -30,6 +33,7 @@ final class RegistrationDraftService {
                 'target' => $this->target($row),
                 'stars' => $this->regionStars($this->target($row)),
             ];
+            $homeworldScenes[$row['code']] = $this->homeworldScene($row);
         }
         if (count($factions) !== count($this->species)) {
             throw new RuntimeException('Faction homeworld setup is incomplete. Run setup --homeworlds-only.', 503);
@@ -50,11 +54,25 @@ final class RegistrationDraftService {
                 'code' => $code, 'name' => $spec['display_name'], 'description' => $spec['species_type'],
                 'faction_id' => $region['id'], 'homeworld' => $region['homeworld'],
                 'target' => $region['target'], 'stars' => $region['stars'],
+                'homeworld_scene' => $homeworldScenes[$code],
+            ];
+        }
+        $npcHomeworlds = [];
+        foreach ($content['npc_tour'] as $definition) {
+            $row = $rowsByCode[$definition['code']] ?? null;
+            $target = $row ? $this->target($row) : null;
+            $npcHomeworlds[] = [
+                'code' => $definition['code'], 'name' => $definition['name'],
+                'description' => $definition['description'],
+                'homeworld' => $row ? $row['homeworld'] : $definition['homeworld'],
+                'target' => $target, 'stars' => $target ? $this->regionStars($target) : [],
+                'homeworld_scene' => $row ? $this->homeworldScene($row) : null,
             ];
         }
         return [
             'factions' => $political,
             'species' => $speciesCatalog,
+            'npc_homeworlds' => $npcHomeworlds,
             'gameplay_styles' => self::STYLES,
         ];
     }
@@ -385,6 +403,42 @@ final class RegistrationDraftService {
         );
         $stmt->execute([$target['galaxy_index'], $target['x_ly'], $target['y_ly'], $target['z_ly']]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private function homeworldScene(array $row): array {
+        $target = $this->target($row);
+        $galaxy = $target['galaxy_index'];
+        $systemIndex = $target['system_index'];
+        $position = $target['position'];
+        if ($row['body_type'] !== 'planet' || $row['parent_body_type'] !== 'star') {
+            throw new RuntimeException('Faction homeworld is not a star-orbiting planet.', 503);
+        }
+        $system = generate_star_system($galaxy, $systemIndex);
+        $planets = [];
+        $found = false;
+        foreach ($system['planets'] as $candidate) {
+            $isHomeworld = (int)$candidate['position'] === $position;
+            $planet = [
+                'name' => $isHomeworld ? $row['homeworld'] : $candidate['name'],
+                'position' => (int)$candidate['position'],
+                'class' => $candidate['planet_class'], 'can_colonize' => (bool)$candidate['can_colonize'],
+                'diameter_km' => (int)$candidate['diameter_km'],
+                'semi_major_axis_au' => (float)$candidate['semi_major_axis_au'],
+            ];
+            if ($isHomeworld) {
+                $planet['inhabited'] = true;
+                $found = true;
+            }
+            $planets[] = $planet;
+        }
+        if (!$found) throw new RuntimeException('Faction homeworld is missing from its generated system.', 503);
+        return [
+            'scene_key' => "homeworld:$galaxy:$systemIndex", 'system_name' => $row['system_name'],
+            'target' => $target,
+            'position' => ['galaxy' => $galaxy, 'system' => $systemIndex, 'position' => $position],
+            'star' => ['temperature_k' => (int)$system['temperature_k'], 'radius_solar' => (float)$system['radius_solar']],
+            'planets' => $planets,
+        ];
     }
 
     private function publicDraft(array $row): array {

@@ -8,14 +8,12 @@
  */
 
 use GalaxyQuest\Economy\OnDemandEconomy;
-use GalaxyQuest\Economy\ResourceLedger;
 
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/cache.php';
 require_once __DIR__ . '/game_engine.php';
 require_once __DIR__ . '/buildings.php';
 require_once __DIR__ . '/achievements.php';
-require_once __DIR__ . '/../src/Economy/ResourceLedger.php';
 
 $action = $_GET['action'] ?? '';
 $uid    = require_auth();
@@ -137,59 +135,19 @@ switch ($action) {
         }
         $end      = date('Y-m-d H:i:s', time() + $secs);
 
-        if (ON_DEMAND_ECONOMY_ENABLED) {
-            try {
-                (new OnDemandEconomy($db))->spend($cid, $uid, $cost, function () use ($db, $uid, $type, $end): void {
-                    $busy = $db->prepare('SELECT id FROM research WHERE user_id=? AND research_end IS NOT NULL');
-                    $busy->execute([$uid]);
-                    if ($busy->fetch()) {
-                        throw new DomainException('Another research is already in progress.', 409);
-                    }
-                    $db->prepare(
-                        'UPDATE research SET research_start=NOW(), research_end=? WHERE user_id=? AND type=?'
-                    )->execute([$end, $uid, $type]);
-                });
-            } catch (DomainException $error) {
-                json_error($error->getMessage(), $error->getCode() ?: 400);
-            }
-        } else {
-            try {
-                (new ResourceLedger($db))->spend(
-                    $cid,
-                    $uid,
-                    $cost,
-                    function () use ($db, $uid, $type, $nextLevel, $end): void {
-                        $busy = $db->prepare(
-                            'SELECT id FROM research WHERE user_id = ? AND research_end IS NOT NULL'
-                        );
-                        $busy->execute([$uid]);
-                        if ($busy->fetch()) {
-                            throw new DomainException('Another research is already in progress.', 409);
-                        }
-
-                        $current = $db->prepare('SELECT level FROM research WHERE user_id = ? AND type = ?');
-                        $current->execute([$uid, $type]);
-                        $level = $current->fetchColumn();
-                        if ($level === false || (int)$level + 1 !== $nextLevel) {
-                            throw new DomainException('Research state changed. Refresh and retry.', 409);
-                        }
-                        if (!check_research_prereqs($db, $uid, $type)['can_research']) {
-                            throw new DomainException('Research prerequisites changed. Refresh and retry.', 409);
-                        }
-
-                        $update = $db->prepare(
-                            'UPDATE research SET research_start = NOW(), research_end = ?
-                             WHERE user_id = ? AND type = ? AND level = ? AND research_end IS NULL'
-                        );
-                        $update->execute([$end, $uid, $type, $level]);
-                        if ($update->rowCount() !== 1) {
-                            throw new DomainException('Research state changed. Refresh and retry.', 409);
-                        }
-                    }
-                );
-            } catch (DomainException $error) {
-                json_error($error->getMessage(), $error->getCode() ?: 400);
-            }
+        try {
+            (new OnDemandEconomy($db))->spend($cid, $uid, $cost, function () use ($db, $uid, $type, $end): void {
+                $busy = $db->prepare('SELECT id FROM research WHERE user_id=? AND research_end IS NOT NULL');
+                $busy->execute([$uid]);
+                if ($busy->fetch()) {
+                    throw new DomainException('Another research is already in progress.', 409);
+                }
+                $db->prepare(
+                    'UPDATE research SET research_start=NOW(), research_end=? WHERE user_id=? AND type=?'
+                )->execute([$end, $uid, $type]);
+            });
+        } catch (DomainException $error) {
+            json_error($error->getMessage(), $error->getCode() ?: 400);
         }
 
         gq_cache_flush('research_list');
@@ -219,9 +177,7 @@ switch ($action) {
             return $completed;
         };
         try {
-            $completed = ON_DEMAND_ECONOMY_ENABLED
-                ? (new OnDemandEconomy($db))->empireMutation($uid, $finish)
-                : $finish();
+            $completed = (new OnDemandEconomy($db))->empireMutation($uid, $finish);
         } catch (DomainException $error) {
             json_error($error->getMessage(), $error->getCode() ?: 400);
         }

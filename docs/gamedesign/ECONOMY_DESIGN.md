@@ -9,10 +9,11 @@
 
 ## Implementierter On-Demand-Pfad
 
-Mit `ON_DEMAND_ECONOMY_ENABLED=1` ist der PHP-Server die Wirtschaftsautoritaet.
-Vor Aktivierung `php scripts/migrate.php up` und `php scripts/migrate.php verify`
-ausfuehren. Der Standard bleibt `0`, damit bestehende Installationen nicht ohne
-Schema-Upgrade umgestellt werden.
+Der PHP-Server ist ueber den On-Demand-Ledger (`OnDemandEconomy`,
+`ColonyEconomySimulation`, `ResourceLedger`) die einzige Wirtschaftsautoritaet.
+Es gibt kein Feature-Flag und keinen Legacy-Pfad mehr. Vor dem Deployment
+`php scripts/migrate.php up` und `php scripts/migrate.php verify` ausfuehren;
+ohne die On-Demand-Migrationen schlagen Wirtschaftsanfragen explizit fehl.
 
 - Kolonien rechnen nur bei Zugriff nach: persistenter Cursor, feste 300-Sekunden-Schritte,
   maximal ein Spieltag je Request. `pending_seconds` zeigt verbleibende Offline-Zeit;
@@ -39,6 +40,30 @@ Schema-Upgrade umgestellt werden.
   Lieferungen werden vor Gutschrift abgerechnet; Ueberlaeufe bleiben erhalten, statt
   Fracht still zu vernichten. Ankuenfte werden in begrenzten, exklusiv gesperrten Batches verarbeitet.
 
+### Abnahmegrenze: endliche autonome Wirtschaft
+
+Ein reproduzierbarer In-memory-Test mit zwei gebundenen NPC-Kolonien, einer
+menschlichen Kolonie und einem finanzierten Haendler durchlaeuft sieben Tage
+in 169 stuendlichen Fenstern. Aus einmalig gesetzten Bestaenden entstehen
+147 NPC-Auftraege und 87 abgeschlossene, bezahlte Routen: 2.529 Metall und
+48 Stahllegierung. Einkommen- und Produktionssteuer sind im Szenario null;
+die Summe aus Konten, Haendlerkapital und Order-/Routen-Escrow bleibt 500.000
+Credits. Das ist keine allgemeine Ueberlebens- oder Gewinnzusage: Es gab 293
+Rueckstellungsgruende und in diesem Szenario keine Methodenwechsel oder Bauten.
+Eine separate, endlich finanzierte Variante prueft einen tatsaechlichen Bau
+und dessen Abschluss beim Offline-Aufholen.
+
+Ein freiwilliges menschliches Verkaufsangebot veraendert in einer identischen
+Vergleichsvariante die naechste Metalllieferung von 208 auf 1 Einheit; ohne
+Antwort bleiben menschliche Konten und Lager unveraendert. Die 300-Sekunden-
+Abrechnung prueft tatsaechliche Produktion und Verbrauch; volles Lager stoppt
+Abbau statt unendlich Vorrat zu erzeugen. Das ist keine vollstaendige
+Massenbilanz ueber alle Rezepte und alle sieben Tage. Eine vier Tage verpasste
+Zeit wird begrenzt aufgeholt, Entscheidungen werden nicht nachgespielt und
+verspaetete Fracht wirkt nicht rueckwirkend auf die Produktion.
+Keine automatische Weltbereitstellung, periodische Produktionsabrechnung oder
+Deployment folgt aus diesem Test.
+
 ### Kolonie bis Galaxie
 
 `GET api/colony_economy.php?action=snapshot&colony_id=N` liefert `colony`, `economy`,
@@ -59,9 +84,193 @@ Wirtschaftsdaemon und keinen weltweiten Produktionsscan.
 Authentifizierte POST-Aktionen `build`, `buy`, `sell` und `set_method` verlangen CSRF.
 Bestehende Bau-, Kolonie-, Markt- und Wirtschafts-APIs delegieren bei aktiver Flag auf
 denselben Pfad. Der galaktische Sofortmarkt bleibt ein externer Market-Maker, kein
-Orderbuch mit endlichem NPC-Inventar. Regionale Alt-Quotes und Tick-Events sind nicht
+Orderbuch mit endlichem NPC-Inventar. Regionale Alt-Quotes und Legacy-Tick-Events sind nicht
 Bestandteil dieser neuen Preisautoritaet. Militaerische/NPC-Weltsimulation und andere
 Legacy-Ticks werden dadurch nicht zu einer vollstaendig ereignisbasierten Simulation.
+
+### Zeitbasierte NPC-Handelslogistik
+
+NPC-Handelsrouten verwenden denselben On-Demand-Bestand und Warenkatalog (fuenf
+Primaerressourcen und alle verarbeiteten Gueter). Der Routenprozessor rechnet
+die Quellkolonie vor dem Einkauf und die Zielkolonie vor einer faelligen Lieferung ab;
+bei `pending_seconds >= 300` bleibt die Route unveraendert (der normale
+Settlement-Cursor kann dabei weiter aufholen), statt mit veraltetem Lagerbestand
+zu handeln. Planung, Einkauf und Abflug koennen in einem Tick
+stattfinden. Eine bereits faellige Ankunft wird ebenfalls zugestellt und verkauft,
+ohne auf kuenstliche Status-Ticks zu warten. `departure_at`/`arrival_at` bleiben
+die geplanten Zeitpunkte; alte Routen ohne `arrival_at` verwenden die Ankunft der
+verknuepften Flotte. Verspaetete Verarbeitung produziert keine Waren rueckwirkend
+auf dem noch nicht zugestellten Transportgut. Uebersprungene Entscheidungs- und
+Gelegenheitsfenster werden nicht nachgespielt.
+
+Jede Route wird nach erneutem Lesen und Zeilensperre in einer Transaktion bzw.
+Savepoint verarbeitet. OnDemand-Ledger-Mutationen halten Bestand, Settlement-Cursor
+und Marktprojektion zusammen; wiederholte oder veraltete Aufrufe koennen keine
+zweite Abbuchung, Lieferung, Einnahme oder Aktivflotten-Freigabe ausloesen.
+Route-Flotten werden nicht vom normalen Flottenankunfts-Resolver bearbeitet.
+Da NPC-Routen keine Schiffe fuehren, gilt als explizite Logistikregel eine feste
+Geschwindigkeit von 100 ly/h mit vorhandenen 3-D-Systemkoordinaten und
+Transitzeit-Helfer. Spezies-/Fraktions-FTL wird damit nicht simuliert; das
+Koordinatenmodell kennt keine orbitalen Abstaende zwischen Koerpern desselben
+Systems, fuer die die Mindestflugzeit von 30 Sekunden gilt.
+
+### Freiwillige, finanzierte NPC-Aufträge
+
+NPC-Handel mit menschlichen Kolonien ist standardmäßig deaktiviert. Menschen
+und NPC-Gegenparteien müssen endliche Kauf-/Verkaufsaufträge ausdrücklich
+erstellen; es gibt keine automatische Zustimmung oder unbegrenzte Kreditlinie.
+Der bestehende Sofortmarkt bleibt davon getrennt. Die neue append-only Migration
+`migrate_standing_trade_orders_v1.sql` erzeugt keine Konten, Kolonien oder Vorräte.
+
+**NPC-Autonomie (opt-in):** `migrate_npc_economy_orders_v1.sql` und die explizite
+Offline-Bindung mit `scripts\npc_economy.php bind ... --apply` aktivieren genau
+eine bereits NPC-eigene Kolonie je Konto (`npc_engine`, Login aus, nicht gelöscht).
+Die vollständigen Migrations-/Verbindungs-/Budget-Schritte stehen im
+[Trader-Runbook](../technical/TRADERS_INTEGRATION_GUIDE.md#opt-in-autonomous-npc-colonies).
+Ohne Bindung laufen keine neuen autonomen Aufträge, ohne provisionierte Welten
+keine Fraktionswirtschaft; menschliche Konten bleiben ausgeschlossen.
+
+Der vorhandene globale Stunden-Tick entscheidet je Akteur/UTC-Fenster atomar,
+auch bei Force-Wiederholung nur einmal. Ausschließlich dessen gebundene Kolonie
+wird on-demand abgerechnet; ein Rückstand verschiebt Orders in das nächste
+Fenster. Kein periodischer Produktionsscan, keine Konten-/Planetenübernahme,
+keine Waren- oder Credit-Zuschüsse. Der gebundene Akteur nutzt nicht gleichzeitig
+die alte Mehrfach-Bau-/Forschungs-/Schiffsentscheidung.
+
+Echte Klassenbedürfnisse und freigeschaltete Produktionsrezepte liefern den
+Bruttobedarf für sechs Stunden plus zwei Sicherheitsstunden (Subsistenz: vier).
+Nahrung hat Vorrang; Strategieprofile priorisieren danach Bevölkerung oder
+Industrieinputs, unabhängig von Politik/Spezies. Nur Überschuss oberhalb der
+Reserven wird verkauft; Kauforders reservieren vorhandene Credits innerhalb
+eines expliziten Stundenlimits. Vier Create/Cancel-Operationen sind das Maximum.
+Bestehende Reservierungen und Transitimporte werden berücksichtigt, nicht
+doppelt bestellt. Eigene Orders werden nach 24 Fenstern konservativ über die
+normale Reststornierung erneuert; Flugverpflichtungen bleiben unangetastet.
+Limits stammen aus tatsächlichen Galaxie-Quotes (Buy +10%, Sell −10%).
+Routen benötigen weiterhin reale Finanzierung und Reisezeit; Langstrecken,
+Teilmengen und verzögerte Zustellung können trotz Reserve zu Engpässen führen.
+Status/Preview-CLI und NPC-Logs zeigen Bedarf, Budget, Orders und Aufschübe.
+Neue Bauentscheidungen sind nicht enthalten. Freiwillige Spieleranfragen mit
+Fristen sind im folgenden begrenzten Block umgesetzt.
+
+Ein Kaufauftrag reserviert sofort Menge × Limitpreis aus dem Besitzerkonto;
+ein Verkaufsauftrag reserviert die tatsächlichen Waren über denselben Ledger.
+Mengen sind ganze Einheiten (1–1000000), Limitpreise Cent-genau (0,01–1000000
+Credits), das endliche Gesamtbudget ist auf 10000000000 Credits begrenzt.
+Importaufträge sind bei Autarkie nicht zulässig. GET-Preis-/Auftragslisten sind
+rein lesend; Erstellen und Stornieren verlangen Authentifizierung und CSRF.
+
+Händler verbinden finanzierte Angebote zwischen verschiedenen Systemen derselben
+Galaxie. Quelle/Ziel, Ware, Restmengen, reserviertes Budget, Händlerkapital und
+die virtuelle NPC-Frachtgrenze von 10000 Einheiten begrenzen jede Route.
+Beim Erwerb bezahlt der NPC den Verkäufer zum Angebotspreis; Waren verlassen
+die Verkaufsreservierung und gehen in die Fracht. Die zugesagte Kaufmenge und
+ihr Budget werden zugleich als unveränderliche Routenverpflichtung abgetrennt.
+Bei Ankunft erhält der Käufer seine Waren und der NPC das zugesagte Kaufbudget,
+atomar und genau einmal. Es entstehen keine neuen Credits oder Handelssteuern.
+Geldbilanz: Spielerkonten + Händlerkapital + Auftragstreuhand + Routentreuhand.
+Warenbilanz: Bestand + offene Verkaufsreservierungen + Transit, abgesehen von
+bestehender Produktion/Verbrauch.
+
+Stornieren gibt ausschließlich noch nicht zugeteilte Reservierungen zurück.
+Schon gestartete Lieferungen bleiben trotz Stornierung oder Politikänderung
+gedeckt; „vollständig zugeteilt“ bedeutet nicht „bereits geliefert“.
+Alle Besitzer werden deterministisch vor Kolonien und Routen gesperrt; auch
+Handel zwischen zwei Kolonien desselben Besitzers bleibt atomar.
+
+Unfinanzierte Legacy-Planungen ohne Fracht werden abgebrochen. Bereits erworbene,
+reisende oder zugestellte Legacy-Routen werden mit erhaltenen Beständen,
+Flotten und Historie quarantänisiert, ohne Spielerabbuchung oder neue NPC-Einnahme.
+Manuelle, individuell belegte Betreiber-Reconciliation bleibt nötig; es wird
+keine frühere Zustimmung unterstellt. Die Quarantäne belegt weiter Flottenplätze.
+Die explizit gebundene NPC-Koloniewirtschaft und freiwillige Versorgungsanfragen
+sind umgesetzt; umfassende Fraktionsmandate, Rufkampagnen und Beratung bleiben Entwurf.
+
+### Freiwillige Versorgungs- und Überschussanfragen mit sicherem Standard
+
+`EconomicRequests` ergänzt den vorhandenen Stunden-Tick um Einladungen zu einem
+**wirklich finanzierten, offenen NPC-Kaufauftrag** oder einen vom NPC-Profil
+aus gemessenem Überschuss reservierten Verkaufsauftrag. Eine Anfrage
+reserviert **nichts** beim Menschen und verhindert keine autonome NPC-Erfüllung.
+Ohne Antwort verfällt sie ohne Abbuchung, Warenentzug, Rufverlust oder Strafe.
+Fristen sind persistente absolute UTC-Zeitpunkte, maximal 24 Stunden und nie
+länger als die restliche Laufzeit des zugrunde liegenden NPC-Auftrags.
+
+Die Auswahl verwendet den bestehenden Stunden-Seed: höchstens eine Anfrage pro
+NPC/Stunde, eine pro NPC/Spieler in 24 Stunden und eine pro NPC-Auftrag/Spieler;
+höchstens drei noch offene Anfragen pro Spieler. Nur vorhandene menschliche
+Kolonien in derselben Galaxie, aber einem anderen System werden angesprochen,
+wie bei den bestehenden legalen Händlerrouten. Öffentliche Antworten enthalten
+keine fremden Konten, Kolonien oder verborgenen Galaxie-Koordinaten. Eine
+Ingame-Nachricht und ein deduplizierter `mail_outbox`-Eintrag entstehen atomar
+mit der Anfrage; Mail-Opt-out wird respektiert, Versand bleibt ein unabhängiger
+Worker. Der interne Link öffnet die eigene Kolonie im Markt.
+
+Menge (1–100 ganze Einheiten) und Centpreise sind unveränderlich. Der angezeigte
+Verkaufspreis beträgt **NPC-Kauflimit minus 0,01 Credits je Einheit**; beim
+Überschusskauf beträgt der maximale Kaufpreis **NPC-Verkaufslimit plus 0,01**
+je Einheit. Diese feste Differenz finanziert den bestehenden Händler. Die UI und
+Nachricht nennen den Preis und maximalen Gesamtbetrag. Annahme ist ein authentifizierter,
+CSRF-geschützter POST. Bei `now >= expires_at` ist sie gesperrt. Unter sortierten
+Besitzer-/Koloniesperren werden Eigentum, Akteur, Ware, Politik, Geografie,
+Restmenge und tatsächliches NPC-Treuhandbudget erneut geprüft. Das genaue
+Budget wird aus dem öffentlichen NPC-Auftrag in einen privaten endlichen
+Kaufauftrag **verschoben, nicht neu finanziert**; die genaue menschliche
+Warenmenge wird über `StandingOrders` in einem Verkaufsauftrag reserviert.
+Umgekehrt verschiebt ein Überschusskauf ausschließlich bereits reservierte NPC-Ware
+in den privaten Verkaufsauftrag und reserviert beim Spieler genau Menge ×
+vereinbartes Kauflimit. Vor Annahme wird kein Spielerguthaben reserviert.
+Beide Aufträge sind gegenseitig gebunden. Kein anderer Käufer/Verkäufer kann
+diese Zusage verbrauchen; konkurrierende Einladungen erhalten keine überbuchte
+Finanzierung. Hintergrundfüllung oder Stornierung vor Annahme führt zu
+`unavailable`/HTTP 409 ohne menschliche Reservierung. Warenmangel oder Politik-
+Konflikt rollt die gesamte Annahme zurück. Wiederholte Annahme liefert denselben
+bestätigten Auftrag, auch nach expliziter Stornierung, ohne neue Reservierung.
+
+Erfüllung ist **nicht sofortig** und hat keinen garantierten Liefertermin:
+normale finanzierte Händler, Kapital, Flottenplätze und Reisezeit sind weiterhin
+Voraussetzungen. Die NPC-24-Stunden-Auftragspflege storniert diese privaten
+Zusagen nicht. Der Spieler kann seinen Auftrag ausdrücklich stornieren;
+dann werden ausschließlich beide unzugeteilten Reste freigegeben. Bereits
+gestartete Fracht und Routentreuhand bleiben gedeckt. Selbsthandel ist hier
+kein gültiger Einladungstyp (NPC ohne Login und menschlicher Empfänger sind
+verschiedene Akteure); bestehende normale Same-owner-Aufträge bleiben möglich.
+
+Zustände: `pending → accepted | declined | expired | unavailable`. Reine,
+eigentümerbezogene GETs zeigen den effektiven Ablauf ohne Schreibzugriff;
+der globale Stunden-Schritt persistiert abgelaufene Zustände. Die Markt-UI
+zeigt Preis, Gesamtmenge, Frist, Reservierungswarnung und bestätigten Auftrag;
+alte, abgelaufene oder gerade mutierende Daten erlauben keine Aktion.
+Append-only `migrate_economy_requests_v1.sql` und `migrate_economy_request_purchase_v1.sql`
+samt Down-Skripten sind vor Deployment erforderlich. Das neue Down verweigert
+Rückbau bei vorhandenen Kaufanfragen, deren Historie nicht verlustfrei im alten
+Schema darstellbar ist. Rückbau verlangt pausierte Mutationen und verweigert
+das stille Veröffentlichen noch aktiver privater Paare. Keine Migration,
+NPC-Bindung, Weltprovisionierung, Mailzustellung oder Scheduler-Aktivierung
+wurde für diesen Block auf der Live-Datenbank ausgeführt.
+
+### Weltereignisse (stuendliche "Sachentscheidungen")
+
+Der globale Tick wuerfelt einmal pro Stundenfenster (`floor(unix/3600)`, deterministisch
+geseedet) Ereignisse aus `src/Economy/WorldEvents.php` und speichert sie in `world_events`
+(System- oder Galaxie-Scope, optional ein Gut, `modifier_json`, `starts_at`/`ends_at`):
+
+| Ereignis | Scope | Wirkung | Dauer | p/Fenster |
+|---|---|---|---|---|
+| Versorgungsschock | System, Primaergut | Produktion ×0,5–0,8, Preis ×1,15–1,4 | 6–24 h | 20 % |
+| Nachfrageboom | Galaxie, Fertigware | Nachfrage ×1,1–1,35 | 12–48 h | 15 % |
+| Handelsstoerung | System, alle Waren | Preis ×1,1–1,3 | 6–18 h | 15 % |
+| Rohstofffund | System, Rohstoff | Produktion ×1,2–1,6, Preis ×0,75–0,9 | 12–48 h | 10 % |
+
+Hoechstens `WORLD_EVENTS_MAX_ACTIVE` (6) Ereignisse sind gleichzeitig aktiv. Preise werden zu
+`Basispreis * clamp(((Nachfrage*Nachfragefaktor)/Angebot)^0.4 * Preisfaktor, 0.3, 3.5)`;
+die Klammer gilt weiterhin. Produktionsfaktoren wirken nur auf den Anteil eines 300-s-Settle-
+Schritts, der sich mit dem Ereigniszeitraum ueberschneidet. Da Ereignisse erst einen Schritt
+nach ihrer Erzeugung beginnen und zeitlich begrenzt sind, ist das Ergebnis unabhaengig davon,
+wann eine Kolonie abgerechnet wird. Der Tick schreibt keine Kolonie-Bestaende. Aktive
+Ereignisse liefern `market.php?action=get_prices` (`world_events`) und `get_active_events`;
+das Marktfenster zeigt sie als "Weltereignisse". Betroffene Spieler erhalten eine
+Spielnachricht und hoechstens eine Digest-E-Mail pro Stunde.
 
 ---
 
@@ -312,6 +521,9 @@ Standardwerte:
 - **Black Market:** Piraten-Fraktionen (Khar'Morr) bieten verbotene Güter zu +50% Preis an, ohne Fraktion
 
 ### 4.4 Markt-Events (Victoria 3 inspiriert)
+
+> Umgesetzt ist derzeit der kleinere Katalog unter "Weltereignisse" oben; die folgende
+> Tabelle bleibt Designziel.
 
 Regelmäßige Ereignisse beeinflussen die Preise:
 

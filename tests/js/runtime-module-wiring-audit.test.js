@@ -6,7 +6,7 @@ const mainPath = path.resolve(process.cwd(), 'js/main.js');
 const indexPath = path.resolve(process.cwd(), 'index.html');
 const moduleLoaderPath = path.resolve(process.cwd(), 'js/runtime/runtime-module-loader.js');
 describe('runtime module wiring audit', () => {
-  it('loads auth and renderer through the ES module composition root', () => {
+  it('loads auth, renderer, and TTS through the ES module composition root', () => {
     const mainSource = fs.readFileSync(mainPath, 'utf8');
     const indexSource = fs.readFileSync(indexPath, 'utf8');
     const loaderSource = fs.readFileSync(moduleLoaderPath, 'utf8');
@@ -15,6 +15,9 @@ describe('runtime module wiring audit', () => {
 
     expect(mainSource).toContain("import './network/auth.js';");
     expect(mainSource).toContain("import './rendering/starfield.js';");
+    expect(mainSource).toContain("import './runtime/tts.js';");
+    expect(mainSource.indexOf("import './runtime/tts.js';"))
+      .toBeLessThan(mainSource.indexOf("import './network/auth.js';"));
     expect(indexSource).toContain('<script type="module" src="/js/main.js"></script>');
     expect(indexSource).not.toContain('window.__GQ_AUTH_FORCE_WEBGL = true;');
     expect(indexSource).not.toMatch(/<script\s+src="js\/(?:network\/auth|rendering\/starfield)\.js/);

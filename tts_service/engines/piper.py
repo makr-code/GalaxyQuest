@@ -21,6 +21,12 @@ log: structlog.BoundLogger = structlog.get_logger("gq-tts.piper")
 
 # Model files are downloaded on first use. Add more voices here as needed.
 PIPER_VOICES: dict[str, dict[str, str]] = {
+    "de_DE-kerstin-low": {
+        "model_url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/de/de_DE/kerstin/low/de_DE-kerstin-low.onnx",
+        "config_url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/de/de_DE/kerstin/low/de_DE-kerstin-low.onnx.json",
+        "lang": "de",
+        "description": "German female – Kerstin (low quality)",
+    },
     "de_DE-thorsten-high": {
         "model_url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/de/de_DE/thorsten/high/de_DE-thorsten-high.onnx",
         "config_url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/de/de_DE/thorsten/high/de_DE-thorsten-high.onnx.json",
@@ -38,6 +44,12 @@ PIPER_VOICES: dict[str, dict[str, str]] = {
         "config_url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/high/en_US-lessac-high.onnx.json",
         "lang": "en",
         "description": "English (US) female – Lessac (high quality)",
+    },
+    "en_US-ryan-high": {
+        "model_url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/ryan/high/en_US-ryan-high.onnx",
+        "config_url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/ryan/high/en_US-ryan-high.onnx.json",
+        "lang": "en",
+        "description": "English (US) male – Ryan (high quality)",
     },
     "en_GB-alba-medium": {
         "model_url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_GB/alba/medium/en_GB-alba-medium.onnx",

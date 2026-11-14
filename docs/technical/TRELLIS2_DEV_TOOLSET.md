@@ -161,6 +161,26 @@ eine ungepruefte Installation des gesamten upstream-Wheels. Insbesondere
 muss die API-Kompatibilitaet der Wrapper beim Umstieg gesondert geprueft
 werden. Der lokale Fallback im veraenderten Submodul wurde nicht umgestellt.
 
+Fuer den direkten Shuttle-Texturplan wurde am 2026-11-14 der von
+`encode_shape_slat` verwendete CPU-Aufruf `mesh_to_flexible_dual_grid`
+separat verglichen: Der installierte Python-Wrapper lief jeweils mit dem
+installierten nativen Modul und mit dem aus dem `sm_86`-Wheel extrahierten
+Modul. Bei einem geschlossenen, asymmetrischen Testquader und Grid 16
+lieferten beide nach Sortierung der Koordinaten bitgleiche Ergebnisse:
+522 Koordinaten (`int32`), Dual-Vertices (`float32`) und Schnittflags
+(`bool`), jeweils mit drei Werten pro Eintrag. Der Test verwendete die
+Gewichte und AABB des Texturpfads; CUDA blieb deaktiviert. Das Wheel hatte
+SHA-256 `741b37e8e0f2b6d80277ff3b673a04aeffe849a3df5e1193f3a9e0b8e3d1b2fa`.
+Der Wrapper wurde ohne den regulaeren Paketimport geladen, der bereits
+beim Import eine GPU abfragt. Dies belegt nur diesen kleinen CPU-Test,
+nicht die Paketinitialisierung oder den CUDA-, Modell- und UV-Bake-Pfad.
+Das Wheel enthaelt zudem einen abweichenden `flexible_dual_grid`-Wrapper;
+insbesondere fehlt dort die installierte gekachelte Dekodierfunktion. Das
+gesamte Wheel darf daher nicht als austauschbar vorausgesetzt werden.
+Im Texturpfad normalisiert `preprocess_mesh` die Bounds und dreht die
+Achsen vor der Voxelisierung; die spaetere Ruecktransformation und
+Orientierung des exportierten Shuttle-GLB sind weiterhin zu pruefen.
+
 Ein anschliessend erzeugtes Habitat-Testmodell aus einer schematischen
 Einzelgebaeude-Vorlage zeigte im Three.js-Preview Fenster und Dach, aber
 auch ein frei schwebendes dunkles Teil. Es ist kein freigegebenes Asset:
@@ -255,6 +275,14 @@ DEV_ONLY:
 .\.venv-trellis-inspect\Scripts\python.exe scripts\trellis2_inspect.py generated\comfyui\output\gq_trellis2\building_hospital_pilot_v1_00001__zero_area_cleaned.glb --facility-kind hospital
 ```
 
+Fuer Schiffe stattdessen `--asset-type ship` bei Cleaner und Inspektor
+angeben; `--facility-kind` ist ausschliesslich fuer Gebaeude zulaessig.
+Optional exportiert der Cleaner mit `--with-normals` vorhandene oder aus
+der Geometrie berechnete Vertex-Normalen. Diese muessen endlich und auf
+Einheitslaenge normiert sein. Ohne diese Option bleibt das bisherige
+Exportverhalten unveraendert. Ein Export mit Normalen ersetzt keine
+Sichtpruefung auf geglaettete Kanten und Shading-Artefakte.
+
 Der Bericht `<name>_inspection.json` enthaelt:
 
 - Schema `gq.trellis-inspection.v2`, Asset-Typ, optionale Facility-Klasse,
@@ -273,6 +301,11 @@ Der Bericht `<name>_inspection.json` enthaelt:
   erzeugen einen Pruefhinweis, keine automatische Loeschentscheidung.
 - Nullflaechen, fehlende/ungueltige UVs, fehlende `NORMAL`-Attribute sowie
   fehlende PBR-Texturen, schwarze Basisfarbtexturen und schwarze Farbfaktoren.
+- Offene Randkanten und Kanten mit mehr als zwei anliegenden Flaechen:
+  Die Analyse verbindet ausschliesslich exakt gleiche Positionen und
+  ignoriert Nullflaechen. Die Werte sind Pruefhinweise, keine automatische
+  Reparatur oder Aussage, ob eine Oeffnung beabsichtigt ist. Aeltere
+  V2-Berichte enthalten diese zusaetzlichen Felder noch nicht.
   Das Vorhandensein eines Normalen-Attributs belegt noch keine korrekte
   Normalenrichtung.
 - Texturdimensionen, RGB-Minima/Maxima und Nicht-Schwarz-Anteil der gesamten
@@ -416,16 +449,33 @@ integration bewertet werden.
 
 Die separate TRELLIS-Auswahl bietet neben den drei Inspektionspiloten auch
 bereinigte Rohkandidaten fuer `agriculture`, `command`, `fusion`, `hospital`,
-`nanotech`, `research`, `school`, `security`, `silo`, `solar`, `tank` und
-`terraforming` an. Sie werden nur im Basisvergleich und erst nach Aktivierung
-geladen; die Auswahl markiert sie als unfreigegebene DEV_ONLY-Kandidaten.
-Das unbereinigte Industry-Rohmodell mit 490.202 Dreiecken bleibt wegen des
-fehlenden kontrollierten LOD ausserhalb der Vorschau. Ein frueherer
-Browserlauf zeigte Hospital sichtbar im Basisvergleich. Bei der spaeteren
-Browserpruefung war kein WebGPU-Adapter verfuegbar; die elf Kandidaten
-ausserhalb Hospital sind daher nicht visuell bestaetigt. Auch Optik,
-Massstab und Produktionsqualitaet aller Rohkandidaten bleiben offen.
-Ein separater lokaler Delivery-Smoke-Test bestaetigte fuer alle zwoelf
+`industry`, `nanotech`, `research`, `school`, `security`, `silo`, `solar`,
+`tank` und `terraforming` an. Zusaetzlich gibt es zwei Industry-512-Varianten:
+`industry_512` zeigt den frueheren Meshlib-Lauf aus
+`building_industry_pilot_v1_00003__zero_area_cleaned.glb`,
+`industry_512_no_meshlib` den neuen Bypass-Kandidaten aus
+`building_industry_pilot_v1_00004__zero_area_cleaned.glb`. Der bisherige
+`industry`-Eintrag bleibt auf `building_industry_pilot_v1_00002` gesetzt.
+Damit koennen drei Industry-Varianten im Basisvergleich geladen werden. Sie
+werden erst nach Aktivierung nachgeladen und bleiben unfreigegebene DEV_ONLY-
+Kandidaten. Die Bypass-Variante wurde bei angenommener Breite 250 m geladen;
+sie wirkt aus der 2-km-Ansicht wie eine niedrig-rechteckige Platte mit
+inneren Strukturen und bleibt mangels bestaetigter Gebaeudesilhouette,
+Orientierung und Bodenkontakt unfreigegeben. Das unbereinigte alte
+Industry-Rohmodell mit 490.202 Dreiecken
+bleibt wegen des fehlenden kontrollierten LOD ausserhalb der Vorschau; nur
+der separate, bereinigte 15k-Export ist gelistet. Ein frueherer
+Browserlauf zeigte Hospital sichtbar im Basisvergleich. Bei einer spaeteren
+Browserpruefung war kein WebGPU-Adapter verfuegbar. In spaeteren WebGPU-
+Sitzungen wurden alle dreizehn Facility-Klassenkandidaten im Basisvergleich
+sichtbar geladen.
+Die Sichtpruefung zeigt bei mehreren Meshes fragmentierte, stark facettierte
+Geometrie, dunkle Dreiecksluecken oder shardartige Formen. Industry hat
+zusaetzlich einen hohen, schmalen Auswuchs; Terraforming zeigt selbst bei
+250 m angenommener Breite deutliche schwarze Luecken und eine duenne
+Geometriespitze. Keiner der dreizehn Kandidaten ist visuell freigegeben;
+Massstab, Relief-Bodenkontakt und Produktionsqualitaet bleiben offen.
+Ein separater lokaler Delivery-Smoke-Test bestaetigte fuer alle dreizehn
 gelisteten Kandidaten HTTP 200 und einen `glTF`-Header; die Earth-Vorschau
 startet und uebertraegt die Dateien, aber dies ist keine visuelle Abnahme.
 
@@ -466,6 +516,243 @@ Schema geprueft. Der Export erhaelt den getrennten Namenszusatz
 passend zum Umfang der drei akzeptierten Piloten; der Texturierungspfad
 behaelt sein 500.000er Zwischenmesh und das finale 5.000-Dreiecke-Ziel.
 
+`--shape-resolution 512` ist ein mesh-only-Fallback: Der Graph verwendet den
+512er Shape-SLAT direkt aus `Trellis2ShapeGenerator`, laesst
+`Trellis2ShapeCascadeGenerator` aus und dekodiert mit Aufloesung 512. Der
+Standard bleibt der bisherige 512-zu-1024-Cascade-Pfad. Texturierte Laeufe
+mit 512 werden abgewiesen, da der Texturierungszweig die Aufloesung 1024
+voraussetzt. Fuer mesh-only 512 wird das Resultat der ersten Cumesh-
+Simplifizierung direkt exportiert; die danach folgende Meshlib-Lochfuellung
+und zweite Cumesh-Stufe werden ausgelassen. Texturierte und standardmaessige
+1024er Graphen bleiben unveraendert. Der Direktpfad bestand Live-Preflight
+und ComfyUI-Lauf:
+
+```powershell
+node scripts/trellis2_generate_facility.mjs --kind industry --seed 20261113 --shape-resolution 512 --preflight
+node scripts/trellis2_generate_facility.mjs --kind industry --seed 20261113 --shape-resolution 512 --submit
+```
+
+Der Lauf mit Prompt `5637feed-9e1c-4eeb-bd7f-dbeca2182110` erzeugte
+`building_industry_pilot_v1_00003_.glb` (542.364 Bytes,
+SHA-256 `feac2709392ce920cdaab6216360f9a4c821a884d7c12a8472eac72fd5814bea`).
+Die Offline-Inspektion fand 14.826 Dreiecke, 12.230 Nullflaechen und 11.835
+Face-Komponenten; Normalenattribute, gueltige UVs und PBR-Materialien fehlen.
+Der separate Cleaner entfernte nur die Nullflaechen. Die Kopie
+`building_industry_pilot_v1_00003__zero_area_cleaned.glb` (52.812 Bytes,
+SHA-256 `247a118aa16cadaa711794060c444d21fd81c124f0e2a7e06d3ce0d0f63e43e4`)
+enthaelt noch 2.596 Dreiecke und 327 Komponenten. Beide Dateien bleiben
+unimportierte DEV_ONLY-Kandidaten; die bereinigte Kopie ist nicht visuell
+freigegeben. Die erste 512er Variante vermeidet den problematischen 1024-Cascade-Decode,
+behebt aber nicht die Mesh-Qualitaetsprobleme. Die bereinigte Kopie wurde
+zusaetzlich im isolierten Earth-DEV-WebGPU-Vergleich bei angenommener Breite
+von 250 m geladen. Sie erscheint shard-artig mit dunklen Geometrie-Luecken,
+ohne erkennbare Fabriksilhouette. Der bisherige 1024er Industry-Kandidat
+wirkt ebenfalls fragmentiert; der Direkt-512-Export ist keine visuelle
+Verbesserung. Beide Varianten bleiben unfreigegeben. Der neue Eintrag
+`industry_512` ist ausschliesslich als Vergleich in der Earth-DEV-Vorschau
+verfuegbar und wurde nicht in den Produktionsrenderer oder Facility-Plan
+uebernommen.
+
+Kontrollierte Zwischenmesh-Exporte mit derselben Referenz und demselben Seed
+lokalisierten den starken Qualitaetsverlust in Node 250,
+`Trellis2FillHolesNicelyWithMeshlib`. Der rohe 512er Decoder-Mesh hatte
+3.130.900 Dreiecke, null Nullflaechen und eine Komponente. Nach Node 161
+(`Trellis2ReconstructMeshWithQuad`, 1024) waren es 6.936.802 Dreiecke,
+weiter null Nullflaechen und zwei Komponenten. Node 218 (erste Cumesh-
+Vereinfachung auf 15.000) ergab 14.637 Dreiecke, 929 Nullflaechen und 148
+Komponenten. Node 250 veraenderte diese zu 317.024 Dreiecken, 227.892
+Nullflaechen und 286.503 Komponenten. Der alte Node-257-Finalexport hatte
+14.826 Dreiecke, 12.230 Nullflaechen und 11.835 Komponenten.
+
+Der mesh-only-512-Graph umgeht deshalb Node 250 und Node 257; keine
+Komponenten werden zusaetzlich entfernt. Ein einzelner Lauf mit dem
+angepassten Graphen erzeugte
+`building_industry_pilot_v1_00004_.glb` (267.476 Bytes,
+SHA-256 `884cfa8a6e94f471cfa99b20c4bb881dbdfd9bb9b7ed6a9866e53056c6b2aa4e`)
+mit 14.637 Dreiecken, 929 Nullflaechen und 148 Komponenten. Die separate
+Nullflaechen-Kopie `building_industry_pilot_v1_00004__zero_area_cleaned.glb`
+(251.656 Bytes, SHA-256
+`5f3f95b06934e01392be689c20c924baf796236fd8ffa6089445bffe3924b928`)
+enthaelt 13.708 Dreiecke, null Nullflaechen und vier Komponenten. Beide
+Dateien haben weiterhin keine Normalenattribute, gueltigen UVs oder PBR-
+Materialien. Die bereinigte Meshlib-Bypass-Variante wurde im isolierten
+Earth-DEV-WebGPU-Viewer bei 250 m angenommener Breite geladen. In der
+2-km-Ansicht wirkt sie als deutlich zusammenhaengendere, niedrig-rechteckige
+Platte mit inneren Strukturen statt als Shard; eine eindeutig freistehende
+Fabriksilhouette oder Bodenkontakt ist damit nicht bestaetigt. Sie bleibt
+unfreigegeben. Der Texturierungs- und 1024er Standardgraph ist unveraendert.
+
+### Eingabebilder fuer TRELLIS.2
+
+Die offizielle [TRELLIS.2-Demo](https://github.com/microsoft/TRELLIS.2/blob/main/app.py)
+empfiehlt ausdruecklich ein Vordergrundobjekt mit Alpha-Maske. Die
+offizielle
+[`preprocess_image`-Implementierung](https://github.com/microsoft/TRELLIS.2/blob/main/trellis2/pipelines/trellis2_image_to_3d.py)
+verwendet vorhandenes nicht-vollstaendig-opakes RGBA-Alpha direkt; ohne
+Alpha wird der Hintergrund mit `rembg` entfernt. Sie verkleinert die laengste
+Kante auf hoechstens 1024 Pixel, croppt anhand der Alpha-Bounding-Box und
+multipliziert RGB mit Alpha. Das Modell erhaelt ein einzelnes Bild, keine
+Mehransichten-Collage.
+
+Der lokale ComfyUI-Loader gibt `image`, `mask` und `image_with_alpha` aus.
+Der Generator verwendete bisher den ersten, bereits zu RGB konvertierten
+Ausgang; zugleich war `remove_background` deaktiviert. Ein transparentes
+PNG verlor dadurch seine Maske vor dem Preprocessing. Der Graph verwendet
+jetzt den dritten Ausgang `image_with_alpha`, damit die Maske erhalten bleibt.
+Die bestehende `industry_concept_v1.png` ist allerdings ein deckendes
+1024x1024-RGB-Bild ohne Alpha; sie wird durch diese Aenderung nicht
+freigestellt. Die lokale Vorverarbeitung entfernt bei deaktiviertem
+`remove_background` keinen solchen Hintergrund.
+
+Fuer den Industry-Pilot liegt deshalb zusaetzlich die nicht-destruktive
+RGBA-Vorlage `industry_concept_v1_alpha.png` vor; die RGB-Quelle bleibt
+unveraendert. Die Alpha-Maske wurde lokal mit `rembg 2.0.87`/`u2netp` auf
+der CPU erzeugt und visuell kontrolliert. Das Manifest pinnt sie als
+`trellis_input`; der Generator verwendet diese Variante, waehrend andere
+Facility-Arten weiterhin ihre jeweiligen Originalbilder nutzen. Die Variante
+ist nur eine Eingabevorlage und gibt kein erzeugtes Mesh frei.
+
+Die gemeinsam genutzte ComfyUI-Instanz hat kein importierbares `rembg` und
+meldet fuer `LoadBackgroundRemovalModel` keine verfuegbaren Modelle. Daher
+`remove_background` dort nicht aktivieren und keine Wheels in den laufenden
+Dienst installieren. Beim letzten Preflight war die Queue leer, aber nur
+rund 3,76 GiB GPU-Speicher frei; ein neuer TRELLIS.2-Lauf wurde deshalb nicht
+eingereiht und bleibt bis zu ausreichendem GPU-Speicher offen.
+
+Abgeleitete Vorlage fuer weitere GQ-Laeufe: genau ein freigestelltes
+Gebaeude, vollstaendige Silhouette einschliesslich Bodenplatte und
+Schornstein/Mast, leicht erhobene Dreiviertelansicht mit sichtbarem Dach und
+Fassaden; keine angeschnittenen Bauteile, Schrift oder Ansichten-Collage.
+Das sind Qualitaetskriterien fuer unsere Vorlage, keine offizielle
+TRELLIS.2-Garantie.
+
+### Shuttle-Vorlagen fuer den Startbildschirm
+
+Unter `generated/trellis2/references/shuttles/` liegen drei unabhaengige
+Entwuerfe: `dock_mule` (gelber Lastentransporter), `rust_bucket`
+(rundlicher weiss-tuerkiser Transporter) und `patchwork_tug` (roter,
+kantiger Reparaturfall, bevorzugter Startbildschirm-Kandidat).
+Die Entwuerfe sind keine Mehransichten desselben Schiffs.
+
+Jeweils bleibt das Original als `*_concept_v1.png` unveraendert erhalten.
+Die Generatorbilder enthalten bereits echtes Alpha; der scheinbare
+Hintergrund in der Vorschau ist nicht durchgehend deckend. Eine weitere
+`rembg`-Segmentierung ist deshalb unnoetig. Fuer `*_trellis_v1.png`
+wurden nur Alpha-Rauschwerte bis 8 entfernt und Werte ab 250 auf 255
+gesetzt; Zwischenwerte bleiben vor dem Resizing erhalten. Das ganze Bild
+wird proportional mit LANCZOS in 896x896 eingepasst und ohne erneute
+Alpha-Multiplikation auf einer transparenten 1024x1024-Flaeche zentriert.
+Die vorbereiteten Silhouetten wurden visuell geprueft; mindestens 64 Pixel
+transparenter Aussenrand bleiben erhalten.
+
+Das separate `shuttles/manifest.json` pinnt Originale und TRELLIS-Eingaben
+per SHA-256. Der Shuttle-Generator nutzt denselben Graphen wie der Facility-
+Generator, aber ein eigenes Manifest und eigene eindeutige Exportpraefixe:
+
+```powershell
+node scripts/trellis2_generate_shuttle.mjs --id patchwork_tug --preflight
+node scripts/trellis2_generate_shuttle.mjs --id patchwork_tug --submit
+```
+
+Ohne `--submit` wird kein Job gestartet. Der 512er Mesh-only-Pfad verwendet
+den alpha-erhaltenden Loader-Ausgang, `remove_background: false` und den
+Meshlib-Bypass. Vor Upload und Einreihung prueft der Generator Queue und
+mindestens 10 GiB laut ComfyUI freien CUDA-Speicher; dies ist keine Garantie
+gegen konkurrierende Arbeit oder Speichermangel. Ein Timeout nach Einreihung
+kann einen weiterlaufenden Job bedeuten: Prompt-ID und Queue pruefen, nicht
+blind erneut starten. Die erzeugten GLBs bleiben DEV_ONLY. Verdeckte Rueck-
+und Unterseiten, Materialqualitaet, Orientierung und Massstab muessen am
+Modell gesondert beurteilt werden; es gibt keine Startbildschirm-Integration.
+
+Ein erster 512er Mesh-only-Lauf fuer `patchwork_tug` (Seed `20261112`,
+Prompt `248e5a4a-ef3a-4732-9304-64f25a4c7e18`) erzeugte
+`shuttle_patchwork_tug_6613380216584a3fa81741c2bd9cd3e6_00001_.glb`
+mit SHA-256
+`715259016af6107b3a3307159d5390e1fbe00d48835c10ac9b28f1e8c3d66e33`.
+Die Offline-Inspektion meldet 14.266 Dreiecke, 180 Nullflaechen,
+sechs Face-Komponenten und fehlende Normalenattribute, gueltige UVs und
+PBR-Texturen. Die Hauptkomponente enthaelt 14.254 Dreiecke. Eine
+vereinfachte orthografische Mesh-Vorschau zeigt einen zusammenhaengenden
+kantigen Koerper mit Anbauten, ist jedoch keine Three.js-Sichtpruefung und
+bestaetigt weder korrekte Orientierung noch Unterseite oder Material.
+Der GLB ist ein unbereinigter, nicht freigegebener DEV_ONLY-Rohkandidat;
+die rote Farbe der Vorlage ist in diesem Mesh-only-Export nicht enthalten.
+
+Die separate Kopie
+`shuttle_patchwork_tug_6613380216584a3fa81741c2bd9cd3e6_00001__zero_area_cleaned.glb`
+(SHA-256 `3affd15c3261ea084f4bc1e58895c7ee93c3b4abacfb0224a6e57483f028ebfc`)
+enthaelt 14.086 Dreiecke, keine Nullflaechen und eine Face-Komponente.
+Die positiven Dreiecke, Bounds und Szenentransformation stimmen nach
+Reimport exakt mit dem Rohmodell ueberein. Das Mesh ist laut Trimesh
+nicht wasserdicht; Normalenattribute, UVs und PBR-Texturen fehlen weiterhin.
+Eine isolierte Three.js-WebGL-Pruefung aus vier Achsrichtungen zeigt einen
+kantigen Rumpf mit Anbauten und Stellflaechen, aber auch dunkle Bereiche
+und deutliche Facettierung. Die dunkle -Y-Ansicht belegt fuer sich weder
+fehlende Flaechen noch einen gueltigen Bodenabschluss. Orientierung,
+Material und Qualitaet im Startbildschirm bleiben ungeprueft. Auch diese
+Kopie ist DEV_ONLY und wurde nicht in die Laufzeit integriert.
+
+Ein weiterer separater `--with-normals`-Export
+`shuttle_patchwork_tug_6613380216584a3fa81741c2bd9cd3e6_00001__zero_area_cleaned_normals.glb`
+(SHA-256 `e1b1f0ea331a9776b7fadbd949ebf28ac378d2ace1a48eac0b4cdb6a1c37ae77`)
+behaelt alle 14.086 Dreiecke samt Orientierung, Bounds und Transformationen
+unveraendert. Nach Reimport sind alle 7.129 Vertex-Normalen endlich und
+innerhalb von `1e-5` einheitslang. UVs und PBR-Texturen fehlen weiterhin;
+ein isolierter Three.js-WebGL-Vergleich unter identischem neutralem
+Ersatzmaterial und Licht zeigt ein glatteres Shading als bei der
+normalenlosen Kopie, aber auch weichgezeichnete Details und Kanten. Die
+Pruefung verwendet vier festgelegte Achsrichtungen; weder das konkrete
+Startbildschirm-Licht noch Material, Bodenkontakt oder verdeckte Flaechen
+sind damit freigegeben. Der bekannte CUDA-209-Fehler im aktiven
+ComfyUI-Texturpfad bleibt offen; ein neuer Texturjob wurde nicht gestartet.
+Beide Kopien bleiben DEV_ONLY.
+
+Die erneute Topologieinspektion der Normalen-Variante zaehlt 502 Randkanten
+und keine Kante mit mehr als zwei angrenzenden Flaechen. Auch auf der
+Analysekopie mit exakt vereinigten Positionen bleibt dieser Befund bestehen;
+die Randkanten bilden 167 Gruppen, die groesste umfasst vier Kanten. Kleine
+Oeffnungen werden nicht automatisch geschlossen, da deren Ursache und
+Absicht ungeprueft sind. Ein separater, winziger Rastertest in der
+unveraenderten ComfyUI-Containerumgebung scheiterte erneut bei
+`RasterizeCudaContext` mit `Cuda error: 209` auf `sm_86`. Ein erfolgreicher
+Test der separat gebauten Erweiterung ist kein Nachweis fuer den aktiven
+Dienst oder den vollstaendigen Texturpfad.
+
+Fuer spaetere isolierte Versuche kann ein **nicht einreihbarer** 512er
+Texturgraph fuer das bestehende Patchwork-Tug-Mesh vorbereitet werden:
+
+```powershell
+node scripts\trellis2_generate_shuttle.mjs --id patchwork_tug --texture-plan
+node scripts\trellis2_generate_shuttle.mjs --id patchwork_tug --texture-plan --preflight
+```
+
+Der Plan prueft die lokalen SHA-256-Werte von Vorlage und Normalen-GLB,
+laedt im Graphen das gepinnte Mesh mit `Trellis2LoadMesh`, verwendet das
+512er Texturmodell mit 1024x1024-Texturen und verzichtet auf eine erneute
+Shape-Generierung. Die Dateiangabe setzt den Container-Mount
+`/workspace/output/gq_trellis2` voraus. `--preflight` prueft nur Node-Schema,
+Queue und freien Speicher; weder Mount noch CUDA-Kernel, Modellgewichte
+oder Ergebnisqualitaet werden dadurch validiert. `--texture-plan --submit`
+wird ausdruecklich abgewiesen. Der Graph ist noch kein erfolgreicher
+Texturlauf; Orientierung, UV-Bake und PBR-Inhalt sind unbestaetigt.
+
+Der improvisiert reparierte, zivile Shuttle-Entwurf passt als gestalterische
+Interpretation zum Bild der Siedler, die in
+`docs/gamedesign/FACTION_INTRODUCTION.md` Unterkunftsmodule aus
+Schiffswandplatten bauen. Daraus folgt keine kanonische Zuordnung dieses
+Shuttles zu einem bestimmten Herold oder einer Fraktion. Die
+`docs/lore/COMET_NARRATED_INTRO.md` beschreibt ein sichtbares Rendezvous,
+einen Flug und einen erst nach Bestaetigung beginnenden Landeanflug; der
+Entwurf aendert weder diese Abfolge noch die Kamera- oder Cue-Logik.
+
+Bei der zusaetzlichen Earth-DEV-Pruefung des 512er Bypass-Kandidaten bei
+250 m angenommener Breite zeigt die Seitenansicht einen niedrigen,
+rechteckigen Hallenkoerper mit hohem schmalem Auswuchs. Dachflaechen sind
+stark facettiert und enthalten dunkle Luecken; die Unterseite erscheint
+nahezu vollstaendig schwarz und flach. Diese Preview belegt weder korrekte
+Unterseitengeometrie noch Relief-Bodenkontakt. Der Kandidat bleibt
+unfreigegeben.
+
 Mit dem 15.000er Mesh-only-Ziel wurden am 2026-11-13 zwei weitere
 Referenzkandidaten erzeugt. `agriculture` (`building_agriculture_pilot_v1_00002_.glb`,
 307.668 Bytes) hat 14.974 Dreiecke, aber 755 Nullflaechen und 237
@@ -482,9 +769,27 @@ fehlende PBR-Materialien. Die Quellen wurden nicht veraendert.
 
 Die Offline-Inspektion des vorhandenen Industry-Rohmodells fand 490.202
 Dreiecke und 35.181 Nullflaechen in einer 8.848.412 Bytes grossen GLB-Datei.
-Nach Nullflaechenbereinigung verblieben voraussichtlich weiterhin ueber
-455.000 Dreiecke; deshalb wurde kein Cleanup oder Vorschauimport
-durchgefuehrt. Ein kontrollierter Low-Poly-/LOD-Export ist erforderlich.
+Der alte Export blieb wegen seines Umfangs unbereinigt und ausserhalb der
+Vorschau. Ein erneuter Mesh-only-Lauf mit dem aktuellen 15.000er Ziel startete
+mit Prompt `d566d53d-4377-4de3-9492-c85e1f73ab8e`, ueberschritt das
+600-Sekunden-Wartefenster und wurde spaeter nach 1:23:12 erfolgreich
+abgeschlossen. Der neue Roh-GLB `building_industry_pilot_v1_00002_.glb`
+(297.816 Bytes) hat 14.958 Dreiecke, davon 9.712 Nullflaechen. Die separate
+bereinigte Kopie hat 5.246 Dreiecke, 1.095 Komponenten und keine
+Nullflaechen; gueltige UVs, Normalenattribute und PBR-Materialien fehlen
+weiterhin. Nur diese neue Kopie kommt als unfreigegebener DEV_ONLY-Kandidat
+in die Vorschau. Die WebGPU-Sichtpruefung lud diese Kopie, zeigte aber starke
+Facettierung, dunkle Geometrie-Luecken und einen sehr hohen, schmalen
+Geometrieauswuchs relativ zur angenommenen Breite von 100 m. Industry ist
+damit nicht visuell freigegeben.
+
+Ein einzelner texturierter Industry-Lauf am 2026-11-13 mit
+`--textured --submit` scheiterte in `Trellis2MeshTexturing` bei
+`nvdiffrast.RasterizeCudaContext` mit CUDA-Fehler 209; es entstand kein GLB.
+Der anschliessende read-only Preflight bestaetigte eine leere Queue und einen
+weiterhin gueltigen Workflow. Es wurde kein Retry gestartet. Vor einem
+weiteren Texturjob muss die CUDA-/nvdiffrast-Kompatibilitaet der Umgebung
+geklaert werden.
 
 Ein mesh-only-Tanklauf erzeugte
 `building_tank_pilot_v1_00001_.glb`. Die Offline-Inspektion fand 14.912
@@ -527,7 +832,9 @@ und mit nur 68 MiB freiem GPU-Speicher; ein Interrupt-Aufruf beendete ihn
 nicht. Bei der Fortsetzung wurde der spezifische Container
 `galaxyquest-comfyui` gezielt neu gestartet; danach war der Dienst gesund,
 die Queue leer und die GPU wieder verfuegbar. Der Industry-Lauf wurde nicht
-wiederholt; der neue Tanklauf blieb ein einzelner serieller Job.
+wiederholt; der neue Tanklauf blieb ein einzelner serieller Job. Ein spaeterer
+separater Industry-Lauf mit dem 15.000er Ziel wurde abgeschlossen; dessen
+bereinigte Kopie ist im Vorschauabschnitt dokumentiert.
 
 Ein mesh-only-Lauf fuer `fusion` wurde am 2026-11-13 mit
 `--kind fusion --submit` gestartet, endete nach 600 Sekunden aber ohne
@@ -536,7 +843,7 @@ vom Generator erkannte GLB-Ausgabe. Der ComfyUI-Prompt
 read-only-Pruefung weiter; die Queue enthielt einen laufenden und keinen
 wartenden Job. Die RTX 3060 meldete dabei 5.503 MiB freien VRAM und 90 %
 Auslastung. Der Dienst und Prompt wurden nicht unterbrochen oder neu
-gestartet; bis zur Freigabe der Queue darf kein weiterer Inferenzjob
+gestartet; bis zur Freigabe der Queue durfte kein weiterer Inferenzjob
 gestartet werden. Nach spaeterem Queue-Leerlauf bestaetigte die History den
 Prompt als erfolgreich, enthielt aber keine Output-Metadaten. Ein weiterer
 einzelner Versuch mit Prompt
@@ -618,11 +925,18 @@ Der erste `--textured --submit`-Lauf am 2026-11-13 erreichte den
 Texturierungs-Node mit einem Mesh aus 4.974 Dreiecken, scheiterte dort aber
 in `nvdiffrast` beim Erzeugen des CUDA-Rasterkontexts (`Cuda error: 209`,
 `fineRasterKernel`). Es wurde kein GLB exportiert. Das passt zum oben
-dokumentierten Torch291-Wheel, das nur `sm_120` statt der aktiven RTX-3060-
-Architektur `sm_86` enthaelt. Die vorhandenen `sm_86`-Test-Wheels duerfen
-nicht ungeprueft in den gemeinsam genutzten ComfyUI-Dienst installiert
-werden; sie muessen zuerst in einer isolierten Zielumgebung validiert
-werden.
+dokumentierten Basis-Wheel, das nur `sm_120` statt der aktiven RTX-3060-
+Architektur `sm_86` enthaelt. Eine separate Python-Probe im laufenden
+ComfyUI-Container bestaetigte Python 3.12.14, PyTorch 2.9.1+cu128, CUDA 12.8
+und `sm_86`; der importierte `_nvdiffrast_c` stammt weiterhin aus dem
+Basisverzeichnis unter `/usr/local/lib`. Mit einem separaten Prozess und
+`PYTHONPATH` auf das vorhandene `sm_86`-Overlay wurde dagegen der CUDA-
+Rasterkontext erzeugt und ein 32x32-Dreieck mit 338 Pixeln gerastert.
+Das bestaetigt nur den Kernel in einem isolierten Prozess, nicht den
+vollstaendigen ComfyUI-Texturierungsworkflow. Der laufende Dienst wurde
+nicht umgestellt oder neu gestartet; ein vollstaendiger PBR-Lauf bleibt
+einem kontrollierten Wartungsfenster mit ausreichend GPU-Kapazitaet
+vorbehalten.
 
 Nur nach manueller Sichtpruefung und Bearbeitung offener Inspector-Befunde
 den DEV-Import ausfuehren. Ein generierter oder erfolgreich inspizierter

@@ -59,49 +59,26 @@ final class EconomyApiMethodContractTest extends TestCase
         $source = file_get_contents(__DIR__ . '/../../api/economy.php');
         self::assertIsString($source);
 
-        $actionStart = strpos($source, "if (\$action === 'get_pop_classes')");
-        $tryEnd = strpos($source, "\n    } catch (DomainException", $actionStart);
-        self::assertNotFalse($actionStart);
-        self::assertNotFalse($tryEnd);
-        $preDispatch = substr($source, $actionStart, $tryEnd - $actionStart);
-
-        $methodGuard = strpos($preDispatch, "only_method('GET');");
-        $settlement = strpos($preDispatch, '$economy->settle(');
+        $popClasses = $this->functionBody($source, 'action_get_pop_classes');
+        $methodGuard = strpos($popClasses, "only_method('GET');");
+        $settlement = strpos($popClasses, '$economy->settle((int)$ownedColonyId, $uid)');
         self::assertNotFalse($methodGuard);
         self::assertNotFalse($settlement);
         self::assertLessThan($settlement, $methodGuard);
-
-        $popClasses = $this->functionBody($source, 'action_get_pop_classes');
-        self::assertStringContainsString("only_method('GET');", $popClasses);
+        self::assertStringContainsString('WHERE user_id=?', $popClasses);
     }
 
-    public function testPopPolicyMutationReadsTheJsonBodySentByTheClient(): void
+    public function testPopPolicyMutationIsUnavailableInTheOnDemandEconomy(): void
     {
         $source = file_get_contents(__DIR__ . '/../../api/economy.php');
         self::assertIsString($source);
 
         $handler = $this->functionBody($source, 'action_set_pop_policy');
-        self::assertStringContainsString('$body = get_json_body();', $handler);
-        foreach (['colony_id', 'wage_adjustment', 'culture_spending', 'safety_budget'] as $field) {
-            self::assertStringContainsString("\$body['{$field}']", $handler);
-        }
-        self::assertStringNotContainsString('$_POST', $handler);
-    }
-
-    public function testLegacyPopPolicyMutationIsBlockedWhenOnDemandEconomyIsEnabled(): void
-    {
-        $source = file_get_contents(__DIR__ . '/../../api/economy.php');
-        self::assertIsString($source);
-
-        $handler = $this->functionBody($source, 'action_set_pop_policy');
-        $guard = strpos($handler, 'if (ON_DEMAND_ECONOMY_ENABLED)');
-        $response = strpos($handler, "json_error('Population policy controls are unavailable in the on-demand economy.', 503);");
-        $legacyWrite = strpos($handler, 'UPDATE economy_pop_classes');
-        self::assertNotFalse($guard);
-        self::assertNotFalse($response);
-        self::assertNotFalse($legacyWrite);
-        self::assertLessThan($response, $guard);
-        self::assertLessThan($legacyWrite, $response);
+        self::assertStringContainsString(
+            "json_error('Population policy controls are unavailable in the on-demand economy.', 503);",
+            $handler
+        );
+        self::assertStringNotContainsString('UPDATE economy_pop_classes', $handler);
     }
 
     private function functionBody(string $source, string $functionName): string

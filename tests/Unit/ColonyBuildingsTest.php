@@ -92,19 +92,15 @@ final class ColonyBuildingsTest extends TestCase
         $this->assertStringContainsString("case 'get_layout'", $this->apiContent());
     }
 
-    public function testApiHasPlaceBuildingAction(): void
+    public function testApiRoutesSlotMutationsThroughTheOnDemandLedger(): void
     {
-        $this->assertStringContainsString("case 'place_building'", $this->apiContent());
-    }
-
-    public function testApiHasRemoveBuildingAction(): void
-    {
-        $this->assertStringContainsString("case 'remove_building'", $this->apiContent());
-    }
-
-    public function testApiHasUpgradeSlotAction(): void
-    {
-        $this->assertStringContainsString("case 'upgrade_slot'", $this->apiContent());
+        $api = $this->apiContent();
+        $this->assertStringContainsString(
+            "in_array(\$action, ['place_building', 'upgrade_slot', 'remove_building'], true)",
+            $api
+        );
+        $this->assertStringContainsString('json_ok($economy->queue($cid, $uid, $type, [$x, $y]))', $api);
+        $this->assertStringContainsString('$economy->remove($cid, $uid, $x, $y)', $api);
     }
 
     public function testApiHasGetSlotInfoAction(): void
@@ -137,11 +133,6 @@ final class ColonyBuildingsTest extends TestCase
     public function testApiChecksSlotEmpty(): void
     {
         $this->assertStringContainsString('Slot already occupied', $this->apiContent());
-    }
-
-    public function testApiChecksPendingUpgrade(): void
-    {
-        $this->assertStringContainsString('Upgrade already pending for this slot', $this->apiContent());
     }
 
     // ── JS API client ─────────────────────────────────────────────────────────

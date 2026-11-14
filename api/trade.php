@@ -1,13 +1,10 @@
 <?php
 // api/trade.php — Trade routes: automated recurring transport
 use GalaxyQuest\Economy\OnDemandEconomy;
-use GalaxyQuest\Economy\ResourceLedger;
 
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
-require_once __DIR__ . '/economy_flush.php';
 require_once __DIR__ . '/economy_runtime.php';
-require_once __DIR__ . '/../src/Economy/ResourceLedger.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -418,7 +415,6 @@ function action_toggle(PDO $db, int $uid): never {
         foreach ($colonies as $colony) {
             $colonyId = (int)$colony['id'];
             update_colony_resources($db, $colonyId);
-            flush_colony_production($db, $colonyId);
             $runtimeRow = fetch_colony_runtime_row($db, $colonyId);
             if (!$runtimeRow) {
                 continue;
@@ -1057,38 +1053,24 @@ function launch_trade_transport_fleet(PDO $db, int $userId, array $origin, array
 
     $depTime = date('Y-m-d H:i:s');
     $arrTime = date('Y-m-d H:i:s', time() + (int)$profile['travel_seconds']);
-    $shipsJson = json_encode(['cargo_freighter' => 1], JSON_UNESCAPED_SLASHES);
-    if (ON_DEMAND_ECONOMY_ENABLED) {
-        $cost = $payload;
-        $cost['deuterium'] = ($cost['deuterium'] ?? 0) + $fuelCost;
-        $freighters = max(1, (int)ceil(total_trade_cargo_units($payload) / ship_cargo('large_cargo')));
-        (new OnDemandEconomy($db))->spend(
-            (int)$origin['id'],
-            $userId,
-            $cost,
-            function () use ($db, $origin, $freighters): void {
-                $ships = $db->prepare(
-                    "UPDATE ships SET count=count-? WHERE colony_id=? AND type='large_cargo' AND count>=?"
-                );
-                $ships->execute([$freighters, $origin['id'], $freighters]);
-                if ($ships->rowCount() !== 1) {
-                    throw new DomainException('Not enough large cargo ships for this transport.', 409);
-                }
+    $cost = $payload;
+    $cost['deuterium'] = ($cost['deuterium'] ?? 0) + $fuelCost;
+    $freighters = max(1, (int)ceil(total_trade_cargo_units($payload) / ship_cargo('large_cargo')));
+    (new OnDemandEconomy($db))->spend(
+        (int)$origin['id'],
+        $userId,
+        $cost,
+        function () use ($db, $origin, $freighters): void {
+            $ships = $db->prepare(
+                "UPDATE ships SET count=count-? WHERE colony_id=? AND type='large_cargo' AND count>=?"
+            );
+            $ships->execute([$freighters, $origin['id'], $freighters]);
+            if ($ships->rowCount() !== 1) {
+                throw new DomainException('Not enough large cargo ships for this transport.', 409);
             }
-        );
-        $shipsJson = json_encode(['large_cargo' => $freighters], JSON_UNESCAPED_SLASHES);
-    } else {
-        $freighters = max(1, (int)ceil(total_trade_cargo_units($payload) / ship_cargo('large_cargo')));
-        reserve_trade_payload_from_origin(
-            $db,
-            (int)$origin['id'],
-            $userId,
-            $payload,
-            $fuelCost,
-            $freighters
-        );
-        $shipsJson = json_encode(['large_cargo' => $freighters], JSON_UNESCAPED_SLASHES);
-    }
+        }
+    );
+    $shipsJson = json_encode(['large_cargo' => $freighters], JSON_UNESCAPED_SLASHES);
 
     $originPolar = galactic_polar_from_cartesian((float)$origin['x_ly'], (float)$origin['y_ly'], (float)$origin['z_ly']);
     $targetPolar = galactic_polar_from_cartesian((float)$target['x_ly'], (float)$target['y_ly'], (float)$target['z_ly']);
@@ -1160,66 +1142,6 @@ function launch_trade_transport_fleet(PDO $db, int $userId, array $origin, array
         'reason' => (string)($options['reason'] ?? 'trade'),
         'cargo_payload' => $payload,
     ];
-}
-
-function reserve_trade_payload_from_origin(
-    PDO $db,
-    int $originColonyId,
-    int $userId,
-    array $payload,
-    float $fuelCost,
-    int $freighters
-): void {
-    if (!$db->inTransaction()) {
-        throw new RuntimeException('Trade resource reservation requires an active transaction.');
-    }
-
-    $cost = [];
-    $needsFlush = false;
-    foreach ($payload as $resource => $quantity) {
-        if (in_array($resource, TRADE_COLONY_RESOURCES, true)) {
-            $cost[$resource] = (float)$quantity;
-        } elseif ((float)$quantity > 0) {
-            $needsFlush = true;
-        }
-    }
-    $cost['deuterium'] = ($cost['deuterium'] ?? 0.0) + $fuelCost;
-    if ($needsFlush) {
-        flush_colony_production($db, $originColonyId);
-    }
-
-    (new ResourceLedger($db))->spend(
-        $originColonyId,
-        $userId,
-        $cost,
-        function () use ($db, $originColonyId, $payload, $freighters): void {
-            foreach ($payload as $resource => $quantity) {
-                $quantity = max(0.0, (float)$quantity);
-                if ($quantity <= 0 || in_array($resource, TRADE_COLONY_RESOURCES, true)) {
-                    continue;
-                }
-
-                $update = $db->prepare(
-                    'UPDATE economy_processed_goods
-                     SET quantity = quantity - ?
-                     WHERE colony_id = ? AND good_type = ? AND quantity >= ?'
-                );
-                $update->execute([$quantity, $originColonyId, $resource, $quantity]);
-                if ($update->rowCount() !== 1) {
-                    throw new DomainException('Origin colony lacks processed goods: ' . $resource, 409);
-                }
-            }
-
-            $ships = $db->prepare(
-                "UPDATE ships SET count = count - ?
-                 WHERE colony_id = ? AND type = 'large_cargo' AND count >= ?"
-            );
-            $ships->execute([$freighters, $originColonyId, $freighters]);
-            if ($ships->rowCount() !== 1) {
-                throw new DomainException('Not enough large cargo ships for this transport.', 409);
-            }
-        }
-    );
 }
 
 // ─── Trade Proposal handlers ─────────────────────────────────────────────────
