@@ -235,7 +235,8 @@ describe('Cinematic draft registration', () => {
     await vi.advanceTimersByTimeAsync(0);
     await vi.waitFor(() => expect(el('title').textContent).toBe(species[0].homeworld));
     expect(request).toHaveBeenCalledExactlyOnceWith('register_catalog');
-    const destinations = [...species, ...npcHomeworlds];
+    const destinations = cometNarration.stops.map((stop) =>
+      [...species, ...npcHomeworlds].find((entry) => entry.code === stop.code));
     for (const destination of destinations) {
       await vi.waitFor(() => expect(el('title').textContent).toBe(destination.homeworld));
       expect(preview).toHaveBeenLastCalledWith(expect.objectContaining({ draft: destination.homeworld_scene }));
@@ -308,7 +309,7 @@ describe('Cinematic draft registration', () => {
     el('continue').click();
     expect(camera.play).toHaveBeenCalledTimes(calls + 1);
     expect(camera.play).toHaveBeenLastCalledWith(expect.objectContaining({
-      kind: 'comet-world', destination: species[1].homeworld_scene, duration_ms: 45000,
+      kind: 'comet-world', destination: species.find((entry) => entry.code === 'kryl_tha').homeworld_scene, duration_ms: 45000,
     }));
   });
 
@@ -319,6 +320,16 @@ describe('Cinematic draft registration', () => {
     await vi.waitFor(() => expect(el('title').textContent).toBe(species[0].homeworld));
     expect(el('flight-status').textContent).toContain('nicht verfügbar');
     expect(el('continue').hidden).toBe(false);
+  });
+
+  it('reports an incompatible homeworld catalog instead of breaking the scripted story order', async () => {
+    const invalid = { ...catalog, species: [...species.slice(0, 5), { ...species[0] }] };
+    request.mockImplementation(async (action) => action === 'register_catalog' ? invalid : { drafts: mentorDrafts });
+    prologue.open({ opening: true, campaign: true });
+    el('opening-skip').click();
+    await vi.waitFor(() => expect(el('error').textContent).toContain('Drehbuch und die Heimatwelt-Reihenfolge'));
+    expect(el('retry').hidden).toBe(false);
+    expect(camera.play.mock.calls.some(([shot]) => shot.kind === 'comet-world')).toBe(false);
   });
 
   it('reports an unavailable NPC destination instead of inventing a scene', async () => {
@@ -503,6 +514,34 @@ describe('Cinematic draft registration', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(audio.play).toHaveBeenCalledTimes(2);
     expect(el('story').textContent).toBe(cometNarration.clips['comet-opening-o2'].en);
+  });
+
+  it('cancels a consumed preparation when the listener skips it before it is ready', async () => {
+    vi.useFakeTimers();
+    const respond = fetch.getMockImplementation();
+    let release;
+    let signal;
+    fetch.mockImplementation((url, options = {}) => {
+      if (url.includes('registration_narration.php') && JSON.parse(options.body).clip === 'comet-opening-o2') {
+        signal = options.signal;
+        return new Promise((resolve) => { release = () => resolve(respond(url, options)); });
+      }
+      return respond(url, options);
+    });
+
+    prologue.open({ opening: true, campaign: true });
+    await vi.advanceTimersByTimeAsync(0);
+    el('continue').click();
+    expect(el('story').textContent).toBe(cometNarration.clips['comet-opening-o2'].de);
+    el('continue').click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(signal.aborted).toBe(true);
+    expect(el('story').textContent).toBe(cometNarration.clips['comet-opening-o3'].de);
+    expect(audio.play).toHaveBeenCalledTimes(2);
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(audio.play).toHaveBeenCalledTimes(2);
+    expect(el('story').textContent).toBe(cometNarration.clips['comet-opening-o3'].de);
   });
 
   it('cancels preparation on mute and does not request the next muted cue', async () => {

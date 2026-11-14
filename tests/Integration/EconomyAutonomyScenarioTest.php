@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use GalaxyQuest\Economy\EconomicRequests;
+use GalaxyQuest\Economy\ColonyEconomySimulation;
 use GalaxyQuest\Economy\NpcStandingOrders;
 use GalaxyQuest\Economy\OnDemandEconomy;
 use GalaxyQuest\Economy\StandingOrders;
@@ -95,6 +96,96 @@ final class EconomyAutonomyScenarioTest extends TestCase
             $db->query('SELECT metal,crystal,deuterium,rare_earth,food,population FROM colonies WHERE id=3')->fetch(),
             $db->query('SELECT COUNT(*) FROM colony_economy_state WHERE colony_id=3')->fetchColumn(),
         ];
+    }
+
+    /** Physical stores, residual sell reservations and undelivered route cargo, once each. */
+    private function holdings(PDO $db): array
+    {
+        $goods = array_fill_keys(array_keys(ColonyEconomySimulation::PRICES), 0.0);
+        foreach ($db->query('SELECT * FROM colonies') as $colony) {
+            foreach (ColonyEconomySimulation::PRIMARY as $good) {
+                $goods[$good] += (float)$colony[$good];
+            }
+        }
+        foreach ($db->query('SELECT good_type,quantity FROM economy_processed_goods') as $row) {
+            $goods[$row['good_type']] += (float)$row['quantity'];
+        }
+        foreach ($db->query("SELECT good_type,quantity_remaining FROM economy_standing_orders WHERE side='sell' AND status='active'") as $row) {
+            $goods[$row['good_type']] += (float)$row['quantity_remaining'];
+        }
+        foreach ($db->query("SELECT resource_type,quantity_acquired FROM trader_routes WHERE status IN ('acquiring','in_transit')") as $row) {
+            $goods[$row['resource_type']] += (float)$row['quantity_acquired'];
+        }
+        return $goods;
+    }
+
+    public function testSevenDayGrossMaterialLedgerIncludesRecipesStarvationStorageAndRealFlights(): void
+    {
+        $db = $this->fixture();
+        $db->exec("UPDATE economy_processed_goods SET quantity=40 WHERE colony_id=2 AND good_type='electronics_components'; "
+            . "UPDATE economy_processed_goods SET capacity=0.5 WHERE colony_id=2 AND good_type='consumer_goods'");
+        (new StandingOrders($db))->create(2, 2, 'sell', 'metal', 100, '1.00', self::START);
+        $initial = $this->holdings($db);
+        $money = $this->money($db);
+        $flows = [];
+        $economy = new OnDemandEconomy($db);
+        $policy = new NpcStandingOrders($db);
+        for ($hour = 0; $hour <= 168; $hour++) {
+            $now = self::START + $hour * 3600;
+            (new WorldEvents($db))->generate($now, 6);
+            foreach ([1, 2] as $cid) {
+                $step = $economy->settle($cid, $cid, $now, true, true);
+                foreach ($step['material_flows'] as $component => $goods) {
+                    foreach ($goods as $good => $quantity) {
+                        $flows[$component][$good] = ($flows[$component][$good] ?? 0.0) + $quantity;
+                    }
+                }
+            }
+            $beforeTransfers = $this->holdings($db);
+            foreach ([1, 2] as $cid) {
+                $decision = $policy->decide($cid, $now);
+                self::assertNotSame('executed', $decision['production']['construction']['status']);
+            }
+            process_route_transitions($db, $now);
+            execute_trader_strategy($db, ['id' => 1, 'specialization' => '']);
+            process_route_transitions($db, $now);
+            foreach ($beforeTransfers as $good => $quantity) {
+                self::assertEqualsWithDelta($quantity, $this->holdings($db)[$good], 0.00001, $good . ' transfer');
+            }
+            self::assertEqualsWithDelta($money, $this->money($db), 0.02);
+        }
+        $final = $this->holdings($db);
+        $totals = [];
+        foreach ($initial as $good => $quantity) {
+            $expected = $quantity;
+            foreach (['raw_output' => 1, 'capacity_loss' => -1, 'processed_output' => 1,
+                'processing_used' => -1, 'population_used' => -1, 'production_tax' => -1] as $component => $sign) {
+                $expected += $sign * ($flows[$component][$good] ?? 0.0);
+            }
+            self::assertEqualsWithDelta($expected, $final[$good], 0.00001, $good . ' seven-day gross balance');
+            self::assertGreaterThanOrEqual(0, $final[$good]);
+            if ($quantity > 0 || $expected > 0 || ($flows['processing_used'][$good] ?? 0) > 0) {
+                $totals[$good] = ['initial' => $quantity, 'final' => $final[$good]];
+                foreach ($flows as $component => $goods) {
+                    $totals[$good][$component] = $goods[$good] ?? 0;
+                }
+            }
+        }
+        self::assertGreaterThan(0, $flows['raw_output']['metal']);
+        self::assertGreaterThan(0, $flows['processed_output']['steel_alloy']);
+        self::assertGreaterThan(0, $flows['processed_output']['consumer_goods']);
+        self::assertGreaterThan(0, $flows['processing_used']['metal']);
+        self::assertGreaterThan(0, $flows['processing_used']['steel_alloy']);
+        self::assertGreaterThan(0, $flows['population_used']['food']);
+        self::assertGreaterThan(0, $flows['population_used']['consumer_goods']);
+        self::assertGreaterThan(0, $flows['unmet_population']['food']);
+        self::assertGreaterThan(0, $flows['unmet_processing']['consumer_goods']);
+        self::assertGreaterThan(0, $flows['processing_capacity_blocked']['consumer_goods']);
+        self::assertSame(0, (int)$db->query('SELECT COUNT(*) FROM colonies WHERE metal<0 OR food<0')->fetchColumn());
+        self::assertGreaterThan(0, (int)$db->query("SELECT COUNT(*) FROM trader_routes WHERE status='completed'")->fetchColumn());
+        if (getenv('GQ_SCENARIO_STATS') === '1') {
+            fwrite(STDERR, 'GQ_MATERIAL_STATS ' . json_encode($totals, JSON_THROW_ON_ERROR) . PHP_EOL);
+        }
     }
 
     public function testSevenDaysOfBackedAutonomousTradingAndIgnoredRequests(): void
@@ -252,7 +343,7 @@ final class EconomyAutonomyScenarioTest extends TestCase
         $db = $this->fixture();
         $economy = new OnDemandEconomy($db);
         $before = $economy->inspect(2, 2, self::START);
-        $after = $economy->settle(2, 2, self::START + 300, true);
+        $after = $economy->settle(2, 2, self::START + 300, true, true);
         $initial = $before['economy']['stock'];
         $state = $after['economy'];
         self::assertGreaterThan(0, $state['production']['metal']);
@@ -277,9 +368,15 @@ final class EconomyAutonomyScenarioTest extends TestCase
         $initial = $economy->settle(2, 2, self::START, true);
         // A distinct finite initial endowment fills this colony's existing capacity.
         $db->prepare('UPDATE colonies SET metal=? WHERE id=2')->execute([$initial['storage']['metal']]);
-        $after = $economy->settle(2, 2, self::START + 300, true);
+        $after = $economy->settle(2, 2, self::START + 300, true, true);
         self::assertEqualsWithDelta($initial['storage']['metal'], $after['economy']['stock']['metal'], 0.00001);
         self::assertSame(0.0, $after['economy']['production']['metal']);
+        self::assertGreaterThan(0, $after['material_flows']['capacity_loss']['metal']);
+        self::assertEqualsWithDelta(
+            $after['material_flows']['raw_output']['metal'],
+            $after['material_flows']['capacity_loss']['metal'],
+            0.00001
+        );
     }
 
     public function testQueuedNpcConstructionRealizesDuringBoundedOfflineCatchup(): void

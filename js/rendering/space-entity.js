@@ -56,6 +56,7 @@ export class SpaceEntity {
   }
 
   setRoute(descriptor, points, { initial = false, defaultDuration = 7 } = {}) {
+    this.tradeClock = descriptor.trade_clock || null;
     this.displayName = String(descriptor.display_name || descriptor.name || descriptor.fleet_label
       || (this.kind === 'vessel' ? 'Raumschiff' : ''));
     this.combatStatus = descriptor.combat_status || null;
@@ -87,6 +88,12 @@ export class SpaceEntity {
     this.to = this.route[segment + 1].clone();
     this.elapsed = 0;
     this.duration = Math.max(1, Number(descriptor.segment_duration_seconds) || defaultDuration);
+    if (this.tradeClock) {
+      this.from.copy(points[0]);
+      this.to.copy(points[1]);
+      this.update(0);
+      return;
+    }
     if (this.reducedMotion) {
       this.position.copy(this.to);
       this.from.copy(this.to);
@@ -94,6 +101,12 @@ export class SpaceEntity {
   }
 
   update(deltaSeconds) {
+    if (this.tradeClock) {
+      const { departure, arrival, offset } = this.tradeClock;
+      const progress = Math.max(0, Math.min(1, (Date.now() + offset - departure) / (arrival - departure)));
+      this.position.lerpVectors(this.from, this.to, progress);
+      return true;
+    }
     const dt = Math.max(0, Math.min(0.05, Number(deltaSeconds) || 0));
     if (!dt || this.reducedMotion) return false;
     if (this.elapsed < this.duration) {

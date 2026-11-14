@@ -6,7 +6,7 @@ function node(tag, text) {
   return element;
 }
 
-export function mountMarketWindow({ session, domain, wm }) {
+export function mountMarketWindow({ session, domain, wm, tradeTransports }) {
   if (!wm?.register || !wm?.body) throw new Error('The game window manager is unavailable.');
   const view = createGameWindowView(wm, 'trade');
   let disposed = false;
@@ -254,6 +254,19 @@ export function mountMarketWindow({ session, domain, wm }) {
       }
       if (!(state.data.requests ?? []).length) requests.append(node('p', 'Keine Wirtschafts-Anfragen für diese Kolonie.'));
       content.append(requests);
+      const deliveries = node('section');
+      deliveries.className = 'game-market-deliveries';
+      deliveries.append(node('h3', 'Laufende Lieferungen'),
+        node('p', 'Position auf direkter Verbindung ist eine illustrative Darstellung; Ankunft und Warenübergabe bestätigt ausschließlich der Server.'));
+      const transit = tradeTransports?.getState();
+      const relevant = (transit?.transports || []).filter((item) =>
+        Number(item.source_colony_id) === Number(colony?.id) || Number(item.target_colony_id) === Number(colony?.id));
+      for (const item of relevant) {
+        const due = Date.now() + transit.offset >= Number(item.arrival_unix) * 1000;
+        deliveries.append(node('p', `Transport #${item.route_id} · ${item.quantity} ${item.good_type.replaceAll('_', ' ')} · Abflug ${new Date(item.departure_unix * 1000).toLocaleString('de-DE')} · geplante Ankunft ${new Date(item.arrival_unix * 1000).toLocaleString('de-DE')} · ${due ? 'Wartet auf Serverbestätigung' : 'Unterwegs'}`));
+      }
+      if (!relevant.length) deliveries.append(node('p', 'Keine laufenden Lieferungen für diese Kolonie.'));
+      content.append(deliveries);
       const standing = node('section');
       standing.className = 'game-market-standing-orders';
       standing.setAttribute('aria-label', 'Freiwillige NPC-Handelsaufträge');
@@ -416,6 +429,7 @@ export function mountMarketWindow({ session, domain, wm }) {
   }
   wm.register('trade', { title: 'Markt', w: 720, h: 560, onRender() { render(); void domain.load(); } });
   const unsubscribe = domain.subscribe(render);
+  const unsubscribeTransports = tradeTransports?.subscribe(render);
   const unsubscribeColony = session.events.on('overview:updated', () => {
     const id = session.getColony()?.id ?? null;
     if (id !== lastColony) {
@@ -483,6 +497,7 @@ export function mountMarketWindow({ session, domain, wm }) {
   return () => {
     disposed = true;
     unsubscribe();
+    unsubscribeTransports?.();
     unsubscribeColony();
     unsubscribeAccepted();
     unsubscribeRequested();
@@ -494,4 +509,4 @@ export function mountMarketWindow({ session, domain, wm }) {
     wm.register('trade', { onRender: null });
   };
 }
-import { createGameIcon, decorateGameAction } from './game-ui-visuals.js';
+import { createGameIcon } from './game-ui-visuals.js';

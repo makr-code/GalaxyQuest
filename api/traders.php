@@ -452,6 +452,7 @@ function create_trader_bot_user(PDO $db, int $faction_id): int {
  * A route stops in transit until its persisted arrival timestamp is due.
  */
 function process_route_transitions(PDO $db, ?int $now = null): array {
+    trader_return_transports($db, $now ?? time());
     $stats = [
         'routes_processed' => 0,
         'routes_completed' => 0,
@@ -847,7 +848,8 @@ function trader_route_acquire(PDO $db, array $route, array $trader, ?int $now = 
     $acquired = (int)min(
         floor($planned), (int)$sell['quantity_remaining'], (int)$buy['quantity_remaining'],
         intdiv((int)$buy['escrow_cents'], $bidCents), intdiv($capitalCents, $askCents),
-        NPC_TRADER_CARGO_CAPACITY
+        NPC_TRADER_CARGO_CAPACITY,
+        trader_transport_depot($db, $source, (int)$trader['user_id'])['capacity'] ?? 0
     );
     if ($acquired <= 0) {
         trader_route_fail($db, $route);
@@ -910,6 +912,33 @@ function trader_route_acquire(PDO $db, array $route, array $trader, ?int $now = 
     return $route;
 }
 
+/** Only existing trader-owned ships already stationed in the source system may load. */
+function trader_transport_depot(PDO $db, array $source, int $owner): ?array
+{
+    $suffix = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+    $statement = $db->prepare(
+        'SELECT c.id,s.type,s.count FROM colonies c JOIN celestial_bodies b ON b.id=c.body_id '
+        . 'JOIN ships s ON s.colony_id=c.id WHERE c.user_id=? AND b.galaxy_index=? AND b.system_index=? '
+        . "AND s.type IN ('large_cargo','small_cargo') AND s.count>0 ORDER BY c.id,s.type" . $suffix
+    );
+    $statement->execute([$owner, $source['galaxy_index'], $source['system_index']]);
+    $depots = [];
+    foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $cid = (int)$row['id'];
+        $depots[$cid]['colony_id'] = $cid;
+        $depots[$cid]['ships'][$row['type']] = (int)$row['count'];
+        $depots[$cid]['capacity'] = ($depots[$cid]['capacity'] ?? 0)
+            + (int)$row['count'] * ship_cargo($row['type']);
+    }
+    $best = null;
+    foreach ($depots as $depot) {
+        if ($best === null || $depot['capacity'] > $best['capacity']) {
+            $best = $depot;
+        }
+    }
+    return $best;
+}
+
 function trader_route_launch(PDO $db, array $route, array $trader, ?int $now = null): array
 {
     $acquired = (float)$route['quantity_acquired'];
@@ -922,6 +951,26 @@ function trader_route_launch(PDO $db, array $route, array $trader, ?int $now = n
     }
     if (!$source || !$target || (int)$trader['user_id'] <= 0) {
         throw new RuntimeException('Acquired goods cannot be launched without valid route endpoints and trader owner.');
+    }
+    $depot = trader_transport_depot($db, $source, (int)$trader['user_id']);
+    if ($depot === null || $depot['capacity'] < $acquired) {
+        // Previously acquired cargo remains backed and waits, never teleports.
+        return $route;
+    }
+    $ships = [];
+    $remaining = $acquired;
+    foreach ($depot['ships'] as $type => $available) {
+        $count = min($available, (int)ceil(max(0, $remaining) / ship_cargo($type)));
+        if ($count < 1) {
+            continue;
+        }
+        $debit = $db->prepare('UPDATE ships SET count=count-? WHERE colony_id=? AND type=? AND count>=?');
+        $debit->execute([$count, $depot['colony_id'], $type, $count]);
+        if ($debit->rowCount() !== 1) {
+            throw new RuntimeException('Transport ships changed before departure.');
+        }
+        $ships[$type] = $count;
+        $remaining -= $count * ship_cargo($type);
     }
 
     $origin = get_system_3d_coords($db, (int)$source['galaxy_index'], (int)$source['system_index']);
@@ -946,14 +995,15 @@ function trader_route_launch(PDO $db, array $route, array $trader, ?int $now = n
              mission, ships_json, cargo_metal, cargo_crystal, cargo_deuterium, cargo_payload,
              origin_x_ly, origin_y_ly, origin_z_ly, target_x_ly, target_y_ly, target_z_ly,
              speed_ly_h, distance_ly, departure_time, arrival_time)
-        VALUES (?, ?, ?, ?, ?, 'transport', '{}', 0, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, 'transport', ?, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     SQL);
     $fleet->execute([
         (int)$trader['user_id'],
-        (int)$route['source_colony_id'],
+        $depot['colony_id'],
         (int)$target['galaxy_index'],
         (int)$target['system_index'],
         (int)$target['position'],
+        json_encode($ships, JSON_THROW_ON_ERROR),
         $cargo,
         $origin[0],
         $origin[1],
@@ -998,7 +1048,7 @@ function trader_route_deliver_if_due(PDO $db, array $route, ?int $now = null): a
     }
 
     $suffix = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
-    $fleetStmt = $db->prepare('SELECT id,cargo_payload FROM fleets WHERE id = ?' . $suffix);
+    $fleetStmt = $db->prepare('SELECT * FROM fleets WHERE id = ?' . $suffix);
     $fleetStmt->execute([$fleetId]);
     $fleet = $fleetStmt->fetch(PDO::FETCH_ASSOC);
     if (!$fleet) {
@@ -1023,7 +1073,11 @@ function trader_route_deliver_if_due(PDO $db, array $route, ?int $now = null): a
         [$good => (float)$route['quantity_acquired']],
         $now
     );
-    $db->prepare('DELETE FROM fleets WHERE id = ?')->execute([$fleetId]);
+    $returnAt = ($now ?? time()) + fleet_travel_time_3d(
+        (float)$fleet['distance_ly'], (float)$fleet['speed_ly_h']
+    );
+    $db->prepare("UPDATE fleets SET mission='return',cargo_payload='{}',return_time=? WHERE id=?")
+        ->execute([gmdate('Y-m-d H:i:s', $returnAt), $fleetId]);
     $scheduledArrival = $route['arrival_at'] ?: ($route['fleet_arrival'] ?? null);
     $routeUpdate = $db->prepare(
         "UPDATE trader_routes SET status = 'delivering', arrival_at = ?, updated_at = ? "
@@ -1036,6 +1090,42 @@ function trader_route_deliver_if_due(PDO $db, array $route, ?int $now = null): a
     $route['status'] = 'delivering';
     $route['arrival_at'] = $scheduledArrival;
     return $route;
+}
+
+/** Completed sales retain their real ships until the return flight reaches its depot. */
+function trader_return_transports(PDO $db, int $now): void
+{
+    $statement = $db->prepare(
+        "SELECT r.id FROM trader_routes r JOIN fleets f ON f.id=r.fleet_id "
+        . "WHERE r.status='completed' AND f.mission='return' AND f.return_time<=? ORDER BY r.id"
+    );
+    $statement->execute([gmdate('Y-m-d H:i:s', $now)]);
+    foreach ($statement->fetchAll(PDO::FETCH_COLUMN) as $id) {
+        trader_route_transaction($db, (int)$id, static function () use ($db, $id, $now): void {
+            $suffix = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
+            $query = $db->prepare(
+                "SELECT f.* FROM fleets f JOIN trader_routes r ON r.fleet_id=f.id "
+                . "WHERE r.id=? AND r.status='completed' AND f.mission='return' AND f.return_time<=?" . $suffix
+            );
+            $query->execute([$id, gmdate('Y-m-d H:i:s', $now)]);
+            $fleet = $query->fetch(PDO::FETCH_ASSOC);
+            if (!$fleet) {
+                return;
+            }
+            $owner = $db->prepare('SELECT user_id FROM colonies WHERE id=?' . $suffix);
+            $owner->execute([$fleet['origin_colony_id']]);
+            if ((int)$owner->fetchColumn() !== (int)$fleet['user_id']) {
+                return;
+            }
+            $ships = json_decode($fleet['ships_json'], true, 512, JSON_THROW_ON_ERROR);
+            foreach ($ships as $type => $count) {
+                $db->prepare('UPDATE ships SET count=count+? WHERE colony_id=? AND type=?')
+                    ->execute([$count, $fleet['origin_colony_id'], $type]);
+            }
+            $db->prepare('DELETE FROM fleets WHERE id=?')->execute([$fleet['id']]);
+            $db->prepare('UPDATE trader_routes SET fleet_id=NULL WHERE id=?')->execute([$id]);
+        });
+    }
 }
 
 function trader_route_complete(PDO $db, array $route, array $trader, ?int $now = null): void

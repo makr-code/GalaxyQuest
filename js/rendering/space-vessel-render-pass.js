@@ -366,7 +366,7 @@ export class SpaceVesselRenderPass {
     asset.particleInstances = asset.hasEngineEffects ? this._buildParticleInstances() : new Float32Array();
     asset.particleCount = asset.particleInstances.length / 4;
     asset.ready = true;
-    if (asset.modelUrl.startsWith('procedural:hero-')) {
+    if (asset.modelUrl.startsWith('procedural:hero-') || asset.modelUrl === 'procedural:transport') {
       const materials = new Set();
       scene.traverse((node) => {
         node.geometry?.dispose();
@@ -443,6 +443,19 @@ export class SpaceVesselRenderPass {
     const lightMaterial = new MeshStandardMaterial({
       color: 0x75f0db, emissive: 0x32bca7, emissiveIntensity: 0.8, roughness: 0.28,
     });
+    if (kind === 'transport') {
+      const hull = new Mesh(new BoxGeometry(2.4, 0.55, 0.5), hullMaterial);
+      root.add(hull);
+      for (const x of [-0.65, 0, 0.65]) {
+        const container = new Mesh(new BoxGeometry(0.52, 0.8, 0.65), roofMaterial);
+        container.position.set(x, 0, 0.36);
+        root.add(container);
+      }
+      const bridge = new Mesh(new BoxGeometry(0.45, 0.55, 0.48), lightMaterial);
+      bridge.position.set(1.05, 0, 0.38);
+      root.add(bridge);
+      return root;
+    }
     if (kind === 'colony') {
       const centralHabitat = new Mesh(new SphereGeometry(0.58, 20, 14), roofMaterial);
       centralHabitat.scale.set(1.25, 0.82, 0.86);

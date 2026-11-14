@@ -25,9 +25,10 @@ Zwischenstand fuer **Begin a new campaign**:
    einen bewegten Kometen und blickt durch dessen raeumlichen Partikelschweif
    zum Kern. Galaxiebeschreibung, GalaxyQuest-Titel und Konvergenz bleiben
    drei zusammenhaengende Textbeats derselben Verfolgung.
-2. Der Komet fliegt die sechs echten Spezies-Heimatwelten und anschliessend
-   Erde (Eisenflotte), Helion Prime und Verath als NPC-Stationen nacheinander an
-   und passiert sie sichtbar als Besucher. Nur die sechs Spezies stehen zur
+2. Der Komet fliegt die sechs echten Spezies-Heimatwelten in der
+   Drehbuchreihenfolge und anschliessend Erde (Eisenflotte), Helion Prime und
+   Verath als NPC-Stationen nacheinander an und passiert sie sichtbar als
+   Besucher. Nur die sechs Spezies stehen zur
    Herkunftswahl. Die Kamera begleitet den Kometen bis nahe an die beleuchtete
    Hemisphaere; ein sichtbarer Teil der Kruemmung bleibt im Bild. Die
    Oberflaechen und gezeigte Boden- und Orbitalstrukturen sind schematische,

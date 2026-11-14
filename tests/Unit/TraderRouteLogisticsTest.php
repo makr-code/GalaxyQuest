@@ -143,6 +143,12 @@ final class TraderRouteLogisticsTest extends TestCase
             INSERT INTO colonies (id,user_id,body_id,name,food,rare_earth) VALUES
                 (1,1,1,'Origin',1000,1000),(2,2,2,'Destination',1000,1000);
             INSERT INTO npc_traders (id,user_id,capital_credits,active_fleets) VALUES (1,10,100000,1);
+            INSERT INTO celestial_bodies VALUES (1001,1,1,10),(1002,1,2,10),(1003,1,3,10);
+            INSERT INTO colonies (id,user_id,body_id,name,metal,crystal,deuterium,rare_earth,food,population)
+                VALUES (1001,10,1001,'Carrier depot 1',0,0,0,0,0,0),
+                       (1002,10,1002,'Carrier depot 2',0,0,0,0,0,0),
+                       (1003,10,1003,'Carrier depot 3',0,0,0,0,0,0);
+            INSERT INTO ships VALUES (1001,'small_cargo',4),(1002,'small_cargo',4),(1003,'small_cargo',4);
             SQL);
         return $db;
     }

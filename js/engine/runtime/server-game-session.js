@@ -9,6 +9,7 @@ import { createGalaxyDomain } from './server-galaxy-domain.js';
 import { mountGameGalaxy } from '../../ui/game-galaxy.js';
 import { mountGameOverlayShell } from '../../ui/game-overlay-shell.js';
 import { createFleetDomain } from './server-fleet-domain.js';
+import { createTradeTransports } from './trade-transports.js';
 import { mountFleetWindow } from '../../ui/game-fleets.js';
 import { createFleetLaunchDomain } from './server-fleet-launch-domain.js';
 import { mountFleetCommandOverlay } from '../../ui/game-fleet-launch.js';
@@ -111,6 +112,7 @@ let shipyardDomain = null;
 let unmountShipyard = null;
 let marketDomain = null;
 let unmountMarket = null;
+let tradeTransports = null;
 let unmountPopulation = null;
 
 export function startAuthenticatedGame() {
@@ -132,14 +134,16 @@ export function startAuthenticatedGame() {
     unmountPopulation = mountPopulationWindow({ session, domain: economyDomain, wm: window.WM });
     galaxyDomain = createGalaxyDomain({ api: API, session });
     fleetDomain = createFleetDomain({ api: API, session });
-    unmountGalaxy = mountGameGalaxy({ session, domain: galaxyDomain, fleets: fleetDomain });
+    tradeTransports = createTradeTransports({ api: API, session });
+    unmountGalaxy = mountGameGalaxy({ session, domain: galaxyDomain, fleets: fleetDomain, tradeTransports });
+    void tradeTransports.refresh();
     unmountFleets = mountFleetWindow({ domain: fleetDomain, galaxy: galaxyDomain, wm: window.WM });
     fleetLaunchDomain = createFleetLaunchDomain({ api: API, session });
     unmountFleetLaunch = mountFleetCommandOverlay({ domain: fleetLaunchDomain, fleets: fleetDomain, session });
     shipyardDomain = createShipyardDomain({ api: API, session });
     unmountShipyard = mountShipyardWindow({ session, domain: shipyardDomain, wm: window.WM });
     marketDomain = createMarketDomain({ api: API, session });
-    unmountMarket = mountMarketWindow({ session, domain: marketDomain, wm: window.WM });
+    unmountMarket = mountMarketWindow({ session, domain: marketDomain, wm: window.WM, tradeTransports });
     unmountOverlayShell = mountGameOverlayShell({ session, galaxy: galaxyDomain });
     window.GQGame = {
       api: API,
@@ -181,6 +185,8 @@ export function shutdownAuthenticatedGame() {
   fleetDomain = null;
   unmountGalaxy?.();
   unmountGalaxy = null;
+  tradeTransports?.shutdown();
+  tradeTransports = null;
   galaxyDomain?.shutdown();
   galaxyDomain = null;
   unmountEconomy?.();

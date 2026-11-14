@@ -12,6 +12,7 @@ use GalaxyQuest\Economy\OnDemandEconomy;
 use GalaxyQuest\Economy\WorldEvents;
 use GalaxyQuest\Economy\StandingOrders;
 use GalaxyQuest\Economy\EconomicRequests;
+use GalaxyQuest\Economy\TradeTransports;
 
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/helpers.php';
@@ -19,6 +20,7 @@ require_once __DIR__ . '/cache.php';
 require_once __DIR__ . '/../src/Economy/OnDemandEconomy.php';
 require_once __DIR__ . '/../src/Economy/StandingOrders.php';
 require_once __DIR__ . '/../src/Economy/EconomicRequests.php';
+require_once __DIR__ . '/../src/Economy/TradeTransports.php';
 
 // ---------------------------------------------------------------------------
 // Base price table (mirrors JS GOOD_BASE_PRICE)
@@ -70,6 +72,7 @@ match ($action) {
     'get_history'       => action_get_history($db, $uid),
     'get_active_events' => action_get_active_events($db, $uid),
     'list_orders'      => action_list_orders($db, $uid),
+    'get_transports'   => action_get_transports($db, $uid),
     'create_order'     => action_create_order($db, $uid),
     'cancel_order'     => action_cancel_order($db, $uid),
     'accept_request'   => action_economic_request($db, $uid, 'accept'),
@@ -327,6 +330,12 @@ function invalidate_market_trade_cache(int $uid, int $colonyId): void
 {
     gq_cache_delete('game_overview', ['uid' => $uid]);
     gq_cache_delete('game_resources', ['uid' => $uid, 'cid' => $colonyId]);
+}
+
+function action_get_transports(PDO $db, int $uid): never
+{
+    only_method('GET');
+    json_ok(['transports' => (new TradeTransports($db))->list($uid), 'now_unix' => time()]);
 }
 
 function action_list_orders(PDO $db, int $uid): never

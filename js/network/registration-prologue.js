@@ -757,8 +757,18 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
         || catalog.npc_homeworlds.some((entry, index) => entry.code !== content.npc_tour[index].code)) {
         throw new Error('Die NPC-Reiseziele sind im Katalog nicht vollständig verfügbar.');
       }
+      const speciesByCode = new Map(catalog.species.map((species) => [species.code, species]));
+      const scriptedCodes = cometNarration.stops.map((stop) => stop.code);
+      const playableCodes = scriptedCodes.slice(0, catalog.species.length);
+      if (speciesByCode.size !== catalog.species.length
+        || scriptedCodes.length !== catalog.species.length + catalog.npc_homeworlds.length
+        || new Set(scriptedCodes).size !== scriptedCodes.length
+        || playableCodes.some((code) => !speciesByCode.has(code))
+        || scriptedCodes.slice(catalog.species.length).some((code, index) => code !== catalog.npc_homeworlds[index].code)) {
+        throw new Error('Das Drehbuch und die Heimatwelt-Reihenfolge stimmen nicht überein.');
+      }
       homeworldStops = [
-        ...catalog.species.map((species, index) => ({ ...species, transit: content.homeworld_transit[index], npc: false })),
+        ...playableCodes.map((code, index) => ({ ...speciesByCode.get(code), transit: content.homeworld_transit[index], npc: false })),
         ...catalog.npc_homeworlds.map((npc, index) => ({ ...npc,
           transit: { title: content.npc_tour[index].transit_title, text: content.npc_tour[index].transit_text },
           npc: true })),

@@ -3,6 +3,7 @@ import { resolvePlanetOrbit } from '../rendering/system-visualization-layer.js';
 import { API } from '../api.js';
 import { mountFleetMap } from './game-fleet-map.js';
 import { createGameIcon, decorateGameAction } from './game-ui-visuals.js';
+import { transportVessel } from '../engine/runtime/trade-transports.js';
 
 function node(tag, text) {
   const element = document.createElement(tag);
@@ -17,7 +18,7 @@ function button(text, action) {
   return element;
 }
 
-export function mountGameGalaxy({ session, domain, fleets, createRenderer = createGameGalaxyRenderer }) {
+export function mountGameGalaxy({ session, domain, fleets, tradeTransports, createRenderer = createGameGalaxyRenderer }) {
   const host = document.getElementById('galaxy-3d-host');
   const stage = document.getElementById('wm-galaxy-section');
   const wrapper = document.getElementById('galaxy-bg-wrapper');
@@ -568,7 +569,11 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
       else { renderer.exitSystemView(true); renderer.fitCameraToStars(true, true); }
       lastSystem = systemKey;
     }
-    renderer.setGalaxyFleets(session.getState()?.fleets || []);
+    const transit = tradeTransports?.getState();
+    renderer.setGalaxyFleets([
+      ...(session.getState()?.fleets || []),
+      ...(transit?.transports || []).map((route) => transportVessel(route, transit.offset)),
+    ]);
     startPendingBattleEncounter();
   }
   function startPendingBattleEncounter() {
@@ -770,6 +775,7 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
   const observer = new ResizeObserver(() => renderer?.resize());
   observer.observe(stage);
   const unsubscribe = domain.subscribe(update);
+  const unsubscribeTransports = tradeTransports?.subscribe(syncRenderer);
   const unsubscribeOverview = session.events.on('overview:updated', () => {
     syncRenderer();
     updatePlanetContext();
@@ -838,6 +844,7 @@ export function mountGameGalaxy({ session, domain, fleets, createRenderer = crea
     searchButton?.removeEventListener('click', showSearch);
     observer.disconnect();
     unsubscribe();
+    unsubscribeTransports?.();
     unsubscribeOverview();
     unsubscribeMutation();
     unsubscribeFleetPicking();

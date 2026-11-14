@@ -257,7 +257,7 @@ Nach den militärischen Ansprüchen folgt Macht durch Verbindungen.
 
 | Cue | Untertitel | Grundlage |
 |---|---|---|
-| T1 | Eure Sonne hat acht Planeten. Dazwischen reisen Monde, Asteroiden und Kometen wie ich. | W6 |
+| T1 | Eure Sonne hat acht Planeten. Zu ihrem System gehören auch Monde, Asteroiden und Kometen wie ich. | W6 |
 | T2 | Wir sind nur einige von vielen Körpern im Sonnensystem. Platz zum Entdecken gibt es genug. | W6 |
 | T3 | Für eine ordentliche Parkplatzverwaltung wäre es trotzdem eine Herausforderung. | Personifikation |
 | T4 | Von den Planeten geht es nach Helion Prime. Die Konföderation verbindet Welten durch Handel. | L1, L3 |
@@ -434,7 +434,7 @@ interstellaren Filmreise bleibt die Beleuchtung eine dokumentierte Näherung.
 | L1 | [GAMEDESIGN.md](../gamedesign/GAMEDESIGN.md), Spezies, Welten, Nebenfraktionen | Biologie, Kultur, Konvergenz, öffentlich bekannte Figuren, Bedrohungen. |
 | L2 | [Spezies-Specs](../../fractions/): `aereth`, `kryl_tha`, `syl_nar`, `vel_ar`, `vor_tak`, `zhareen` | Abgleich von Heimatwelten und Speziescharakter. |
 | L3 | [Eisenflotte](../../fractions/iron_fleet/spec.json), [Helion](../../fractions/helion_confederation/spec.json), [Verath](../../fractions/ketzer_von_verath/spec.json) | Kuratierte NPC-Stationen; Verath als abtrünnige Syl'Nar, nicht neue Spezies. |
-| L4 | [Konfiguration](../../config/onboarding_prologue.json), [Cue-/Sprachkonfiguration](../../config/onboarding_narration.json), [Spielbare Codes](../../api/helpers.php), [Toursteuerung](../../js/network/registration-prologue.js) | Sechs sortierte spielbare Spezies, anschließend die drei konfigurierten NPC-Stationen; lokalisierte Cues, Zeiten und Entscheidungsablauf. |
+| L4 | [Konfiguration](../../config/onboarding_prologue.json), [Cue-/Sprachkonfiguration](../../config/onboarding_narration.json), [Spielbare Codes](../../api/helpers.php), [Toursteuerung](../../js/network/registration-prologue.js) | Sechs spielbare Spezies in der Drehbuchreihenfolge, anschließend die drei konfigurierten NPC-Stationen; lokalisierte Cues, Zeiten und Entscheidungsablauf. |
 | L5 | [FACTION_INTRODUCTION.md](../gamedesign/FACTION_INTRODUCTION.md), Spielerstart / Vethisit; [aktueller Prolog](../gamedesign/ONBOARDING_PROLOGUE_DESIGN.md) | Randwelt, Gesandte, privater Entwurf und ausdrücklich bestätigte Landung. |
 
 Die Reihenfolge ist Aereth → Kryl'Tha → Syl'Nar → Vel'Ar → Vor'Tak → Zhareen
