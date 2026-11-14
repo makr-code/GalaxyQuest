@@ -132,6 +132,7 @@ describe('CI smoke workflow ordering and cleanup', () => {
   });
   it('publishes Vite entry and hashed assets to the Apache document root', () => {
     const dockerfile = readFileSync(path.resolve('Dockerfile'), 'utf8');
+    expect(dockerfile).toMatch(/apt-get install -y --no-install-recommends[\s\S]*\bapache2\b[\s\S]*\bapache2-bin\b[\s\S]*\bapache2-data\b[\s\S]*\bapache2-utils\b/);
     expect(dockerfile).toContain('cp dist/index.html index.html');
     expect(dockerfile).toContain('cp -a dist/assets/. assets/');
     expect(dockerfile).toContain('HEALTHCHECK --interval=30s --timeout=5s');

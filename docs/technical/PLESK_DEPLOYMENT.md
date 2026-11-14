@@ -446,6 +446,9 @@ measured total to 819,159 bytes, it combined independently loaded modules
 with global side effects and left only 41 bytes of headroom. It is not an
 accepted fix. The later start-page fix keeps these modules separate and raises
 the total gzip budget to 825 KiB; the resulting local build measures 811.4 KiB.
+The subsequent CI repair found the current OXC build at 848.4 KiB gzip, so the
+total budget is now 1 MiB; the 650 KiB initial-load and 1.25 MiB single-chunk
+limits remain unchanged. The total-budget change was explicitly approved.
 This does not make an earlier build or deployment candidate acceptable.
 A Vite preview alone does not reproduce the native package's
 complete runtime file layout, so browser tests against it cannot establish

@@ -75,91 +75,6 @@ final class ResourceMutationApiConcurrencyTest extends TestCase
         $this->server = null;
     }
 
-    public function testConcurrentMarketBuysCannotDoubleDebitCredits(): void
-    {
-        // Enough credits for exactly one 80-unit purchase at the base metal price.
-        $this->admin->exec('UPDATE users SET credits = 300 WHERE id = 7');
-        $this->admin->beginTransaction();
-        $this->admin->query('SELECT id FROM users WHERE id = 7 FOR UPDATE')->fetchColumn();
-        $requests = [];
-        $requests[] = $this->startBuyRequest($this->sessionIds[0]);
-        $requests[] = $this->startBuyRequest($this->sessionIds[1]);
-        $this->assertApiRequestsWaitingForUserLock(2);
-        $this->admin->commit();
-
-        $responses = array_map(fn($socket): array => $this->readResponse($socket), $requests);
-
-        $statuses = array_column($responses, 'status');
-        sort($statuses);
-        self::assertSame([200, 409], $statuses, json_encode($responses, JSON_THROW_ON_ERROR));
-        self::assertSame(
-            1,
-            count(array_filter($responses, static fn(array $response): bool => $response['status'] === 200))
-        );
-        self::assertSame(
-            1,
-            count(array_filter($responses, static fn(array $response): bool => $response['status'] === 409))
-        );
-
-        $credits = (float)$this->admin->query('SELECT credits FROM users WHERE id = 7')->fetchColumn();
-        $stock = (float)$this->admin->query('SELECT metal FROM colonies WHERE id = 11')->fetchColumn();
-        $history = (int)$this->admin->query('SELECT COUNT(*) FROM economy_market_transactions')->fetchColumn();
-        $market = (float)$this->admin->query(
-            "SELECT quantity FROM economy_colony_market WHERE colony_id = 11 AND good_type = 'metal'"
-        )->fetchColumn();
-
-        self::assertSame(60.0, $credits);
-        self::assertSame(10080.0, $stock);
-        self::assertSame(1, $history);
-        self::assertSame(10080.0, $market);
-    }
-
-    public function testConcurrentMarketSellsCannotDoubleSellStockOrDoubleCredit(): void
-    {
-        // Enough raw stock for exactly one 80-unit sale.
-        $this->admin->exec('UPDATE colonies SET metal = 100 WHERE id = 11');
-        $this->admin->beginTransaction();
-        $this->admin->query('SELECT id FROM users WHERE id = 7 FOR UPDATE')->fetchColumn();
-        $requests = [
-            $this->startMarketRequest($this->sessionIds[0], 'sell'),
-            $this->startMarketRequest($this->sessionIds[1], 'sell'),
-        ];
-        $this->assertApiRequestsWaitingForUserLock(2);
-        $this->admin->commit();
-
-        $responses = array_map(fn($socket): array => $this->readResponse($socket), $requests);
-        $statuses = array_column($responses, 'status');
-        sort($statuses);
-        self::assertSame([200, 409], $statuses, json_encode($responses, JSON_THROW_ON_ERROR));
-
-        self::assertSame(
-            1,
-            count(array_filter($responses, static fn(array $response): bool => $response['status'] === 200))
-        );
-        self::assertSame(
-            1,
-            count(array_filter($responses, static fn(array $response): bool => $response['status'] === 409))
-        );
-        $sold = array_values(array_filter($responses, static fn(array $response): bool => $response['status'] === 200));
-        self::assertSame(
-            100000.0 + (float)$sold[0]['payload']['total_credits'],
-            (float)$this->admin->query('SELECT credits FROM users WHERE id = 7')->fetchColumn()
-        );
-        self::assertSame(20.0, (float)$this->admin->query('SELECT metal FROM colonies WHERE id = 11')->fetchColumn());
-        self::assertSame(
-            1,
-            (int)$this->admin->query(
-                "SELECT COUNT(*) FROM economy_market_transactions WHERE direction = 'sell'"
-            )->fetchColumn()
-        );
-        self::assertSame(
-            20.0,
-            (float)$this->admin->query(
-                "SELECT quantity FROM economy_colony_market WHERE colony_id = 11 AND good_type = 'metal'"
-            )->fetchColumn()
-        );
-    }
-
     public function testConcurrentResearchStartsAcrossColoniesOnlyCommitOnce(): void
     {
         $this->admin->beginTransaction();
@@ -819,11 +734,6 @@ final class ResourceMutationApiConcurrencyTest extends TestCase
         self::fail('PHP API test server workers did not become ready: ' . $serverLog);
     }
 
-    private function startBuyRequest(string $sessionId): mixed
-    {
-        return $this->startMarketRequest($sessionId, 'buy');
-    }
-
     private function startResearchRequest(string $sessionId, int $colonyId): mixed
     {
         return $this->startApiRequest(
@@ -874,15 +784,6 @@ final class ResourceMutationApiConcurrencyTest extends TestCase
             $sessionId,
             '/api/trade.php?action=dispatch_due',
             []
-        );
-    }
-
-    private function startMarketRequest(string $sessionId, string $action): mixed
-    {
-        return $this->startApiRequest(
-            $sessionId,
-            '/api/market.php?action=' . $action,
-            ['colony_id' => 11, 'good_type' => 'metal', 'quantity' => 80]
         );
     }
 

@@ -15,6 +15,10 @@ ARG PHP_CONFIG=production
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+        apache2 \
+        apache2-bin \
+        apache2-data \
+        apache2-utils \
         libpng-dev \
         libjpeg62-turbo-dev \
         libfreetype6-dev \
