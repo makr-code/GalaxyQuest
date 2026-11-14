@@ -390,6 +390,21 @@ After Galaxy WebGPU pilot validation:
    - Screen reader integration
    - Color-blind patterns
 
+## Trade transport vessels
+
+The authenticated market transport feed exposes only backed, in-transit routes
+linked to the player's own buy or sell orders. It is read-only and separate
+from controllable player fleets. The shared galaxy view renders those fleet IDs
+with a procedural cargo hull; the straight line between published light-year
+coordinates is illustrative, not an authoritative route. Position is
+interpolated using the published departure, arrival and server clock. After a
+confirmed delivery, the same authorized feed shows the real empty return fleet,
+starting at the server's actual delivery time and ending at its depot; it stays
+visible until the server processes its return. Reaching a visual endpoint does
+not settle cargo or return ships: the server must confirm those transitions.
+Market prices are indicative; `buy` and `sell` are retired in favor of funded
+standing orders.
+
 ## Support & References
 
 - Integration Guide: This document

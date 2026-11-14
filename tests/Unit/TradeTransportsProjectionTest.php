@@ -14,11 +14,11 @@ final class TradeTransportsProjectionTest extends TestCase
         $db = new PDO('sqlite::memory:');
         $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $db->exec('CREATE TABLE economy_standing_orders (id INTEGER, user_id INTEGER, colony_id INTEGER, side TEXT)');
-        $db->exec('CREATE TABLE fleets (id INTEGER, origin_x_ly REAL, origin_y_ly REAL, origin_z_ly REAL, target_x_ly REAL, target_y_ly REAL, target_z_ly REAL)');
-        $db->exec('CREATE TABLE trader_routes (id INTEGER, fleet_id INTEGER, source_colony_id INTEGER, target_colony_id INTEGER, resource_type TEXT, quantity_acquired REAL, departure_at TEXT, arrival_at TEXT, status TEXT, funding_status TEXT, source_order_id INTEGER, target_order_id INTEGER)');
+        $db->exec('CREATE TABLE fleets (id INTEGER, origin_x_ly REAL, origin_y_ly REAL, origin_z_ly REAL, target_x_ly REAL, target_y_ly REAL, target_z_ly REAL, mission TEXT, return_time TEXT, ships_json TEXT)');
+        $db->exec('CREATE TABLE trader_routes (id INTEGER, fleet_id INTEGER, source_colony_id INTEGER, target_colony_id INTEGER, resource_type TEXT, quantity_acquired REAL, departure_at TEXT, arrival_at TEXT, delivered_at TEXT, status TEXT, funding_status TEXT, source_order_id INTEGER, target_order_id INTEGER)');
         $db->exec("INSERT INTO economy_standing_orders VALUES (1,10,20,'sell'),(2,11,21,'buy'),(3,12,99,'buy')");
-        $db->exec('INSERT INTO fleets VALUES (7,1,2,3,4,5,6)');
-        $db->exec("INSERT INTO trader_routes VALUES (9,7,20,21,'metal',5,'2026-01-01 00:00:00','2026-01-01 01:00:00','in_transit','backed',1,2)");
+        $db->exec("INSERT INTO fleets VALUES (7,1,2,3,4,5,6,'transport',NULL,'{\"small_cargo\":1}')");
+        $db->exec("INSERT INTO trader_routes VALUES (9,7,20,21,'metal',5,'2026-01-01 00:00:00','2026-01-01 01:00:00',NULL,'in_transit','backed',1,2)");
         $projection = new TradeTransports($db);
         self::assertCount(1, $projection->list(10));
         self::assertCount(1, $projection->list(11));
@@ -26,7 +26,35 @@ final class TradeTransportsProjectionTest extends TestCase
         self::assertSame([], $projection->list(13));
         self::assertSame([1.0, 2.0, 3.0], $projection->list(10)[0]['origin']);
         self::assertSame('in_transit', $db->query('SELECT status FROM trader_routes')->fetchColumn());
+        $db->exec("UPDATE fleets SET ships_json='{}'");
+        self::assertSame([], $projection->list(10));
+        $db->exec("UPDATE fleets SET ships_json='{\"small_cargo\":1}'");
+        $db->exec('UPDATE trader_routes SET target_order_id=3');
+        self::assertSame([], $projection->list(12));
+        $db->exec("UPDATE trader_routes SET funding_status='legacy'");
+        self::assertSame([], $projection->list(10));
+        $db->exec("UPDATE trader_routes SET funding_status='backed'");
         $db->exec("UPDATE trader_routes SET status='completed'");
+        self::assertSame([], $projection->list(10));
+        $db->exec("UPDATE trader_routes SET target_order_id=2, funding_status='settled', delivered_at='2026-01-01 01:15:00'");
+        $db->exec("UPDATE fleets SET mission='return',return_time='2026-01-01 02:15:00'");
+        $timezone = date_default_timezone_get();
+        try {
+            date_default_timezone_set('Europe/Berlin');
+            $return = $projection->list(10)[0];
+            self::assertSame('return', $return['phase']);
+            self::assertNull($return['good_type']);
+            self::assertSame(0.0, $return['quantity']);
+            self::assertSame([4.0, 5.0, 6.0], $return['origin']);
+            self::assertSame([1.0, 2.0, 3.0], $return['target']);
+            self::assertSame(strtotime('2026-01-01 01:15:00 UTC'), $return['departure_unix']);
+            self::assertSame(strtotime('2026-01-01 02:15:00 UTC'), $return['arrival_unix']);
+            self::assertCount(1, $projection->list(11));
+            self::assertSame([], $projection->list(12));
+        } finally {
+            date_default_timezone_set($timezone);
+        }
+        $db->exec('DELETE FROM fleets');
         self::assertSame([], $projection->list(10));
     }
 

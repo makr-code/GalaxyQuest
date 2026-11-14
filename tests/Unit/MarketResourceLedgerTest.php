@@ -8,22 +8,18 @@ use PHPUnit\Framework\TestCase;
 
 final class MarketResourceLedgerTest extends TestCase
 {
-    public function testMarketBuyAndSellDelegateToTheOnDemandLedgerExchange(): void
+    public function testMarketBuyAndSellAreRetiredWithoutLedgerWrites(): void
     {
         $source = file_get_contents(__DIR__ . '/../../api/market.php');
         self::assertIsString($source);
 
-        $buy = $this->functionBody($source, 'action_buy');
-        $sell = $this->functionBody($source, 'action_sell');
-
-        self::assertSame(1, preg_match("/only_method\\('POST'\\);\\s*verify_csrf\\(\\);/", $buy));
-        self::assertSame(1, preg_match("/only_method\\('POST'\\);\\s*verify_csrf\\(\\);/", $sell));
-        self::assertStringContainsString('->exchange($colonyId, $uid, $goodType, $quantity, true)', $buy);
-        self::assertStringContainsString('->exchange($colonyId, $uid, $goodType, $quantity, false)', $sell);
-        foreach ([$buy, $sell] as $handler) {
-            self::assertStringNotContainsString('ResourceLedger', $handler);
-            self::assertStringNotContainsString('ON_DEMAND_ECONOMY_ENABLED', $handler);
-        }
+        self::assertStringContainsString("'buy', 'sell'       => action_retired_trade()", $source);
+        $handler = $this->functionBody($source, 'action_retired_trade');
+        self::assertSame(1, preg_match("/only_method\\('POST'\\);\\s*verify_csrf\\(\\);/", $handler));
+        self::assertStringContainsString('create_order', $handler);
+        self::assertStringContainsString('409', $handler);
+        self::assertStringNotContainsString('->exchange(', $source);
+        self::assertDoesNotMatchRegularExpression('/\\b(?:INSERT|UPDATE|DELETE)\\b/i', $handler);
     }
 
     public function testMarketReadsAndMutationsEnforceTheirHttpMethods(): void
@@ -36,9 +32,9 @@ final class MarketResourceLedgerTest extends TestCase
             'action_get_region_prices' => 'GET',
             'action_get_history' => 'GET',
             'action_get_active_events' => 'GET',
-            'action_buy' => 'POST',
-            'action_sell' => 'POST',
+            'action_retired_trade' => 'POST',
             'action_list_orders' => 'GET',
+            'action_get_transports' => 'GET',
             'action_create_order' => 'POST',
             'action_cancel_order' => 'POST',
         ] as $handler => $method) {

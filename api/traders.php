@@ -1062,8 +1062,18 @@ function trader_route_deliver_if_due(PDO $db, array $route, ?int $now = null): a
         throw new RuntimeException('In-transit trader cargo is outside the economy catalog.');
     }
     $cargo = json_decode((string)$fleet['cargo_payload'], true);
+    $transportShips = json_decode((string)$fleet['ships_json'], true);
+    $capacity = 0;
+    foreach (is_array($transportShips) ? $transportShips : [] as $type => $count) {
+        if (!in_array($type, ['small_cargo', 'large_cargo'], true) || !is_int($count) || $count < 1) {
+            $capacity = 0;
+            break;
+        }
+        $capacity += $count * ship_cargo($type);
+    }
     if (!is_array($cargo) || count($cargo) !== 1 || !is_numeric($cargo[$good] ?? null)
-        || (float)$cargo[$good] !== (float)$route['quantity_acquired']) {
+        || (float)$cargo[$good] !== (float)$route['quantity_acquired']
+        || $capacity < (float)$route['quantity_acquired']) {
         trader_route_fail($db, $route);
         $route['status'] = 'failed';
         return $route;
@@ -1102,6 +1112,11 @@ function trader_return_transports(PDO $db, int $now): void
     $statement->execute([gmdate('Y-m-d H:i:s', $now)]);
     foreach ($statement->fetchAll(PDO::FETCH_COLUMN) as $id) {
         trader_route_transaction($db, (int)$id, static function () use ($db, $id, $now): void {
+            $route = trader_route_read($db, (int)$id, false);
+            if (!$route) {
+                return;
+            }
+            trader_route_lock_owners($db, $route);
             $suffix = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? ' FOR UPDATE' : '';
             $query = $db->prepare(
                 "SELECT f.* FROM fleets f JOIN trader_routes r ON r.fleet_id=f.id "
@@ -1119,8 +1134,12 @@ function trader_return_transports(PDO $db, int $now): void
             }
             $ships = json_decode($fleet['ships_json'], true, 512, JSON_THROW_ON_ERROR);
             foreach ($ships as $type => $count) {
-                $db->prepare('UPDATE ships SET count=count+? WHERE colony_id=? AND type=?')
-                    ->execute([$count, $fleet['origin_colony_id'], $type]);
+                $refund = $db->prepare('UPDATE ships SET count=count+? WHERE colony_id=? AND type=?');
+                $refund->execute([$count, $fleet['origin_colony_id'], $type]);
+                if ($refund->rowCount() === 0) {
+                    $db->prepare('INSERT INTO ships (colony_id,type,count) VALUES (?,?,?)')
+                        ->execute([$fleet['origin_colony_id'], $type, $count]);
+                }
             }
             $db->prepare('DELETE FROM fleets WHERE id=?')->execute([$fleet['id']]);
             $db->prepare('UPDATE trader_routes SET fleet_id=NULL WHERE id=?')->execute([$id]);

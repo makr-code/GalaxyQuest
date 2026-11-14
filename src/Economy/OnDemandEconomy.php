@@ -244,7 +244,8 @@ final class OnDemandEconomy
         $snapshot = build_colony_consumption_snapshot($this->db, $runtime);
         $raw = [];
         foreach (ColonyEconomySimulation::PRIMARY as $good) {
-            $raw[$good] = (float)$snapshot['production'][$good . '_per_hour'];
+            // Projection extraction is storage-clamped; the real step must perform that clamp once.
+            $raw[$good] = (float)$snapshot['gross_production'][$good];
             if ($good !== 'food') {
                 $raw[$good] /= happiness_productivity((int)$runtime['happiness']);
             }

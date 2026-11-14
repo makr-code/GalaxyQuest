@@ -14,10 +14,12 @@
  * POST /api/auth.php?action=register_mentor_drafts
  * POST /api/auth.php?action=register_select_mentor body: {prolog_token,mentor_code}
  * POST /api/auth.php?action=register_profile   body: {prolog_token,species_code,gameplay_style?}
+ * POST /api/auth.php?action=register_character_suggest body: {prolog_token}
  * POST /api/auth.php?action=register_character body: {prolog_token,name,background}
  * GET  /api/auth.php?action=register_portrait_status
  * GET  /api/auth.php?action=register_portrait_image&revision=...
  * POST /api/auth.php?action=register_portrait body: {prolog_token}
+ * POST /api/auth.php?action=register_portrait_progress body: {prolog_token}
  * POST /api/auth.php?action=register_cancel
  * POST /api/auth.php?action=register_complete  legacy direct activation disabled (503)
  * Playable drafts and email-confirmed activation use /api/registration_play.php.
@@ -55,8 +57,10 @@ switch ($action) {
     case 'register_preview':
     case 'register_status':
     case 'register_profile':
+    case 'register_character_suggest':
     case 'register_character':
     case 'register_portrait':
+    case 'register_portrait_progress':
     case 'register_portrait_status':
     case 'register_portrait_image':
     case 'register_cancel':

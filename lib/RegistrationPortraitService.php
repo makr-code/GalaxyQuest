@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 final class RegistrationPortraitService {
     public const MAX_BYTES = 2097152;
-    public const LEASE_SECONDS = 300;
 
     public function __construct(private PDO $db) {}
 
@@ -46,30 +45,24 @@ final class RegistrationPortraitService {
         $matches = $row && hash_equals($row['identity_hash'], $draft['hash']);
         $state = $matches ? $row['status'] : 'not_generated';
         $error = $matches ? $row['last_error'] : '';
-        if ($state === 'pending' && (int)$row['age'] >= self::LEASE_SECONDS) {
-            $state = 'failed';
-            $error = 'Portrait generation timed out. You may retry.';
-        }
         return [
             'status' => $state, 'error' => $error,
             'attempts_remaining' => max(0, 3 - (int)($row['attempts'] ?? 0)),
-            'retry_after' => $row ? max(0, ($row['status'] === 'pending' && $matches ? self::LEASE_SECONDS : 30) - (int)$row['age']) : 0,
+            'retry_after' => $row && $state !== 'pending' ? max(0, 30 - (int)$row['age']) : 0,
             'image_url' => $state === 'generated'
                 ? 'api/auth.php?action=register_portrait_image&revision=' . $row['attempt_id'] : null,
         ];
     }
 
-    public function generate(string $owner, string $token, string $ipHash, Closure $render): array {
+    public function generate(string $owner, string $token, string $ipHash, Closure $enqueue): array {
         $this->db->beginTransaction();
         try {
             $draft = $this->draft($owner, $token, true);
             $row = $this->portrait($token);
-            if ($row && $row['status'] === 'generated' && hash_equals($row['identity_hash'], $draft['hash'])) {
+            if ($row && in_array($row['status'], ['generated', 'pending'], true)
+                && hash_equals($row['identity_hash'], $draft['hash'])) {
                 $this->db->commit();
                 return $this->status($owner);
-            }
-            if ($row && $row['status'] === 'pending' && hash_equals($row['identity_hash'], $draft['hash']) && (int)$row['age'] < self::LEASE_SECONDS) {
-                throw new RuntimeException('A portrait is already being generated. Check its status shortly.', 409);
             }
             if ($row && ((int)$row['attempts'] >= 3 || (int)$row['age'] < 30)) {
                 throw new RuntimeException('Portrait retry limit reached or cooldown still active. Check portrait status.', 429);
@@ -95,41 +88,82 @@ final class RegistrationPortraitService {
             throw $error;
         }
 
-        $bytes = null;
-        $failure = '';
         try {
-            $bytes = $render($draft['snapshot']);
-            if (!is_string($bytes) || strlen($bytes) > self::MAX_BYTES) {
-                throw new RuntimeException('Portrait exceeds the supported image size.', 503);
-            }
+            $enqueue($draft['snapshot'], $attempt);
+        } catch (RuntimeException | ErrorException | LengthException $error) {
+            $message = mb_substr($error->getMessage(), 0, 255);
+            error_log('registration_portrait_enqueue_failed message=' . $message);
+            $this->complete($owner, $token, $draft['hash'], $attempt, 'failed', $message, null);
+            throw new RuntimeException($message, 503, $error);
+        }
+        return $this->status($owner);
+    }
+
+    public function progress(string $owner, string $token, Closure $poll): array {
+        $draft = $this->draft($owner, $token);
+        $row = $this->portrait($token);
+        if (!$row || $row['status'] !== 'pending' || !hash_equals($row['identity_hash'], $draft['hash'])) {
+            return $this->status($owner);
+        }
+
+        try {
+            $result = $poll($row['attempt_id'], (int)$row['age']);
+        } catch (LengthException $error) {
+            $result = ['status' => 'failed', 'error' => $error->getMessage()];
+        } catch (RuntimeException | ErrorException $error) {
+            error_log('registration_portrait_progress_failed message=' . $error->getMessage());
+            throw new RuntimeException('Portrait status is temporarily unavailable. Please retry.', 503, $error);
+        }
+        if (!is_array($result) || !in_array($result['status'] ?? null, ['pending', 'generated', 'failed'], true)) {
+            error_log('registration_portrait_progress_invalid_result');
+            throw new RuntimeException('Portrait status is temporarily unavailable. Please retry.', 503);
+        }
+        if ($result['status'] === 'pending') return $this->status($owner);
+
+        $bytes = $result['image'] ?? null;
+        $failure = '';
+        if ($result['status'] === 'failed') {
+            $failure = is_string($result['error'] ?? null) && $result['error'] !== ''
+                ? $result['error'] : 'Portrait generation failed. Please retry.';
+            $bytes = null;
+        } elseif (!is_string($bytes) || strlen($bytes) > self::MAX_BYTES) {
+            $failure = 'Portrait exceeds the supported image size.';
+            $bytes = null;
+        } else {
             $image = @getimagesizefromstring($bytes);
             if (!$image || $image[2] !== IMAGETYPE_PNG || $image[0] !== 768 || $image[1] !== 1024) {
-                throw new RuntimeException('Portrait generator did not return a valid 768 x 1024 PNG.', 503);
+                $failure = 'Portrait generator did not return a valid 768 x 1024 PNG.';
+                $bytes = null;
             }
-        } catch (RuntimeException | ErrorException $error) {
-            $failure = mb_substr($error->getMessage(), 0, 255);
-            $bytes = null;
+        }
+        if ($failure !== '') {
+            $failure = mb_substr($failure, 0, 255);
             error_log('registration_portrait_failed message=' . $failure);
         }
+        $this->complete($owner, $token, $draft['hash'], $row['attempt_id'],
+            $failure === '' ? 'generated' : 'failed', $failure, $bytes);
+        return $this->status($owner);
+    }
+
+    private function complete(
+        string $owner, string $token, string $identityHash, string $attempt, string $status, string $failure, ?string $bytes
+    ): void {
         $this->db->beginTransaction();
         try {
             $current = $this->draft($owner, $token, true);
-            if (!hash_equals($current['hash'], $draft['hash'])) {
+            if (!hash_equals($current['hash'], $identityHash)) {
                 throw new RuntimeException('Character changed during generation. The old portrait was discarded.', 409);
             }
             $stmt = $this->db->prepare(
                 "UPDATE registration_portraits SET status = ?, last_error = ?, image = ?
-                 WHERE draft_token = ? AND attempt_id = ? AND status = 'pending'"
+                 WHERE draft_token = ? AND identity_hash = ? AND attempt_id = ? AND status = 'pending'"
             );
-            $stmt->execute([$failure === '' ? 'generated' : 'failed', $failure, $bytes, $token, $attempt]);
-            if ($stmt->rowCount() !== 1) throw new RuntimeException('Portrait request was replaced. Reload its status.', 409);
+            $stmt->execute([$status, $failure, $bytes, $token, $identityHash, $attempt]);
             $this->db->commit();
         } catch (Throwable $error) {
             if ($this->db->inTransaction()) $this->db->rollBack();
             throw $error;
         }
-        if ($failure !== '') throw new RuntimeException($failure, 503);
-        return $this->status($owner);
     }
 
     public function image(string $owner, string $revision): string {

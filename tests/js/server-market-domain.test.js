@@ -13,7 +13,7 @@ const prices = () => ({ success: true, prices: [
 const history = () => ({ success: true, transactions: [{ id: 8, colony_id: 2, good_type: 'metal',
   direction: 'sell', quantity: 2.5, price_per_unit: 10, total_credits: 25, net_credits: 23.75,
   trade_tax_rate: 0.05, transacted_at: '2026-11-03 10:00:00' }] });
-const order = () => ({ good_type: 'metal', quantity: '2.5' });
+const order = () => ({ side: 'sell', good_type: 'metal', quantity: '2', limit_price: '10.00' });
 const economicRequest = (overrides = {}) => ({ id: 31, colony_id: 1, type: 'supply', good_type: 'metal',
   quantity: 4, price_cents: 1501, total_cents: 6004, expires_at: Math.floor(Date.now() / 1000) + 86400,
   status: 'pending', player_order: null, ...overrides });
@@ -49,22 +49,44 @@ describe('Canonical market commands and overlay', () => {
     session.shutdown();
     document.body.replaceChildren();
   });
-  function mount() {
+  function mount(tradeTransports) {
     root = document.createElement('div');
     document.body.append(root);
     wm = { body: () => root, register: vi.fn(), open: vi.fn(), close: vi.fn(), isOpen: () => true };
-    unmount = mountMarketWindow({ session, domain, wm: attachWindowWidgets(wm) });
+    unmount = mountMarketWindow({ session, domain, wm: attachWindowWidgets(wm), tradeTransports });
     wm.register.mock.calls[0][1].onRender();
   }
-  const quantity = () => root.querySelector('[aria-label="Handelsmenge"]');
+  const quantity = () => root.querySelector('[aria-label="NPC-Auftragsmenge"]');
   const fill = (value) => { quantity().value = value; quantity().dispatchEvent(new Event('input')); };
-  const submit = (action) => root.querySelector('form').dispatchEvent(new SubmitEvent('submit',
-    { cancelable: true, submitter: root.querySelector(`button[value="${action}"]`) }));
+  const submit = () => root.querySelector('[aria-label="NPC-Auftrag erstellen"]')
+    .dispatchEvent(new SubmitEvent('submit', { cancelable: true }));
+  const limit = (value) => {
+    const input = root.querySelector('[aria-label="NPC-Limitpreis"]');
+    input.value = value;
+    input.dispatchEvent(new Event('input'));
+  };
   function serveRequests(requests, now = Math.floor(Date.now() / 1000)) {
     const get = api.get.getMockImplementation();
     api.get.mockImplementation((url, options) => url.includes('list_orders')
       ? Promise.resolve({ success: true, orders: [], requests, now_unix: now }) : get(url, options));
   }
+  it('shows only this colony’s physical deliveries and no NPC fleet controls', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const transport = { route_id: 8, fleet_id: 9, source_colony_id: 1, target_colony_id: 2,
+      phase: 'outbound', good_type: 'metal', quantity: 3, departure_unix: now - 60, arrival_unix: now - 1 };
+    const feed = { getState: () => ({ transports: [transport, { ...transport, route_id: 11,
+      phase: 'return', good_type: null, quantity: 0 }, { ...transport, route_id: 10,
+      source_colony_id: 3, target_colony_id: 4 }], offset: 0 }), subscribe: () => () => {} };
+    mount(feed);
+    await vi.waitFor(() => expect(root.querySelector('.game-market-deliveries')).not.toBeNull());
+    const deliveries = root.querySelector('.game-market-deliveries');
+    expect(deliveries.textContent).toContain('Transport #8');
+    expect(deliveries.textContent).toContain('Wartet auf Serverbestätigung');
+    expect(deliveries.textContent).toContain('Transport #11 · Rückflug · leer');
+    expect(deliveries.textContent).not.toContain('Transport #10');
+    expect(deliveries.querySelector('button')).toBeNull();
+    expect(api.post).not.toHaveBeenCalled();
+  });
   it('uses immutable invitation IDs only and blocks acceptance at the exact server deadline', async () => {
     const clock = vi.spyOn(Date, 'now').mockReturnValue(1000000);
     try {
@@ -155,13 +177,13 @@ describe('Canonical market commands and overlay', () => {
     expect(root.querySelector(`label[for="${goods.id}"]`).textContent).toBe('Handelsgut');
     const amount = quantity();
     expect(amount.closest('.wm-field')).not.toBeNull();
-    expect(document.getElementById(amount.getAttribute('aria-describedby')).textContent).toContain('Steuern prüft der Server');
-    expect(amount.min).toBe('0');
-    expect(amount.step).toBe('any');
-    fill('2.5');
+    expect(document.getElementById(amount.getAttribute('aria-describedby')).textContent).toContain('Ganze Einheiten');
+    expect(amount.min).toBe('1');
+    expect(amount.step).toBe('1');
+    fill('2');
     amount.focus();
     await domain.load();
-    expect(quantity().value).toBe('2.5');
+    expect(quantity().value).toBe('2');
     expect(document.activeElement).toBe(quantity());
     expect(api.post).not.toHaveBeenCalled();
   });
@@ -271,14 +293,13 @@ describe('Canonical market commands and overlay', () => {
     expect(await domain.load()).toBe(false);
     expect(domain.getState()).toMatchObject({ stale: true, data: null, error: 'Ungültige Marktdaten vom Server.' });
   });
-  it.each(['buy', 'sell'])('sends exact %s decimal payload and publishes accepted colony mutation', async (action) => {
+  it.each(['buy', 'sell'])('rejects retired %s without sending a command', async (action) => {
     const accepted = vi.fn();
     session.events.on('colony:mutation-accepted', accepted);
     await domain.load();
-    await domain.command(action, order());
-    expect(api.post).toHaveBeenCalledExactlyOnceWith(`api/market.php?action=${action}`,
-      { colony_id: 1, good_type: 'metal', quantity: 2.5 }, { signal: expect.any(AbortSignal) });
-    expect(accepted).toHaveBeenCalledExactlyOnceWith({ colonyId: 1, domain: 'market', allColonies: false });
+    await expect(domain.command(action, order())).rejects.toThrow('Soforthandel wurde eingestellt');
+    expect(api.post).not.toHaveBeenCalled();
+    expect(accepted).not.toHaveBeenCalled();
     expect(domain.getState()).toMatchObject({ stale: false, mutating: false, error: '' });
   });
   it.each([null, { good_type: 'unknown', quantity: 1 }, { good_type: 'metal', quantity: 0 },
@@ -299,7 +320,7 @@ describe('Canonical market commands and overlay', () => {
     expect(await domain.load()).toBe(false);
     expect(domain.getState().error).toBe('Ungültige Marktdaten vom Server.');
     expect(domain.getState().data.stock.metal).toBe(10);
-    await expect(domain.command('buy', order())).rejects.toThrow('aktualisieren');
+    await expect(domain.command('create_order', order())).rejects.toThrow('aktualisieren');
     expect(api.post).not.toHaveBeenCalled();
   });
   it.each([
@@ -324,15 +345,15 @@ describe('Canonical market commands and overlay', () => {
   it('requires fresh reads after accepted trades with failed refresh and never auto-repeats the order', async () => {
     await domain.load();
     api.get.mockRejectedValueOnce(new Error('Overview offline'));
-    await domain.command('buy', order());
+    await domain.command('create_order', order());
     expect(domain.getState()).toMatchObject({ stale: true, mutating: false });
     expect(domain.getState().error).toContain('Auftrag bestätigt');
-    await expect(domain.command('buy', order())).rejects.toThrow('aktualisieren');
+    await expect(domain.command('create_order', order())).rejects.toThrow('aktualisieren');
     await domain.refresh();
     expect(domain.getState().stale).toBe(false);
     expect(api.post).toHaveBeenCalledOnce();
     api.get.mockResolvedValueOnce(overview()).mockRejectedValueOnce(new Error('Prices offline'));
-    await domain.command('sell', order());
+    await domain.command('create_order', order());
     expect(domain.getState().error).toContain('Auftrag bestätigt, Liste');
     expect(domain.getState().stale).toBe(true);
   });
@@ -340,8 +361,8 @@ describe('Canonical market commands and overlay', () => {
     await domain.load();
     let finish;
     api.post.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
-    const pending = domain.command('buy', order());
-    await domain.command('sell', order());
+    const pending = domain.command('create_order', order());
+    await domain.command('create_order', order());
     const calls = api.get.mock.calls.length;
     await domain.load();
     await domain.refresh();
@@ -372,7 +393,7 @@ describe('Canonical market commands and overlay', () => {
     const accepted = vi.fn();
     session.events.on('colony:mutation-accepted', accepted);
     api.post.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
-    const mutation = domain.command('sell', order());
+    const mutation = domain.command('create_order', order());
     const mutationSignal = api.post.mock.calls[0][2].signal;
     domain.shutdown();
     finish({ success: true });
@@ -388,16 +409,15 @@ describe('Canonical market commands and overlay', () => {
     const catalogue = root.querySelector('.game-market-catalogue');
     const ticket = root.querySelector('.game-market-ticket');
     expect(catalogue.querySelector('legend').textContent).toBe('Warenauswahl');
-    expect(ticket.querySelector('legend').textContent).toBe('Soforthandel mit dem Markt');
+    expect(ticket.querySelector('legend').textContent).toBe('Unverbindliche Marktübersicht');
     expect(catalogue.querySelector('.game-market-good')).not.toBeNull();
     expect(ticket.querySelector('.game-market-good')).toBeNull();
     const goods = ticket.querySelector('[aria-label="Handelsgut"]');
     expect(ticket.querySelector(`label[for="${goods.id}"]`).textContent).toBe('Handelsgut');
-    const actions = ticket.querySelector('.game-market-order-actions');
-    expect(actions.querySelector('[aria-label="Handelsmenge"]')).not.toBeNull();
-    expect([...actions.querySelectorAll('button')].map((item) => item.dataset.tradeAction)).toEqual(['buy', 'sell']);
+    expect(root.querySelectorAll('[data-trade-action]')).toHaveLength(0);
+    expect(root.querySelector('[aria-label="NPC-Auftrag erstellen"]')).not.toBeNull();
     expect(root.querySelector('.game-market-help').open).toBe(false);
-    expect(ticket.textContent).toContain('inklusive Steuern');
+    expect(ticket.textContent).toContain('garantieren weder Angebot noch Lieferung');
     expect(catalogue.disabled).toBe(false);
     expect(ticket.disabled).toBe(false);
     api.get.mockRejectedValueOnce(new Error('Market unavailable'));
@@ -537,15 +557,16 @@ describe('Canonical market commands and overlay', () => {
     expect(root.querySelector('.game-market-history tbody tr').dataset.direction).toBe('sell');
     expect(root.querySelector('.game-market-history details').open).toBe(false);
     expect(root.querySelector('.game-market-history details').textContent).toContain('Handelssteuer 5%');
-    expect(root.querySelector('button[value="buy"] svg')).not.toBeNull();
+    expect(root.querySelector('[data-trade-action]')).toBeNull();
     expect(api.post).not.toHaveBeenCalled();
-    fill('2.5');
+    fill('2');
+    limit('10');
     api.post.mockRejectedValueOnce(new Error('Autarky blocks imports'));
-    submit('buy');
+    submit();
     await vi.waitFor(() => expect(root.textContent).toContain('Autarky blocks imports'));
-    expect(quantity().value).toBe('2.5');
+    expect(quantity().value).toBe('2');
     api.get.mockRejectedValueOnce(new Error('Overview offline'));
-    submit('sell');
+    submit();
     await vi.waitFor(() => expect(root.textContent).toContain('Auftrag bestätigt'));
     expect(quantity().value).toBe('');
     expect(root.querySelector('fieldset').disabled).toBe(true);
@@ -579,7 +600,7 @@ describe('Canonical market commands and overlay', () => {
     session.events.emit('market:open-requested', { colonyId: 2, goodType: 'unlisted_good' });
     expect(root.querySelector('select').value).toBe('unlisted_good');
     expect(root.textContent).toContain('nicht handelbar');
-    expect(root.querySelector('button[value="buy"]').disabled).toBe(true);
+    expect(root.querySelector('[data-trade-action]')).toBeNull();
     expect(root.querySelector('.game-market-summary').textContent).toBe('Kein bestätigter Marktpreis für dieses Gut.');
     expect(root.querySelector('.game-market-balance')).toBeNull();
     expect(api.post).not.toHaveBeenCalled();
@@ -587,7 +608,7 @@ describe('Canonical market commands and overlay', () => {
     select.value = 'metal';
     select.dispatchEvent(new Event('change'));
     expect(document.activeElement).toBe(root.querySelector('select'));
-    expect(root.querySelector('button[value="buy"]').disabled).toBe(false);
+    expect(root.querySelector('[data-trade-action]')).toBeNull();
     expect(root.textContent).not.toContain('nicht handelbar');
     expect(quantity().value).toBe('');
     unmount();
@@ -616,8 +637,9 @@ describe('Canonical market commands and overlay', () => {
     await vi.waitFor(() => expect(quantity()).not.toBeNull());
     let finish;
     api.post.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
-    fill('2.5');
-    submit('buy');
+    fill('2');
+    limit('10');
+    submit();
     session.events.emit('market:open-requested', { colonyId: 2, goodType: 'metal' });
     expect(session.getColony().id).toBe(1);
     expect(root.textContent).toContain('Handelsauftrag läuft');
@@ -691,12 +713,12 @@ describe('Canonical market commands and overlay', () => {
     await vi.waitFor(() => expect(quantity()).not.toBeNull());
     const calls = api.get.mock.calls.length;
     expect(root.querySelectorAll('.game-market-good')).toHaveLength(2);
-    expect(root.querySelector('.game-market-good[aria-pressed="true"]').textContent).toBe('metal12.5 Credits/Einheit');
+    expect(root.querySelector('.game-market-good[aria-pressed="true"]').textContent).toBe('metalRichtpreis 12.5 Credits/Einheit');
     fill('7.5');
     root.querySelector('[data-market-good-index="1"]').click();
     const selected = root.querySelector('[data-market-good-index="1"]');
     expect(selected.getAttribute('aria-pressed')).toBe('true');
-    expect(selected.textContent).toBe('<img src=x>20 Credits/Einheit');
+    expect(selected.textContent).toBe('<img src=x>Richtpreis 20 Credits/Einheit');
     expect(document.activeElement).toBe(selected);
     expect(root.querySelector('img')).toBeNull();
     expect(root.querySelector('select').value).toBe('<img src=x>');

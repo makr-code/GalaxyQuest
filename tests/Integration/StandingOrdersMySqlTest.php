@@ -9,6 +9,7 @@ use GalaxyQuest\Economy\OnDemandEconomy;
 use GalaxyQuest\Economy\StandingOrders;
 use GalaxyQuest\Economy\NpcStandingOrders;
 use GalaxyQuest\Economy\EconomicRequests;
+use GalaxyQuest\Economy\TradeTransports;
 use MigrationRunner;
 use PDO;
 use PDOException;
@@ -54,6 +55,8 @@ final class StandingOrdersMySqlTest extends TestCase
                 self::$directory . '/migrate_economy_requests_v1_down.sql');
             copy(__DIR__ . '/../../sql/migrate_economy_request_purchase_v1_down.sql',
                 self::$directory . '/migrate_economy_request_purchase_v1_down.sql');
+            copy(__DIR__ . '/../../sql/migrate_trader_transport_return_v1_down.sql',
+                self::$directory . '/migrate_trader_transport_return_v1_down.sql');
             file_put_contents(self::$directory . '/manifest.php', '<?php return ' . var_export($manifest, true) . ';');
             self::$runner = new MigrationRunner(self::$db, self::$directory, 'TEST', self::$directory . '/manifest.php');
             self::$runner->bootstrap();
@@ -92,20 +95,29 @@ final class StandingOrdersMySqlTest extends TestCase
             'colony_economy_state', 'economy_processed_goods', 'economy_colony_market', 'economy_pop_classes',
             'economy_policies', 'colonies', 'users', 'buildings', 'body_development',
             'building_upgrade_queue', 'economy_construction_slots', 'colony_building_slots',
-            'economy_production_methods', 'research',
+            'economy_production_methods', 'research', 'ships',
             'celestial_bodies', 'star_systems'] as $table) {
             self::$db->exec('TRUNCATE TABLE `' . $table . '`');
         }
         self::$db->exec('SET FOREIGN_KEY_CHECKS=1');
         self::$db->exec(<<<'SQL'
-            INSERT INTO users (id,username,email,password_hash,credits) VALUES
-                (7,'seller','seller@example.invalid','fixture',100),
-                (8,'buyer','buyer@example.invalid','fixture',100),
-                (10,'trader','trader@example.invalid','fixture',100);
+            INSERT INTO users (id,username,email,password_hash,credits,control_type,auth_enabled) VALUES
+                (7,'seller','seller@example.invalid','fixture',100,'human',1),
+                (8,'buyer','buyer@example.invalid','fixture',100,'human',1),
+                (10,'trader','trader@example.invalid','fixture',100,'npc_engine',0);
             INSERT INTO star_systems (galaxy_index,system_index,x_ly) VALUES (1,1,0),(1,2,100);
             INSERT INTO celestial_bodies (id,body_uid,galaxy_index,system_index,position,body_type,name) VALUES
                 (11,'standing-source',1,1,1,'planet','Source'),(12,'standing-target',1,2,1,'planet','Target');
             INSERT INTO colonies (id,user_id,body_id,population) VALUES (11,7,11,0),(12,8,12,0);
+            INSERT INTO celestial_bodies (id,body_uid,galaxy_index,system_index,position,body_type,name) VALUES
+                (1001,'standing-depot-1',1,1,10,'planet','Carrier depot 1'),
+                (1002,'standing-depot-2',1,2,10,'planet','Carrier depot 2'),
+                (1003,'standing-depot-3',1,3,10,'planet','Carrier depot 3');
+            INSERT INTO colonies (id,user_id,body_id,population,metal,crystal,deuterium,rare_earth,food)
+                VALUES (1001,10,1001,0,0,0,0,0,0),(1002,10,1002,0,0,0,0,0,0),
+                       (1003,10,1003,0,0,0,0,0,0);
+            INSERT INTO ships (colony_id,type,count)
+                VALUES (1001,'small_cargo',4),(1002,'small_cargo',4),(1003,'small_cargo',4);
             INSERT INTO economy_policies (user_id,tax_income,tax_trade,tax_production) VALUES (7,0,0,0),(8,0,0,0);
             INSERT INTO economy_processed_goods
                 (colony_id,good_type,quantity,capacity,production_rate_per_hour,consumption_rate_per_hour)
@@ -288,8 +300,7 @@ final class StandingOrdersMySqlTest extends TestCase
             "SELECT SUM(escrow_cents) FROM economy_standing_orders WHERE user_id=8"
         )->fetchColumn());
         try {
-            self::$runner->runRollback();
-            self::$runner->runRollback();
+            self::$runner->runRollback(3);
             self::fail('Rollback must not publish an active private pair.');
         } catch (\RuntimeException $error) {
             self::assertInstanceOf(PDOException::class, $error->getPrevious());
@@ -342,11 +353,14 @@ final class StandingOrdersMySqlTest extends TestCase
         foreach (['npc_order_id', 'player_order_id', 'committed_npc_order_id', 'expires_at', 'price_cents'] as $column) {
             self::assertContains($column, $columns);
         }
-        $rollback = self::$runner->runRollback(2);
+        $rollback = self::$runner->runRollback(3);
         self::assertSame('rolled_back', $rollback[0]['status']);
         self::assertFalse(EconomicRequests::available(self::$db));
         $applied = self::$runner->runUp();
-        self::assertSame(['migrate_economy_requests_v1.sql', 'migrate_economy_request_purchase_v1.sql'], array_column($applied, 'name'));
+        self::assertSame([
+            'migrate_economy_requests_v1.sql', 'migrate_economy_request_purchase_v1.sql',
+            'migrate_trader_transport_return_v1.sql',
+        ], array_column($applied, 'name'));
         self::assertTrue(EconomicRequests::available(self::$db));
     }
 
@@ -382,12 +396,13 @@ final class StandingOrdersMySqlTest extends TestCase
         self::assertSame(10, (int)self::$db->query("SELECT SUM(quantity_remaining) FROM economy_standing_orders WHERE user_id=8 AND side='sell'")->fetchColumn());
         self::assertSame(2010, (int)self::$db->query("SELECT SUM(escrow_cents) FROM economy_standing_orders WHERE side='buy'")->fetchColumn());
         try {
-            self::$runner->runRollback();
+            self::$runner->runRollback(2);
             self::fail('Rollback must preserve purchase records and their obligations.');
         } catch (\RuntimeException $error) {
             self::assertInstanceOf(PDOException::class, $error->getPrevious());
         }
         self::$db->exec('DROP TABLE IF EXISTS economy_request_purchase_rollback_guard');
+        self::$runner->runUp();
         self::assertSame(2010, (int)self::$db->query("SELECT SUM(escrow_cents) FROM economy_standing_orders WHERE side='buy'")->fetchColumn());
     }
 
@@ -693,8 +708,212 @@ final class StandingOrdersMySqlTest extends TestCase
         self::assertSame($initial[0], $this->balances()[0]);
         self::assertSame($initial[1] + 3, $this->balances()[1]);
         self::assertSame(0, (int)self::$db->query('SELECT active_fleets FROM npc_traders WHERE id=1')->fetchColumn());
+        $fleet = self::$db->query("SELECT cargo_payload FROM fleets WHERE mission='return'")->fetch();
+        self::assertIsArray($fleet);
+        self::assertSame([], json_decode($fleet['cargo_payload'], true, flags: JSON_THROW_ON_ERROR));
+        $returnAt = strtotime(self::$db->query('SELECT return_time FROM fleets')->fetchColumn() . ' UTC');
+        process_route_transitions(self::$db, $returnAt);
+        process_route_transitions(self::$db, $returnAt);
         self::assertSame(0, (int)self::$db->query('SELECT COUNT(*) FROM fleets')->fetchColumn());
         self::assertSame(1, (int)self::$db->query("SELECT COUNT(*) FROM trader_transactions WHERE transaction_type='sold'")->fetchColumn());
+    }
+
+    public function testLastOwnedCarrierBoundsPartialAcquisitionAndParticipantProjection(): void
+    {
+        self::$db->exec(<<<'SQL'
+            DELETE FROM ships WHERE colony_id<>1001;
+            UPDATE ships SET count=1 WHERE colony_id=1001;
+            UPDATE users SET credits=10000 WHERE id=8;
+            UPDATE npc_traders SET capital_credits=10000;
+            UPDATE economy_processed_goods SET quantity=6001.1250 WHERE colony_id=11 AND good_type='steel_alloy';
+            UPDATE economy_processed_goods SET quantity=10.3750 WHERE colony_id=12 AND good_type='steel_alloy';
+            SQL);
+        $orders = new StandingOrders(self::$db);
+        $sell = $orders->create(7, 11, 'sell', 'steel_alloy', 6001, '0.13');
+        $buy = $orders->create(8, 12, 'buy', 'steel_alloy', 6001, '0.29');
+        $first = $this->insertRoute(1, 6001, 11, 12, $sell['id'], $buy['id']);
+        $second = $this->insertRoute(2, 6001, 11, 12, $sell['id'], $buy['id']);
+        $initial = $this->balances();
+        self::assertSame(['committed', 'committed'], $this->statuses($this->race([
+            ['action' => 'route', 'id' => $first], ['action' => 'route', 'id' => $second],
+        ])));
+        $routes = self::$db->query('SELECT id,status,quantity_acquired FROM trader_routes ORDER BY id')->fetchAll();
+        self::assertSame(['failed', 'in_transit'], $this->statuses($routes));
+        self::assertSame(5000.0, (float)self::$db->query('SELECT SUM(quantity_acquired) FROM trader_routes')->fetchColumn());
+        self::assertSame(1001, $orders->read($sell['id'], 7)['quantity_remaining']);
+        self::assertSame(29029, $orders->read($buy['id'], 8)['escrow_cents']);
+        self::assertSame('0.1250', self::$db->query(
+            "SELECT quantity FROM economy_processed_goods WHERE colony_id=11 AND good_type='steel_alloy'"
+        )->fetchColumn());
+        self::assertSame($initial, $this->balances());
+        $fleet = self::$db->query('SELECT * FROM fleets')->fetch();
+        self::assertSame(['small_cargo' => 1], json_decode($fleet['ships_json'], true, flags: JSON_THROW_ON_ERROR));
+        self::assertSame(0, (int)self::$db->query('SELECT SUM(count) FROM ships')->fetchColumn());
+        self::assertSame('10.3750', self::$db->query(
+            "SELECT quantity FROM economy_processed_goods WHERE colony_id=12 AND good_type='steel_alloy'"
+        )->fetchColumn());
+        $projection = new TradeTransports(self::$db);
+        foreach ([7, 8] as $uid) {
+            self::assertCount(1, $projection->list($uid));
+            self::assertSame('outbound', $projection->list($uid)[0]['phase']);
+            self::assertSame(5000.0, $projection->list($uid)[0]['quantity']);
+        }
+        foreach ([10, 999] as $uid) {
+            self::assertSame([], $projection->list($uid));
+        }
+        self::$db->exec("UPDATE fleets SET ships_json='{}'");
+        self::assertSame([], $projection->list(7));
+        self::$db->prepare('UPDATE fleets SET ships_json=?')->execute([$fleet['ships_json']]);
+        $winner = (int)self::$db->query("SELECT id FROM trader_routes WHERE status='in_transit'")->fetchColumn();
+        process_single_route_transition(self::$db, ['id' => $winner], strtotime($fleet['arrival_time'] . ' UTC'));
+        self::assertSame('5010.3750', self::$db->query(
+            "SELECT quantity FROM economy_processed_goods WHERE colony_id=12 AND good_type='steel_alloy'"
+        )->fetchColumn());
+        self::assertSame($initial, $this->balances());
+        foreach ([7, 8] as $uid) {
+            $return = $projection->list($uid);
+            self::assertCount(1, $return);
+            self::assertSame('return', $return[0]['phase']);
+            self::assertSame(0.0, $return[0]['quantity']);
+            self::assertNull($return[0]['good_type']);
+            self::assertSame([100.0, 0.0, 0.0], $return[0]['origin']);
+            self::assertSame([0.0, 0.0, 0.0], $return[0]['target']);
+        }
+        self::assertSame([], $projection->list(10));
+        // Reapplying the append-only migration must preserve an active return.
+        self::$db->exec(file_get_contents(self::$directory . '/migrate_trader_transport_return_v1.sql'));
+        try {
+            self::$runner->runRollback(1);
+            self::fail('Rollback must not truncate the return mission or lose its ship.');
+        } catch (\RuntimeException $error) {
+            self::assertInstanceOf(PDOException::class, $error->getPrevious());
+            self::assertSame('HY000', $error->getPrevious()->getCode());
+        } finally {
+            self::$db->exec('DROP TABLE IF EXISTS trader_transport_return_rollback_guard');
+        }
+        self::assertSame('return', self::$db->query('SELECT mission FROM fleets')->fetchColumn());
+        $returnAt = strtotime(self::$db->query('SELECT return_time FROM fleets')->fetchColumn() . ' UTC');
+        self::assertSame(['committed', 'committed', 'committed'], $this->statuses($this->race([
+            ['action' => 'return', 'now' => $returnAt], ['action' => 'return', 'now' => $returnAt],
+            ['action' => 'arrival', 'id' => (int)$fleet['id']],
+        ])));
+        self::assertSame(1, (int)self::$db->query('SELECT SUM(count) FROM ships')->fetchColumn());
+        self::assertSame(0, (int)self::$db->query('SELECT COUNT(*) FROM fleets')->fetchColumn());
+        self::assertSame([], $projection->list(7));
+        self::assertSame($initial, $this->balances());
+        self::assertSame(2, (int)self::$db->query('SELECT COUNT(*) FROM trader_transactions')->fetchColumn());
+    }
+
+    public function testAcquiredCargoDefersWithoutCarrierAndRetriesOnlyAfterRealReturn(): void
+    {
+        self::$db->exec('DELETE FROM ships WHERE colony_id<>1001');
+        self::$db->exec('UPDATE ships SET count=1 WHERE colony_id=1001');
+        self::$db->exec('UPDATE colonies SET user_id=10 WHERE id=11');
+        self::$db->exec('INSERT INTO economy_policies (user_id,tax_income,tax_trade,tax_production) VALUES (10,0,0,0)');
+        // Separate acquisition and departure emulate already-held cargo awaiting a tick.
+        $routes = [$this->route(1, 10), $this->route(2, 10)];
+        foreach ($routes as $route) {
+            trader_route_transaction(self::$db, $route['id'], static function () use ($route): void {
+                $trader = trader_trader_read(self::$db, (int)$route['trader_id'], false);
+                $route['trader_user_id'] = $trader['user_id'];
+                trader_route_lock_owners(self::$db, $route);
+                trader_route_acquire(self::$db, trader_route_read(self::$db, $route['id'], true), $trader);
+            });
+        }
+        $initial = $this->balances();
+        self::assertSame(['committed', 'committed'], $this->statuses($this->race([
+            ['action' => 'route', 'id' => $routes[0]['id'], 'outer' => true],
+            ['action' => 'route', 'id' => $routes[1]['id'], 'outer' => true],
+        ])));
+        $waiting = trader_route_read(self::$db, (int)self::$db->query(
+            "SELECT id FROM trader_routes WHERE status='acquiring'"
+        )->fetchColumn(), false);
+        self::assertSame(10.0, (float)$waiting['quantity_acquired']);
+        self::assertSame(2000, (int)$waiting['buyer_escrow_cents']);
+        self::assertNull($waiting['fleet_id']);
+        self::assertSame(100.0, $this->stock(12));
+        self::assertSame($initial, $this->balances());
+        process_single_route_transition(self::$db, $waiting);
+        self::assertSame('acquiring', trader_route_read(self::$db, $waiting['id'], false)['status']);
+        self::assertSame(1, (int)self::$db->query('SELECT COUNT(*) FROM fleets')->fetchColumn());
+        self::assertSame(2, (int)self::$db->query('SELECT COUNT(*) FROM trader_transactions')->fetchColumn());
+        $outbound = trader_route_read(self::$db, (int)self::$db->query(
+            "SELECT id FROM trader_routes WHERE status='in_transit'"
+        )->fetchColumn(), false);
+        $this->due($outbound['id']);
+        self::assertSame(['committed', 'committed', 'committed'], $this->statuses($this->race([
+            ['action' => 'route', 'id' => $outbound['id']], ['action' => 'route', 'id' => $outbound['id']],
+            ['action' => 'arrival', 'id' => $outbound['fleet_id']],
+        ])));
+        self::assertSame(110.0, $this->stock(12));
+        self::assertSame(0, (int)self::$db->query('SELECT SUM(count) FROM ships')->fetchColumn());
+        process_single_route_transition(self::$db, $waiting);
+        self::assertSame('acquiring', trader_route_read(self::$db, $waiting['id'], false)['status']);
+        $returnAt = strtotime(self::$db->query('SELECT return_time FROM fleets')->fetchColumn() . ' UTC');
+        self::assertSame(['committed', 'committed'], $this->statuses($this->race([
+            ['action' => 'return', 'now' => $returnAt], ['action' => 'return', 'now' => $returnAt],
+        ])));
+        process_single_route_transition(self::$db, $waiting, $returnAt);
+        $retry = trader_route_read(self::$db, $waiting['id'], false);
+        self::assertSame('in_transit', $retry['status']);
+        self::assertSame(0, (int)self::$db->query('SELECT SUM(count) FROM ships')->fetchColumn());
+        self::assertSame(['small_cargo' => 1], json_decode(
+            self::$db->query('SELECT ships_json FROM fleets')->fetchColumn(), true, flags: JSON_THROW_ON_ERROR
+        ));
+        self::assertSame(3, (int)self::$db->query('SELECT COUNT(*) FROM trader_transactions')->fetchColumn());
+        process_single_route_transition(self::$db, $retry, strtotime($retry['arrival_at'] . ' UTC'));
+        $returnAt = strtotime(self::$db->query('SELECT return_time FROM fleets')->fetchColumn() . ' UTC');
+        trader_return_transports(self::$db, $returnAt);
+        trader_return_transports(self::$db, $returnAt);
+        self::assertSame(1, (int)self::$db->query('SELECT SUM(count) FROM ships')->fetchColumn());
+        self::assertSame(120.0, $this->stock(12));
+        self::assertSame(4, (int)self::$db->query('SELECT COUNT(*) FROM trader_transactions')->fetchColumn());
+        self::assertSame($initial, $this->balances());
+    }
+
+    public function testDecimalPrimaryAndProcessedWritesPreserveFractionalStockAndExactCents(): void
+    {
+        self::$db->exec(<<<'SQL'
+            UPDATE colonies SET metal=40.1234 WHERE id=11;
+            UPDATE colonies SET metal=10.9876 WHERE id=12;
+            UPDATE economy_processed_goods SET quantity=40.1234 WHERE colony_id=11 AND good_type='steel_alloy';
+            UPDATE economy_processed_goods SET quantity=10.9876 WHERE colony_id=12 AND good_type='steel_alloy';
+            SQL);
+        $orders = new StandingOrders(self::$db);
+        $initialMoney = $this->balances()[0];
+        foreach (['metal', 'steel_alloy'] as $good) {
+            $sell = $orders->create(7, 11, 'sell', $good, 3, '0.17');
+            $buy = $orders->create(8, 12, 'buy', $good, 3, '0.31');
+            $route = $this->insertRoute(1, 3, 11, 12, $sell['id'], $buy['id'], $good);
+            process_single_route_transition(self::$db, ['id' => $route]);
+            self::assertSame(93, (int)trader_route_read(self::$db, $route, false)['buyer_escrow_cents']);
+            self::assertSame($initialMoney, $this->balances()[0]);
+            $this->due($route);
+            process_single_route_transition(self::$db, ['id' => $route]);
+            process_single_route_transition(self::$db, ['id' => $route]);
+            self::assertSame($initialMoney, $this->balances()[0]);
+            self::assertSame(0, (int)trader_route_read(self::$db, $route, false)['buyer_escrow_cents']);
+        }
+        $economy = new OnDemandEconomy(self::$db);
+        for ($i = 0; $i < 5; $i++) {
+            $economy->receive(11, ['metal' => 0.0001, 'steel_alloy' => 0.0001]);
+            $economy->spend(11, 7, ['metal' => 0.0001, 'steel_alloy' => 0.0001], static fn(): bool => true);
+            $economy->settle(11, 7);
+        }
+        foreach (['metal', 'steel_alloy'] as $good) {
+            $query = $good === 'metal' ? 'SELECT metal FROM colonies WHERE id=?'
+                : "SELECT quantity FROM economy_processed_goods WHERE colony_id=? AND good_type='steel_alloy'";
+            $statement = self::$db->prepare($query);
+            $statement->execute([11]);
+            self::assertSame('37.1234', $statement->fetchColumn());
+            $statement->execute([12]);
+            self::assertSame('13.9876', $statement->fetchColumn());
+        }
+        self::assertSame('101.0200', self::$db->query('SELECT credits FROM users WHERE id=7')->fetchColumn());
+        self::assertSame('98.1400', self::$db->query('SELECT credits FROM users WHERE id=8')->fetchColumn());
+        self::assertEquals(100.84, self::$db->query('SELECT capital_credits FROM npc_traders WHERE id=1')->fetchColumn());
+        self::assertSame($initialMoney, $this->balances()[0]);
+        self::assertSame(4, (int)self::$db->query('SELECT COUNT(*) FROM trader_transactions')->fetchColumn());
     }
 
     public function testOuterRepeatableReadSnapshotWaitCannotRespendProcessedStockOrStealOwnership(): void
@@ -798,12 +1017,14 @@ final class StandingOrdersMySqlTest extends TestCase
             $this->insertRoute($trader, $quantity, 11, 12, $sell['id'], $buy['id']), false);
     }
 
-    private function insertRoute(int $trader, int $quantity, int $source, int $target, int $sell, int $buy): int
+    private function insertRoute(
+        int $trader, int $quantity, int $source, int $target, int $sell, int $buy, string $good = 'steel_alloy'
+    ): int
     {
         self::$db->prepare(
             'INSERT INTO trader_routes (trader_id,source_colony_id,target_colony_id,resource_type,quantity_planned,'
-            . "source_order_id,target_order_id,funding_status) VALUES (?,?,?,'steel_alloy',?,?,?,'backed')"
-        )->execute([$trader, $source, $target, $quantity, $sell, $buy]);
+            . "source_order_id,target_order_id,funding_status) VALUES (?,?,?,?,?,?,?,'backed')"
+        )->execute([$trader, $source, $target, $good, $quantity, $sell, $buy]);
         $id = (int)self::$db->lastInsertId();
         self::$db->exec('UPDATE npc_traders SET active_fleets=active_fleets+1 WHERE id=' . $trader);
         return $id;
@@ -924,13 +1145,11 @@ final class StandingOrdersMySqlTest extends TestCase
             $connections[] = $this->go($worker);
         }
         // Ordinary arrival is excluded rather than blocked on a participant.
-        $blocked = [];
         foreach ($arguments as $index => $a) {
             if ($a['action'] !== 'arrival') {
-                $blocked[] = $connections[$index];
+                $this->waiting([$connections[$index]], ($a['outer'] ?? false) ? 'REPEATABLE READ' : 'READ COMMITTED');
             }
         }
-        $this->waiting($blocked);
         self::$db->commit();
         return array_map(fn(int $worker): array => $this->workerResult($worker), $workers);
     }

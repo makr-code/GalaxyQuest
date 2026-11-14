@@ -44,6 +44,8 @@ settle on reads retain their behavior; this slice does not turn them into jobs.
 - Extraction is limited **after all bonuses** by elapsed production, available
   storage and actual remaining deposits. Only credited quantities are depleted.
   Full storage does not waste deposits; above-cap imported stock is not truncated.
+  Settlement uses shared **gross** extraction rates, not the overview's already
+  storage-clamped next-hour projection. Only real numerical steps clamp output.
 - Unlimited legacy deposits retain `-1`. No staged body-resource source becomes
   authoritative in this slice.
 - Galaxy catalog refreshes initialize deposits only for new planets. They no
@@ -101,16 +103,44 @@ consumption on top of processed-goods rates.
 
 ## Boundaries still pending
 
-This is not yet the complete economy loop. Labour allocation, processing inputs,
-construction/research chronology, market stock unification, staged body-resource
-cutover and renewable-source recovery remain separate implementation slices.
+This is not yet the complete economy loop. Explicit labour allocation,
+historical research chronology, staged body-resource cutover and renewable-source
+recovery remain separate implementation slices.
 
 Numerical steps recompute current population, food and welfare, but modifiers are
-loaded once per demand-driven settlement. Historical building completions,
-research and event changes are not replayed; that requires the pending chronological
-action integration. Different sub-step access patterns may have small numerical
+loaded once per demand-driven settlement. Building completions split settlement
+at their persisted ETA; world-event windows intersect the historical step interval,
+even if already expired when the player returns. Historical research changes
+are not replayed. Different sub-step access patterns may have small numerical
 integration differences when population or welfare changes; there is no per-call
 growth rounding or loss of fractional food/extraction.
+
+## Bounded material and transport acceptance
+
+`settle(..., diagnostics: true)` optionally returns nonpersistent
+`material_flows`: gross raw quantities, capacity-blocked extraction, actual recipe
+outputs/inputs, production taxes, actual population use and unmet needs. These are
+collected inside real simulator steps, including construction split points; no
+recipe accountant, scheduled resource sweep or persistent diagnostic log exists.
+Overview `consumption` remains gross demand and must not be substituted for actual
+use during shortages.
+
+`EconomyAutonomyScenarioTest` balances each catalog good across seven days,
+including initial physical stores, sell escrow, real in-flight cargo, refunds,
+recipe conversion, starvation, blocked production and final holdings. The
+integrated positive fixture changes metallurgy to efficient and pays for a farm
+that produces only after its 648-second ETA. Four-day offline settlement retains
+a fully elapsed two-hour event's 34.649002 extra metal, rejects acceptance exactly
+at request expiry, persists the current global window without replay, and delivers
+late cargo once at the processed timestamp. Details and measured per-good totals:
+`TRADERS_INTEGRATION_GUIDE.md`.
+
+Instant exchanges are disabled. Funded orders require existing trader-owned
+transporters stationed at a source-system depot; cargo arrives after a real
+fleet flight and ships return on their own timer. No ship grants, depot
+provisioning, live activation, SMTP delivery or new periodic production occurs.
+New physical ship/escrow concurrency and DECIMAL rounding still require a fresh,
+explicitly isolated MySQL validation; SQLite acceptance is not that evidence.
 
 ## Focused verification
 

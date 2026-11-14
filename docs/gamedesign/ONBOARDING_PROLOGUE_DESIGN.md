@@ -44,7 +44,11 @@ Zwischenstand fuer **Begin a new campaign**:
    Zurueck, Pause und Ueberspringen bleiben bedienbar. Reise und Massstab sind
    filmisch, keine Simulation realer Kometengeschwindigkeiten.
 3. Nach der Tour werden die bestehenden privaten Herkunfts-Drafts vorbereitet.
-   Der Spieler waehlt seine Spezies und seinen Commander-Namen.
+   Der Spieler waehlt seine Spezies und seinen Commander-Namen. Ollama erstellt
+   auf Basis der gewaehlten Spezies-Lore einen editierbaren Namens- und
+   Hintergrundvorschlag. Die Eingaben bleiben manuell aenderbar und werden erst
+   nach dem ausdruecklichen Speichern Teil des privaten Drafts; wenn Ollama
+   nicht verfuegbar ist, kann der Spieler beide Felder selbst ausfuellen.
    Die Darstellung bleibt bis zum Abflug bei der gewaehlten Heimatwelt.
 4. Ein Shuttle startet von dieser Heimatwelt und kreuzt den Kometen mit
    sicherem Abstand. Die Kamera wechselt im Vorbeiflug vom Kometen auf das

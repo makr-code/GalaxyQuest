@@ -51,7 +51,7 @@ function handle_registration(string $action): void
     $service = new RegistrationDraftService($db, $species, starter_homeworld_config('Commander'));
     $body = $read ? [] : get_json_body();
     try {
-        if (!$read && $action !== 'register_portrait') {
+        if (!$read && !in_array($action, ['register_portrait', 'register_portrait_progress'], true)) {
             $playing = $db->prepare(
                 'SELECT p.draft_token FROM registration_play p
                  JOIN registration_drafts d ON d.token = p.draft_token
@@ -79,6 +79,22 @@ function handle_registration(string $action): void
                 json_ok();
             case 'register_profile':
                 json_ok(['draft' => $service->saveProfile($owner, $body)]);
+            case 'register_character_suggest':
+                if (!is_string($body['prolog_token'] ?? null)
+                    || !preg_match('/^[a-f0-9]{64}$/', $body['prolog_token'])) {
+                    json_error('Invalid registration draft identifier.');
+                }
+                $selectedDraft = $service->status($owner);
+                if (!$selectedDraft || !hash_equals($selectedDraft['prolog_token'], $body['prolog_token'])) {
+                    throw new RuntimeException('Registration draft expired or unavailable.', 410);
+                }
+                $speciesCode = (string) ($selectedDraft['species_code'] ?? '');
+                if (!isset($species[$speciesCode])) {
+                    throw new RuntimeException('Choose a playable species before requesting a character suggestion.', 409);
+                }
+                session_write_close();
+                require_once __DIR__ . '/../lib/RegistrationCharacterSuggestion.php';
+                json_ok(['suggestion' => RegistrationCharacterSuggestion::generate($species[$speciesCode])]);
             case 'register_character':
                 json_ok(['draft' => $service->saveCharacter($owner, $body)]);
             case 'register_portrait_status':
@@ -101,22 +117,25 @@ function handle_registration(string $action): void
                 echo $bytes;
                 exit;
             case 'register_portrait':
+            case 'register_portrait_progress':
                 if (
                     !is_string($body['prolog_token'] ?? null)
                     || !preg_match('/^[a-f0-9]{64}$/', $body['prolog_token'])
                 ) {
                     json_error('Invalid portrait draft identifier.');
                 }
-                // Generation may take minutes; do not lock Back, status checks or a changed draft behind the
-                // PHP session.
                 session_write_close();
                 require_once __DIR__ . '/registration_portrait_generator.php';
-                json_ok(['portrait' => (new RegistrationPortraitService($db))->generate(
-                    $owner,
-                    $body['prolog_token'],
-                    hash('sha256', 'portrait|' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown')),
-                    registration_render_portrait(...)
-                )]);
+                $portraits = new RegistrationPortraitService($db);
+                $portrait = $action === 'register_portrait'
+                    ? $portraits->generate(
+                        $owner,
+                        $body['prolog_token'],
+                        hash('sha256', 'portrait|' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown')),
+                        registration_queue_portrait(...)
+                    )
+                    : $portraits->progress($owner, $body['prolog_token'], registration_poll_portrait(...));
+                json_ok(['portrait' => $portrait]);
             case 'register_prepare':
                 if (!is_string($body['faction_id'] ?? null)) {
                     json_error('Choose a faction.');

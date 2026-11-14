@@ -167,4 +167,5 @@ return [
     'migrate_mail_templates_v1.sql',
     'migrate_economy_requests_v1.sql',
     'migrate_economy_request_purchase_v1.sql',
+    'migrate_trader_transport_return_v1.sql',
 ];

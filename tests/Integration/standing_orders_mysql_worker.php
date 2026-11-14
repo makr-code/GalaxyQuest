@@ -23,6 +23,7 @@ if ($arguments['outer'] ?? false) {
     $db->query('SELECT * FROM economy_processed_goods')->fetchAll();
     $db->query('SELECT * FROM colonies')->fetchAll();
     $db->query('SELECT * FROM colony_economy_state')->fetchAll();
+    $db->query('SELECT * FROM ships')->fetchAll();
 }
 fwrite(STDOUT, "READY\n");
 fflush(STDOUT);
@@ -40,6 +41,7 @@ try {
         'spend' => $economy->spend(11, 7, ['steel_alloy' => 80], static fn(): bool => true),
         'receive' => $economy->receive(12, ['steel_alloy' => 3]),
         'arrival' => ordinary_arrival($db, $arguments['id']),
+        'return' => trader_return_transports($db, $arguments['now']),
         'npc_decide' => (new NpcStandingOrders($db))->decide($arguments['uid'], $arguments['now'] ?? null),
         'request_accept' => (new EconomicRequests($db))->respond($arguments['uid'], $arguments['id'],
             'accept', $arguments['now'] ?? time()),

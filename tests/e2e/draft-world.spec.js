@@ -78,6 +78,9 @@ async function installDraftApi(page) {
     else if (action === 'register_mentor_drafts') result.drafts = candidates;
     else if (action === 'register_select_mentor') { selected = candidates.find((entry) => entry.mentor_code === body.mentor_code); result.draft = selected; }
     else if (action === 'register_profile') result.draft = selected;
+    else if (action === 'register_character_suggest') {
+      result.suggestion = { name: 'LoreCommander', background: 'A new commander inspired by the selected species lore.' };
+    }
     else if (action === 'register_character') { selected.character = { name: body.name, background: body.background }; result.draft = selected; }
     else if (action === 'register_portrait_status') result.portrait = { status: 'not_generated', image_url: null, attempts_remaining: 3, retry_after: 0 };
     else if (action === 'list') result.tracks = [];

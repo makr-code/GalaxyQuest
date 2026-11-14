@@ -14,6 +14,7 @@ use PHPUnit\Framework\TestCase;
 require_once __DIR__ . '/../Unit/TraderRouteLogisticsTest.php';
 require_once __DIR__ . '/../../src/Economy/EconomicRequests.php';
 require_once __DIR__ . '/../../lib/world_tick.php';
+require_once __DIR__ . '/../../api/npc_ai.php';
 
 final class EconomyAutonomyScenarioTest extends TestCase
 {
@@ -125,6 +126,16 @@ final class EconomyAutonomyScenarioTest extends TestCase
         $db->exec("UPDATE economy_processed_goods SET quantity=40 WHERE colony_id=2 AND good_type='electronics_components'; "
             . "UPDATE economy_processed_goods SET capacity=0.5 WHERE colony_id=2 AND good_type='consumer_goods'");
         (new StandingOrders($db))->create(2, 2, 'sell', 'metal', 100, '1.00', self::START);
+        (new StandingOrders($db))->create(1, 1, 'buy', 'metal', 100, '2.00', self::START);
+        self::assertTrue(execute_trader_strategy($db, ['id' => 1, 'specialization' => 'metal']));
+        process_route_transitions($db, self::START);
+        self::assertSame(100.0, (float)$db->query(
+            "SELECT quantity_acquired FROM trader_routes WHERE status='in_transit'"
+        )->fetchColumn());
+        (new StandingOrders($db))->create(2, 2, 'sell', 'metal', 50, '1.10', self::START);
+        self::assertSame(50, (int)$db->query(
+            "SELECT SUM(quantity_remaining) FROM economy_standing_orders WHERE side='sell' AND status='active'"
+        )->fetchColumn());
         $initial = $this->holdings($db);
         $money = $this->money($db);
         $flows = [];
@@ -407,6 +418,156 @@ final class EconomyAutonomyScenarioTest extends TestCase
         self::assertSame('already_decided', $policy->decide(1, $resume)['status']);
     }
 
+    public function testNpcChoosesAnEfficientChainAndPaysForFoodConstructionBeforeProductionChanges(): void
+    {
+        $db = $this->fixture();
+        $db->exec("UPDATE colonies SET metal=10000,crystal=10000,deuterium=10000,food=8 WHERE id=1; "
+            . "UPDATE buildings SET level=3 WHERE colony_id=1 AND type='metallurgy'; "
+            . "UPDATE buildings SET level=1 WHERE colony_id=1 AND type='consumer_factory'; "
+            . "INSERT INTO buildings (colony_id,type,level) VALUES (1,'hydroponic_farm',0); "
+            . "INSERT INTO research VALUES (1,'computer_tech',1); "
+            . "UPDATE economy_processed_goods SET quantity=0 WHERE colony_id=1 AND good_type='steel_alloy'; "
+            . "UPDATE economy_processed_goods SET quantity=100 WHERE colony_id=1 AND good_type='electronics_components'; "
+            . "UPDATE economy_npc_profiles SET window_budget_cents=10000000 WHERE user_id=1");
+        $economy = new OnDemandEconomy($db);
+        $policy = new NpcStandingOrders($db);
+        $before = $economy->inspect(1, 1, self::START);
+        $standard = $economy->productionForecast($before);
+        $decision = $policy->decide(1, self::START);
+        $method = $decision['production']['method'];
+        $build = $decision['production']['construction'];
+        self::assertSame('executed', $method['status'], json_encode($decision['production']));
+        self::assertSame('metallurgy', $method['building']);
+        self::assertSame('efficient', $method['target']);
+        self::assertSame('executed', $build['status'], json_encode($decision['production']));
+        self::assertSame('hydroponic_farm', $build['building']);
+        self::assertSame(1, $build['target_level']);
+        $reserved = [];
+        foreach ($decision['created'] as $order) {
+            if ($order['side'] === 'sell') {
+                $reserved[$order['good_type']] = $order['quantity_initial'];
+            }
+
+        }
+        $chosen = $economy->inspect(1, 1, self::START);
+        foreach ($build['cost'] as $good => $cost) {
+            self::assertEqualsWithDelta(
+                $before['economy']['stock'][$good] - $cost - ($reserved[$good] ?? 0),
+                $chosen['economy']['stock'][$good],
+                0.00001,
+                $good . ' real construction debit excludes sell escrow'
+            );
+        }
+        self::assertSame(0.0, $chosen['economy']['stock']['steel_alloy']);
+        self::assertGreaterThan($standard['stock']['steel_alloy'], $economy->productionForecast($chosen)['stock']['steel_alloy']);
+        self::assertLessThanOrEqual(10000000, $build['policy_cost_cents']
+            + array_sum(array_column($decision['created'], 'escrow_cents')));
+        $queue = $db->query('SELECT * FROM building_upgrade_queue')->fetch();
+        self::assertSame(1, (int)$queue['target_level']);
+        $eta = strtotime($queue['eta'] . ' UTC');
+        self::assertGreaterThan(self::START, $eta);
+        self::assertSame('already_decided', $policy->decide(1, self::START + 1)['status']);
+        npc_player_account_tick($db, 1, true, self::START);
+        self::assertSame(1, (int)$db->query('SELECT COUNT(*) FROM building_upgrade_queue')->fetchColumn());
+        $preEta = $economy->settle(1, 1, $eta - 1, true, true);
+        self::assertSame(0, (int)$db->query("SELECT level FROM buildings WHERE colony_id=1 AND type='hydroponic_farm'")->fetchColumn());
+        self::assertSame(0.0, $preEta['material_flows']['raw_output']['food']);
+        self::assertGreaterThan(0, $preEta['material_flows']['processed_output']['steel_alloy']);
+        self::assertEqualsWithDelta(
+            $preEta['material_flows']['processed_output']['steel_alloy'] * 2 * 0.85,
+            $preEta['material_flows']['processing_used']['metal'],
+            0.00001
+        );
+        $atEta = $economy->settle(1, 1, $eta, true, true);
+        self::assertSame(1, (int)$db->query("SELECT level FROM buildings WHERE colony_id=1 AND type='hydroponic_farm'")->fetchColumn());
+        self::assertSame(0.0, $atEta['material_flows']['raw_output']['food']);
+        $after = $economy->settle(1, 1, self::START + 3600, true, true);
+        self::assertGreaterThan(0, $after['material_flows']['raw_output']['food']);
+        self::assertGreaterThan(0, $economy->productionForecast(
+            $economy->inspect(1, 1, self::START + 3600)
+        )['production']['food']);
+        $next = $policy->decide(1, self::START + 3600);
+        self::assertNotSame('executed', $next['production']['method']['status']);
+        self::assertNotSame('executed', $next['production']['construction']['status'], json_encode($next['production']));
+        self::assertSame(1, (int)$db->query('SELECT COUNT(*) FROM building_upgrade_queue')->fetchColumn());
+        self::assertGreaterThanOrEqual(8, (float)$after['economy']['stock']['food']);
+        if (getenv('GQ_SCENARIO_STATS') === '1') {
+            fwrite(STDERR, 'GQ_PRODUCTION_STATS ' . json_encode([
+                'method' => $method, 'construction' => $build, 'eta_seconds' => $eta - self::START,
+                'before_eta' => $preEta['material_flows'], 'after_eta' => $after['material_flows'],
+            ], JSON_THROW_ON_ERROR) . PHP_EOL);
+        }
+    }
+
+    public function testAcceptedRequestReservesOnlyThenMovesCargoByOwnedShipsAndDeclineIsFree(): void
+    {
+        foreach (['accept', 'decline'] as $action) {
+            $db = $this->fixture();
+            (new NpcStandingOrders($db))->decide(1, self::START);
+            $requests = new EconomicRequests($db);
+            $offer = $requests->offer(1, self::START);
+            self::assertNotNull($offer);
+            $human = $this->human($db);
+            $money = $this->money($db);
+            $total = $this->holdings($db);
+            $result = $requests->respond(3, (int)$offer['id'], $action, self::START + 1);
+            self::assertSame($action === 'accept' ? 'accepted' : 'declined', $result['status']);
+            if ($action === 'decline') {
+                self::assertSame($human, $this->human($db));
+                self::assertSame($total, $this->holdings($db));
+                self::assertSame(0, (int)$db->query('SELECT COUNT(*) FROM economy_standing_orders WHERE user_id=3')->fetchColumn());
+                continue;
+            }
+            self::assertSame(0, (int)$db->query('SELECT COUNT(*) FROM fleets')->fetchColumn());
+            self::assertSame(0, (int)$db->query('SELECT COUNT(*) FROM trader_transactions')->fetchColumn());
+            $request = $db->query("SELECT * FROM economy_requests WHERE status='accepted'")->fetch();
+            $orders = new StandingOrders($db);
+            foreach ($db->query("SELECT id,user_id FROM economy_standing_orders WHERE status='active' AND paired_order_id IS NULL")->fetchAll() as $order) {
+                $orders->cancel((int)$order['user_id'], (int)$order['id'], self::START + 1);
+            }
+            self::assertTrue(execute_trader_strategy($db, ['id' => 1, 'specialization' => $request['good_type']]));
+            process_route_transitions($db, self::START + 1);
+            $route = $db->query('SELECT * FROM trader_routes')->fetch();
+            self::assertSame('in_transit', $route['status']);
+            $fleet = $db->query('SELECT * FROM fleets')->fetch();
+            $ships = json_decode($fleet['ships_json'], true, 512, JSON_THROW_ON_ERROR);
+            self::assertSame(['small_cargo' => 1], $ships);
+            self::assertSame(10, (int)$fleet['user_id']);
+            self::assertSame(3, (int)$db->query('SELECT count FROM ships WHERE colony_id='
+                . (int)$fleet['origin_colony_id'] . " AND type='small_cargo'")->fetchColumn());
+            self::assertGreaterThanOrEqual((float)$route['quantity_acquired'], ship_cargo('small_cargo'));
+            self::assertSame((float)$route['quantity_acquired'], (float)json_decode(
+                $fleet['cargo_payload'], true, 512, JSON_THROW_ON_ERROR
+            )[$route['resource_type']]);
+            $target = (int)$route['target_colony_id'];
+            $economy = new OnDemandEconomy($db);
+            $arrival = strtotime($route['arrival_at'] . ' UTC');
+            process_route_transitions($db, $arrival - 1);
+            self::assertSame('in_transit', $db->query('SELECT status FROM trader_routes')->fetchColumn());
+            $preDelivery = $economy->settle($target, null, $arrival, true);
+            $goodsBefore = $preDelivery['economy']['stock'][$route['resource_type']] ?? 0;
+            process_route_transitions($db, $arrival);
+            self::assertSame('completed', $db->query('SELECT status FROM trader_routes')->fetchColumn());
+            $delivered = $economy->settle($target, null, $arrival, true);
+            self::assertEqualsWithDelta($goodsBefore + $route['quantity_acquired'],
+                $delivered['economy']['stock'][$route['resource_type']], 0.00001);
+            self::assertSame('return', $db->query('SELECT mission FROM fleets')->fetchColumn());
+            self::assertSame('{}', $db->query('SELECT cargo_payload FROM fleets')->fetchColumn());
+            self::assertSame(2, (int)$db->query('SELECT COUNT(*) FROM trader_transactions')->fetchColumn());
+            process_route_transitions($db, $arrival);
+            self::assertSame(2, (int)$db->query('SELECT COUNT(*) FROM trader_transactions')->fetchColumn());
+            $return = strtotime($db->query('SELECT return_time FROM fleets')->fetchColumn() . ' UTC');
+            process_route_transitions($db, $return - 1);
+            self::assertSame(1, (int)$db->query('SELECT COUNT(*) FROM fleets')->fetchColumn());
+            process_route_transitions($db, $return);
+            process_route_transitions($db, $return);
+            self::assertSame(0, (int)$db->query('SELECT COUNT(*) FROM fleets')->fetchColumn());
+            self::assertSame(4, (int)$db->query('SELECT count FROM ships WHERE colony_id='
+                . (int)$fleet['origin_colony_id'] . " AND type='small_cargo'")->fetchColumn());
+            self::assertEqualsWithDelta($money, $this->money($db), 0.02);
+        }
+    }
+
     public function testOfflineCatchupAndInterruptedAcquisitionRetryDoNotReplayOrSpendStaleStock(): void
     {
         $db = $this->fixture();
@@ -445,29 +606,91 @@ final class EconomyAutonomyScenarioTest extends TestCase
             $db->query('SELECT status,quantity_acquired,price_paid,price_sold,buyer_escrow_cents FROM trader_routes')->fetch()
         );
         self::assertEqualsWithDelta($this->money($control), $this->money($db), 0.001);
+        $eventStart = self::START + 420;
+        $eventEnd = self::START + 7620;
+        $db->prepare(
+            'INSERT INTO world_events (window_id,event_type,scope_type,scope_id,galaxy_index,system_index,'
+            . 'good_key,modifier_json,starts_at,ends_at) VALUES (?,?,?,?,?,?,?,?,?,?)'
+        )->execute([HourlyWindow::id(self::START), 'windfall_discovery', 'system', 100002, 1, 2,
+            'metal', '{"production":1.5}', $eventStart, $eventEnd]);
         $human = $this->human($db);
         $resume = self::START + 4 * 86400;
+        $requestsAtStart = $db->query('SELECT * FROM economy_requests ORDER BY id')->fetchAll();
+        self::assertNotEmpty($requestsAtStart);
+        foreach ($requestsAtStart as $index => $request) {
+            self::assertGreaterThan(self::START, (int)$request['expires_at']);
+            self::assertLessThan($resume, (int)$request['expires_at']);
+            if ($index === 0) {
+                self::assertSame('expired', $requests->respond(
+                    3, (int)$request['id'], 'accept', (int)$request['expires_at']
+                )['status']);
+            }
+        }
+        self::assertSame($human, $this->human($db));
+        $controlEconomy = new OnDemandEconomy($control);
+        $baselineRaw = 0.0;
+        $eventExtra = 0.0;
+        for ($step = 0; $step < 288; $step++) {
+            $start = self::START + $step * 300;
+            $observed = $controlEconomy->settle(2, 2, $start + 300, true, true);
+            $raw = $observed['material_flows']['raw_output']['metal'];
+            $baselineRaw += $raw;
+            $overlap = max(0, min($start + 300, $eventEnd) - max($start, $eventStart));
+            $eventExtra += $raw * 0.5 * $overlap / 300;
+        }
+        $economy = new OnDemandEconomy($db);
+        $historical = $economy->settle(2, 2, $resume, true, true);
+        self::assertSame(self::START + 86400, $historical['economy']['settled_at']);
+        self::assertSame(3 * 86400, $historical['economy']['pending_seconds']);
+        self::assertGreaterThan(0, $eventExtra);
+        self::assertEqualsWithDelta($baselineRaw + $eventExtra,
+            $historical['material_flows']['raw_output']['metal'], 0.00001);
+        $afterEvent = $economy->settle(2, 2, $resume, true, true);
+        $controlAfterEvent = $controlEconomy->settle(2, 2, self::START + 2 * 86400, true, true);
+        self::assertEqualsWithDelta($controlAfterEvent['material_flows']['raw_output']['metal'],
+            $afterEvent['material_flows']['raw_output']['metal'], 0.00001);
+        $db->exec('CREATE TABLE app_state (state_key TEXT PRIMARY KEY,state_value TEXT,updated_at TEXT DEFAULT CURRENT_TIMESTAMP)');
+        $tick = world_events_tick_global($db, $resume, 6);
+        self::assertTrue($tick['processed']);
+        $notifications = [$db->query('SELECT COUNT(*) FROM messages')->fetchColumn(),
+            $db->query('SELECT COUNT(*) FROM mail_outbox')->fetchColumn()];
+        self::assertFalse(world_events_tick_global($db, $resume + 1, 6)['processed']);
+        self::assertSame(HourlyWindow::id($resume), (int)$db->query(
+            "SELECT state_value FROM app_state WHERE state_key='world_events:last_window'"
+        )->fetchColumn());
+        self::assertSame(0, (int)$db->query('SELECT COUNT(*) FROM world_events WHERE window_id>'
+            . HourlyWindow::id(self::START) . ' AND window_id<' . HourlyWindow::id($resume))->fetchColumn());
+        self::assertSame($notifications, [$db->query('SELECT COUNT(*) FROM messages')->fetchColumn(),
+            $db->query('SELECT COUNT(*) FROM mail_outbox')->fetchColumn()]);
         $beforeCount = (int)$db->query('SELECT COUNT(*) FROM economy_standing_orders')->fetchColumn();
         foreach ([1, 2] as $id) {
+            $cursor = (int)$db->query('SELECT settled_at FROM colony_economy_state WHERE colony_id=' . $id)->fetchColumn();
             $decision = $policy->decide($id, $resume);
             self::assertSame('deferred', $decision['status']);
             self::assertSame([], $decision['created']);
+            self::assertSame('stale_catchup', $decision['production']['method']['reason']);
+            self::assertSame('stale_catchup', $decision['production']['construction']['reason']);
+            self::assertSame($cursor + 86400, (int)$db->query(
+                'SELECT settled_at FROM colony_economy_state WHERE colony_id=' . $id
+            )->fetchColumn());
             self::assertSame('already_decided', $policy->decide($id, $resume + 1)['status']);
         }
         self::assertSame($beforeCount, (int)$db->query('SELECT COUNT(*) FROM economy_standing_orders')->fetchColumn());
-        $requests->tick($resume);
+        $expiry = $requests->tick($resume);
+        self::assertSame(count($requestsAtStart) - 1, $expiry['expired']);
+        self::assertSame(0, $requests->tick($resume)['expired']);
         self::assertGreaterThan(0, (int)$db->query("SELECT COUNT(*) FROM economy_requests WHERE status='expired'")->fetchColumn());
         process_route_transitions($db, $resume);
         self::assertSame('in_transit', $db->query('SELECT status FROM trader_routes')->fetchColumn());
         process_route_transitions($db, $resume);
         self::assertSame('in_transit', $db->query('SELECT status FROM trader_routes')->fetchColumn());
         $route = $db->query('SELECT * FROM trader_routes')->fetch();
-        $economy = new OnDemandEconomy($db);
         $target = (int)$route['target_colony_id'];
         $preDelivery = $economy->settle($target, $target, $resume, true);
         self::assertSame(0, $preDelivery['economy']['pending_seconds']);
         process_route_transitions($db, $resume);
         self::assertSame('completed', $db->query('SELECT status FROM trader_routes')->fetchColumn());
+        self::assertSame(gmdate('Y-m-d H:i:s', $resume), $db->query('SELECT delivered_at FROM trader_routes')->fetchColumn());
         $postDelivery = $economy->inspect($target, $target, $resume);
         self::assertEqualsWithDelta(
             $preDelivery['economy']['stock'][$route['resource_type']] + $route['quantity_acquired'],
@@ -483,5 +706,15 @@ final class EconomyAutonomyScenarioTest extends TestCase
         self::assertSame(HourlyWindow::id($resume), (int)$db->query(
             'SELECT last_window FROM economy_npc_profiles WHERE user_id=1'
         )->fetchColumn());
+        self::assertSame([], (new WorldEvents($db))->forScope(1, 2, $resume, $resume));
+        if (getenv('GQ_SCENARIO_STATS') === '1') {
+            fwrite(STDERR, 'GQ_OFFLINE_STATS ' . json_encode([
+                'gap_seconds' => 4 * 86400, 'event_start_offset' => 420, 'event_end_offset' => 7620,
+                'first_day_unmodified_metal' => $baselineRaw, 'historical_event_extra_metal' => $eventExtra,
+                'first_day_actual_metal' => $historical['material_flows']['raw_output']['metal'],
+                'late_delivery_quantity' => $route['quantity_acquired'],
+                'expired_requests' => count($requestsAtStart),
+            ], JSON_THROW_ON_ERROR) . PHP_EOL);
+        }
     }
 }

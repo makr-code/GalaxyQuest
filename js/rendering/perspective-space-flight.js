@@ -546,6 +546,12 @@ export class PerspectiveSpaceFlight {
   _updateSpaceEntities(dt) {
     for (const entity of this.spaceEntities.values()) {
       const moved = entity.update(dt);
+      if (entity.tradeClock) {
+        const x = entity.position.x - this.origin.x - this.camera.position.x;
+        const y = entity.position.y - this.origin.y - this.camera.position.y;
+        const z = entity.position.z - this.origin.z - this.camera.position.z;
+        entity.scale = Math.max(1e-12, Math.min(18, Math.hypot(x, y, z) * 0.002));
+      }
       if (moved && entity === this.cameraFollowEntity) {
         this._followVessel(entity, 1 - Math.exp(-dt * 2.8));
       }

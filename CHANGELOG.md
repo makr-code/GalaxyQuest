@@ -8,7 +8,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] — Sprint 1.2: Technische Schulden abbauen
 
-### Added — Deterministic economy acceptance regressions
+### Fixed — Isolated MySQL physical transport acceptance
+
+- Fresh MySQL 8.4.11 acceptance exposed a real schema mismatch: the historical
+  fleet mission ENUM rejected `return`, rolling back every delivery. Append-only
+  `migrate_trader_transport_return_v1.sql` adds that mission; its guarded down
+  refuses to discard ships still returning. Historical SQL remains unchanged.
+- The full isolated standing-order suite passes **21 tests / 1,372 assertions**
+  after applying and verifying the complete canonical manifest. Three new
+  regressions cover last-owned-carrier races, capacity-limited partial fills,
+  held acquired cargo waiting for a real ship return, repeated delivery/return
+  claims, same-source/trader owner locks with stale REPEATABLE READ snapshots,
+  participant-only outbound/empty-return projection and primary/processed
+  DECIMAL stock with exact cents escrow. One endowed ship remains one ship;
+  no carrier, cargo or payment is fabricated by retries.
+- Latest focused SQLite route/projection/ledger/scenario validation passes
+  **55 tests / 9,295 assertions**, with the existing PHPUnit deprecation
+  untouched. No live database, migration, binding, SMTP, scheduler, deployment,
+  user-container change, bundle-budget change or commit.
+
+### Added — Gross economy accounting and physical-transport acceptance
 
 - Seven-day in-memory scenario: two explicitly endowed NPC colonies, one
   human and an existing trader produce 147 standing orders and 87 completed
@@ -17,13 +36,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   bounded backlog, four-day catch-up, transaction retry, delayed delivery and
   funded construction completion are exercised without live services.
 - A paired human-funded order changes the next shipment from 208 to 1 metal.
-  The baseline executes no methods or construction; these remain separately
-  exercised. Stock accounting covers an actual step and full-storage
-  extraction, not comprehensive seven-day recipe conservation. No automatic
-  provisioning, live migration, SMTP delivery, scheduler or deployment.
-- Six SQLite scenario tests passed (4,292 assertions); an independent seven-day
-  MySQL 8.4 scenario passed (850 assertions) after applying and verifying the
-  manifest in a dedicated disposable server and schema.
+  A new seven-day branch balances every catalog good from actual simulator gross
+  quantities, initial physical stocks, 50 metal in sell escrow and 100 metal in
+  flight. Final holdings: 3,241.530075 metal, 1,325.747184 steel alloy,
+  38.315408 electronics components, 0.499625 consumer goods, 1,000 food.
+  Actual recipe inputs, outputs, population use, storage blocking and starvation
+  are exercised; no rate×duration proxy or interchangeable raw/manufactured mass.
+- Four-day offline settlement includes a fully elapsed two-hour metal event:
+  691.691659 first-day output includes 34.649002 additional historical metal.
+  Later steps exclude expired modifiers; one deadline-boundary acceptance is
+  rejected and another ignored offer expires through the persisted hourly path.
+  Current-window-only decisions, duplicate notifications, bounded catch-up and
+  exactly-once late delivery are verified together.
+- A positive NPC chain switches metallurgy to efficient (1.7 metal/output) and
+  queues a level-1 hydroponic farm for 300 metal, 150 crystal and 50 deuterium.
+  No output precedes its 648-second ETA; the remaining hour produces 10.66 food.
+  The next hour does not repeat the method/build. Food reserve, actual goods,
+  order escrow and finite construction/order budgets remain authoritative.
+- Instant ledger `exchange()` is disabled. Real funded transports require
+  existing trader-owned cargo ships at a source-system depot; capacity bounds
+  acquisition, departure debits ships, arrival delivers/pays once, and the empty
+  return fleet refunds ships only after its timer. No ships/depots are granted.
+  The shared raw-production context now uses gross rates before the real step's
+  storage clamp, rather than clamping an already constrained overview estimate.
+- Nine SQLite scenario tests pass (8,857 assertions); the combined focused
+  NPC/world/request/route/ledger run passes 132 tests / 10,348 assertions.
+  The pre-existing GalaxyNews PHPUnit metadata deprecation remains untouched.
+  Touched PHP syntax and runtime PHPStan pass.
+  The earlier isolated MySQL seven-day result (850 assertions) predates physical
+  transport; the subsequent isolated acceptance above validates real ship/escrow
+  locking and representable four-decimal stock writes, not a cross-database
+  equality proof for every simulator gross-flow rounding step.
+  No automatic faction-world provisioning,
+  live migration, SMTP delivery, scheduler activation, deployment or agent commit.
 
 ### Added — Bounded NPC economic production choices
 

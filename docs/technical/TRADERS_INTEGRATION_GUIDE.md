@@ -7,9 +7,9 @@
 Deploy the appended `migrate_standing_trade_orders_v1.sql` through the canonical
 migration runner before using this version. It creates **no** accounts, colonies,
 credits, goods or default orders. Human and NPC counterparties are disabled unless
-they explicitly submit backed orders. Existing instant `buy`/`sell` remains a
-separate external market-maker; supply/demand opportunities are advisory only,
-not permission to take colony stock.
+they explicitly submit backed orders. Instant `buy`/`sell` and the ledger's
+`exchange()` are disabled: quotations are not a market-maker or permission to
+take colony stock. Delivery always requires a real transport flight.
 Existing `trade.php` proposals are targeted bilateral barter for three raw
 resources, without credit escrow or standing catalog offers; they remain separate.
 
@@ -30,13 +30,19 @@ resources, without credit escrow or standing catalog offers; they remain separat
   or subsequent policy changes; filled portions are never refunded.
 - Traders pair active sell/buy orders in different systems of the same galaxy.
   Quantity is bounded by both residual quantities, buyer escrow, trader capital
-  and the explicit existing virtual-logistics cap (10,000 units per route;
-  no physical ships are provisioned). Seller ask and buyer bid are contractual
+  and existing trader-owned `small_cargo`/`large_cargo` capacity at an owned depot
+  in the source system, additionally capped at 10,000 units per route. Launch
+  deducts those ships and writes their real counts to `fleets.ships_json`.
+  No ships or depots are provisioned; no depot means no acquisition/payment.
+  Seller ask and buyer bid are contractual
   execution prices, not changing market quotes.
 - At acquisition NPC capital pays the seller account and reserved goods enter
   transit. Buyer quantity/escrow is removed from the order and earmarked as
   `trader_routes.buyer_escrow_cents`. Completion atomically delivers cargo and
-  moves that earmark to NPC capital. There are no new taxes or minted sale credits.
+  moves that earmark to NPC capital. Ships remain in an empty, timed return fleet
+  until the depot receives them exactly once; cargo arrival does not teleport
+  ships home. No automatic repositioning between source systems is implemented.
+  There are no new taxes or minted sale credits.
   Conservation is users + NPC capital + order escrow + route escrow; goods are
   stock + unallocated sell reservations + cargo (apart from ordinary settlement).
 - Every financial mutation uses the ledger transaction/savepoint. Routes lock
@@ -200,19 +206,67 @@ human sell changes the next shipment from 208 to 1 metal in paired runs.
 The four-day interruption case verifies capped catch-up, current-window-only
 decisions, a rolled-back acquisition retry and exactly-once delayed delivery;
 the destination is settled before the delivery, not credited retroactively.
-A separate funded fixture completes an NPC construction on demand. The
-seven-day case has no executed method or construction choices; their independent
-guards and execution remain covered by `NpcStandingOrdersTest`. The stock
-accounting case verifies one actual production/consumption step and full-storage
-extraction blocking, not a seven-day per-recipe material balance. These tests
-are not a profitability, shortage-free survival, live deployment, or automatic
-world-provisioning guarantee.
+A positive integrated fixture selects `metallurgy: efficient` and queues
+`hydroponic_farm` level 1 through the public NPC controller, paying 300 metal,
+150 crystal and 50 deuterium. It completes at 648 seconds; food output is zero
+before ETA and 10.66 in the rest of the first hour. Steel output uses exactly
+1.7 metal/output (efficient input discount); the next hour does not repeat either
+action. Food reserves, actual sell reservations, buy escrow and budget remain
+respected. An accepted invitation creates no instant delivery: tests follow
+owned ship debit, cargo departure, pre-arrival absence, one paid arrival and one
+timed ship return. Decline and deadline-boundary rejection are free.
 
-The six SQLite scenario cases passed with 4,292 assertions. A separate
-seven-day case in `StandingOrdersMySqlTest` passed with 850 assertions against
+The additional seven-day gross ledger starts with 100 metal already in a real
+flight, 50 in residual sell escrow, and finite input stock. For every catalog
+good it balances initial physical + reserved + transit quantities against actual
+raw output minus capacity-blocked extraction, recipe output minus actual recipe
+inputs, population use and production tax. Internal reservations/refunds,
+departures and deliveries preserve totals at every hour; manufactured/raw units
+are never added as interchangeable mass. `settle(..., diagnostics: true)` exposes
+nonpersistent `material_flows` from real steps; forecast demand rates are not
+used as actual consumption. SQLite measured totals (rounded to six decimals):
+
+| Good | Initial holdings | Raw output | Recipe output | Recipe input use | Population use | Final holdings |
+|---|---:|---:|---:|---:|---:|---:|
+| metal | 2000 | 3696.393628 | 0 | 2454.863552 | 0 | 3241.530075 |
+| steel_alloy | 100 | 0 | 1227.431776 | 1.684592 | 0 | 1325.747184 |
+| electronics_components | 40 | 0 | 0 | 1.684592 | 0 | 38.315408 |
+| consumer_goods | 0 | 0 | 1.684592 | 0 | 1.184967 | 0.499625 |
+| food | 1016 | 0 | 0 | 0 | 16 | 1000 |
+
+Other catalog goods stay zero. Unmet food is 222.866667; consumer factory
+capacity blocks 617.690698 potential units. This is blocked production, not
+destruction of existing stock or deposit waste. A separate full-storage case
+asserts gross extraction potential equals blocked extraction, with zero stock
+change. Both scenarios assert nonnegative stocks and 500,000 conserved credits.
+SQLite quantity assertions use 0.00001, not a claim about MySQL DECIMAL rounding.
+
+The four-day offline branch includes a metal event from offset 420 to 7620
+seconds: first-day production is 691.691659, including 34.649002 extra units
+over the observed unmodified steps. Expired events retain those past effects,
+but no later effect; two invitations expire inside the gap. The persisted global
+hour marker advances directly to the current window, with no missed-decision
+replay or duplicate notifications. Due cargo arrives only at the processed
+timestamp after catch-up, not retroactively.
+
+These tests are not a profitability, shortage-free survival, live deployment,
+automatically provisioned faction world, or automatic world-provisioning guarantee.
+
+The earlier six SQLite scenario cases passed with 4,292 assertions. The expanded
+scenario now passes nine cases / 8,857 assertions; the combined focused run
+passes 132 tests / 10,348 assertions. A separate,
+**historical pre-physical-transport** seven-day case in `StandingOrdersMySqlTest`
+passed with 850 assertions against
 a dedicated MySQL 8.4 server and a freshly created database after the canonical
 manifest was applied and verified; its fixture and quantities differ from the
-SQLite scenario. No live database or SMTP transport was used.
+SQLite scenario. Subsequent isolated physical-transport acceptance passes the
+complete `StandingOrdersMySqlTest` suite: **21 tests / 1,372 assertions** on
+MySQL 8.4.11 / PHP 8.2.35, with the complete canonical manifest applied and
+verified. Latest SQLite route/projection/ledger/scenario tests pass
+**55 tests / 9,295 assertions**. Four-decimal primary/processed stock transfers
+and cents escrow are certified below; this is not a claim that all SQLite
+gross-flow floating-point quantities equal MySQL DECIMAL rounding.
+No live database or SMTP transport was used.
 
 Production-choice verification: 89 targeted SQLite tests / 755 assertions across
 `NpcStandingOrdersTest`, `OnDemandEconomyTest`, `TraderRouteLogisticsTest` and
@@ -331,6 +385,35 @@ suites and live activation were intentionally not run.
 
 ### MySQL 8.4 concurrency certification
 
+**Latest physical-ship acceptance:** the full suite passes **21 tests / 1,372
+assertions** against a fresh disposable MySQL 8.4.11 instance with native PDO
+prepares. Three added cases demonstrate:
+
+- Two routes racing for the last existing small cargo ship cannot both depart.
+  A 6,001-unit order loads only its actual 5,000-unit capacity, retaining 1,001
+  units in sell escrow and 29,029 buyer cents. Ship inventory decreases by one
+  while the fleet contains that same ship; goods and total cents remain conserved.
+- Already-acquired cargo explicitly remains `acquiring`, with its 2,000 cents
+  held, when no carrier is available. Repeated ticks create no empty fleet or
+  instant delivery. After the timed empty return restores the one real ship,
+  a retry departs without buying/paying again. Same source/trader account and
+  outer REPEATABLE READ ship snapshots are exercised at real InnoDB lock barriers.
+- Repeated outbound completion, ordinary fleet claim and concurrent return
+  processing deliver, pay and refund ships exactly once. Order participants see
+  outbound and zero-cargo reversed return trajectories; nonparticipants,
+  including the NPC carrier account, see neither. Old empty-ship fleets are
+  excluded. Primary metal and processed steel retain their four-decimal stock
+  tails through real reservation, delivery and repeated receive/spend writes;
+  17-cent purchase / 31-cent sale prices conserve credits plus order/route escrow.
+
+The historical fleet mission ENUM did **not** include `return`: real MySQL
+delivery failed with error 1265 until the append-only
+`migrate_trader_transport_return_v1.sql` was applied. Its down migration rejects
+active return fleets rather than truncating their mission or losing ships.
+Apply it only through the normal operator-controlled deployment process.
+Acceptance applied it only to the isolated fixture; no historical SQL, live
+schema, binding, scheduler, SMTP or user container was changed.
+
 `tests/Integration/StandingOrdersMySqlTest.php` is an opt-in executable regression
 suite using the existing `GQ_RESOURCE_LEDGER_TEST_DSN`, `_USER`, `_PASSWORD`
 connection convention. Point these **only at a disposable MySQL server**: the
@@ -340,7 +423,8 @@ barriers confirmed by real InnoDB lock waits. Generated SQL fixtures stay under
 `tests/Integration` and are removed afterwards. It does not use the configured
 application/live connection.
 
-Verified on isolated MySQL **8.4.11**, native PDO prepares, PHP 8.2:
+Historical pre-physical-ship verification on isolated MySQL **8.4.11**,
+native PDO prepares, PHP 8.2:
 **7 focused integration regressions; 24 tests / 960 assertions** in the combined
 standing-order, canonical-migration/on-demand and existing funded-logistics run.
 

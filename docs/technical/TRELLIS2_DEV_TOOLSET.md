@@ -181,6 +181,29 @@ Im Texturpfad normalisiert `preprocess_mesh` die Bounds und dreht die
 Achsen vor der Voxelisierung; die spaetere Ruecktransformation und
 Orientierung des exportierten Shuttle-GLB sind weiterhin zu pruefen.
 
+Am 2026-11-14 wurde ausserdem `postprocess_mesh` in einem separaten
+Python-Prozess im laufenden ComfyUI-Container mit dem vorhandenen
+`sm_86`-Overlay und synthetischen PBR-Voxeln getestet. Der Prozess lud
+die nativen Overlay-Module, ohne die Installation oder den Dienst zu
+aendern. Fuer einen Quader mit Grid 16 und 64x64-Bake liefen CuMesh-
+UV-Unwrap, `nvdiffrast`-Rasterisierung und FlexGEMM-Sampling zusammen
+durch; Basisfarb- und Metallic/Roughness-Textur enthielten Nicht-Null-Werte.
+Der maximale von PyTorch reservierte GPU-Speicher lag bei etwa 0,252 GiB.
+Dies ist ein Test des Bake-Pfads, keine Modellinferenz und kein Nachweis
+fuer die Texturqualitaet oder den vollstaendigen Shuttle-Workflow. Der
+aktive ComfyUI-Prozess verwendet weiterhin seine bisherige Erweiterung;
+das Overlay aendert dessen CUDA-209-Fehler nicht.
+
+Die 512er und 1024er Texturgewichte lagen bei dieser Pruefung nicht im
+lokalen TRELLIS-Modellordner, aber im Hugging-Face-Cache des Containers.
+Der Loader kann bei fehlender lokaler Datei auf diesen Cache zurueckfallen.
+Ein separater Container benoetigt daher ausdruecklichen Zugriff auf die
+geprueften Gewichte; ein vorhandenes Modellverzeichnis allein belegt dies
+nicht. Das Image des laufenden ComfyUI-Containers war lokal nicht fuer
+einen weiteren Container verfuegbar. Ein vollstaendiger Lauf bleibt bis
+zu einer isolierten Umgebung und ausreichender, koordinierter GPU-Kapazitaet
+offen; die Submit-Sperre des Texturplans bleibt bestehen.
+
 Ein anschliessend erzeugtes Habitat-Testmodell aus einer schematischen
 Einzelgebaeude-Vorlage zeigte im Three.js-Preview Fenster und Dach, aber
 auch ein frei schwebendes dunkles Teil. Es ist kein freigegebenes Asset:

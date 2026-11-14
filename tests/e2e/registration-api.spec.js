@@ -26,6 +26,8 @@ test('real API persists a private political and character draft but refuses unve
     expect(draft.planets.every((planet) => planet.diameter_km > 0 && planet.semi_major_axis_au > 0)).toBe(true);
     expect(draft.stars.length).toBeGreaterThan(0);
     expect((await (await browserTwo.get(endpoint('register_status'))).json()).draft).toBeNull();
+    expect((await post(browserTwo, 'register_character_suggest', { prolog_token: draft.prolog_token }, csrfTwo.token)).status()).toBe(410);
+    expect((await post(browserOne, 'register_character_suggest', { prolog_token: draft.prolog_token })).status()).toBe(409);
     const character = { prolog_token: draft.prolog_token, name: 'ApiCommander', background: 'Frontier engineer' };
     expect((await post(browserTwo, 'register_character', character, csrfTwo.token)).status()).toBe(410);
     const profile = await post(browserOne, 'register_profile', { prolog_token: draft.prolog_token, species_code: 'syl_nar' });

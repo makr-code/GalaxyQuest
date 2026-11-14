@@ -190,6 +190,8 @@ final class TraderRouteLogisticsTest extends TestCase
             static fn(string $good): array => [$good, 3],
             array_keys(\GalaxyQuest\Economy\ColonyEconomySimulation::PRICES)
         );
+        $this->db->prepare("UPDATE ships SET count=? WHERE colony_id=1001 AND type='small_cargo'")
+            ->execute([count($cases)]);
         $routeIds = [];
         $fleetIds = [];
         $scheduledArrivals = [];
@@ -220,7 +222,7 @@ final class TraderRouteLogisticsTest extends TestCase
             self::assertSame($scheduledArrivals[array_search($routeId, $routeIds, true)], $route['arrival_at']);
             self::assertNotEmpty($route['delivered_at']);
             self::assertSame(1, $this->transactionCountByType($routeId, 'sold'));
-            self::assertSame(0, $this->fleetCountForRoute($routeId));
+            self::assertSame(1, $this->fleetCountForRoute($routeId));
         }
         $capitalAfterDelivery = $this->traderCapital();
         $profitAfterDelivery = $this->traderProfit();
@@ -234,6 +236,36 @@ final class TraderRouteLogisticsTest extends TestCase
         foreach ($cases as [$good, $quantity]) {
             self::assertEqualsWithDelta($before[$good] + $quantity, $this->colonyStock(2, $good), 0.001);
         }
+        $returnAt = strtotime($this->db->query('SELECT MAX(return_time) FROM fleets')->fetchColumn() . ' UTC');
+        process_route_transitions($this->db, $returnAt);
+        process_route_transitions($this->db, $returnAt);
+        self::assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM fleets')->fetchColumn());
+        self::assertSame(count($cases), (int)$this->db->query(
+            "SELECT count FROM ships WHERE colony_id=1001 AND type='small_cargo'"
+        )->fetchColumn());
+    }
+
+    public function testNoStationedTraderTransportCannotAcquireAndPhysicalCapacityBoundsCargo(): void
+    {
+        $this->db->exec('UPDATE ships SET count=0');
+        $routeId = $this->createRoute('food', 'planning', 25);
+        $money = $this->totalMoney();
+        process_route_transitions($this->db);
+        self::assertSame('failed', $this->route($routeId)['status']);
+        self::assertSame(0, $this->transactionCount($routeId));
+        self::assertEqualsWithDelta($money, $this->totalMoney(), 0.00001);
+        self::assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM fleets')->fetchColumn());
+        $this->db->exec("UPDATE ships SET count=1 WHERE colony_id=1001 AND type='small_cargo'; "
+            . 'UPDATE colonies SET food=20000 WHERE id=1');
+        $large = $this->createRoute('food', 'planning', 6000);
+        process_route_transitions($this->db);
+        self::assertSame((float)ship_cargo('small_cargo'), (float)$this->route($large)['quantity_acquired']);
+        $fleet = $this->fleet((int)$this->route($large)['fleet_id']);
+        self::assertSame('{"small_cargo":1}', $fleet['ships_json']);
+        self::assertSame(0, (int)$this->db->query(
+            "SELECT count FROM ships WHERE colony_id=1001 AND type='small_cargo'"
+        )->fetchColumn());
+        self::assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM ships WHERE count<0')->fetchColumn());
     }
 
     public function testProcessedGoodsAreAcquiredThroughTheLedgerAndRemainIntactInCargo(): void

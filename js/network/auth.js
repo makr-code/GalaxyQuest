@@ -2308,7 +2308,7 @@ import '../ui/prolog.js';
       const response = await fetchWithTimeout(`${endpoint}?action=${action}`, {
         method: body === undefined ? 'GET' : 'POST',
         credentials: 'same-origin',
-        timeoutMs: action === 'register_portrait' ? 270000 : 30000,
+        timeoutMs: action === 'register_character_suggest' ? 310000 : action === 'register_portrait_progress' ? 55000 : 30000,
         tag: action,
         headers: body === undefined ? {} : { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),

@@ -144,6 +144,7 @@ export function mountMarketWindow({ session, domain, wm, tradeTransports }) {
           const current = domain.getState();
           if (disposed || current.loading || current.mutating || current.stale || !session.getColony()) return;
           draft.good_type = entry.good_type;
+          standingDraft.good_type = entry.good_type;
           render();
           root.querySelector(`[data-market-good-index="${index}"]`)?.focus({ preventScroll: true });
         });
@@ -193,6 +194,7 @@ export function mountMarketWindow({ session, domain, wm, tradeTransports }) {
       }
       goods.addEventListener('change', () => {
         draft.good_type = goods.value;
+        if (state.data.prices.some((entry) => entry.good_type === goods.value)) standingDraft.good_type = goods.value;
         render();
         root.querySelector('[aria-label="Handelsgut"]')?.focus({ preventScroll: true });
       });
@@ -256,16 +258,24 @@ export function mountMarketWindow({ session, domain, wm, tradeTransports }) {
       content.append(requests);
       const deliveries = node('section');
       deliveries.className = 'game-market-deliveries';
-      deliveries.append(node('h3', 'Laufende Lieferungen'),
+      deliveries.append(node('h3', 'Laufende Lieferungen und Rückflüge'),
         node('p', 'Position auf direkter Verbindung ist eine illustrative Darstellung; Ankunft und Warenübergabe bestätigt ausschließlich der Server.'));
       const transit = tradeTransports?.getState();
       const relevant = (transit?.transports || []).filter((item) =>
         Number(item.source_colony_id) === Number(colony?.id) || Number(item.target_colony_id) === Number(colony?.id));
       for (const item of relevant) {
-        const due = Date.now() + transit.offset >= Number(item.arrival_unix) * 1000;
-        deliveries.append(node('p', `Transport #${item.route_id} · ${item.quantity} ${item.good_type.replaceAll('_', ' ')} · Abflug ${new Date(item.departure_unix * 1000).toLocaleString('de-DE')} · geplante Ankunft ${new Date(item.arrival_unix * 1000).toLocaleString('de-DE')} · ${due ? 'Wartet auf Serverbestätigung' : 'Unterwegs'}`));
+        const now = Date.now() + transit.offset;
+        const due = now >= Number(item.arrival_unix) * 1000;
+        const waiting = now < Number(item.departure_unix) * 1000;
+        const cargo = item.phase === 'return' ? 'Rückflug · leer' : `${item.quantity} ${item.good_type.replaceAll('_', ' ')}`;
+        const row = node('p', `Transport #${item.route_id} · ${cargo} · Abflug ${new Date(item.departure_unix * 1000).toLocaleString('de-DE')} · geplante Ankunft ${new Date(item.arrival_unix * 1000).toLocaleString('de-DE')} · `);
+        const status = node('span', due ? 'Wartet auf Serverbestätigung' : waiting ? 'Abflug ausstehend' : 'Unterwegs');
+        status.dataset.departureAt = String(item.departure_unix);
+        status.dataset.arrivalAt = String(item.arrival_unix);
+        row.append(status);
+        deliveries.append(row);
       }
-      if (!relevant.length) deliveries.append(node('p', 'Keine laufenden Lieferungen für diese Kolonie.'));
+      if (!relevant.length) deliveries.append(node('p', 'Keine laufenden Lieferungen oder Rückflüge für diese Kolonie.'));
       content.append(deliveries);
       const standing = node('section');
       standing.className = 'game-market-standing-orders';
@@ -456,6 +466,7 @@ export function mountMarketWindow({ session, domain, wm, tradeTransports }) {
       if (!goodType.trim()) throw new Error('Ein Handelsgut muss ausgewählt werden.');
       session.selectColony(colonyId);
       draft = { good_type: goodType, quantity: '' };
+      standingDraft.good_type = goodType;
       searchQuery = '';
       validationError = '';
       wm.open('trade');
@@ -487,6 +498,13 @@ export function mountMarketWindow({ session, domain, wm, tradeTransports }) {
   // Disable elapsed invitations without replacing the ticket or stealing focus.
   const deadlineTimer = window.setInterval(() => {
     const state = domain.getState();
+    const transit = tradeTransports?.getState();
+    wm.body('trade')?.querySelectorAll('[data-arrival-at]').forEach((status) => {
+      if (!transit) return;
+      const now = Date.now() + transit.offset;
+      status.textContent = now >= Number(status.dataset.arrivalAt) * 1000 ? 'Wartet auf Serverbestätigung'
+        : now < Number(status.dataset.departureAt) * 1000 ? 'Abflug ausstehend' : 'Unterwegs';
+    });
     wm.body('trade')?.querySelectorAll('[data-economy-request-action]').forEach(button => {
       if (state.requestNow >= Number(button.dataset.expiresAt)) {
         button.disabled = true;

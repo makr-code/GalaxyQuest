@@ -203,16 +203,22 @@ final class OnDemandEconomyTest extends TestCase
         self::assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM colony_economy_state')->fetchColumn());
     }
 
-    public function testFoodBoughtAtMarketGoesIntoActualFoodLedger(): void
+    public function testInstantExchangeRejectsBothDirectionsWithoutMutatingAnyLedger(): void
     {
         $before = (float)$this->db->query('SELECT credits FROM users WHERE id=1')->fetchColumn();
-        $result = $this->economy->exchange(1, 1, 'food', 10, true);
-        self::assertEqualsWithDelta(510, (float)$this->db->query('SELECT food FROM colonies WHERE id=1')->fetchColumn(), 0.01);
-        self::assertEqualsWithDelta(
-            $before - $result['total_credits'],
-            (float)$this->db->query('SELECT credits FROM users WHERE id=1')->fetchColumn(),
-            0.01
-        );
+        foreach ([true, false] as $buy) {
+            try {
+                $this->economy->exchange(1, 1, 'food', 10, $buy);
+                self::fail('A market quotation must not create an instantaneous exchange.');
+            } catch (DomainException $error) {
+                self::assertSame(409, $error->getCode());
+                self::assertStringContainsString('physical transport', $error->getMessage());
+            }
+        }
+        self::assertSame(500.0, (float)$this->db->query('SELECT food FROM colonies WHERE id=1')->fetchColumn());
+        self::assertSame($before, (float)$this->db->query('SELECT credits FROM users WHERE id=1')->fetchColumn());
+        self::assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM colony_economy_state')->fetchColumn());
+        self::assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM economy_market_transactions')->fetchColumn());
         self::assertSame(0, (int)$this->db->query(
             "SELECT COUNT(*) FROM economy_processed_goods WHERE good_type='food'"
         )->fetchColumn());
@@ -416,8 +422,7 @@ final class OnDemandEconomyTest extends TestCase
             }
         }
         $this->economy->configure(1, 'tax_trade', 0.01);
-        $this->economy->exchange(1, 1, 'food', 1, true);
-        self::assertSame(0.01, (float)$this->db->query('SELECT trade_tax_rate FROM economy_market_transactions')->fetchColumn());
+        self::assertSame(0.01, $this->economy->policy(1)['taxes']['trade']);
     }
 
     public function testDeliveryPreservesOverflowAndDoesNotCreditTreasuryTwice(): void

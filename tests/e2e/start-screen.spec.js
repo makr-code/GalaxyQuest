@@ -22,7 +22,10 @@ const mentorDrafts = ['aereth', 'vor_tak', 'syl_nar', 'vel_ar', 'kryl_tha', 'zha
   };
 });
 
-async function mockApi(page, { authenticated = false, expireOnResume = false, twoFactor = false, loginSucceeds = false } = {}) {
+async function mockApi(page, {
+  authenticated = false, expireOnResume = false, twoFactor = false, loginSucceeds = false,
+  catalogOutOfOrder = false,
+} = {}) {
   let sessionChecks = 0;
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
@@ -85,6 +88,7 @@ async function mockApi(page, { authenticated = false, expireOnResume = false, tw
           },
         })),
       };
+      if (catalogOutOfOrder) data.species.reverse();
     } else if (action === 'register_status') {
       data = { success: true, draft: null };
     } else if (action === 'register_mentor_drafts') {
@@ -96,6 +100,8 @@ async function mockApi(page, { authenticated = false, expireOnResume = false, tw
       data = { success: true, draft: registrationDraft };
     } else if (action === 'register_profile') {
       data = { success: true, draft: { ...registrationDraft, ...route.request().postDataJSON() } };
+    } else if (action === 'register_character_suggest') {
+      data = { success: true, suggestion: { name: 'LoreCommander', background: 'A new commander inspired by the selected species lore.' } };
     } else if (action === 'register_character') {
       data = { success: true, draft: { ...registrationDraft, character: route.request().postDataJSON() } };
     } else if (action === 'register_portrait_status') {
@@ -177,7 +183,7 @@ for (const entry of ['/', '/index.html?logout=1']) {
 }
 
 test('homeworld chapters offer manual Back and Next before identity selection', async ({ page }) => {
-  await mockApi(page);
+  await mockApi(page, { catalogOutOfOrder: true });
   await page.goto('/');
   await expect.poll(() => page.evaluate(() => Boolean(window.GQAuthGalaxyBackgroundControl))).toBe(true);
   await page.evaluate(() => { window.GQAuthGalaxyBackgroundControl.playRegistrationShot = () => false; });
@@ -205,6 +211,22 @@ test('homeworld chapters offer manual Back and Next before identity selection', 
   await expect(page.locator('#registration-choices button').first()).toBeEnabled();
   await expect(page.locator('#registration-choices button')).toHaveCount(6);
   await expect(page.locator('#registration-continue')).toBeHidden();
+});
+
+test('character step pre-fills editable name and biography from the species lore', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await reachMentorRoom(page);
+  await page.locator('[data-choice="vor_tak"]').click();
+  await page.locator('#registration-continue').click();
+  await expect(page.locator('#registration-character')).toBeVisible();
+  await expect(page.locator('#registration-name')).toHaveValue('LoreCommander');
+  await expect(page.locator('#registration-background')).toHaveValue(
+    'A new commander inspired by the selected species lore.',
+  );
+  await expect(page.locator('#registration-character-suggest')).toBeEnabled();
+  await expect(page.locator('#registration-name')).toBeEnabled();
+  await expect(page.locator('#registration-background')).toBeEnabled();
 });
 
 test('new campaign opens a pausable cinematic before the arrival on desktop and mobile', async ({ page }) => {

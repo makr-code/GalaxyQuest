@@ -30,6 +30,8 @@ const catalog = {
   factions: content.factions.map((entry) => ({ ...entry, homeworld: 'Capital', target, stars: [target] })),
   species, npc_homeworlds: npcHomeworlds,
 };
+const scriptedTour = cometNarration.stops.map((stop) =>
+  [...species, ...npcHomeworlds].find((entry) => entry.code === stop.code));
 const mentorDrafts = species.map((entry, index) => {
   const mentorTarget = { ...target, system_index: index + 10, position: index + 1, x_ly: target.x_ly + index * 10 };
   return {
@@ -125,6 +127,9 @@ describe('Cinematic draft registration', () => {
         return { draft: { ...mentorDrafts.find((candidate) => candidate.mentor_code === input.mentor_code), selected: true } };
       }
       if (action === 'register_profile') return { draft: { ...draft, species_code: input.species_code } };
+      if (action === 'register_character_suggest') return {
+        suggestion: { name: 'DrakThuun', background: 'Auf Drak’Thuun lernte diese Person, Stärke mit Verantwortung zu verbinden.' },
+      };
       if (action === 'register_character') return { draft: { ...draft, species_code: 'vor_tak', character: input } };
       if (action === 'register_portrait_status') return { portrait: { status: 'not_generated', error: '', attempts_remaining: 3, retry_after: 0, image_url: null } };
       return { draft };
@@ -235,9 +240,7 @@ describe('Cinematic draft registration', () => {
     await vi.advanceTimersByTimeAsync(0);
     await vi.waitFor(() => expect(el('title').textContent).toBe(species[0].homeworld));
     expect(request).toHaveBeenCalledExactlyOnceWith('register_catalog');
-    const destinations = cometNarration.stops.map((stop) =>
-      [...species, ...npcHomeworlds].find((entry) => entry.code === stop.code));
-    for (const destination of destinations) {
+    for (const destination of scriptedTour) {
       await vi.waitFor(() => expect(el('title').textContent).toBe(destination.homeworld));
       expect(preview).toHaveBeenLastCalledWith(expect.objectContaining({ draft: destination.homeworld_scene }));
       await finishTimedTransit(destination.code);
@@ -322,14 +325,36 @@ describe('Cinematic draft registration', () => {
     expect(el('continue').hidden).toBe(false);
   });
 
-  it('reports an incompatible homeworld catalog instead of breaking the scripted story order', async () => {
+  it('reports an incompatible homeworld catalog and reloads it on retry', async () => {
     const invalid = { ...catalog, species: [...species.slice(0, 5), { ...species[0] }] };
-    request.mockImplementation(async (action) => action === 'register_catalog' ? invalid : { drafts: mentorDrafts });
+    request.mockImplementationOnce(async () => invalid);
     prologue.open({ opening: true, campaign: true });
     el('opening-skip').click();
     await vi.waitFor(() => expect(el('error').textContent).toContain('Drehbuch und die Heimatwelt-Reihenfolge'));
     expect(el('retry').hidden).toBe(false);
     expect(camera.play.mock.calls.some(([shot]) => shot.kind === 'comet-world')).toBe(false);
+    el('retry').click();
+    await vi.waitFor(() => expect(el('title').textContent).toBe(species[0].homeworld));
+    expect(request.mock.calls.filter(([action]) => action === 'register_catalog')).toHaveLength(2);
+  });
+
+  it('ignores a catalog response from a closed tour after reopening', async () => {
+    window.GQTTS = { isAutoVoiceEnabled: () => false };
+    const stale = { ...catalog, species: species.map((entry) => entry.code === 'vor_tak'
+      ? { ...entry, code: 'unlisted' } : entry) };
+    let resolveStale;
+    request.mockImplementationOnce(() => new Promise((resolve) => { resolveStale = resolve; }));
+    prologue.open({ opening: true, campaign: true });
+    el('opening-skip').click();
+    prologue.close();
+    prologue.open({ opening: true, campaign: true });
+    el('opening-skip').click();
+    await vi.waitFor(() => expect(el('title').textContent).toBe(species[0].homeworld));
+    resolveStale(stale);
+    await Promise.resolve();
+    el('opening-skip').click();
+    await vi.waitFor(() => expect(el('choices').querySelectorAll('button')).toHaveLength(6));
+    expect(el('choices').querySelector('[data-choice="vor_tak"]')).not.toBeNull();
   });
 
   it('reports an unavailable NPC destination instead of inventing a scene', async () => {
@@ -342,7 +367,7 @@ describe('Cinematic draft registration', () => {
     prologue.open({ opening: true, campaign: true });
     el('opening-skip').click();
     await vi.advanceTimersByTimeAsync(0);
-    for (const entry of species) {
+    for (const entry of scriptedTour.slice(0, species.length)) {
       await vi.waitFor(() => expect(el('title').textContent).toBe(entry.homeworld));
       await finishTimedTransit(entry.code);
       el('continue').click();
@@ -1005,6 +1030,45 @@ describe('Cinematic draft registration', () => {
     expect(request).toHaveBeenCalledWith('register_character', { prolog_token: draft.prolog_token, name: 'Commander', background: 'Grenzforscher' });
     expect(request.mock.calls.some(([action]) => /complete|^register$/.test(action))).toBe(false);
     expect(document.querySelector('input[type="email"],input[type="password"]')).toBeNull();
+  });
+
+  it('prefills an editable lore-based commander suggestion when the character step opens', async () => {
+    await reachCharacter();
+    await vi.waitFor(() => expect(el('name').value).toBe('DrakThuun'));
+    expect(el('background').value).toContain('Drak’Thuun');
+    expect(request).toHaveBeenCalledWith('register_character_suggest', { prolog_token: draft.prolog_token });
+    expect(el('character-suggest').disabled).toBe(false);
+    expect(el('continue').hidden).toBe(true);
+  });
+
+  it('preserves a name entered while the lore suggestion is still generating', async () => {
+    const original = request.getMockImplementation();
+    let resolveSuggestion;
+    request.mockImplementation((action, input) => action === 'register_character_suggest'
+      ? new Promise((resolve) => { resolveSuggestion = resolve; })
+      : original(action, input));
+    await reachCharacter();
+    await vi.waitFor(() => expect(resolveSuggestion).toBeTypeOf('function'));
+    el('name').value = 'MyCommander';
+    resolveSuggestion({ suggestion: {
+      name: 'DrakThuun', background: 'A new commander shaped by the Vor’Tak spirit of discipline.',
+    } });
+    await vi.waitFor(() => expect(el('background').value).toContain('Vor’Tak'));
+    expect(el('name').value).toBe('MyCommander');
+  });
+
+  it('keeps character fields manually editable when Ollama cannot generate a suggestion', async () => {
+    const original = request.getMockImplementation();
+    request.mockImplementation((action, input) => action === 'register_character_suggest'
+      ? Promise.reject(new Error('Ollama is unavailable.'))
+      : original(action, input));
+    await reachCharacter();
+    await vi.waitFor(() => expect(el('status').textContent).toContain('manuell eingegeben'));
+    expect(el('name').value).toBe('');
+    expect(el('background').value).toBe('');
+    expect(el('character-suggest').disabled).toBe(false);
+    expect(el('name').disabled).toBe(false);
+    expect(el('background').disabled).toBe(false);
   });
 
   it('shows progress and a review before entering the playable draft instead of returning to the menu', async () => {

@@ -2915,9 +2915,14 @@ final class MigrationRunnerMySqlTest extends TestCase
         $this->assertSame(1, $queue['target_level']);
         $this->assertGreaterThan(0, $queue['cost']['metal']);
         $before = (float)$this->db->query('SELECT food FROM colonies WHERE id=42')->fetchColumn();
-        $economy->exchange(42, 42, 'food', 10, true);
+        try {
+            $economy->exchange(42, 42, 'food', 10, true);
+            $this->fail('Instant exchange must remain disabled even with a migrated ledger.');
+        } catch (DomainException $error) {
+            $this->assertSame(409, $error->getCode());
+        }
         $this->assertEqualsWithDelta(
-            $before + 10,
+            $before,
             (float)$this->db->query('SELECT food FROM colonies WHERE id=42')->fetchColumn(),
             0.1
         );
@@ -2928,15 +2933,15 @@ final class MigrationRunnerMySqlTest extends TestCase
         $this->db->beginTransaction();
         $this->db->query('SELECT id FROM users WHERE id=42 FOR UPDATE')->fetch();
         try {
-            (new OnDemandEconomy($other))->exchange(42, 42, 'food', 1, true);
-            $this->fail('A concurrent order must not bypass the account lock.');
+            (new OnDemandEconomy($other))->settle(42, 42, time(), true);
+            $this->fail('Concurrent settlement must not bypass the account lock.');
         } catch (PDOException $error) {
             $this->assertSame(1205, (int)$error->errorInfo[1]);
             $this->assertFalse($other->inTransaction());
         } finally {
             $this->db->rollBack();
         }
-        (new OnDemandEconomy($other))->exchange(42, 42, 'food', 1, true);
+        (new OnDemandEconomy($other))->settle(42, 42, time(), true);
         $this->assertFalse($other->inTransaction());
         $this->db->exec('DELETE FROM colonies WHERE id=42');
         $this->assertSame(0, (int)$this->db->query('SELECT COUNT(*) FROM colony_economy_state')->fetchColumn());

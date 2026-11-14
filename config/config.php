@@ -76,6 +76,16 @@ define('OLLAMA_LOCAL_ONLY', (int) env_value('OLLAMA_LOCAL_ONLY', 1));
 define('OLLAMA_BASE_URL', rtrim((string) env_value('OLLAMA_BASE_URL', 'http://127.0.0.1:11434'), '/'));
 define('OLLAMA_DEFAULT_MODEL', (string) env_value('OLLAMA_DEFAULT_MODEL', 'mistral'));
 define('OLLAMA_TIMEOUT_SECONDS', (int) env_value('OLLAMA_TIMEOUT_SECONDS', 45));
+define(
+    'REGISTRATION_CHARACTER_SUGGESTION_TIMEOUT_SECONDS',
+    (int) env_value('REGISTRATION_CHARACTER_SUGGESTION_TIMEOUT_SECONDS', max(120, (int) OLLAMA_TIMEOUT_SECONDS))
+);
+
+// Local ComfyUI portrait generation for registration drafts.
+define('COMFYUI_PORTRAIT_ENABLED', (int) env_value('COMFYUI_PORTRAIT_ENABLED', APP_ENV === 'dev' ? 1 : 0));
+define('COMFYUI_LOCAL_ONLY', (int) env_value('COMFYUI_LOCAL_ONLY', 1));
+define('COMFYUI_BASE_URL', rtrim((string) env_value('COMFYUI_BASE_URL', 'http://127.0.0.1:8188'), '/'));
+define('COMFYUI_PORTRAIT_MODEL', (string) env_value('COMFYUI_PORTRAIT_MODEL', 'v1-5-pruned-emaonly.safetensors'));
 
 // Galaxy News Radio: LLM-written daily news lines published to WordPress (see scripts/generate_galaxy_news.php)
 define('GALAXY_NEWS_MODEL', (string) env_value('GALAXY_NEWS_MODEL', OLLAMA_DEFAULT_MODEL));

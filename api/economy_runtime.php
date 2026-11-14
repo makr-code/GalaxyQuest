@@ -247,6 +247,7 @@ if (!function_exists('build_colony_consumption_snapshot')) {
             'metal' => $metalProduction, 'crystal' => $crystalProduction,
             'deuterium' => $deuteriumProduction, 'rare_earth' => $rareEarthProduction,
         ];
+        $grossProduction = $rates + ['food' => $foodProduction];
         $extraction = [];
         foreach ($rates as $resource => $rate) {
             $extraction[$resource] = colony_extraction(
@@ -275,6 +276,7 @@ if (!function_exists('build_colony_consumption_snapshot')) {
                 'energy' => (float)($row['energy'] ?? 0.0),
             ],
             'storage' => $storage,
+            'gross_production' => $grossProduction,
             'extraction' => $extraction,
             'food_balance' => $foodBalance,
             'production' => [

@@ -289,7 +289,10 @@ nicht ein bereits vorhandenes detailliertes Bauwerksmodell.
 
 ## 10. Herkunft und Commander-Name
 
-Keine feste Laufzeit. Der Komet schweigt nach jeder kurzen Karte; keine
+**Umgesetzt:** Tourabschluss, Herkunftswahl und Commander-Eingabe. Die übrigen
+Zeilen dieser Tabelle sind redaktionelle Entwürfe und werden nicht gesprochen.
+
+Keine feste Laufzeit. Nach der kurzen Einführung schweigt der Komet; keine
 Endlosschleife und kein Drängen während einer Entscheidung. Pflichtinformationen
 bleiben als kompakte UI-Texte erhalten, auch wenn Untertitel ausgeblendet werden.
 
@@ -312,6 +315,9 @@ alle Welten seien besucht worden. Nur angebotene Auswahlmöglichkeiten benennen.
 
 ## 11. Rückflug und Shuttle-Rendezvous
 
+**Umgesetzt:** die Karte beim Beginn des Shuttleflugs. Die Rückflug- und
+Ankunftskarten sind redaktionelle Entwürfe und werden nicht gesprochen.
+
 Eine nötige Rückreise dauert weiterhin regulär 45 Sekunden. Keine Wiederholung
 der kompletten Spezies-Vorstellung. Nach den Karten Raum für Musik und Flug.
 
@@ -329,10 +335,13 @@ Ein Shuttle-Start darf nur kommentiert werden, wenn er tatsächlich sichtbar ist
 
 ## 12. Shuttleflug zur privaten Randwelt
 
+**Entwurf:** Die folgenden drei Shuttleflug-Cues sind noch nicht eingebunden.
+
 Der aktuelle Reise-Shot dauert 22 Sekunden; die genaue Aufteilung zwischen
-Rendezvous und Flug kommt aus der Choreografie. Nach dem Kamerawechsel nur
-Karten verwenden, für die noch mindestens sechs Sekunden bleiben. Bei zu
-wenig Zeit gehen die übrigen Karten in die ruhende Zielansicht über.
+Rendezvous und Flug kommt aus der Choreografie. Für die spätere Umsetzung gilt:
+Nach dem Kamerawechsel nur Karten verwenden, für die noch mindestens sechs
+Sekunden bleiben. Bei zu wenig Zeit gehen die übrigen Karten in die ruhende
+Zielansicht über.
 
 | Cue nach Kamerawechsel | Untertitel | Grundlage |
 |---|---|---|
@@ -346,6 +355,9 @@ aktive Fraktionsboni. Kein Versprechen, ein anderes System werde sofort generier
 
 ## 13. Ziel prüfen, ausdrücklich bestätigen, landen
 
+**Umgesetzt:** die Karten bei Zielorbit und ausdrücklicher Bestätigung. Die
+übrigen Tabellenzeilen sind redaktionelle Entwürfe und werden nicht gesprochen.
+
 | Auslöser | Untertitel |
 |---|---|
 | Zielorbit tatsächlich erreicht | Da liegt eure neue Heimat. Nehmt euch Zeit und bestätigt die Landung erst, wenn ihr bereit seid. |
@@ -356,7 +368,7 @@ aktive Fraktionsboni. Kein Versprechen, ein anderes System werde sofort generier
 
 Auch nach dieser Landung bleibt es ein privater Draft. Dauerhaftes Konto und
 aktive Kolonie erfordern den bestehenden verifizierten Registrierungsabschluss.
-Der letzte Untertitel wird erst nach erfolgreicher Übergabe angezeigt.
+Der entworfene letzte Untertitel darf erst nach erfolgreicher Übergabe erscheinen.
 Tutorialziele selbst kommen aus dem vorhandenen Tutorial, nicht aus diesem Skript.
 
 ### Fehlende Szenen und echte Fehler

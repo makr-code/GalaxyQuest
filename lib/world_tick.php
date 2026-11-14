@@ -21,7 +21,16 @@ function world_events_tick_global(PDO $db, ?int $now = null, ?int $maxActive = n
     $now ??= time();
     $window = HourlyWindow::id($now);
     $stateKey = 'world_events:last_window';
-    if (app_state_get_int($db, $stateKey, -1) >= $window) {
+    $sqlite = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite';
+    if ($sqlite) {
+        $marker = $db->prepare('SELECT state_value FROM app_state WHERE state_key=?');
+        $marker->execute([$stateKey]);
+        $lastWindow = $marker->fetchColumn();
+        $lastWindow = $lastWindow === false ? -1 : (int)$lastWindow;
+    } else {
+        $lastWindow = app_state_get_int($db, $stateKey, -1);
+    }
+    if ($lastWindow >= $window) {
         return ['processed' => false, 'reason' => 'window_already_generated', 'window_id' => $window];
     }
     $ownsTransaction = !$db->inTransaction();
@@ -31,7 +40,13 @@ function world_events_tick_global(PDO $db, ?int $now = null, ?int $maxActive = n
     try {
         $events = (new WorldEvents($db))->generate($now, $maxActive ?? max(0, (int)WORLD_EVENTS_MAX_ACTIVE));
         $digests = world_events_enqueue_digests($db, $window, $events, $now);
-        app_state_set_int($db, $stateKey, $window);
+        if ($sqlite) {
+            $db->prepare('INSERT INTO app_state (state_key,state_value) VALUES (?,?) '
+                . 'ON CONFLICT(state_key) DO UPDATE SET state_value=excluded.state_value,updated_at=CURRENT_TIMESTAMP')
+                ->execute([$stateKey, $window]);
+        } else {
+            app_state_set_int($db, $stateKey, $window);
+        }
         if ($ownsTransaction) {
             $db->commit();
         }

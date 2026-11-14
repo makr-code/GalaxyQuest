@@ -1,4 +1,5 @@
-const id = (value) => Number.isSafeInteger(Number(value)) && Number(value) > 0;
+const id = (value) => (typeof value === 'number' || (typeof value === 'string' && /^[1-9]\d*$/.test(value)))
+  && Number.isSafeInteger(Number(value)) && Number(value) > 0;
 const point = (value) => Array.isArray(value) && value.length === 3
   && value.every((part) => typeof part === 'number' && Number.isFinite(part));
 
@@ -19,8 +20,12 @@ export function createTradeTransports({ api, session }) {
         || data.transports.some((t) => !id(t.route_id) || !id(t.fleet_id) || !id(t.source_colony_id)
           || !id(t.target_colony_id) || !id(t.departure_unix) || !id(t.arrival_unix)
           || Number(t.arrival_unix) <= Number(t.departure_unix) || !point(t.origin) || !point(t.target)
-          || typeof t.good_type !== 'string' || !t.good_type || !Number.isFinite(t.quantity) || t.quantity <= 0)
-        || new Set(data.transports.map((t) => String(t.fleet_id))).size !== data.transports.length) {
+          || !['outbound', 'return'].includes(t.phase)
+          || (t.phase === 'outbound'
+            ? typeof t.good_type !== 'string' || !t.good_type || !Number.isFinite(t.quantity) || t.quantity <= 0
+            : t.good_type !== null || t.quantity !== 0))
+        || new Set(data.transports.map((t) => Number(t.fleet_id))).size !== data.transports.length
+        || new Set(data.transports.map((t) => Number(t.route_id))).size !== data.transports.length) {
         throw new Error('Ungültige Transportdaten vom Server.');
       }
       state = { transports: data.transports, offset: Number(data.now_unix) * 1000 - Date.now() };
@@ -46,8 +51,8 @@ export function createTradeTransports({ api, session }) {
 export function transportVessel(route, offset) {
   return {
     id: `trade-transport:${route.fleet_id}`, space_entity: 'vessel',
-    model_url: 'procedural:transport', display_name: `Transportschiff ${route.route_id}`,
-    route: [route.origin, route.target], visual_scale_ly: 18,
+    model_url: 'procedural:transport', display_name: `Transportschiff ${route.route_id}${route.phase === 'return' ? ' · Rückflug' : ''}`,
+    route: [route.origin, route.target], visual_scale_ly: 1e-12,
     trade_clock: { departure: Number(route.departure_unix) * 1000,
       arrival: Number(route.arrival_unix) * 1000, offset },
   };

@@ -37,6 +37,9 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
   let draft = null;
   let selectedSpecies = '';
   let selectedMentorDraft = null;
+  let characterSuggestion = null;
+  let characterSuggestionSpecies = '';
+  let characterSuggestionRequest = null;
   let selectedTutorialPlanet = null;
   let mentorDrafts = [];
   let tutorialIndex = 0;
@@ -750,33 +753,38 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     const version = revision;
     busy = true;
     try {
-      catalog = catalog || await request('register_catalog');
+      const data = catalog || await request('register_catalog');
       if (!active || version !== revision) return;
-      if (catalog.species?.length !== 6) throw new Error('Die sechs Heimatwelten sind nicht vollständig verfügbar.');
-      if (!Array.isArray(catalog.npc_homeworlds) || catalog.npc_homeworlds.length !== content.npc_tour.length
-        || catalog.npc_homeworlds.some((entry, index) => entry.code !== content.npc_tour[index].code)) {
+      if (data.species?.length !== 6) throw new Error('Die sechs Heimatwelten sind nicht vollständig verfügbar.');
+      if (!Array.isArray(data.npc_homeworlds) || data.npc_homeworlds.length !== content.npc_tour.length
+        || data.npc_homeworlds.some((entry, index) => entry.code !== content.npc_tour[index].code)) {
         throw new Error('Die NPC-Reiseziele sind im Katalog nicht vollständig verfügbar.');
       }
-      const speciesByCode = new Map(catalog.species.map((species) => [species.code, species]));
+      const speciesByCode = new Map(data.species.map((species) => [species.code, species]));
       const scriptedCodes = cometNarration.stops.map((stop) => stop.code);
-      const playableCodes = scriptedCodes.slice(0, catalog.species.length);
-      if (speciesByCode.size !== catalog.species.length
-        || scriptedCodes.length !== catalog.species.length + catalog.npc_homeworlds.length
+      const playableCodes = scriptedCodes.slice(0, data.species.length);
+      if (speciesByCode.size !== data.species.length
+        || scriptedCodes.length !== data.species.length + data.npc_homeworlds.length
         || new Set(scriptedCodes).size !== scriptedCodes.length
         || playableCodes.some((code) => !speciesByCode.has(code))
-        || scriptedCodes.slice(catalog.species.length).some((code, index) => code !== catalog.npc_homeworlds[index].code)) {
+        || scriptedCodes.slice(data.species.length).some((code, index) => code !== data.npc_homeworlds[index].code)) {
         throw new Error('Das Drehbuch und die Heimatwelt-Reihenfolge stimmen nicht überein.');
       }
       homeworldStops = [
         ...playableCodes.map((code, index) => ({ ...speciesByCode.get(code), transit: content.homeworld_transit[index], npc: false })),
-        ...catalog.npc_homeworlds.map((npc, index) => ({ ...npc,
+        ...data.npc_homeworlds.map((npc, index) => ({ ...npc,
           transit: { title: content.npc_tour[index].transit_title, text: content.npc_tour[index].transit_text },
           npc: true })),
       ];
+      catalog = data;
       busy = false;
       showHomeworld(0);
     } catch (error) {
-      if (active && version === revision) { fail(error); element('retry').hidden = false; }
+      if (active && version === revision) {
+        catalog = null;
+        fail(error);
+        element('retry').hidden = false;
+      }
     } finally {
       if (active && version === revision) busy = false;
     }
@@ -1160,8 +1168,11 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     element('character').hidden = false;
     element('character-form').inert = false;
     element('character-form').querySelector('button').disabled = false;
-    element('name').value = draft.character?.name || '';
-    element('background').value = draft.character?.background || '';
+    const savedCharacter = draft.character;
+    const suggestion = characterSuggestionSpecies === selectedSpecies ? characterSuggestion : null;
+    element('name').value = savedCharacter?.name || suggestion?.name || '';
+    element('background').value = savedCharacter?.background || suggestion?.background || '';
+    element('character-suggest').disabled = characterSuggestionRequest?.revision === revision;
     element('draft-summary').hidden = false;
     element('draft-summary').textContent = `${draft.colony_name} [${draft.position.galaxy}:${draft.position.system}:${draft.position.position}] · Privat reserviert bis ${new Date(draft.expires_at).toLocaleString()}.`;
     if (cinematicCampaign && !preserveCamera) previewHomeworld(catalog.species.find((item) => item.code === selectedSpecies));
@@ -1172,7 +1183,65 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
     const narration = content.registration_steps?.find((clip) => clip.id === 'character-dossier');
     if (cinematicCampaign) void narrate(cometMoment('commander-name'), () => {});
     else if (narration) void narrate(narration, () => {});
+    if (!savedCharacter && !suggestion) queueMicrotask(() => { void suggestCharacter(); });
     void refreshPortrait();
+  }
+
+  async function suggestCharacter(force = false) {
+    if (!active || phase !== 'character' || !draft?.prolog_token) return;
+    if (characterSuggestionRequest?.revision === revision) return;
+
+    const version = revision;
+    const initialName = element('name').value;
+    const initialBackground = element('background').value;
+    if (!force && initialName.trim() && initialBackground.trim()) return;
+
+    const requestState = { revision: version };
+    characterSuggestionRequest = requestState;
+    const button = element('character-suggest');
+    button.disabled = true;
+    element('status').classList.remove('is-error');
+    element('status').classList.add('is-loading');
+    element('status').textContent = 'Die Lore erstellt einen Commander-Vorschlag...';
+
+    try {
+      const data = await request('register_character_suggest', { prolog_token: draft.prolog_token });
+      if (!active || version !== revision || phase !== 'character') return;
+      const suggestion = data?.suggestion;
+      if (typeof suggestion?.name !== 'string' || typeof suggestion?.background !== 'string'
+        || !suggestion.name.trim() || !suggestion.background.trim()) {
+        throw new Error('Der Lore-Vorschlag ist unvollständig.');
+      }
+
+      if (element('name').value === initialName && (force || !initialName.trim())) {
+        element('name').value = suggestion.name;
+      }
+      if (element('background').value === initialBackground && (force || !initialBackground.trim())) {
+        element('background').value = suggestion.background;
+      }
+      next.hidden = true;
+      characterSuggestion = {
+        name: element('name').value,
+        background: element('background').value,
+      };
+      characterSuggestionSpecies = selectedSpecies;
+      element('status').classList.remove('is-error');
+      element('status').textContent = 'Lore-Vorschlag eingefügt. Name und Hintergrund kannst du frei bearbeiten.';
+    } catch (error) {
+      if (active && version === revision && phase === 'character') {
+        element('status').classList.add('is-error');
+        element('status').textContent = 'Lore-Vorschlag nicht verfügbar. Name und Hintergrund können manuell eingegeben werden.';
+        window.GQLog?.warn?.('[registration-character-suggestion]', String(error?.message || error));
+      }
+    } finally {
+      if (characterSuggestionRequest === requestState) {
+        characterSuggestionRequest = null;
+        if (active && version === revision && phase === 'character') {
+          button.disabled = false;
+          element('status').classList.remove('is-loading');
+        }
+      }
+    }
   }
 
   async function saveCharacter(event) {
@@ -1324,9 +1393,17 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
   element('back').addEventListener('click', back);
   element('opening-pause').addEventListener('click', () => setOpeningPaused(!openingPaused));
   element('opening-skip').addEventListener('click', finishOpening);
+  element('character-suggest').addEventListener('click', () => { void suggestCharacter(true); });
   element('retry').addEventListener('click', () => { if (phase === 'homeworlds') void loadHomeworlds(); else void loadMentorDrafts(); });
   element('character-form').addEventListener('submit', saveCharacter);
-  element('character-form').addEventListener('input', () => { resetPortrait(); next.hidden = true; });
+  element('character-form').addEventListener('input', () => {
+    resetPortrait();
+    next.hidden = true;
+    if (!draft?.character && phase === 'character') {
+      characterSuggestion = { name: element('name').value, background: element('background').value };
+      characterSuggestionSpecies = selectedSpecies;
+    }
+  });
   element('portrait-generate').addEventListener('click', generatePortrait);
   element('portrait-refresh').addEventListener('click', () => { void refreshPortrait(); });
   element('portrait-image').addEventListener('load', () => {
@@ -1370,6 +1447,9 @@ export function initializeRegistrationPrologue({ request, onPreview = () => {}, 
       cinematicCampaign = campaign;
       catalog = null;
       homeworldStops = [];
+      characterSuggestion = null;
+      characterSuggestionSpecies = '';
+      characterSuggestionRequest = null;
       mentorDrafts = [];
       selectedMentorDraft = null;
       selectedTutorialPlanet = null;
